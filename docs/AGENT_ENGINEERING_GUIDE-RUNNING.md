@@ -3083,16 +3083,29 @@ Persistence invariants (all machine-checked — do not weaken):
     **The agent surfaces are "Flux AI"** (owner, 2026-11-18: "the centerpiece of how we integrate Flux and AI
     Agents"): their shared header reads `[mark] Flux AI │ Inbox │ context` (`.surface-head .brand`, then `.ttl`;
     a header without a `.brand` keeps `.ttl` as its title). The mark is `FluxAiMark` (`shell/agent/fluxAiMark.ts`
-    describes it once, for the component AND for Ask's hand-built bootstrap): the same 13-dot seed, ALWAYS
-    turning (owner: "always spinning"), its colour the state (`data-tone`: ready = the bloom's colours, live =
-    blue and a faster turn, wait = gold, done = green, error = red). This does not break "nothing animates at
-    rest": that rule is about main-thread loops, and the turn is a `transform` animation on the SVG's OWN box
-    with `will-change: transform`, which the compositor runs alone. Measured in Electron with the Inbox idle for
-    3 s: 0 paints, 0 main frames, about 5 style ticks totalling 1 ms. NEVER move the animation onto a child of
-    the SVG (a `<g>` cannot be composited: it repaints every frame, which is what AgentMark's working state
-    does, and why that one runs only while busy). `verify-inbox-gui` pins the animation to `transform` on the
-    root, forbids animations inside it, and forbids any other infinite animation in the Inbox (the claimed
-    chip used to breathe forever; live is now a filled dot in a ring).
+    describes it once, for the component AND for Ask's hand-built bootstrap), ALWAYS moving (owner: "always
+    spinning"), its colour the state (`data-tone`: ready = the bloom's colours, live = blues and quicker, wait =
+    gold, done = green, error = red). This does not break "nothing animates at rest": that rule is about
+    main-thread loops. Round 1 was a 13-dot SVG seed turned by a `transform` on the SVG's own box.
+    **Round 2 (same day; owner: "sparser, looked more like a neural network (some connections, etc.), and felt
+    more 'alive' in terms of changing colors that influence each other … still circular and dynamic … with
+    spontaneous activity") it is a living network, and the technique is the point.** Eleven points of the
+    bloom's golden-angle spiral, joined along the spiral's own grain (every five-step link, plus the three-step
+    links of the inner four: in a golden-angle spiral those ARE a point's nearest neighbours; a greedy
+    "shortest pairs" graph gave a ragged tree that had lost the circle). The network is NOT drawn: its shape is
+    a `mask` on one HTML box (`.fam-net`, the mask an SVG data URI built from the same node list), and what
+    shows through are coloured layers: a resting conic sweep, two soft discs on orbits of 5.3 s and 7.9 s
+    (colour passing across neighbouring nodes), and two bursts that grow from a node and fade on 4.3 s and
+    6.7 s (a node firing, the front spreading along its connections). Every moving part animates only
+    `transform` or `opacity` on an HTML element. Measured in Electron with the Inbox idle for 3 s: 0 main
+    frames, 2 paints of 0 ms, 11 style ticks totalling 2 ms; with the mark stopped: zero of each. NEVER
+    animate a property the compositor cannot run (`fill`, `background`, `filter`) and never animate an SVG
+    child (it cannot be composited: it repaints on the main thread every frame, for as long as an agent
+    surface is open, and a continuous main-thread frame loop is what costs the editor its input latency).
+    To change a colour over time, move a coloured layer under a mask. `.still` (a button's icon) stops
+    everything. `verify-inbox-gui` pins: 11 nodes and 10 edges in the mask, no SVG inside, exactly five
+    animations, each transform or opacity on an HTML element, no two sharing a period, and nothing else in
+    the Inbox animating forever (the claimed chip used to breathe; live is now a filled dot in a ring).
     **The Inbox's thread (round 2, same day; owner: "images could render more cleanly, context could be more
     elegantly displayed").** One `.column` (680 px measure) holds the note, the picture (`figure.shot`: a mat, the
     image capped at the snapshot's own CSS width `context.snapshot.rect.w` so it is never enlarged, a caption),

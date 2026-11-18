@@ -226,7 +226,7 @@
   {#if req.avoid}<div class="ask-anchor" aria-hidden="true" style={`left:${req.avoid.x - 3}px;top:${req.avoid.y - 2}px;width:${req.avoid.w + 6}px;height:${req.avoid.h + 4}px`}></div>{/if}
   <div class="ask-panel agent-surface" class:nudge data-ask-surface role="dialog" aria-modal="true" aria-label="Ask about this" tabindex="-1" use:place use:modalFocus>
     <header class="surface-head">
-      <FluxAiMark size={16} tone={error ? "error" : busy ? "live" : answered ? "done" : "ready"} />
+      <FluxAiMark size={20} tone={error ? "error" : busy ? "live" : answered ? "done" : "ready"} />
       <span class="brand">Flux AI</span>
       <span class="vsep"></span>
       <span class="ttl">Ask</span>

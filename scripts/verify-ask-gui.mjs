@@ -14,7 +14,7 @@ async function open(coldText = '') {
     // The header the bootstrap drew, read in the same task: the lazy surface must draw the same one.
     const head = document.querySelector('.ask-bootstrap .surface-head'), mark = head?.querySelector('.flux-ai-mark');
     window.__askBootHead = head && { words: [...head.querySelectorAll('.brand, .ttl, .ctx')].map(e => `${e.classList[0]}:${e.textContent}`), order: [...head.children].slice(0, 6).map(e => e.classList[0]),
-      mark: mark && { first: head.firstElementChild === mark, dots: mark.querySelectorAll('circle').length, size: mark.getAttribute('width'), box: mark.getAttribute('viewBox'), turn: getComputedStyle(mark).animationName, geometry: [...mark.querySelectorAll('circle')].map(c => `${c.getAttribute('cx')},${c.getAttribute('cy')},${c.getAttribute('r')},${c.getAttribute('fill')}`).join(' ') } };
+      mark: mark && { first: head.firstElementChild === mark, tag: mark.tagName, size: mark.style.getPropertyValue('--fam-size'), mask: mark.style.getPropertyValue('--fam-mask').length, turn: getComputedStyle(mark.querySelector('.fam-net')).animationName, geometry: [...mark.querySelectorAll('.fam-net > i')].map(layer => `${layer.className}@${layer.style.left},${layer.style.top}`).join(' ') } };
     if (coldText) { document.activeElement.value = coldText; document.activeElement.dispatchEvent(new Event('input', { bubbles: true })); }
     return performance.now() - start;
   }, coldText);
@@ -26,10 +26,10 @@ async function open(coldText = '') {
     const heads = await page.evaluate(() => {
       const head = document.querySelector('.ask-panel .surface-head'), mark = head.querySelector('.flux-ai-mark');
       return { boot: window.__askBootHead, lazy: { words: [...head.querySelectorAll('.brand, .ttl, .ctx')].map(e => `${e.classList[0]}:${e.textContent}`), order: [...head.children].slice(0, 6).map(e => e.classList[0]),
-        mark: { first: head.firstElementChild === mark, dots: mark.querySelectorAll('circle').length, size: mark.getAttribute('width'), box: mark.getAttribute('viewBox'), turn: getComputedStyle(mark).animationName, geometry: [...mark.querySelectorAll('circle')].map(c => `${c.getAttribute('cx')},${c.getAttribute('cy')},${c.getAttribute('r')},${c.getAttribute('fill')}`).join(' ') } } };
+        mark: { first: head.firstElementChild === mark, tag: mark.tagName, size: mark.style.getPropertyValue('--fam-size'), mask: mark.style.getPropertyValue('--fam-mask').length, turn: getComputedStyle(mark.querySelector('.fam-net')).animationName, geometry: [...mark.querySelectorAll('.fam-net > i')].map(layer => `${layer.className}@${layer.style.left},${layer.style.top}`).join(' ') } } };
     });
     h.ok(!!heads.boot && heads.boot.words[0] === 'brand:Flux AI' && heads.boot.words[1] === 'ttl:Ask' && /^ctx:\w+ /.test(heads.boot.words[2]), `the bootstrap header reads Flux AI, Ask, then where (${heads.boot?.words.join(' | ')})`);
-    h.ok(heads.boot.mark.first && heads.boot.mark.dots === 13 && heads.boot.mark.turn === 'flux-ai-turn', 'the Flux AI mark leads it, already turning');
+    h.ok(heads.boot.mark.first && heads.boot.mark.size === '20px' && heads.boot.mark.mask > 400 && heads.boot.mark.turn === 'flux-ai-turn' && heads.boot.mark.geometry.split(' ').length >= 5, 'the Flux AI mark leads it, already alive', JSON.stringify(heads.boot.mark));
     h.eq(heads.lazy, heads.boot, 'the surface that adopts the bootstrap draws the same header: same words, same order, same mark');
   }
 }

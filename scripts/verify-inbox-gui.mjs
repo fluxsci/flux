@@ -133,15 +133,23 @@ try {
   // --- 2026-11-18 refinement: the Flux AI header, the turning mark, and state without motion ---
   const head = await page.evaluate(() => {
     const header = document.querySelector('.inbox-panel header'), mark = header.querySelector('.flux-ai-mark'), style = getComputedStyle(mark);
-    const turning = mark.getAnimations().map(a => ({ name: a.animationName, props: [...new Set(a.effect.getKeyframes().flatMap(k => Object.keys(k).filter(key => !['offset', 'easing', 'composite', 'computedOffset'].includes(key))))], forever: a.effect.getComputedTiming().iterations === Infinity }));
-    return { words: [header.querySelector('.brand')?.textContent, header.querySelector('.ttl')?.textContent], first: header.firstElementChild === mark, tone: mark.dataset.tone, dots: mark.querySelectorAll('circle').length,
-      turning, childAnimations: [...mark.querySelectorAll('*')].flatMap(e => e.getAnimations()).length, willChange: style.willChange,
-      others: [...document.querySelectorAll('.inbox-panel *')].filter(e => e !== mark).flatMap(e => e.getAnimations()).filter(a => a.effect?.getComputedTiming().iterations === Infinity).map(a => a.animationName ?? 'transition') };
+    // The mark is a living network (round 2, 2026-11-18): its SHAPE is a mask, and everything that moves inside it
+    // animates only transform or opacity on an HTML element, which the compositor runs without the main thread.
+    const moving = [mark, ...mark.querySelectorAll('*')].flatMap(e => e.getAnimations().map(a => ({ on: e.className.split(' ').filter(c => c !== 'flux-ai-mark').join('.') || 'mark', html: e instanceof HTMLElement, name: a.animationName,
+      props: [...new Set(a.effect.getKeyframes().flatMap(k => Object.keys(k).filter(key => !['offset', 'easing', 'composite', 'computedOffset'].includes(key))))].sort().join('+'), forever: a.effect.getComputedTiming().iterations === Infinity, period: Math.round(a.effect.getComputedTiming().duration) })));
+    const net = mark.querySelector('.fam-net'), mask = getComputedStyle(net).maskImage || getComputedStyle(net).webkitMaskImage;
+    return { words: [header.querySelector('.brand')?.textContent, header.querySelector('.ttl')?.textContent], first: header.firstElementChild === mark, tone: mark.dataset.tone,
+      nodes: (decodeURIComponent(mask).match(/<circle/g) ?? []).length, edges: (decodeURIComponent(mask).match(/<path/g) ?? []).length, svgInside: mark.querySelectorAll('svg, circle').length, size: Math.round(mark.getBoundingClientRect().width),
+      moving, display: style.display,
+      others: [...document.querySelectorAll('.inbox-panel *')].filter(e => !mark.contains(e)).flatMap(e => e.getAnimations()).filter(a => a.effect?.getComputedTiming().iterations === Infinity).map(a => a.animationName ?? 'transition') };
   });
   h.eq(head.words, ['Flux AI', 'Inbox'], 'the header reads Flux AI, then Inbox');
-  h.ok(head.first && head.dots === 13, 'the Flux AI mark leads the header', JSON.stringify(head));
-  h.eq({ turning: head.turning, inside: head.childAnimations, willChange: head.willChange }, { turning: [{ name: 'flux-ai-turn', props: ['transform'], forever: true }], inside: 0, willChange: 'transform' },
-    'the mark always turns, as a transform on its own box (compositor-only), with nothing animating inside it');
+  h.ok(head.first && head.size === 20, 'the Flux AI mark leads the header', JSON.stringify({ first: head.first, size: head.size }));
+  h.ok(head.nodes === 11 && head.edges === 10 && head.svgInside === 0, 'it is a sparse network (11 nodes, 10 connections) drawn as a mask, with no SVG to repaint', JSON.stringify({ nodes: head.nodes, edges: head.edges, svg: head.svgInside }));
+  h.eq(head.moving.map(m => `${m.on}:${m.name}:${m.props}`), ['fam-net:flux-ai-turn:transform', 'fam-flow.f1:fam-orbit-a:transform', 'fam-flow.f2:fam-orbit-b:transform', 'fam-spark.s1:fam-fire:opacity+transform', 'fam-spark.s2:fam-fire:opacity+transform'],
+    'it is alive: it turns, two fronts of colour drift through it and two nodes fire');
+  h.ok(head.moving.every(m => m.html && m.forever && /^(opacity\+)?transform$/.test(m.props)), 'everything that moves animates only transform or opacity on an HTML element (compositor-only)', JSON.stringify(head.moving));
+  h.ok(new Set(head.moving.map(m => m.period)).size === head.moving.length, 'no two of its motions share a period, so the activity does not visibly repeat', JSON.stringify(head.moving.map(m => m.period)));
   h.eq(head.others, [], 'nothing else in the Inbox animates at rest');
   h.eq(head.tone, 'wait', 'the mark is gold while an item needs you');
   // A row gives two lines of the note; the picture is shown whole; the keys are drawn on their buttons.

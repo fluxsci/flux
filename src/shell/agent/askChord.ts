@@ -80,7 +80,7 @@ export function requestAsk(opts: { targets?: TargetRef[]; utility?: { name: stri
   const ttl = document.createElement("span"); ttl.className = "ttl"; ttl.textContent = "Ask";
   const sep = () => { const el = document.createElement("span"); el.className = "vsep"; return el; };
   const ctx = document.createElement("span"); ctx.className = "ctx"; ctx.textContent = askWhere(capture.stamp);
-  head.append(fluxAiMarkElement(document, 16), brand, sep(), ttl, sep(), ctx);
+  head.append(fluxAiMarkElement(document, 20), brand, sep(), ttl, sep(), ctx);
   const body = document.createElement("div"); body.className = "ask-body";
   const composer = document.createElement("div"); composer.className = "flux-composer";
   const input = document.createElement("textarea"); input.setAttribute("aria-label", "Ask a question"); input.placeholder = targetPrompt(targets); input.rows = 2;

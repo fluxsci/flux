@@ -299,7 +299,7 @@
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div class="inbox-panel" role="dialog" aria-label="Inbox" aria-modal={!detached} tabindex="-1" use:modalFocus on:keydown={onKey}>
     <header class="surface-head">
-      <FluxAiMark size={16} {tone} />
+      <FluxAiMark size={20} {tone} />
       <span class="brand">Flux AI</span>
       <span class="vsep"></span>
       <strong class="ttl">Inbox</strong>

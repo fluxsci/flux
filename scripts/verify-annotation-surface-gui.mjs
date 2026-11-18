@@ -55,7 +55,7 @@ try {
  },{from:{x:p.x+80,y:p.y+50},to:p});
  h.eq(arrowGeometry,{badgeAtTail:true,tipAtEnd:true,dart:true,clear:true,shaftInsideHead:true,shaftFromTail:true},'An arrow’s number sits at its tail; its dart head is at the tip, clear of the number');
  const annotateHead=await page.evaluate(()=>{const head=document.querySelector('.annotation-composer .surface-head'),mark=head.querySelector('.flux-ai-mark'),tool=document.querySelector('.annotation-tools button[aria-pressed="true"]');
-  return {words:[head.querySelector('.brand')?.textContent,head.querySelector('.ttl')?.textContent],first:head.firstElementChild===mark,turn:mark&&getComputedStyle(mark).animationName,tone:mark?.dataset.tone,
+  return {words:[head.querySelector('.brand')?.textContent,head.querySelector('.ttl')?.textContent],first:head.firstElementChild===mark,turn:mark&&getComputedStyle(mark.querySelector('.fam-net')).animationName,tone:mark?.dataset.tone,
    chosenFill:getComputedStyle(tool).backgroundColor,eyebrow:!!document.querySelector('.annotation-tools .eyebrow')};});
  h.eq(annotateHead.words,['Flux AI','Annotate'],'The composer header reads Flux AI, then Annotate');
  h.ok(annotateHead.first&&annotateHead.turn==='flux-ai-turn'&&annotateHead.tone==='ready','The Flux AI mark leads it, turning, in the bloom’s colours while the note goes to the Inbox',JSON.stringify(annotateHead));

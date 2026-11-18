@@ -23,7 +23,7 @@ choose who handles each item, and see its status. Reader PDF **Highlights** rema
 The frozen view fills the window inside a thin frame, with a bar of drawing tools at
 the top centre (it says **view frozen**, so you know the app is not hung) and a focused note
 at the bottom right, headed **Flux AI │ Annotate** and where you are. The small mark beside
-that (the seed of the Flux logo, always turning) is blue when what you add goes straight to
+that (a small living network on the points of the Flux logo) is blue when what you add goes straight to
 an agent that is listening, and the logo's own colours when it goes to the Inbox. Hover to see the target's outline and name: a plot series, text box,
 figure, caption, paragraph, slide, animation clip, PDF passage, or reference. Target chips
 name things in words (the full name with its id is the tooltip); hovering a numbered chip
@@ -86,8 +86,9 @@ chips show the document, tag, and surface filters, and **?** lists the grammar. 
 `status:resolved`, or free text. `archived` includes archived items; `all` includes withdrawn
 items. The same query works with `flux inbox`.
 
-The header reads **Flux AI │ Inbox**, and the small mark beside it (the seed of the Flux
-logo, always turning) tells you the state at a glance: gold while something is waiting for
+The header reads **Flux AI │ Inbox**, and the small mark beside it (a living network on the
+points of the Flux logo: it turns slowly, colour passes from node to node, and now and then a
+node fires) tells you the state at a glance: gold while something is waiting for
 you, blue while a connected agent is at work on an item, and the logo's own colours otherwise.
 
 Select an item to read it as a conversation, in one reading column: your note; its picture on

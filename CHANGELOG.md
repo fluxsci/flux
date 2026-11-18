@@ -18,6 +18,12 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   margin comment quotes its passage in full. The heading names the surface once
   ("FIGURE  Protein Structure", not "figure · figure …"), and replies are set in one voice.
 - The Inbox's action buttons keep their bottom edge (the reply box was painted over it).
+- **The Flux AI mark is alive.** It is now a small network: eleven points of the Flux logo's
+  spiral, sparsely connected, turning slowly while colour passes from node to node and, now and
+  then, a node fires and the flash spreads along its connections. Its colours are still the
+  state (the logo's own, blue while an agent works, gold when something waits for you, green,
+  red). It costs nothing while it runs: every moving part is a transform or a fade the
+  compositor handles by itself.
 - **Annotate and Ask are "Flux AI".** Their headers read **Flux AI │ Annotate │ where** and
   **Flux AI │ Ask │ where**, with the seed of the Flux logo in the top-left corner, always
   turning. Its colour is the state: blue when what you send goes straight to an agent that is

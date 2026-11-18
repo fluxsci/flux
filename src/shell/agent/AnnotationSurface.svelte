@@ -371,7 +371,7 @@
     </div>
     <div class="annotation-composer">
       <div class="heading surface-head">
-        <FluxAiMark size={16} tone={markTone} />
+        <FluxAiMark size={20} tone={markTone} />
         <span class="brand">Flux AI</span>
         <span class="vsep"></span>
         <strong class="ttl">{editing ? "Edit annotation" : "Annotate"}</strong>
