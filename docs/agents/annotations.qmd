@@ -76,17 +76,25 @@ keeps it in a separate window; **Dock** brings it back without losing a reply dr
 
 The list groups items into **Needs input** (in gold: an agent is waiting for you; the
 titlebar badge turns gold too), **Open**, **Claimed**, and a collapsed **Resolved**
-section. Each row shows its picture or an icon for the surface it points at, where it
-points in words, its tags, and a status dot. Type a filter such as `draft_1 #claude figure`;
+section. Each row shows its picture or an icon for the surface it points at, two lines of the
+note itself, its state and where it points in words. A claimed item's dot is filled, inside a
+ring, while the agent holding it is connected, and hollow when that agent is offline. Type a filter such as `draft_1 #claude figure`;
 chips show the document, tag, and surface filters, and **?** lists the grammar. You can also use `comments`, `annotations`, `figure:Density`, `deck:talk`,
 `status:resolved`, or free text. `archived` includes archived items; `all` includes withdrawn
 items. The same query works with `flux inbox`.
 
-Select an item to read it as a conversation: your note, its picture with numbered anchors,
+The header reads **Flux AI │ Inbox**, and the small mark beside it (the seed of the Flux
+logo, always turning) tells you the state at a glance: gold while something is waiting for
+you, blue while a connected agent is at work on an item, and the logo's own colours otherwise.
+
+Select an item to read it as a conversation: your note, its picture with numbered anchors
+(shown whole; click it to see it at full size, and again or **Esc** to fit it back),
 then the replies — agents are marked with the Flux seed and their name, their Markdown is
 rendered (lists, code, tables), and an agent's question is marked **Waiting for you** with the
 reply box inviting **Answer heron…**. **R** focuses Reply; **Enter** sends, and **Shift+Enter**
-adds a newline. The short id beside the status copies the full id when clicked.
+adds a newline. The short id beside the status copies the full id when clicked, and a tag
+under it filters the Inbox to everything with that tag. The buttons that have a key show it:
+**↵** on **Jump to**, **A** on **Assign**, **E** on **Archive**.
 **Jump to** returns to the document range, figure selection, slide and beat, or Reader page.
 **↑/↓** move between rows; **Enter** on a row jumps; **E** archives. **Unarchive** restores an
 archived item, and **Reopen** returns resolved work to the inbox. **Copy agent prompt** copies

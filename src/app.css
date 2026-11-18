@@ -435,9 +435,31 @@ textarea,
    it. Components add their own layout; these are the primitives.
    ========================================================================== */
 
-/* One header for every floating agent surface: [mark] title │ context … actions × */
+/* One header for every floating agent surface: [mark] Flux AI │ surface │ context … actions ×
+   "Flux AI" is the name of the whole (owner, 2026-11-18: "the centerpiece of how we integrate
+   Flux and AI agents"); the surface's own word (Ask, Annotate, Inbox) follows it. A header
+   without a .brand (AI status, Connected agents) keeps .ttl as its title. */
 .surface-head { display: flex; align-items: center; gap: 10px; height: 34px; flex-shrink: 0; padding: 0 6px 0 12px; border-bottom: 1px solid var(--c-line); background: var(--c-bg-raised); }
+.surface-head .brand { font: 600 13px var(--font-serif); color: var(--c-tx-hi); white-space: nowrap; letter-spacing: .005em; }
 .surface-head .ttl { font: 600 13px var(--font-serif); color: var(--c-tx-hi); white-space: nowrap; }
+.surface-head .brand ~ .ttl { font-weight: 400; color: var(--c-tx); }
+.surface-head .flux-ai-mark { margin-right: -2px; }
+
+/* The Flux AI mark (shell/agent/fluxAiMark.ts): the bloom's seed, always turning. The turn is a
+   transform on the SVG's OWN box, which the compositor runs by itself: no main-thread frame is
+   produced while it turns, so it is exempt from "nothing animates at rest" (that rule, and the
+   E43 input-latency lesson behind it, are about main-thread loops). Rotating a <g> inside the
+   SVG would repaint every frame: never move the animation onto a child. Not gated on
+   prefers-reduced-motion (the Logomark precedent: this desktop reports `reduce` with animations
+   on). The colour is the state; it changes once, never per frame. */
+.flux-ai-mark { display: inline-block; flex-shrink: 0; overflow: visible; will-change: transform; animation: flux-ai-turn 9s linear infinite; }
+.flux-ai-mark circle { transition: fill var(--dur-fade-slow) linear, fill-opacity var(--dur-fade-slow) linear; }
+.flux-ai-mark[data-tone="live"] { animation-duration: 2.4s; }
+.flux-ai-mark[data-tone="live"] circle { fill: var(--c-accent-bright, var(--c-accent)); fill-opacity: var(--o, 1); }
+.flux-ai-mark[data-tone="wait"] circle { fill: var(--c-comment); fill-opacity: var(--o, 1); }
+.flux-ai-mark[data-tone="done"] circle { fill: var(--c-success); fill-opacity: var(--o, 1); }
+.flux-ai-mark[data-tone="error"] circle { fill: var(--c-danger); fill-opacity: var(--o, 1); }
+@keyframes flux-ai-turn { to { transform: rotate(360deg); } }
 .surface-head .vsep { width: 1px; height: 14px; background: var(--c-line-strong); flex-shrink: 0; }
 .surface-head .ctx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-tx-muted); font: var(--ts-xs) var(--font-ui); }
 .surface-head .spacer { flex: 1; }

@@ -104,6 +104,39 @@ try {
   h.ok(await page.$eval('.anchors', e => e.textContent.includes('Density')), 'numbered anchors name their semantic target');
   await page.click('.picture'); h.ok(!!await page.$('.picture.zoom'), 'picture opens its zoomed view');
   await page.keyboard.press('Escape'); h.ok(!!await page.$('.inbox-panel') && !await page.$('.picture.zoom'), 'Escape leaves image zoom before closing Inbox');
+  // --- 2026-11-18 refinement: the Flux AI header, the turning mark, and state without motion ---
+  const head = await page.evaluate(() => {
+    const header = document.querySelector('.inbox-panel header'), mark = header.querySelector('.flux-ai-mark'), style = getComputedStyle(mark);
+    const turning = mark.getAnimations().map(a => ({ name: a.animationName, props: [...new Set(a.effect.getKeyframes().flatMap(k => Object.keys(k).filter(key => !['offset', 'easing', 'composite', 'computedOffset'].includes(key))))], forever: a.effect.getComputedTiming().iterations === Infinity }));
+    return { words: [header.querySelector('.brand')?.textContent, header.querySelector('.ttl')?.textContent], first: header.firstElementChild === mark, tone: mark.dataset.tone, dots: mark.querySelectorAll('circle').length,
+      turning, childAnimations: [...mark.querySelectorAll('*')].flatMap(e => e.getAnimations()).length, willChange: style.willChange,
+      others: [...document.querySelectorAll('.inbox-panel *')].filter(e => e !== mark).flatMap(e => e.getAnimations()).filter(a => a.effect?.getComputedTiming().iterations === Infinity).map(a => a.animationName ?? 'transition') };
+  });
+  h.eq(head.words, ['Flux AI', 'Inbox'], 'the header reads Flux AI, then Inbox');
+  h.ok(head.first && head.dots === 13, 'the Flux AI mark leads the header', JSON.stringify(head));
+  h.eq({ turning: head.turning, inside: head.childAnimations, willChange: head.willChange }, { turning: [{ name: 'flux-ai-turn', props: ['transform'], forever: true }], inside: 0, willChange: 'transform' },
+    'the mark always turns, as a transform on its own box (compositor-only), with nothing animating inside it');
+  h.eq(head.others, [], 'nothing else in the Inbox animates at rest');
+  h.eq(head.tone, 'wait', 'the mark is gold while an item needs you');
+  // A row gives two lines of the note; the picture is shown whole; the keys are drawn on their buttons.
+  const refined = await page.evaluate(() => {
+    const title = document.querySelector('.inbox-row.selected .row-body b'), ts = getComputedStyle(title);
+    const frame = document.querySelector('.picture'), img = frame.querySelector('img'), f = frame.getBoundingClientRect(), i = img.getBoundingClientRect();
+    const button = name => [...document.querySelectorAll('.detail .actions button')].find(b => b.textContent.trim() === name);
+    const cap = name => getComputedStyle(button(name), '::before').content;
+    return { clamp: ts.webkitLineClamp, lines: Math.round(parseFloat(ts.minHeight) / parseFloat(ts.lineHeight)),
+      whole: i.left >= f.left - 0.5 && i.right <= f.right + 0.5 && i.top >= f.top - 0.5 && i.bottom <= f.bottom + 0.5 && frame.scrollWidth <= frame.clientWidth + 1 && frame.scrollHeight <= frame.clientHeight + 1,
+      caps: [cap('Jump to ↗'), cap('Archive')], pulse: [...document.querySelectorAll('.status-chip')].some(c => getComputedStyle(c, '::before').animationName !== 'none') };
+  });
+  h.ok(refined.clamp === '2' && refined.lines === 2, 'a row shows two lines of its note', JSON.stringify(refined));
+  h.ok(refined.whole, 'an attached picture is shown whole until it is zoomed');
+  h.eq(refined.caps, ['"↵"', '"E"'], 'the keys that act on the open item are drawn on their buttons, without changing the buttons’ names');
+  h.ok(!refined.pulse, 'a claimed item’s state is colour, not a pulse');
+  // A tag in the detail filters the Inbox to that tag.
+  await page.click('.detail .tagchip');
+  h.eq(await page.$eval('.inbox-search', e => e.value), '#picture', 'a tag in the detail filters the Inbox by that tag');
+  h.ok(await page.$$eval('[data-inbox-row]', (rows, id) => rows.length === 1 && rows[0].dataset.itemId === id, f.picture), 'and the list narrows to it');
+  await queryInbox(page, 'all'); await choose(f.picture);
   await page.evaluate(() => Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: async text => { window.__inboxPrompt = text; } }));
   await detailAction(page, 'Copy agent prompt');
   await waitFor(page, id => window.__inboxPrompt?.includes(`Address inbox item ${id}`), f.picture, { label: 'copied agent prompt' });

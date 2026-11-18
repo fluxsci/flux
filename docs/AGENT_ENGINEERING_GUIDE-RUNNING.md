@@ -2918,7 +2918,25 @@ Persistence invariants (all machine-checked — do not weaken):
     synchronously. Tool rows humanise titles (`toolSummary`: `paper/draft.qmd:120–160`, `TODO in src/lib`,
     the figure id) and keep the raw name; image blocks in a tool result show inline. The agent is marked by
     `AgentMark` (13 dots of the phyllotaxis bloom; it turns ONLY while a run is busy, on literal durations like
-    the Logomark, and never loops at rest); you are unmarked. Gold (`--c-comment`) means "waiting for you"
+    the Logomark, and never loops at rest); you are unmarked.
+    **The agent surfaces are "Flux AI"** (owner, 2026-11-18: "the centerpiece of how we integrate Flux and AI
+    Agents"): their shared header reads `[mark] Flux AI │ Inbox │ context` (`.surface-head .brand`, then `.ttl`;
+    a header without a `.brand` keeps `.ttl` as its title). The mark is `FluxAiMark` (`shell/agent/fluxAiMark.ts`
+    describes it once, for the component AND for Ask's hand-built bootstrap): the same 13-dot seed, ALWAYS
+    turning (owner: "always spinning"), its colour the state (`data-tone`: ready = the bloom's colours, live =
+    blue and a faster turn, wait = gold, done = green, error = red). This does not break "nothing animates at
+    rest": that rule is about main-thread loops, and the turn is a `transform` animation on the SVG's OWN box
+    with `will-change: transform`, which the compositor runs alone. Measured in Electron with the Inbox idle for
+    3 s: 0 paints, 0 main frames, about 5 style ticks totalling 1 ms. NEVER move the animation onto a child of
+    the SVG (a `<g>` cannot be composited: it repaints every frame, which is what AgentMark's working state
+    does, and why that one runs only while busy). `verify-inbox-gui` pins the animation to `transform` on the
+    root, forbids animations inside it, and forbids any other infinite animation in the Inbox (the claimed
+    chip used to breathe forever; live is now a filled dot in a ring).
+    **Inbox details that gates read:** a status chip's text is exactly `item.chip`; `.notice` is exactly the
+    notice; a row's liveness is the chip's `title` ("Agent is active" / "Agent is offline"); the detail
+    buttons are found by their exact text, so a key drawn on a button is CSS content (`data-key` +
+    `::before`), never a child element.
+    Gold (`--c-comment`) means "waiting for you"
     (Inbox rows, the thread, the titlebar badge via `inboxNeedsInput`); blue stays "live / chosen". Opacity-only
     fades use `--dur-fade` / `--dur-fade-slow`, which the reduce block deliberately does NOT collapse (this desktop
     reports `reduce`); anything that moves takes a `--dur-*`. Mark ink is `--c-ink-mark` / `--c-ink-halo`

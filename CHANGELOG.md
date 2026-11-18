@@ -9,6 +9,16 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 
 ## Unreleased
 
+### Flux AI
+
+- **The Inbox is refined.** Its header reads **Flux AI │ Inbox**, with the seed of the Flux logo
+  turning beside it: gold while something is waiting for you, blue while a connected agent is at
+  work, the logo's colours otherwise. Rows show two lines of the note instead of one clipped
+  line. An attached picture is shown whole (click it for full size). The buttons that have a key
+  show it. A tag under an item's status filters the Inbox to that tag. The filter help is a
+  proper legend. A claimed item's dot is filled inside a ring while its agent is connected, and
+  no longer pulses.
+
 ### Window
 
 - **Settings, rebuilt.** Every setting is now one kind of row: its name, with what it does in a
