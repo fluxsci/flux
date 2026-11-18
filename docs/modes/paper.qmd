@@ -236,10 +236,11 @@ is hidden for them.
 
 # Figures
 
-Insert a figure with `/figure` (or **Ctrl+K → Insert figure…**). The picker shows every figure
-at full size — scroll (or arrow) through long lists, search by name or caption, and when the
-project has more than one canvas, use the dropdown next to the search box to limit the list
-(and your search) to a single canvas. In the text, the embed is a
+Insert a figure with `/figure` (or **Ctrl+K → Insert figure…**). The picker is a card over the
+page, drawn like the margin's Figures card: a search, then every figure as a small cell (its
+thumbnail, name, number and how many panels it has), four to a row. Scroll or arrow through
+them, search by name or caption, and when the project has more than one canvas, use the
+dropdown next to the search box to limit the list (and your search) to a single canvas. In the text, the embed is a
 compact **⌗ name chip** with the live figure rendered beneath it — the real thing from
 [Figure mode](figure.qmd), with its caption. Put the caret on the chip's line to see its
 source, or double-click the chip to open the figure. Captions live on the figure itself (edited in
@@ -249,9 +250,13 @@ grip), and **Open in Figure** jumps to editing it.
 
 Reference a figure with `@fig-...` — it becomes a live **"Fig 3"** chip whose number stays
 correct as figures are added, removed, or reordered (`@tbl-` and `@eq-` work the same way for
-tables and equations, with their own autocomplete). Type **@@** for the figure picker, which
-can also select specific panels (*Fig 3a,c*) and carries the same canvas dropdown as the
-insert picker, so you can narrow a multi-canvas project to one canvas before you search. **Double-click** any reference chip to jump to
+tables and equations, with their own autocomplete). Type **@@** for the figure picker: the
+same card and the same cells as `/figure` (canvas dropdown included). Choosing a figure that
+has panels shows it on a stage you can look closely at (scroll to zoom, drag to pan,
+double-click to reset) with its caption and its panels as small letter keys under it: press a
+panel's letter (or click it) to cite just that panel, several for *Fig 3a,c*, none for the
+whole figure, then **Enter** or the **Insert** button, which always shows exactly what will be
+written. **Esc** goes back to the figures. **Double-click** any reference chip to jump to
 the thing it points to — a table or equation reference scrolls the editor to its source;
 **Ctrl+Enter** follows the reference under the caret.
 

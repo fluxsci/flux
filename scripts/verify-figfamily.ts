@@ -21,7 +21,7 @@ import {
   shortBadge,
   type FigureFamilyDef,
 } from "../src/lib/figfamily";
-import { panelSpec, figRefText } from "../src/shell/modes/paper/scholar/figText";
+import { panelSpec, figRefText, plainCaption } from "../src/shell/modes/paper/scholar/figText";
 
 let fail = 0;
 function eq<T>(what: string, got: T, want: T) {
@@ -242,6 +242,13 @@ eq("order-independent", figRefText(P, ["e", "c", "a", "b"]), "@fig-x-a-c,e");
 eq("all five", figRefText(P, ["a", "b", "c", "d", "e"]), "@fig-x-a-e");
 eq("unknown letters ignored", figRefText(P, ["z"]), "@fig-x");
 eq("panelSpec direct", panelSpec(P, ["a", "c", "d", "e"]), "a,c-e");
+
+// --- plainCaption: a composed caption as plain words, for a one-line preview -------------------
+eq("plainCaption drops a panel letter's bold", plainCaption("**a**, Growth over time. **b**, Dose."), "a, Growth over time. b, Dose.");
+eq("plainCaption drops emphasis", plainCaption("Recorded *in vivo* and __twice__."), "Recorded in vivo and twice.");
+eq("plainCaption keeps arithmetic and identifiers", plainCaption("2*3*4 units, see snake_case_name"), "2*3*4 units, see snake_case_name");
+eq("plainCaption collapses whitespace", plainCaption("  one\n\n two  "), "one two");
+eq("plainCaption of nothing", [plainCaption(""), plainCaption(undefined), plainCaption(null)].join("|"), "||");
 
 if (fail) {
   console.error(`\nFIGFAMILY VERIFY: FAIL (${fail})`);

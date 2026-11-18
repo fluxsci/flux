@@ -1,9 +1,18 @@
 <script lang="ts">
+  // `@@`: cite a figure, or some of its panels. Two steps in the margin card's chrome
+  // (PickerShell): find the figure (FigureFinder), then look at it on the same stage the
+  // Figures card uses and press its panels' letters. Both steps are fully keyboard-driven.
+  // 2026-11-18 (owner: "update this @@ popup so that it gets the same ui/ux, look, feel
+  // improvements you made to the alt-f card … make the icons more compact, make it feel more
+  // tactile/responsive/coherent"): the same card, stage, caption line, panel letters and
+  // buttons as the Figures card; cells a third smaller; Insert is also a button.
   import { yieldsToShellModal, isAnnotateChord } from "../../../agent/annotationVisibility";
-
-  import { onMount, tick } from "svelte";
-  import { popIn, fadeRise } from "../../../../lib/motion/actions";
-  import { resolveFigure, figRefText, type FigureRef, figureImage, figureThumb } from "./figures";
+  import { tick } from "svelte";
+  import { resolveFigure, figRefText, type FigureRef } from "./figures";
+  import { plainCaption } from "./figText";
+  import PickerShell from "./PickerShell.svelte";
+  import FigureFinder from "./FigureFinder.svelte";
+  import FigureStage from "./FigureStage.svelte";
 
   let {
     figures,
@@ -23,14 +32,11 @@
     onClose: () => void;
   } = $props();
 
-  // Stage 1 mirrors FigurePicker (search + roving grid); stage 2 is the panel
-  // multi-select for the chosen figure. Both stay fully keyboard-driven.
   let stage = $state<"figure" | "panels">("figure");
+  // Held here so going on to the panels and back keeps what you typed.
   let query = $state("");
   let canvasSel = $state(""); // "" = all canvases
-  let sel = $state(0);
-  let gridEl = $state<HTMLElement | undefined>(undefined);
-  let inputEl = $state<HTMLInputElement | undefined>(undefined);
+  let finder = $state<ReturnType<typeof FigureFinder> | undefined>(undefined);
   let panelsEl = $state<HTMLElement | undefined>(undefined);
 
   let figId = $state<string | null>(null);
@@ -41,30 +47,8 @@
     if (signature !== priorPanels) { priorPanels = signature; picked = new Set(); hl = 0; }
     if (figId && !fig) { figId = null; stage = "figure"; }
   });
-  let hl = $state(0); // focus ring over the panel pills
+  let hl = $state(0); // where the keyboard is among the panel letters
   let picked = $state<Set<string>>(new Set());
-
-  // `autofocus` is unreliable on dynamically-mounted content (see FigurePicker).
-  onMount(() => inputEl?.focus());
-
-  // Canvas scope narrows FIRST, then the text query searches within it.
-  const scoped = $derived(canvasSel ? figures.filter((f) => f.canvas === canvasSel) : figures);
-  const filtered = $derived(
-    query.trim()
-      ? scoped.filter((f) =>
-          (f.name + " " + (f.nickname ?? "") + " " + f.label + " " + f.caption)
-            .toLowerCase()
-            .includes(query.toLowerCase()),
-        )
-      : scoped,
-  );
-  $effect(() => {
-    void filtered;
-    sel = 0;
-  });
-  $effect(() => {
-    gridEl?.querySelector(`[data-i="${sel}"]`)?.scrollIntoView({ block: "nearest" });
-  });
 
   // What Enter will insert, resolved live through the same registry the chips
   // use — the previewed text IS the text the chip will show ("Fig. S4a–c").
@@ -73,21 +57,13 @@
     fig ? (resolveFigure(resultText.slice(1), nums)?.display ?? fig.display) : "",
   );
 
-  function cols(): number {
-    if (!gridEl) return 1;
-    return getComputedStyle(gridEl).gridTemplateColumns.split(" ").length || 1;
-  }
-  function move(d: number) {
-    sel = Math.max(0, Math.min(filtered.length - 1, sel + d));
-  }
-
   function choose(f: FigureRef) {
     if (f.panels.length) {
       figId = f.id;
       picked = new Set();
       hl = 0;
       stage = "panels";
-      // Letters must toggle pills, not type into the search box.
+      // Letters must toggle panels, not type into the search box.
       void tick().then(() => panelsEl?.focus());
     } else {
       onInsert("@" + f.label); // no known panels — whole figure, done
@@ -96,7 +72,7 @@
   function backToFigures() {
     stage = "figure";
     figId = null;
-    void tick().then(() => inputEl?.focus());
+    void tick().then(() => finder?.focus());
   }
   function togglePanel(p: string) {
     const next = new Set(picked);
@@ -117,22 +93,7 @@
       if (e.key === "Escape") {
         e.stopPropagation();
         onClose();
-      } else if (e.key === "ArrowDown") {
-        e.preventDefault();
-        move(cols());
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        move(-cols());
-      } else if (e.key === "ArrowRight" && !query) {
-        e.preventDefault();
-        move(1);
-      } else if (e.key === "ArrowLeft" && !query) {
-        e.preventDefault();
-        move(-1);
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        if (filtered[sel]) choose(filtered[sel]);
-      }
+      } else finder?.handleKey(e);
       return;
     }
     // ---- panels stage ------------------------------------------------------
@@ -175,91 +136,34 @@
 
 <svelte:window {onkeydown} />
 
-<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="scrim" onclick={onClose} transition:fadeRise={{ y: 0 }}>
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="picker" onclick={(e) => e.stopPropagation()} transition:popIn>
-    {#if stage === "figure"}
-      <header>
-        <span class="ttl">Reference a figure</span>
-        <input
-          class="search"
-          placeholder="Search figures…"
-          bind:this={inputEl}
-          bind:value={query}
-          role="combobox"
-          aria-expanded="true"
-          aria-controls="figref-grid"
-          aria-activedescendant="figrefopt-{sel}" />
-        {#if canvases.length > 1}
-          <select
-            class="canvas-scope"
-            bind:value={canvasSel}
-            aria-label="Limit to canvas"
-            title="Limit to one canvas">
-            <option value="">All canvases</option>
-            {#each canvases as c (c.id)}
-              <option value={c.id}>{c.name}</option>
-            {/each}
-          </select>
-        {/if}
-      </header>
-      <p class="link-note">Choose the figure in Figure. References stay linked; Paper order does not change its number.</p>
-      {#if filtered.length}
-        <div class="grid" id="figref-grid" bind:this={gridEl} role="listbox" aria-label="Figures">
-          {#each filtered as f, i (f.id)}
-              <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
-            <div
-              class="cell"
-              class:sel={i === sel}
-              data-i={i}
-              id="figrefopt-{i}"
-              role="option"
-              aria-selected={i === sel}
-              onclick={() => choose(f)}>
-              <div class="thumb">
-                {#if f.id}
-                  <img use:figureThumb={f.id} alt="" draggable="false" />
-                {:else}
-                  <span class="ph">no preview</span>
-                {/if}
-              </div>
-              <div class="meta">
-                <b>{f.nickname || f.name}</b>
-                <span class="designation">{f.display}</span>
-                <span class="nm">{canvases.find((c) => c.id === f.canvas)?.name ?? f.canvas}</span>
-                <code class="reference-key">@{f.label}</code>
-                {#if f.panels.length}
-                  <span class="pcount">{f.panels.length} panels</span>
-                {/if}
-              </div>
-            </div>
-          {/each}
-        </div>
-      {:else}
-        <p class="empty">
-          {figures.length ? "No figures match." : "This project has no figures yet."}
-        </p>
-      {/if}
-    {:else if fig}
-      <header>
-        <button class="back" onclick={backToFigures} title="Back to figures (Esc)">‹</button>
-        <span class="ttl">{fig.nickname || fig.name}</span>
-        <span class="nm hd">{fig.display} · @{fig.label}</span>
-      </header>
-      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-      <div class="panelstage" bind:this={panelsEl} tabindex="-1">
-        <div class="pv">
-          {#if fig.id}
-            <img use:figureImage={fig.id} alt="" draggable="false" />
-          {:else}
-            <span class="ph">no preview</span>
-          {/if}
-        </div>
-        <div class="pills" role="listbox" aria-label="Panels" aria-multiselectable="true">
+<PickerShell title="Reference a figure" {onClose}>
+  {#if stage === "figure"}
+    <FigureFinder
+      bind:this={finder}
+      bind:query
+      bind:canvas={canvasSel}
+      {figures}
+      {canvases}
+      gridId="figref-grid"
+      optionPrefix="figrefopt-"
+      note="A reference follows its figure when numbers change."
+      onChoose={choose} />
+  {:else if fig}
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <div class="panelstage mk-pane" bind:this={panelsEl} tabindex="-1">
+      <div class="which">
+        <button class="back mk-btn sm" onclick={backToFigures} title="Back to all figures (Esc)"><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M9.5 3.5 5 8l4.5 4.5" /></svg>Figures</button>
+        <span class="ttl mk-clip">{fig.nickname || fig.name}</span>
+        <span class="nm hd mk-clip">{fig.display} · @{fig.label}</span>
+      </div>
+      <div class="pv"><FigureStage figureId={fig.id || null} /></div>
+      {#if fig.caption || fig.captionLabel}<p class="cap" title={plainCaption(fig.caption)}><b>{fig.captionLabel.trimEnd()}</b> {plainCaption(fig.caption) || "No caption yet."}</p>{/if}
+      <div class="panels">
+        <span class="mk-eyebrow">Panels</span>
+        <div class="pills mk-letters" role="listbox" aria-label="Panels" aria-multiselectable="true">
           {#each fig.panels as p, i (p)}
             <button
-              class="pill"
+              class="pill mk-letter"
               class:on={picked.has(p)}
               class:hl={i === hl}
               role="option"
@@ -272,259 +176,102 @@
             </button>
           {/each}
         </div>
-        <div class="foot">
-          <span class="will">
-            Insert <b class="chip">{resultDisplay}</b>
-            {#if picked.size === 0}<span class="whole">— whole figure</span>{/if}
-          </span>
-          <span class="keys"><kbd>a</kbd>–<kbd>z</kbd>/<kbd>Space</kbd> toggle · <kbd>↵</kbd> insert · <kbd>Esc</kbd> back</span>
-        </div>
+        {#if picked.size === 0}<span class="whole">none chosen: the whole figure</span>{/if}
       </div>
-    {/if}
-  </div>
-</div>
+      <div class="foot mk-foot">
+        <span class="keys mk-hint mk-grow"><kbd>a</kbd>–<kbd>z</kbd>panel<span class="sep">·</span><kbd>←</kbd><kbd>→</kbd><kbd>Space</kbd>walk and toggle<span class="sep">·</span><kbd>Esc</kbd>back</span>
+        <button class="will mk-btn primary" onclick={() => onInsert(resultText)} title={`Insert ${resultText} (Enter)`}>Insert <b class="chip">{resultDisplay}</b><kbd>↵</kbd></button>
+      </div>
+    </div>
+  {/if}
+</PickerShell>
 
 <style>
-  .link-note { margin: 0; padding: 8px 16px; color: var(--c-tx-2); font-size: var(--ts-xs); border-bottom: 1px solid var(--c-line); }
-  .designation { color: var(--c-accent); font-size: var(--ts-xs); }
-  .reference-key { flex-basis: 100%; color: var(--c-tx-faint); font-size: 10px; overflow-wrap: anywhere; }
-  .scrim {
-    position: absolute;
-    inset: 0;
-    background: color-mix(in srgb, var(--c-bg) 62%, transparent);
-    backdrop-filter: blur(2px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 80;
+  .panelstage {
+    flex: 0 1 auto;
+    height: auto;
+    min-height: 0;
+    overflow: auto;
+    outline: none;
   }
-  .picker {
-    width: min(680px, 86%);
-    max-height: 78%;
+  .which {
+    flex: 0 0 auto;
     display: flex;
-    flex-direction: column;
-    background: var(--c-surface);
-    border: 1px solid var(--c-line-strong);
-    border-radius: var(--r-3);
-    box-shadow: var(--elev-3);
-    overflow: hidden;
-  }
-  header {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-3);
-    padding: var(--sp-3) var(--sp-4);
-    border-bottom: 1px solid var(--c-line);
-  }
-  .ttl {
-    font-weight: 600;
-    color: var(--c-tx-hi);
-    white-space: nowrap;
+    align-items: baseline;
+    gap: 9px;
+    min-width: 0;
   }
   .back {
-    background: none;
-    border: 1px solid var(--c-line-strong);
-    border-radius: var(--r-1);
-    color: var(--c-tx-2);
-    width: 26px;
-    height: 26px;
-    font-size: 15px;
-    line-height: 1;
-    cursor: var(--cursor-cross-hover);
+    align-self: center;
+    padding: 0 9px 0 6px;
+    gap: 3px;
   }
-  .back:hover {
-    border-color: var(--c-accent);
-    color: var(--c-tx-hi);
+  .back svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
-  .search {
-    flex: 1;
-    background: var(--c-bg);
-    border: 1px solid var(--c-line);
-    border-radius: var(--r-1);
-    padding: 6px 10px;
-    color: var(--c-tx);
-    font: inherit;
-    font-size: var(--ts-sm);
+  .ttl {
+    flex: 0 1 auto;
+    min-width: 0;
+    font: 600 var(--ts-sm) var(--font-serif);
+    color: var(--c-tx-hi, var(--c-tx));
   }
-  .search:focus {
-    outline: none;
-    border-color: var(--c-accent);
+  .nm.hd {
+    flex: 1 1 0;
+    min-width: 0;
+    font: calc(10px * var(--ts-scale, 1)) var(--font-mono);
+    color: var(--c-tx-faint);
   }
-  .canvas-scope {
+  /* The same stage as the Figures card, given a fixed share of the picker. */
+  .pv {
     flex: 0 0 auto;
-    max-width: 180px;
-    background: var(--c-bg);
-    border: 1px solid var(--c-line);
-    border-radius: var(--r-1);
-    padding: 6px 8px;
-    color: var(--c-tx);
-    font: inherit;
+    display: flex;
+    height: min(46vh, 330px);
+  }
+  .cap {
+    flex: 0 0 auto;
+    margin: 0;
+    color: var(--c-tx-2);
     font-size: var(--ts-sm);
-  }
-  .canvas-scope:focus {
-    outline: none;
-    border-color: var(--c-accent);
-  }
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    /* Row floor (issue #10, FigurePicker's twin): without it a
-       height-constrained grid compresses every row to fit instead of
-       overflowing — cells clip to slivers and the scrollbar never appears. */
-    grid-auto-rows: max-content;
-    align-content: start;
-    gap: var(--sp-3);
-    padding: var(--sp-4);
-    overflow: auto;
-  }
-  .cell {
-    border: 1px solid var(--c-line);
-    border-radius: var(--r-2);
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    cursor: var(--cursor-cross-hover);
-    transition:
-      border-color var(--dur-quick, 120ms) ease,
-      transform var(--dur-quick, 120ms) ease;
-    background: var(--c-bg);
   }
-  .cell:hover {
-    border-color: var(--c-accent);
-    transform: translateY(-2px);
+  .cap b {
+    color: var(--pane-c);
+    font-weight: 600;
   }
-  .cell.sel {
-    border-color: var(--c-accent);
-    box-shadow: 0 0 0 1px var(--c-accent);
-  }
-  .thumb {
-    height: 120px;
-    background: var(--flx-paper, #fdfcfa);
+  .panels {
+    flex: 0 0 auto;
     display: flex;
     align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    padding: 8px;
+    gap: 9px;
+    min-width: 0;
   }
-  .thumb img {
-    max-width: 100%;
-    max-height: 100%;
-    height: auto;
-    width: auto;
-  }
-  .ph {
-    color: var(--c-tx-faint);
-    font-size: var(--ts-xs);
-    font-style: italic;
-  }
-  .meta {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 0.5em;
-    padding: 8px 10px;
-    border-top: 1px solid var(--c-line);
-  }
-  .meta b {
-    color: var(--c-tx-hi);
-    flex-basis: 100%;
-  }
-  .nm {
-    color: var(--c-tx-2);
-    font-size: var(--ts-sm);
+  .whole {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  .nm.hd {
-    flex: 1;
-    min-width: 0;
-  }
-  .pcount {
-    margin-left: auto;
+    font: italic var(--ts-xs) var(--font-serif);
     color: var(--c-tx-faint);
-    font-size: var(--ts-xs);
-    white-space: nowrap;
   }
-  .empty {
-    padding: var(--sp-6);
-    text-align: center;
-    color: var(--c-tx-faint);
-    font-style: italic;
+  .will {
+    gap: 7px;
   }
-  .panelstage {
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    outline: none;
-  }
-  .pv {
-    background: var(--flx-paper, #fdfcfa);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    padding: var(--sp-3);
-    max-height: 320px;
-  }
-  .pv img {
-    max-width: 100%;
-    max-height: 290px;
-    height: auto;
-    width: auto;
-  }
-  .pills {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--sp-2);
-    padding: var(--sp-3) var(--sp-4);
-    border-top: 1px solid var(--c-line);
-  }
-  .pill {
-    min-width: 34px;
-    height: 30px;
-    padding: 0 10px;
-    font: inherit;
-    font-size: var(--ts-sm);
-    font-weight: 600;
-    border: 1px solid var(--c-line-strong);
-    border-radius: var(--r-pill);
-    background: var(--c-bg);
-    color: var(--c-tx-2);
-    cursor: var(--cursor-cross-hover);
-    transition:
-      background var(--dur-quick, 120ms) ease,
-      border-color var(--dur-quick, 120ms) ease;
-  }
-  .pill:hover {
-    border-color: var(--c-accent);
-  }
-  .pill.hl {
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--c-accent) 55%, transparent);
-  }
-  .pill.on {
-    background: var(--c-accent);
-    border-color: var(--c-accent);
-    color: var(--c-on-accent, #fff);
-  }
-  .foot {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: var(--sp-3);
-    padding: var(--sp-2) var(--sp-4) var(--sp-3);
-    font-size: var(--ts-xs);
-    color: var(--c-tx-muted);
-  }
+  /* What will be written, as the chip it becomes; the key that does it, on the button. */
   .will .chip {
-    display: inline-block;
-    padding: 1px 8px;
-    border-radius: var(--r-pill);
-    background: var(--c-accent-tint);
-    color: var(--c-accent);
-    font-weight: 600;
+    font: 600 var(--ts-xs) var(--font-serif);
   }
-  .whole {
-    color: var(--c-tx-faint);
-    font-style: italic;
+  .will kbd {
+    border-color: color-mix(in oklab, var(--flx-paper) 55%, transparent);
+    color: var(--flx-paper);
+    background: transparent;
   }
-  .keys kbd { color: var(--c-tx-2); }
 </style>

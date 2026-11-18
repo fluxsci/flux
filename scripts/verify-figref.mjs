@@ -160,6 +160,28 @@ const pillState = await page.evaluate(() =>
 const willText = await page.evaluate(
   () => document.querySelector(".foot .will")?.textContent ?? "",
 );
+// The picker wears the margin's Figures card (owner, 2026-11-18: "the same ui/ux, look, feel
+// improvements you made to the alt-f card"): its chrome and ink, its stage (wheel zooms, double-click
+// resets), square panel letters with a rail under a chosen one (never a solid fill), a real Insert button.
+const look = await page.evaluate(() => {
+  const picker = document.querySelector(".picker"), on = picker.querySelector(".pill.on"), cs = getComputedStyle(on), will = picker.querySelector(".foot .will");
+  const title = picker.querySelector("[data-pane-id] .legend .t");
+  return { legend: title?.textContent.trim(), ink: title ? getComputedStyle(title).color : "", pillInk: cs.color, h: Math.round(on.getBoundingClientRect().height), radius: parseFloat(cs.borderRadius), mono: /mono/i.test(cs.fontFamily),
+    rail: /inset/.test(cs.boxShadow), fill: cs.backgroundColor, stage: !!picker.querySelector(".stage .zoomer img"), will: will.tagName,
+    kit: getComputedStyle(picker.querySelector(".mk")).getPropertyValue("--mk-tint").trim().length > 0 };
+});
+const stageAt = await page.evaluate(() => { const r = document.querySelector(".picker .stage").getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+const viewOf = () => page.evaluate(() => document.querySelector(".picker .zoomer").style.transform);
+const restView = await viewOf();
+await page.mouse.move(stageAt.x, stageAt.y);
+await page.mouse.wheel({ deltaY: -240 });
+await sleep(150);
+const zoomedView = await viewOf();
+await page.mouse.click(stageAt.x, stageAt.y, { count: 2 });
+await sleep(150);
+const lookOk = look.legend === "Reference a figure" && look.ink === look.pillInk && look.h === 22 && look.radius <= 3 && look.mono && look.rail &&
+  look.fill !== look.pillInk && look.stage && look.will === "BUTTON" && look.kit && /scale\(1\.[1-9]/.test(zoomedView) && (await viewOf()) === restView;
+if (!lookOk) console.log("look", JSON.stringify({ look, restView, zoomedView, after: await viewOf() }));
 await page.keyboard.press("Enter");
 await sleep(300);
 const afterPanels = await docText();
@@ -336,6 +358,25 @@ const scopeOk =
   scopeSurvivesBack &&
   scopeEscClosed;
 
+// Insert is a button too (it used to be Enter only).
+await page.evaluate(() => {
+  const view = window.__fluxView, end = view.state.doc.length;
+  view.dispatch({ changes: { from: end, insert: "\n\nClick " }, selection: { anchor: end + 8 } });
+  view.focus();
+});
+await page.keyboard.type("@@");
+await poll(() => !!document.querySelector(".picker"));
+await page.keyboard.type("gro");
+await sleep(200);
+await page.keyboard.press("Enter");
+await poll(() => document.querySelectorAll(".picker .pill").length === 5);
+await page.click(".picker .pill:nth-child(2)");
+const willBefore = await page.evaluate(() => document.querySelector(".foot .will")?.textContent.replace(/\s+/g, " ").trim() ?? "");
+await page.click(".picker .foot .will");
+await sleep(300);
+const clickInsertOk = /Insert Fig\. 1b/.test(willBefore) && (await docText()).includes("Click @fig-growth-b") && !(await page.$(".picker")) && (await focusInEditor());
+if (!clickInsertOk) console.log("clickInsert", JSON.stringify({ willBefore, tail: (await docText()).slice(-60) }));
+
 await shot(page, "figref-final");
 const errs = realErrors(page);
 await browser.close();
@@ -346,6 +387,7 @@ const res = {
   pickerOpened,
   noAtResidue,
   panelStage,
+  lookOk,
   specOk,
   chipPanelOk,
   wholeOk,
@@ -353,6 +395,7 @@ const res = {
   renumberOk,
   captionSyncOk,
   scopeOk,
+  clickInsertOk,
 };
 console.log(
   JSON.stringify(

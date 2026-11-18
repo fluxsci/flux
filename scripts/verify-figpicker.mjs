@@ -73,7 +73,8 @@ try {
     };
   });
   h.ok(m.cells === 46, `all 46 figures render as cells (got ${m.cells})`);
-  h.ok(m.cellH >= 150, `cells keep full thumb+meta height, never slivers (got ${m.cellH}px)`);
+  // 2026-11-18: the cells are a third smaller (a 4:3 thumbnail and two lines), four to a row.
+  h.ok(m.cellH >= 130, `cells keep full thumb+meta height, never slivers (got ${m.cellH}px)`);
   h.ok(m.metaH > 20 && m.metaText.includes("Fig. 1"), `figure name visible in the meta bar (got "${m.metaText}")`);
   h.ok(m.scrollH > m.clientH + 200, `grid overflows and scrolls (scroll ${m.scrollH} vs client ${m.clientH})`);
   await waitFor(page, () => {
@@ -103,7 +104,7 @@ try {
     const last = document.querySelector('.picker .cell[data-i="45"]');
     const gr = grid.getBoundingClientRect();
     const lr = last?.getBoundingClientRect();
-    return !!lr && lr.bottom <= gr.bottom + 8 && lr.height >= 150;
+    return !!lr && lr.bottom <= gr.bottom + 8 && lr.height >= 130;
   });
   h.ok(reach, "scrolling reaches the last cell at full size");
   await waitFor(page, () => {

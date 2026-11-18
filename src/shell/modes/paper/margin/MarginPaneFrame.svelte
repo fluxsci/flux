@@ -24,12 +24,16 @@
     active = false,
     badge = null,
     onClose,
+    closeHint = "Close this pane (Alt+P closes the focused one)",
     children,
   }: {
-    desc: PaneDescriptor;
+    /** Only id, title and color are read: a picker that borrows this chrome passes just those. */
+    desc: Pick<PaneDescriptor, "id" | "title" | "color">;
     active?: boolean;
     badge?: string | number | null;
     onClose: () => void;
+    /** The close button's tooltip (a picker over the page closes with Esc, not Alt+P). */
+    closeHint?: string;
     children: Snippet;
   } = $props();
 
@@ -69,7 +73,7 @@
       {#if badge != null}<span class="badge">{badge}</span>{/if}
     </div>
     <i class="rule" aria-hidden="true"></i>
-    <button class="x" onclick={onClose} aria-label="Close {desc.title} pane" title="Close this pane (Alt+P closes the focused one)">
+    <button class="x" onclick={onClose} aria-label="Close {desc.title} pane" title={closeHint}>
       <svg viewBox="0 0 10 10" width="9" height="9" aria-hidden="true"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7" /></svg>
     </button>
     <i class="cap r" aria-hidden="true"></i>

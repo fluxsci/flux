@@ -38,3 +38,9 @@ export function figRefText(
   const spec = panelSpec(ref, selected);
   return "@" + ref.label + (spec ? "-" + spec : "");
 }
+
+/** A composed caption as plain words, for a one-line preview: its emphasis markers dropped
+ *  ("**a**, Growth." → "a, Growth."). The margin's Figures card showed the asterisks. */
+export function plainCaption(caption: string | undefined | null): string {
+  return (caption ?? "").replace(/(\*\*|__)(?=\S)([\s\S]*?\S)\1/g, "$2").replace(/(^|[^\w*])([*_])(?=\S)([^*_\n]*?\S)\2(?!\w)/g, "$1$3").replace(/\s+/g, " ").trim();
+}

@@ -1,7 +1,9 @@
 /* The Dynamic Margin's kit: the one vocabulary every pane in the margin is built from, so eight
    panes read as one hand (style_principles P7) and each new pane starts finished.
 
-   Scope: everything is under `.dynmargin`, and every class is `mk-…`. A pane's own ink arrives
+   Scope: everything is under `.dynmargin` or `.mk-host`, and every class is `mk-…`. `.mk-host`
+   is for a surface OUTSIDE the margin that should read as the same hand (the figure pickers that
+   open over the manuscript); `:is()` keeps every selector's weight exactly what it was. A pane's own ink arrives
    as --pane-c from MarginPaneFrame; the kit derives its tints from it, so a control's focus
    ring, a row's rail and a primary button all carry the colour of the card they sit on.
 
@@ -12,7 +14,7 @@
 
    Nothing here animates at rest, and nothing transitions layout. */
 
-.dynmargin .mk {
+:is(.dynmargin, .mk-host) .mk {
   --mk-tint: color-mix(in oklab, var(--pane-c) 7%, transparent);
   --mk-tint-2: color-mix(in oklab, var(--pane-c) 14%, transparent);
   --mk-ring: color-mix(in oklab, var(--pane-c) 16%, transparent);
@@ -22,7 +24,7 @@
 }
 
 /* ---- layout ------------------------------------------------------------------------------ */
-.dynmargin .mk-pane {
+:is(.dynmargin, .mk-host) .mk-pane {
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -34,43 +36,43 @@
   font-family: var(--font-serif);
   font-size: var(--ts-sm);
 }
-.dynmargin .mk-fill {
+:is(.dynmargin, .mk-host) .mk-fill {
   flex: 1 1 auto;
   min-height: 0;
 }
-.dynmargin .mk-row-flex {
+:is(.dynmargin, .mk-host) .mk-row-flex {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
 }
-.dynmargin .mk-grow {
+:is(.dynmargin, .mk-host) .mk-grow {
   flex: 1 1 auto;
   min-width: 0;
 }
 
 /* ---- type -------------------------------------------------------------------------------- */
-.dynmargin .mk-eyebrow {
+:is(.dynmargin, .mk-host) .mk-eyebrow {
   font: 600 calc(10px * var(--ts-scale, 1)) / 1.2 var(--font-mono);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--c-tx-muted);
 }
-.dynmargin .mk-num {
+:is(.dynmargin, .mk-host) .mk-num {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 0.92em;
 }
-.dynmargin .mk-meta {
+:is(.dynmargin, .mk-host) .mk-meta {
   font-size: var(--ts-xs);
   color: var(--c-tx-muted);
 }
-.dynmargin .mk-clip {
+:is(.dynmargin, .mk-host) .mk-clip {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.dynmargin .mk-empty {
+:is(.dynmargin, .mk-host) .mk-empty {
   margin: 0;
   padding: 18px 14px;
   text-align: center;
@@ -81,11 +83,11 @@
 }
 
 /* ---- key caps: the app's own cap (app.css), in the pane's ink ----------------------------- */
-.dynmargin .mk kbd {
+:is(.dynmargin, .mk-host) .mk kbd {
   color: var(--c-tx-faint);
   font-size: calc(10px * var(--ts-scale, 1));
 }
-.dynmargin .mk-foot {
+:is(.dynmargin, .mk-host) .mk-foot {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
@@ -93,7 +95,7 @@
   min-height: calc(28px * var(--ts-scale, 1));
   min-width: 0;
 }
-.dynmargin .mk-hint {
+:is(.dynmargin, .mk-host) .mk-hint {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -104,17 +106,17 @@
   color: var(--c-tx-faint);
   white-space: nowrap;
 }
-.dynmargin .mk-hint > * {
+:is(.dynmargin, .mk-host) .mk-hint > * {
   flex: 0 0 auto;
 }
-.dynmargin .mk-hint .sep {
+:is(.dynmargin, .mk-host) .mk-hint .sep {
   opacity: 0.55;
 }
 
 /* ---- fields ------------------------------------------------------------------------------ */
-.dynmargin .mk-input,
-.dynmargin .mk-select,
-.dynmargin .mk-textarea {
+:is(.dynmargin, .mk-host) .mk-input,
+:is(.dynmargin, .mk-host) .mk-select,
+:is(.dynmargin, .mk-host) .mk-textarea {
   box-sizing: border-box;
   width: 100%;
   border: 1px solid var(--c-line-strong);
@@ -128,40 +130,40 @@
     border-color 80ms linear,
     box-shadow 80ms linear;
 }
-.dynmargin .mk-input,
-.dynmargin .mk-select {
+:is(.dynmargin, .mk-host) .mk-input,
+:is(.dynmargin, .mk-host) .mk-select {
   /* never squeezed by a long list sharing the column */
   flex: 0 0 auto;
   height: calc(32px * var(--ts-scale, 1));
   padding: 0 10px;
 }
-.dynmargin .mk-input.mono {
+:is(.dynmargin, .mk-host) .mk-input.mono {
   font-family: var(--font-mono);
   font-size: calc(11.5px * var(--ts-scale, 1));
 }
-.dynmargin .mk-textarea {
+:is(.dynmargin, .mk-host) .mk-textarea {
   display: block;
   padding: 8px 10px;
   line-height: 1.45;
   resize: none;
 }
-.dynmargin .mk-input::placeholder,
-.dynmargin .mk-textarea::placeholder {
+:is(.dynmargin, .mk-host) .mk-input::placeholder,
+:is(.dynmargin, .mk-host) .mk-textarea::placeholder {
   color: var(--c-tx-faint);
   opacity: 0.85;
 }
-.dynmargin .mk-input:hover,
-.dynmargin .mk-select:hover,
-.dynmargin .mk-textarea:hover {
+:is(.dynmargin, .mk-host) .mk-input:hover,
+:is(.dynmargin, .mk-host) .mk-select:hover,
+:is(.dynmargin, .mk-host) .mk-textarea:hover {
   border-color: var(--mk-edge);
 }
-.dynmargin .mk-input:focus,
-.dynmargin .mk-select:focus,
-.dynmargin .mk-textarea:focus {
+:is(.dynmargin, .mk-host) .mk-input:focus,
+:is(.dynmargin, .mk-host) .mk-select:focus,
+:is(.dynmargin, .mk-host) .mk-textarea:focus {
   border-color: var(--pane-c);
   box-shadow: 0 0 0 3px var(--mk-ring);
 }
-.dynmargin .mk-select {
+:is(.dynmargin, .mk-host) .mk-select {
   appearance: none;
   padding-right: 26px;
   cursor: var(--cursor-cross-hover);
@@ -178,7 +180,7 @@
 }
 
 /* ---- buttons ----------------------------------------------------------------------------- */
-.dynmargin .mk-btn {
+:is(.dynmargin, .mk-host) .mk-btn {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
@@ -203,57 +205,57 @@
     color 80ms linear,
     transform 60ms linear;
 }
-.dynmargin .mk-btn:hover:not(:disabled) {
+:is(.dynmargin, .mk-host) .mk-btn:hover:not(:disabled) {
   background: var(--mk-tint);
   border-color: var(--mk-edge);
   color: var(--c-tx);
 }
-.dynmargin .mk-btn:active:not(:disabled) {
+:is(.dynmargin, .mk-host) .mk-btn:active:not(:disabled) {
   background: var(--mk-tint-2);
   transform: translateY(0.5px) scale(0.985);
 }
-.dynmargin .mk-btn:focus-visible {
+:is(.dynmargin, .mk-host) .mk-btn:focus-visible {
   outline: 2px solid var(--pane-c);
   outline-offset: 1px;
 }
-.dynmargin .mk-btn:disabled {
+:is(.dynmargin, .mk-host) .mk-btn:disabled {
   opacity: 0.42;
   cursor: var(--cursor-cross);
 }
-.dynmargin .mk-btn.primary {
+:is(.dynmargin, .mk-host) .mk-btn.primary {
   background: var(--pane-c);
   border-color: var(--pane-c);
   color: var(--flx-paper);
 }
-.dynmargin .mk-btn.primary:hover:not(:disabled) {
+:is(.dynmargin, .mk-host) .mk-btn.primary:hover:not(:disabled) {
   background: color-mix(in oklab, var(--pane-c) 88%, #fff);
   border-color: color-mix(in oklab, var(--pane-c) 88%, #fff);
   color: var(--flx-paper);
 }
-.dynmargin .mk-btn.primary:active:not(:disabled) {
+:is(.dynmargin, .mk-host) .mk-btn.primary:active:not(:disabled) {
   background: color-mix(in oklab, var(--pane-c) 90%, #000);
 }
-.dynmargin .mk-btn.quiet {
+:is(.dynmargin, .mk-host) .mk-btn.quiet {
   border-color: transparent;
   padding: 0 8px;
   font-weight: 400;
   color: var(--c-tx-muted);
 }
-.dynmargin .mk-btn.sm {
+:is(.dynmargin, .mk-host) .mk-btn.sm {
   height: calc(24px * var(--ts-scale, 1));
   padding: 0 9px;
 }
-.dynmargin .mk-btn.icon {
+:is(.dynmargin, .mk-host) .mk-btn.icon {
   width: calc(28px * var(--ts-scale, 1));
   padding: 0;
 }
-.dynmargin .mk-btn kbd {
+:is(.dynmargin, .mk-host) .mk-btn kbd {
   color: currentColor;
   opacity: 0.75;
 }
 
 /* A two- or three-way choice: hairline box, the chosen side tinted with an underline rail. */
-.dynmargin .mk-seg {
+:is(.dynmargin, .mk-host) .mk-seg {
   display: inline-flex;
   flex: 0 0 auto;
   border: 1px solid var(--c-line-strong);
@@ -261,7 +263,7 @@
   overflow: hidden;
   background: var(--mk-field);
 }
-.dynmargin .mk-seg button {
+:is(.dynmargin, .mk-host) .mk-seg button {
   height: calc(24px * var(--ts-scale, 1));
   padding: 0 9px;
   border: 0;
@@ -274,21 +276,21 @@
     background 80ms linear,
     color 80ms linear;
 }
-.dynmargin .mk-seg button:last-child {
+:is(.dynmargin, .mk-host) .mk-seg button:last-child {
   border-right: 0;
 }
-.dynmargin .mk-seg button:hover {
+:is(.dynmargin, .mk-host) .mk-seg button:hover {
   background: var(--mk-tint);
   color: var(--c-tx);
 }
-.dynmargin .mk-seg button.on {
+:is(.dynmargin, .mk-host) .mk-seg button.on {
   background: var(--mk-tint-2);
   color: var(--pane-c);
   box-shadow: inset 0 -2px 0 var(--pane-c);
 }
 
 /* ---- lists ------------------------------------------------------------------------------- */
-.dynmargin .mk-list {
+:is(.dynmargin, .mk-host) .mk-list {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
@@ -300,37 +302,37 @@
     border-color 80ms linear,
     box-shadow 80ms linear;
 }
-.dynmargin .mk-list:focus-visible,
-.dynmargin .mk-list.keys:focus {
+:is(.dynmargin, .mk-host) .mk-list:focus-visible,
+:is(.dynmargin, .mk-host) .mk-list.keys:focus {
   border-color: var(--pane-c);
   box-shadow: 0 0 0 3px var(--mk-ring);
 }
-.dynmargin .mk-item {
+:is(.dynmargin, .mk-host) .mk-item {
   box-sizing: border-box;
   border-bottom: 1px solid var(--c-line);
   cursor: var(--cursor-cross-hover);
   transition: background 70ms linear;
 }
-.dynmargin .mk-item:hover {
+:is(.dynmargin, .mk-host) .mk-item:hover {
   background: var(--mk-tint);
 }
 /* "This one": the row the keyboard is on. A tint and an inset rail, never a fill. */
-.dynmargin .mk-item.hl {
+:is(.dynmargin, .mk-host) .mk-item.hl {
   background: var(--mk-tint);
   box-shadow: inset 2px 0 0 var(--pane-c);
 }
-.dynmargin .mk-item.on {
+:is(.dynmargin, .mk-host) .mk-item.on {
   background: var(--mk-tint-2);
 }
-.dynmargin .mk-item.on.hl {
+:is(.dynmargin, .mk-host) .mk-item.on.hl {
   box-shadow: inset 2px 0 0 var(--pane-c);
 }
-.dynmargin .mk-item:active {
+:is(.dynmargin, .mk-host) .mk-item:active {
   background: var(--mk-tint-2);
 }
 
 /* A group heading that stays put while its rows scroll under it. */
-.dynmargin .mk-zone {
+:is(.dynmargin, .mk-host) .mk-zone {
   position: sticky;
   top: 0;
   z-index: 1;
@@ -347,7 +349,7 @@
 /* ---- findings (Journal Check, Manuscript Check) -------------------------------------------
    One finding: a severity rail, the words it is about, the advice, and at most one action.
    The whole finding is the way to its place in the manuscript. */
-.dynmargin .mk-find {
+:is(.dynmargin, .mk-host) .mk-find {
   position: relative;
   display: grid;
   gap: 6px;
@@ -356,7 +358,7 @@
   --sev: color-mix(in oklab, var(--pane-c) 40%, var(--c-line-strong));
   transition: background 70ms linear;
 }
-.dynmargin .mk-find::before {
+:is(.dynmargin, .mk-host) .mk-find::before {
   content: "";
   position: absolute;
   left: 4px;
@@ -366,20 +368,20 @@
   border-radius: 1px;
   background: var(--sev);
 }
-.dynmargin .mk-find.sev-error {
+:is(.dynmargin, .mk-host) .mk-find.sev-error {
   --sev: var(--c-danger);
 }
-.dynmargin .mk-find.sev-warn,
-.dynmargin .mk-find.warn {
+:is(.dynmargin, .mk-host) .mk-find.sev-warn,
+:is(.dynmargin, .mk-host) .mk-find.warn {
   --sev: var(--c-warning);
 }
-.dynmargin .mk-find:has(.mk-find-msg:not(:disabled):hover) {
+:is(.dynmargin, .mk-host) .mk-find:has(.mk-find-msg:not(:disabled):hover) {
   background: var(--mk-tint);
 }
-.dynmargin .mk-find:has(.mk-find-msg:not(:disabled):active) {
+:is(.dynmargin, .mk-host) .mk-find:has(.mk-find-msg:not(:disabled):active) {
   background: var(--mk-tint-2);
 }
-.dynmargin .mk-find-msg {
+:is(.dynmargin, .mk-host) .mk-find-msg {
   display: grid;
   gap: 4px;
   justify-items: start;
@@ -392,15 +394,15 @@
   text-align: left;
   cursor: var(--cursor-cross-hover);
 }
-.dynmargin .mk-find-msg:disabled {
+:is(.dynmargin, .mk-host) .mk-find-msg:disabled {
   cursor: var(--cursor-cross);
 }
-.dynmargin .mk-find-msg:focus-visible {
+:is(.dynmargin, .mk-host) .mk-find-msg:focus-visible {
   outline: 2px solid var(--pane-c);
   outline-offset: 3px;
   border-radius: 2px;
 }
-.dynmargin .mk-quote {
+:is(.dynmargin, .mk-host) .mk-quote {
   max-width: 100%;
   box-sizing: border-box;
   padding: 1px 6px;
@@ -412,13 +414,13 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.dynmargin .mk-sugg {
+:is(.dynmargin, .mk-host) .mk-sugg {
   color: var(--c-tx-muted);
   font-style: italic;
 }
 
 /* ---- small parts ------------------------------------------------------------------------- */
-.dynmargin .mk-chip {
+:is(.dynmargin, .mk-host) .mk-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -432,7 +434,7 @@
   font-size: var(--ts-xs);
   white-space: nowrap;
 }
-.dynmargin .mk-chip button {
+:is(.dynmargin, .mk-host) .mk-chip button {
   display: inline-grid;
   place-items: center;
   width: calc(14px * var(--ts-scale, 1));
@@ -447,11 +449,11 @@
   opacity: 0.7;
   cursor: var(--cursor-cross-hover);
 }
-.dynmargin .mk-chip button:hover {
+:is(.dynmargin, .mk-host) .mk-chip button:hover {
   opacity: 1;
   background: color-mix(in oklab, var(--pane-c) 18%, transparent);
 }
-.dynmargin .mk-rule {
+:is(.dynmargin, .mk-host) .mk-rule {
   height: 1px;
   flex: 0 0 1px;
   background: var(--c-line);
@@ -459,7 +461,7 @@
   margin: 0;
 }
 /* The "cited" mark shared by every reference list: hollow until cited, then filled. */
-.dynmargin .mk-dot {
+:is(.dynmargin, .mk-host) .mk-dot {
   flex: 0 0 auto;
   box-sizing: border-box;
   width: calc(11px * var(--ts-scale, 1));
@@ -473,20 +475,71 @@
     background 80ms linear,
     transform 60ms linear;
 }
-.dynmargin .mk-dot:hover {
+:is(.dynmargin, .mk-host) .mk-dot:hover {
   background: color-mix(in oklab, var(--c-danger) 28%, transparent);
 }
-.dynmargin .mk-dot:active {
+:is(.dynmargin, .mk-host) .mk-dot:active {
   transform: scale(0.82);
 }
-.dynmargin .mk-dot.on {
+:is(.dynmargin, .mk-host) .mk-dot.on {
   background: var(--c-danger);
 }
 
 /* ---- scrollbars: thin, warm, out of the way ---------------------------------------------- */
-.dynmargin .mk-scroll,
-.dynmargin .mk-list,
-.dynmargin .mk-textarea {
+:is(.dynmargin, .mk-host) .mk-scroll,
+:is(.dynmargin, .mk-host) .mk-list,
+:is(.dynmargin, .mk-host) .mk-textarea {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in oklab, var(--c-tx) 22%, transparent) transparent;
+}
+
+/* ---- panel letters ------------------------------------------------------------------------ */
+/* A figure's panels as small square keys: chosen = the pane's tint and a rail under the letter. */
+:is(.dynmargin, .mk-host) .mk-letters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+:is(.dynmargin, .mk-host) .mk-letter {
+  min-width: calc(22px * var(--ts-scale, 1));
+  height: calc(22px * var(--ts-scale, 1));
+  padding: 0 5px;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-ui);
+  background: var(--mk-field);
+  color: var(--c-tx-2);
+  font: 600 calc(11px * var(--ts-scale, 1)) / 1 var(--font-mono);
+  cursor: var(--cursor-cross-hover);
+  transition:
+    background 80ms linear,
+    border-color 80ms linear,
+    color 80ms linear,
+    transform 60ms linear;
+}
+:is(.dynmargin, .mk-host) .mk-letter:hover {
+  border-color: var(--mk-edge);
+  background: var(--mk-tint);
+}
+:is(.dynmargin, .mk-host) .mk-letter:active {
+  transform: scale(0.94);
+}
+:is(.dynmargin, .mk-host) .mk-letter:is(.chosen, .on) {
+  border-color: var(--pane-c);
+  background: var(--mk-tint-2);
+  color: var(--pane-c);
+  box-shadow: inset 0 -2px 0 var(--pane-c);
+}
+/* Where the keyboard is (arrows walk the letters, Space toggles). */
+:is(.dynmargin, .mk-host) .mk-letter.hl {
+  outline: 2px solid var(--mk-edge);
+  outline-offset: 1px;
+}
+:is(.dynmargin, .mk-host) .mk-letter:focus-visible {
+  outline: 2px solid var(--pane-c);
+  outline-offset: 1px;
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.dynmargin, .mk-host) .mk-letter {
+    transition: none;
+  }
 }

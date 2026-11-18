@@ -219,6 +219,13 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 
 ### Paper
 
+- **The `@@` and `/figure` pickers are the margin's Figures card.** The same paper card with its
+  title in the outline, the same ink, the same controls. Figures are small cells, four to a
+  row. Citing panels happens on the card's own stage (scroll to zoom, drag to pan), with the
+  caption under it and the panels as the same square letter keys; **Insert** is now a button as
+  well as **Enter**, and says exactly what it will write. Thumbnails that are still being drawn
+  are hatched instead of showing a broken-picture box.
+- The Figures card no longer shows the caption's Markdown asterisks.
 - **The margin's panes are rebuilt.** Each is a clean paper card with its name set into a real
   break in its outline (it no longer sits half on the card and half on the margin) and a close
   button in the outline on the right. Inside, all eight panes share one set of fields, buttons,

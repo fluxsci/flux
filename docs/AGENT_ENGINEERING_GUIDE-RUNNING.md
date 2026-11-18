@@ -1316,6 +1316,22 @@ Persistence invariants (all machine-checked — do not weaken):
   to Library mode's gates (unscoped `document.querySelectorAll`): never reuse those classes
   in a margin pane. `verify-margin-panes.mjs` / `verify-margin-bg.mjs` are ui-extra and now
   ride the pathMap rule for `margin/**`.
+  **The kit works outside the margin (round 2, 2026-11-18; owner: the `@@` popup should "feel much
+  more similar to the new one you made in the right sidebar").** Every kit selector is now
+  `:is(.dynmargin, .mk-host) …` (same weight as before), so a surface elsewhere opts in with
+  `.mk-host` on an ancestor and `.mk` + `--pane-c` on its card. `scholar/PickerShell.svelte` is
+  that surface for the two pickers over the manuscript: a wash, `.picker`, and
+  `MarginPaneFrame` itself as the chrome (it reads only `id`, `title`, `color` of its
+  descriptor; in the margin a card takes an equal share of the column, in the shell it is as
+  tall as its content and its body hands the height limit on, so the GRID scrolls).
+  `FigureFinder` (search, canvas scope, cells; `handleKey(e)` for the picker's window listener;
+  `query`/`canvas` bindable so `@@` keeps them across its two steps) serves both `/figure`
+  (`FigurePicker`) and `@@` (`FigRefPicker`); `FigureStage` (zoom/pan, the pending hatch) serves
+  `@@`'s panel step AND the margin's Figures card; panel letters are the kit's `.mk-letter`
+  (`.chosen` or `.on`; `.hl` = where the keyboard is). Never put `.dynmargin` on anything else:
+  the margin's gates use it as the margin's root. A cell's thumbnail window is a percentage
+  padding (`height:0; padding-bottom:75%`) with the image laid inside it: `aspect-ratio` on the
+  window let a large or unloaded image set the cell's size (cells several hundred px tall).
   **The left sidebar** (rebuilt 2026-11-18; owner: "a more pleasant + tactile mechanism for
   expanding/collapsing directories or the doc outline, better visual delineations").
   `PaperSidebar` switches are on = ink + accent rail; the split is a hairline with a grip
