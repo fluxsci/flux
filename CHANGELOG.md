@@ -11,6 +11,13 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 
 ### Flux AI
 
+- **The Inbox's thread reads cleaner.** The note is set in a reading column. Its picture sits
+  on a mat at no more than the size it was taken, with a caption, and opens large over the
+  whole Inbox (fitted, then actual size). **Points at** lists each thing a note is about
+  once, with the marks that name it, instead of one line per mark; a row takes you there. A
+  margin comment quotes its passage in full. The heading names the surface once
+  ("FIGURE  Protein Structure", not "figure · figure …"), and replies are set in one voice.
+- The Inbox's action buttons keep their bottom edge (the reply box was painted over it).
 - **Annotate and Ask are "Flux AI".** Their headers read **Flux AI │ Annotate │ where** and
   **Flux AI │ Ask │ where**, with the seed of the Flux logo in the top-left corner, always
   turning. Its colour is the state: blue when what you send goes straight to an agent that is

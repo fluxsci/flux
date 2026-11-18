@@ -19,7 +19,7 @@
   import { inboxItems, inboxDocuments, inboxSessionIds, inboxError, inboxLoaded, changeInboxItem, refreshInbox } from "./inboxStore";
   import { annotationOpen, requestAnnotation, isAnnotateChord } from "../agent/annotateChord";
   import { parseInboxQuery, describeFilter, resolveInboxFilter, filterInbox, sortForInbox, toPacket, type InboxItem } from "../../lib/project/inbox";
-  import { describeTarget, shortTarget } from "../../lib/project/targets";
+  import { describeTarget, shortTarget, type TargetRef } from "../../lib/project/targets";
   import { navigateToStamp } from "../navigation";
   import { openUtilityWindow } from "../../lib/plot/galleryWindow";
   import { modalFocus } from "../../lib/ui/modalFocus";
@@ -40,7 +40,7 @@
   const images = inboxImages(root);
   const image = images.bind;
   let wrap: HTMLDivElement, list: HTMLDivElement, reply: HTMLTextAreaElement;
-  let detached = false, alive = true, zoom = false;
+  let detached = false, alive = true, zoom = false, actual = false;
   let scroll = 0, height = 500, draft = "", draftId = "";
   let busy = false, saveFailed = false, error = "", notice = "", filterError = "";
   let resolvedOpen = false, withdrawnOpen = false;
@@ -76,6 +76,7 @@
   $: tone = (needsYou ? "wait" : agentAtWork ? "live" : "ready") as "wait" | "live" | "ready";
   $: holder = selected?.claimedBy?.name ?? selected?.assignedTo?.name ?? selected?.lastHolder?.name ?? "";
   $: lastAgentIndex = selected ? selected.thread.map(m => m.kind).lastIndexOf("agent") : -1;
+  $: if (!zoom) actual = false;
 
   function filterRows(items: InboxItem[], filter: ReturnType<typeof parseInboxQuery>, docs: string[], figs: typeof figures) {
     try {
@@ -202,6 +203,52 @@
     return item.where;
   }
   const surfaceIcon: Record<string, string> = { figure: "figure", paper: "paper", slide: "slide", present: "slide", reader: "reader", library: "library", home: "home" };
+  /** The heading's place, in two parts: the surface as a label, then what the item is about
+   *  without repeating that word ("FIGURE  “Protein Structure”", not "figure · figure …"). */
+  function placeParts(item: InboxItem): { surface: string; text: string; more: number } {
+    const targets = item.context?.targets ?? item.targets, first = targets.find(t => t.kind !== "region") ?? targets[0];
+    const more = Math.max(0, targets.filter(t => t.kind !== "region").length - 1);
+    // A margin comment's passage is quoted in full below: its heading names the document.
+    let text = item.anchor && item.doc ? item.doc.split("/").pop()! : first ? shortTarget(first) : item.context?.doc?.path ? item.context.doc.path.split("/").pop()! : item.context?.activeFigureName ? `"${item.context.activeFigureName}"` : "";
+    if (text.toLowerCase().startsWith(`${item.surface} `)) text = text.slice(item.surface.length + 1);
+    return { surface: item.surface === "present" ? "presenting" : item.surface, text, more };
+  }
+  // What the note points at, once each: the numbered marks grouped by the thing they name, then
+  // anything else the note is attached to. Four marks on one figure are one line, not four.
+  type Pointer = { key: string; marks: number[]; target: TargetRef | null; kind: string; icon: string; text: string };
+  const POINTER_KIND: Record<string, [string, string]> = { figure: ["figure", "figure"], element: ["object", "figure"], part: ["part", "figure"], caption: ["caption", "figure"], doc: ["text", "paper"], slide: ["slide", "slide"], beat: ["step", "slide"], track: ["animation", "slide"], passage: ["passage", "reader"], "library-item": ["reference", "library"] };
+  function pointersOf(item: InboxItem | null): Pointer[] {
+    if (!item) return [];
+    const out: Pointer[] = [], seen = new Map<string, Pointer>();
+    const add = (target: TargetRef | null, mark?: number) => {
+      const key = target ? JSON.stringify(target) : "view";
+      let pointer = seen.get(key);
+      if (!pointer) {
+        const [kind, icon] = target ? POINTER_KIND[target.kind] ?? ["target", "inbox"] : ["view", surfaceIcon[item.surface] ?? "inbox"];
+        const label = target?.kind === "element" && target.type ? target.type : kind;
+        let text = target ? shortTarget(target) : `a place in the ${item.surface} view`;
+        if (text.toLowerCase().startsWith(`${label} `)) text = text.slice(label.length + 1); // the kind is the row's label
+        pointer = { key, marks: [], target, kind: label, icon, text };
+        seen.set(key, pointer); out.push(pointer);
+      }
+      if (mark !== undefined && !pointer.marks.includes(mark)) pointer.marks.push(mark);
+    };
+    // A mark names the most specific thing under it.
+    for (const mark of item.context?.snapshot?.marks ?? []) add((mark.targets ?? []).find(t => t.kind !== "region") ?? null, mark.n);
+    // A margin comment's passage is quoted in full above; its row here would repeat it.
+    for (const target of item.context?.targets ?? item.targets) if (target.kind !== "region" && !(item.anchor && target.kind === "doc")) add(target);
+    return out;
+  }
+  $: pointers = pointersOf(selected);
+  $: markCount = selected?.context?.snapshot?.marks.length ?? 0;
+  async function jumpTo(target: TargetRef | null) {
+    if (!selected) return;
+    if (!target) { void jump(); return; }
+    try {
+      await navigateToStamp({ ...(selected.context ?? { surface: selected.surface }), targets: [target], doc: target.kind === "doc" ? { path: target.path, from: target.from, to: target.to, quote: target.quote ?? "", heading: target.heading } : null });
+      if (!detached) void close(); else window.focus();
+    } catch (e) { error = (e as Error).message; }
+  }
   function choose(id: string) { inboxSelection.set(id); }
   async function step(direction: number) {
     const available = rows.filter(r => r.item);
@@ -313,53 +360,89 @@
       <section class="detail" aria-label="Inbox detail">
         {#if selected}
           {@const origin = selected.thread[0]}
+          {@const where = placeParts(selected)}
+          {@const shot = selected.context?.snapshot}
           <div class="detail-heading">
             <div class="line1"><span class="status-chip big" data-status={selected.status} data-live={selected.claimedBy ? $inboxSessionIds.has(selected.claimedBy.id) : undefined}>{selected.chip}</span><span class="grow"></span><button class="id mono" title={copiedId ? "Copied" : `${selected.kind} · ${selected.id} — click to copy the id`} on:click={copyId}>{copiedId ? "copied" : `#${selected.id.slice(-6)}`}</button></div>
-            <p class="place" title={selected.where}><span class="place-icon" aria-hidden="true"><Icon name={surfaceIcon[selected.surface] ?? "inbox"} size={14} /></span><span>{place(selected)}</span></p>
+            <p class="place" title={selected.where}><span class="place-icon" aria-hidden="true"><Icon name={surfaceIcon[selected.surface] ?? "inbox"} size={14} /></span><span class="surface">{where.surface}</span>{#if where.text}<span class="about">{where.text}</span>{/if}{#if where.more}<span class="more">and {where.more} more</span>{/if}</p>
             {#if selected.tags.length}<div class="tagrow" aria-label="Tags">{#each selected.tags as tag}<button class="tagchip" title={`Show everything tagged #${tag}`} on:click={() => inboxQuery.set(`#${tag}`)}>#{tag}</button>{/each}</div>{/if}
           </div>
           <div class="detail-scroll">
-            <div class="origin" class:agent={origin?.kind === "agent"}>
-              <div class="byline">{#if origin?.kind === "agent"}<AgentMark size={12} seed={origin.author} />{/if}<span class="who">{origin?.author ?? "You"}</span><span class="faint">{origin ? age(origin.ts) : age(selected.createdAt)} · {selected.kind === "comment" ? "margin comment" : "annotation"}</span></div>
-              <div class="full-text agent-prose" use:markdown={{ text: selected.text }}></div>
-              {#if selected.image}{#key selected.image}<button class="picture" class:zoom aria-label={zoom ? "Fit annotation image" : "Zoom annotation image"} title={zoom ? "Click to fit" : "Click to see it at full size"} on:click={() => zoom = !zoom}><img use:image={selected.image} alt="Annotated view with numbered marks" /></button>{/key}{/if}
-              {#if selected.context?.snapshot?.marks.length}<ol class="anchors">{#each selected.context.snapshot.marks as mark}<li value={mark.n}><span class="n">{mark.n}</span><span title={mark.targets?.map(describeTarget).join(" · ")}>{mark.targets?.map(shortTarget).join(" · ") || mark.anchor?.path || `${mark.kind} in the saved view`}</span></li>{/each}</ol>{/if}
-              {#if selected.anchor}<blockquote>{selected.anchor.quote}</blockquote>{/if}
+            <!-- One reading column: the note, the picture it was drawn on, what it points at, then the replies. -->
+            <div class="column">
+              <div class="origin" class:agent={origin?.kind === "agent"}>
+                <div class="byline">{#if origin?.kind === "agent"}<AgentMark size={12} seed={origin.author} />{/if}<span class="who">{origin?.author ?? "You"}</span><span class="faint" title={when(origin?.ts ?? selected.createdAt)}>{origin ? age(origin.ts) : age(selected.createdAt)} · {selected.kind === "comment" ? "margin comment" : "annotation"}</span></div>
+                {#if selected.anchor}<blockquote title={selected.doc}><span class="eyebrow">On</span>{selected.anchor.quote.trim()}</blockquote>{/if}
+                <div class="full-text agent-prose" use:markdown={{ text: selected.text }}></div>
+              </div>
+              {#if selected.image}{#key selected.image}
+                <figure class="shot">
+                  <button class="picture" class:zoom aria-label={zoom ? "Close the full-size picture" : "See the picture at full size"} title={zoom ? "Click to close" : "Click to see it at full size"} on:click={() => zoom = !zoom}><img use:image={selected.image} alt="Annotated view with numbered marks" style:max-width={shot?.rect.w ? `min(100%, ${shot.rect.w}px)` : undefined} /></button>
+                  <figcaption><span class="eyebrow">Snapshot</span>{#if markCount}<span>{markCount} mark{markCount === 1 ? "" : "s"}</span>{/if}{#if shot?.rect.w}<span class="dim">{Math.round(shot.rect.w)} × {Math.round(shot.rect.h)}</span>{/if}<span class="grow"></span><button class="expand" title="See the picture at full size" aria-label="Full size" on:click={() => zoom = true}><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M9.500 2.500h4v4M13.500 2.500 9 7M6.500 13.500h-4v-4M2.500 13.500 7 9" /></svg>Full size</button></figcaption>
+                </figure>
+              {/key}{/if}
+              {#if pointers.length}
+                <div class="context">
+                  <span class="eyebrow">Points at</span>
+                  <ol class="anchors">{#each pointers as pointer (pointer.key)}
+                    <li><button class="pointer" title={pointer.target ? `${describeTarget(pointer.target)} — go there` : "Go to where this note was made"} on:click={() => jumpTo(pointer.target)}>
+                      <span class="marks">{#each pointer.marks as n}<span class="n">{n}</span>{/each}{#if !pointer.marks.length}<span class="pointer-icon" aria-hidden="true"><Icon name={pointer.icon} size={13} /></span>{/if}</span>
+                      <span class="kind">{pointer.kind}</span><span class="what">{pointer.text}</span><span class="go" aria-hidden="true">↗</span>
+                    </button></li>
+                  {/each}</ol>
+                </div>
+              {/if}
+              <div class="thread" aria-label="Item thread">{#each selected.thread.slice(1) as message, i (`${selected.id}:${i}`)}
+                {@const waiting = selected.status === "needs-input" && message.kind === "agent" && i + 1 === lastAgentIndex}
+                <article class:human={message.kind === "human"} class:agent={message.kind === "agent"} class:waiting>
+                  <div class="gutter">{#if message.kind === "agent"}<AgentMark size={13} seed={message.author} state={waiting ? "idle" : "done"} />{:else}<span class="you-dot" aria-hidden="true"></span>{/if}</div>
+                  <div class="body"><div class="byline"><b>{message.author}</b><span class="faint mono" title={when(message.ts)}>{message.kind === "human" ? "" : "agent · "}{age(message.ts)}</span>{#if waiting}<span class="wait">Waiting for you</span>{/if}</div><div class="agent-prose compact" class:you={message.kind === "human"} use:markdown={{ text: message.text }}></div></div>
+                </article>
+              {/each}</div>
+              <BackgroundRun item={selected} />
             </div>
-            <div class="thread" aria-label="Item thread">{#each selected.thread.slice(1) as message, i (`${selected.id}:${i}`)}
-              {@const waiting = selected.status === "needs-input" && message.kind === "agent" && i + 1 === lastAgentIndex}
-              <article class:human={message.kind === "human"} class:agent={message.kind === "agent"} class:waiting>
-                <div class="gutter">{#if message.kind === "agent"}<AgentMark size={13} seed={message.author} state={waiting ? "idle" : "done"} />{:else}<span class="you-dot" aria-hidden="true"></span>{/if}</div>
-                <div class="body"><div class="byline"><b>{message.author}</b><span class="faint mono" title={when(message.ts)}>{message.kind === "human" ? "you" : "agent"} · {age(message.ts)}</span>{#if waiting}<span class="wait">Waiting for you</span>{/if}</div><div class="agent-prose compact" class:you={message.kind === "human"} use:markdown={{ text: message.text }}></div></div>
-              </article>
-            {/each}</div>
-            <BackgroundRun item={selected} />
           </div>
-          <div class="actions" class:routing-actions={selected.status !== "resolved" && selected.status !== "withdrawn"}>
-            <button class="primary" data-key="↵" title="Go to where this note points (Enter on its row)" on:click={jump}>Jump to ↗</button>
+          <!-- One raised foot: the actions, then the reply. (The reply used to paint a strip of the
+               raised colour upward to join them, over the bottom edge of every button.) -->
+          <div class="foot">
+            <div class="actions" class:routing-actions={selected.status !== "resolved" && selected.status !== "withdrawn"}>
+              <button class="primary" data-key="↵" title="Go to where this note points (Enter on its row)" on:click={jump}>Jump to ↗</button>
+              {#if selected.status !== "resolved" && selected.status !== "withdrawn"}
+                <button class="assign-button" data-key="A" disabled={busy} aria-expanded={assignOpen} on:click={toggleAssign}>Assign ▾</button>
+                {#if selected.route !== "none" || selected.assignedTo}<button disabled={busy} on:click={() => routeItem("unassign")}>Unassign</button>{/if}
+                {#if selected.claimedBy}<button disabled={busy} on:click={() => routeItem("release")}>Release claim</button>{/if}
+              {/if}
+              <span class="grow"></span>
+              <button data-key="E" disabled={busy} on:click={() => act("archive")}>{selected.archived ? "Unarchive" : "Archive"}</button>
+              {#if selected.status === "resolved"}<button disabled={busy} on:click={() => act("reopen")}>Reopen</button>{/if}
+              {#if selected.kind === "annotation" && selected.status !== "withdrawn" && selected.thread[0]?.kind === "human"}<button disabled={busy} on:click={editAnnotation}>Edit</button><button disabled={busy} on:click={() => act("withdraw")}>Withdraw</button>{/if}
+              <button class="quiet" on:click={copyPrompt} title="Copy a one-line prompt that points an agent at this item">Copy agent prompt</button>
+            </div>
+            {#if assignOpen}<div class="assign-pop arrive"><RecipientList label="Assign recipient" disabled={busy} choose={route => void routeItem("assign", route)} /></div>{/if}
             {#if selected.status !== "resolved" && selected.status !== "withdrawn"}
-              <button class="assign-button" data-key="A" disabled={busy} aria-expanded={assignOpen} on:click={toggleAssign}>Assign ▾</button>
-              {#if selected.route !== "none" || selected.assignedTo}<button disabled={busy} on:click={() => routeItem("unassign")}>Unassign</button>{/if}
-              {#if selected.claimedBy}<button disabled={busy} on:click={() => routeItem("release")}>Release claim</button>{/if}
+              <div class="reply flux-composer" class:waiting={selected.status === "needs-input"}>
+                <textarea aria-label="Reply to inbox item" placeholder={selected.status === "needs-input" && holder ? `Answer ${holder}…` : holder ? `Reply to ${holder}…` : "Reply…"} bind:this={reply} value={draft} on:input={e => editDraft(e.currentTarget.value)} rows="2"></textarea>
+                <div class="composer-bar"><span class="hint">{selected.status === "needs-input" && holder ? `${holder} is waiting · Enter sends` : "Enter sends · Shift+Enter newline"}</span><kbd title="R puts the caret here">R</kbd><button class="primary" disabled={busy || !draft.trim()} on:click={() => act("reply")}>{busy ? "Saving…" : "Reply"}</button></div>
+              </div>
             {/if}
-            <span class="grow"></span>
-            <button data-key="E" disabled={busy} on:click={() => act("archive")}>{selected.archived ? "Unarchive" : "Archive"}</button>
-            {#if selected.status === "resolved"}<button disabled={busy} on:click={() => act("reopen")}>Reopen</button>{/if}
-            {#if selected.kind === "annotation" && selected.status !== "withdrawn" && selected.thread[0]?.kind === "human"}<button disabled={busy} on:click={editAnnotation}>Edit</button><button disabled={busy} on:click={() => act("withdraw")}>Withdraw</button>{/if}
-            <button class="quiet" on:click={copyPrompt} title="Copy a one-line prompt that points an agent at this item">Copy agent prompt</button>
           </div>
-          {#if assignOpen}<div class="assign-pop arrive"><RecipientList label="Assign recipient" disabled={busy} choose={route => void routeItem("assign", route)} /></div>{/if}
-          {#if selected.status !== "resolved" && selected.status !== "withdrawn"}
-            <div class="reply flux-composer" class:waiting={selected.status === "needs-input"}>
-              <textarea aria-label="Reply to inbox item" placeholder={selected.status === "needs-input" && holder ? `Answer ${holder}…` : holder ? `Reply to ${holder}…` : "Reply…"} bind:this={reply} value={draft} on:input={e => editDraft(e.currentTarget.value)} rows="2"></textarea>
-              <div class="composer-bar"><span class="hint">{selected.status === "needs-input" && holder ? `${holder} is waiting · Enter sends` : "Enter sends · Shift+Enter newline"}</span><kbd title="R puts the caret here">R</kbd><button class="primary" disabled={busy || !draft.trim()} on:click={() => act("reply")}>{busy ? "Saving…" : "Reply"}</button></div>
-            </div>
-          {/if}
         {:else}<div class="empty detail-empty"><b>Select an item to read its thread.</b><p>Annotations and margin comments share one Inbox.</p><div class="keys"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>Enter</kbd> jump to it</span><span><kbd>R</kbd> reply</span><span><kbd>A</kbd> assign</span><span><kbd>E</kbd> archive</span><span><kbd>Esc</kbd> close</span></div></div>{/if}
         {#if error || $inboxError}<div class="error" role="alert">{error || $inboxError}<button on:click={() => { error = ""; saveFailed = false; pending = Promise.resolve(true); void refreshInbox(); }}>Dismiss / refresh</button></div>{/if}
         {#if notice}<div class="notice arrive" role="status">{notice}</div>{/if}
       </section>
     </div>
+    <!-- The picture, large: over the whole Inbox, fitted (never enlarged); a click on it shows it at the
+         size it was taken, a click beside it or Esc leaves. -->
+    {#if zoom && selected?.image}
+      {@const size = selected.context?.snapshot?.rect}
+      <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+      <div class="lightbox" role="dialog" aria-label="Annotation picture" tabindex="-1" on:click={e => { if (!(e.target instanceof Element && e.target.closest(".lb-img"))) zoom = false; }}>
+        <div class="lb-stage">
+          <button class="lb-img" class:actual aria-label={actual ? "Fit the picture" : "Show the picture at actual size"} on:click={() => actual = !actual}><img use:image={selected.image} alt="Annotated view with numbered marks" style:--w={size?.w ? `${size.w}px` : undefined} /></button>
+        </div>
+        <div class="lb-bar"><span class="eyebrow">Snapshot</span>{#if size?.w}<span>{Math.round(size.w)} × {Math.round(size.h)}</span>{/if}<span class="dim">{actual ? "actual size" : "fitted"}</span><span class="grow"></span><span class="lb-keys">click the picture: {actual ? "fit" : "actual size"}</span><span class="lb-keys"><kbd>Esc</kbd> close</span></div>
+      </div>
+    {/if}
   </div>
 </div>
 
@@ -382,7 +465,7 @@
   .grow { flex:1; }
   svg { display:block; flex-shrink:0; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
   button { background:transparent;border:1px solid transparent;border-radius:var(--r-ui);color:inherit;padding:5px 8px;font:inherit;transition:background-color 80ms linear,border-color 80ms linear,color 80ms linear; }
-  button:not(.backdrop):not(.inbox-row):not(.group):not(.xbtn):not(.picture):hover { background:var(--c-surface-2); } button:disabled { opacity:.45; } button:focus-visible,textarea:focus-visible { outline:1px solid var(--c-accent);outline-offset:-1px; }
+  button:not(.backdrop):not(.inbox-row):not(.group):not(.xbtn):not(.picture):not(.lb-img):hover { background:var(--c-surface-2); } button:disabled { opacity:.45; } button:focus-visible,textarea:focus-visible { outline:1px solid var(--c-accent);outline-offset:-1px; }
   .inbox-body { display:flex;flex:1;min-height:0; }
 
   /* ---- the list ------------------------------------------------------------------------ */
@@ -438,26 +521,57 @@
 
   /* ---- the thread ---------------------------------------------------------------------- */
   .detail { position:relative;display:flex;flex:1;flex-direction:column;min-width:0;overflow:hidden; }
-  .detail-heading { padding:12px 18px 11px;border-bottom:1px solid var(--c-line); }
+  .detail-heading { padding:12px 20px 11px;border-bottom:1px solid var(--c-line); }
   .line1 { display:flex;align-items:center;gap:8px;min-height:20px; }
   .id { padding:1px 5px;font-size:10px;color:var(--c-tx-faint);border-color:transparent; } .id:hover { color:var(--c-tx-hi); }
-  .place { display:flex;align-items:center;gap:7px;margin:7px 0 0;color:var(--c-tx-2);font:12px/1.4 var(--font-serif);overflow-wrap:anywhere; }
-  .place-icon { display:grid;place-items:center;flex-shrink:0;opacity:.9; }
+  /* Where it is: the surface as a label, then the thing itself. */
+  .place { display:flex;align-items:baseline;gap:8px;margin:8px 0 0;min-width:0;color:var(--c-tx-2);font:13px/1.4 var(--font-serif); }
+  .place-icon { display:grid;place-items:center;flex-shrink:0;align-self:center;opacity:.9; }
+  .place .surface, .eyebrow, .pointer .kind { flex-shrink:0;color:var(--c-tx-muted);font:600 10px var(--font-mono);letter-spacing:.08em;text-transform:uppercase; }
+  .place .about { min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--c-tx); }
+  .place .more { flex-shrink:0;color:var(--c-tx-faint);font:italic 12px var(--font-serif); }
   .tagrow { display:flex;flex-wrap:wrap;gap:4px;margin-top:8px; }
   .tagchip { height:18px;padding:0 6px;border-color:var(--c-line);color:var(--c-accent-bright);font:10px var(--font-mono); } .tagchip:hover { border-color:var(--c-accent);color:var(--c-tx-hi); }
-  .detail-scroll { flex:1;min-height:0;overflow:auto;padding:14px 18px 14px;scrollbar-gutter:stable;display:flex;flex-direction:column;gap:16px; }
+  .detail-scroll { flex:1;min-height:0;overflow:auto;padding:16px 20px 18px;scrollbar-gutter:stable; }
+  /* A measure you can read: the note does not run the width of the window. */
+  .column { display:flex;flex-direction:column;gap:18px;max-width:680px; }
   .origin { display:flex;flex-direction:column;gap:9px; }
   .byline { display:flex;align-items:baseline;gap:7px;color:var(--c-tx-muted);font:10.5px var(--font-mono); } .byline .who, .byline b { color:var(--c-tx-hi);font:600 12.5px var(--font-serif); }
   .full-text { font-size:15px; line-height:1.55; }
-  /* The whole picture, fitted; a click shows it at its real size. */
-  .picture { display:block;align-self:flex-start;max-width:100%;max-height:340px;overflow:hidden;padding:0;border:1px solid var(--c-line-strong);border-radius:var(--r-ui);background:var(--c-bg);cursor:zoom-in; }
-  .picture:hover { border-color:var(--c-tx-muted); }
-  .picture img { display:block;max-width:100%;max-height:338px;object-fit:contain; }
-  .picture.zoom { align-self:stretch;max-height:62vh;overflow:auto;cursor:zoom-out; } .picture.zoom img { max-width:none;max-height:none; }
-  .anchors { margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px;color:var(--c-tx-2);font:12px/1.45 var(--font-serif); }
-  .anchors li { display:flex;align-items:baseline;gap:8px; }
-  .anchors .n { display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;background:var(--c-ink-mark);color:#fff;font:700 10px var(--font-ui);flex-shrink:0;align-self:center; }
-  blockquote { margin:0;padding-left:10px;border-left:2px solid var(--c-line-strong);font:italic 13px/1.5 var(--font-serif);color:var(--c-tx-2); }
+  /* A margin comment's passage, in full, before what was said about it. */
+  blockquote { display:flex;align-items:baseline;gap:9px;margin:0;padding:7px 12px 8px;background:var(--c-bg);border-radius:var(--r-ui);box-shadow:inset 2px 0 var(--c-comment);font:italic 13.5px/1.5 var(--font-serif);color:var(--c-tx-2); }
+  blockquote .eyebrow { font-style:normal; }
+  /* The picture: on a mat, at no more than the size it was taken, with what it is under it. */
+  .shot { display:flex;flex-direction:column;margin:0;border:1px solid var(--c-line);border-radius:var(--r-panel);background:var(--c-bg);overflow:hidden; }
+  .picture { display:grid;place-items:center;width:100%;max-height:344px;box-sizing:border-box;padding:12px;border:0;border-radius:0;background:transparent;cursor:zoom-in; }
+  .picture img { display:block;max-width:100%;max-height:320px;object-fit:contain;border-radius:1px;box-shadow:0 0 0 1px var(--c-line-strong),0 6px 18px -8px rgba(0,0,0,.6);transition:box-shadow 80ms linear; }
+  .picture:hover img { box-shadow:0 0 0 1px var(--c-tx-muted),0 6px 18px -8px rgba(0,0,0,.6); }
+  .picture.zoom { cursor:zoom-out; }
+  figcaption { display:flex;align-items:center;gap:10px;height:28px;padding:0 6px 0 12px;border-top:1px solid var(--c-line);background:var(--c-surface);color:var(--c-tx-muted);font:10.5px var(--font-mono);font-variant-numeric:tabular-nums;white-space:nowrap; }
+  figcaption .dim { color:var(--c-tx-faint); }
+  .expand { display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 7px;color:var(--c-tx-2);font:11.5px var(--font-serif); } .expand:hover { color:var(--c-tx-hi); }
+  /* The picture, large, over the whole Inbox. Fitted to the stage and never enlarged; a click on it
+     shows it at the size it was taken (scroll to move about it). */
+  .lightbox { position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;background:color-mix(in srgb,var(--c-bg) 96%,transparent);animation:flux-arrive 90ms ease-out both; }
+  .lb-stage { flex:1;min-height:0;overflow:auto;display:grid;place-items:safe center;padding:20px;container-type:size;cursor:zoom-out; }
+  .lb-img { display:block;padding:0;border:0;border-radius:0;background:none;cursor:zoom-in; } .lb-img.actual { cursor:zoom-out; }
+  .lb-img img { display:block;max-width:min(calc(100cqw - 40px),var(--w,100cqw));max-height:calc(100cqh - 40px);box-shadow:0 0 0 1px var(--c-line-strong),0 18px 50px -12px rgba(0,0,0,.7); }
+  .lb-img.actual img { max-width:none;max-height:none;width:var(--w,auto); }
+  .lb-bar { display:flex;align-items:center;gap:12px;flex:0 0 30px;padding:0 14px;border-top:1px solid var(--c-line);background:var(--c-surface);color:var(--c-tx-muted);font:10.5px var(--font-mono);font-variant-numeric:tabular-nums;white-space:nowrap; }
+  .lb-bar .dim { color:var(--c-tx-faint); } .lb-keys { font:11px var(--font-ui); }
+  /* What it points at: each thing once, with the marks that name it. A row goes there. */
+  .context { display:flex;flex-direction:column;gap:6px; }
+  .anchors { margin:0;padding:0;list-style:none;display:flex;flex-direction:column;border:1px solid var(--c-line);border-radius:var(--r-ui); }
+  .anchors li + li { border-top:1px solid var(--c-line); }
+  .pointer { display:flex;align-items:baseline;gap:9px;width:100%;min-height:30px;padding:5px 10px;border:0;border-radius:0;text-align:left;color:var(--c-tx-2);font:13px/1.4 var(--font-serif); }
+  .pointer:hover { color:var(--c-tx-hi); } .pointer:active { background:var(--c-accent-tint); }
+  .pointer .marks { display:inline-flex;flex-shrink:0;gap:3px;align-self:center;min-width:16px; }
+  .anchors .n { display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;background:var(--c-ink-mark);color:#fff;font:700 10px var(--font-ui); }
+  .pointer-icon { display:grid;place-items:center;width:16px;height:16px;color:var(--c-tx-muted); }
+  .pointer .kind { min-width:44px; }
+  .pointer .what { flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+  .pointer .go { flex-shrink:0;color:var(--c-accent-bright);font:12px var(--font-ui);opacity:0;transition:opacity 80ms linear; }
+  .pointer:hover .go, .pointer:focus-visible .go { opacity:1; }
   /* Replies hang off one line down the gutter, each on its mark. */
   .thread { position:relative;display:flex;flex-direction:column;gap:16px; }
   .thread:empty { display:none; }
@@ -466,12 +580,15 @@
   article .gutter { padding-top:2px;display:grid;place-items:center;background:var(--c-surface); }
   .you-dot { width:7px;height:7px;border-radius:50%;background:var(--c-tx-muted);margin:5px 0; }
   article .body { display:flex;flex-direction:column;gap:4px;min-width:0; }
+  /* One voice down the thread: your replies and an agent's are set the same. */
+  article .body :global(.agent-prose) { font:14px/1.55 var(--font-serif);color:var(--c-tx); }
   article.waiting .body { padding:8px 10px 9px;margin:-4px 0 0 -4px;background:var(--c-comment-tint);border-radius:var(--r-ui);box-shadow:inset 2px 0 var(--c-comment); }
   .wait { margin-left:auto;color:var(--c-comment);font:600 10px var(--font-mono);letter-spacing:.06em;text-transform:uppercase; }
-  /* One action bar. The keys that act on the open item are drawn on their buttons (as content, so
-     a button's text stays its name). */
-  .actions { display:flex;flex-wrap:wrap;gap:4px;padding:8px 12px;border-top:1px solid var(--c-line);align-items:center;background:var(--c-bg-raised); }
-  .actions button { display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;border-color:var(--c-line);color:var(--c-tx);font:12px var(--font-serif);white-space:nowrap; }
+  /* One raised foot holds the action bar and the reply. The keys that act on the open item are
+     drawn on their buttons (as content, so a button's text stays its name). */
+  .foot { display:flex;flex-direction:column;gap:8px;padding:8px 12px 12px;border-top:1px solid var(--c-line);background:var(--c-bg-raised); }
+  .actions { display:flex;flex-wrap:wrap;gap:4px;align-items:center; }
+  .actions button { display:inline-flex;align-items:center;gap:6px;height:24px;box-sizing:border-box;padding:0 8px;border-color:var(--c-line);color:var(--c-tx);font:12px var(--font-serif);white-space:nowrap; }
   .actions button:hover:not(:disabled) { border-color:var(--c-line-strong);color:var(--c-tx-hi); }
   .actions button:active:not(:disabled) { background:var(--c-accent-tint);border-color:var(--c-accent); }
   .actions button[data-key]::before { content:attr(data-key);display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;min-width:16px;height:15px;padding:0 4px;border:1px solid color-mix(in oklab,currentColor 45%,transparent);border-bottom-width:2px;border-radius:var(--r-ui);color:var(--c-tx-muted);font:500 10px/12px var(--font-mono); }
@@ -480,10 +597,6 @@
   .actions button.primary::before { color:var(--c-accent-bright); }
   .actions button.quiet { border-color:transparent;color:var(--c-tx-muted); }
   .actions button[aria-expanded="true"] { background:var(--c-accent-tint);border-color:var(--c-accent); }
-  .assign-pop { padding:0 12px 8px;background:var(--c-bg-raised); }
-  .reply { margin:0 12px 12px; }
-  .detail > .reply { margin-top:0; }
-  .actions + .reply, .assign-pop + .reply { box-shadow:0 -12px 0 0 var(--c-bg-raised); }
   .reply.waiting { border-color:color-mix(in srgb,var(--c-comment) 55%,var(--c-line-strong)); }
   .reply textarea { font:13.5px/1.5 var(--font-serif); }
   .reply kbd { color:var(--c-tx-faint); }
@@ -495,5 +608,5 @@
   .notice { position:absolute;right:16px;top:40px;padding:2px 8px;background:var(--c-surface-2);border:1px solid var(--c-line);border-radius:var(--r-ui);color:var(--c-tx-2);font:10.5px var(--font-mono);pointer-events:none; }
   .mono { font-family:var(--font-mono);font-variant-numeric:tabular-nums; } .faint { color:var(--c-tx-faint); }
   @media(max-width:640px) { aside { flex-basis:45%;min-width:190px; } .inbox-row { grid-template-columns:minmax(0,1fr); } .lead { display:none; } footer { font-size:9px; } .grammar { grid-template-columns:1fr; } }
-  @media (prefers-reduced-motion: reduce) { button, .find { transition:none; } }
+  @media (prefers-reduced-motion: reduce) { button, .find, .picture img, .pointer .go { transition:none; } .lightbox { animation:none; } }
 </style>

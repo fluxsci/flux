@@ -90,9 +90,14 @@ The header reads **Flux AI │ Inbox**, and the small mark beside it (the seed o
 logo, always turning) tells you the state at a glance: gold while something is waiting for
 you, blue while a connected agent is at work on an item, and the logo's own colours otherwise.
 
-Select an item to read it as a conversation: your note, its picture with numbered anchors
-(shown whole; click it to see it at full size, and again or **Esc** to fit it back),
-then the replies — agents are marked with the Flux seed and their name, their Markdown is
+Select an item to read it as a conversation, in one reading column: your note; its picture on
+a mat, shown whole and never larger than it was taken, with a caption saying how many marks it
+carries; **Points at**, which lists each thing the note is about once, with the numbers of the
+marks that name it (four marks on one figure are one line), and takes you to that thing when
+you click its row; then the replies. Click the picture (or **Full size**) to see it large over
+the whole Inbox: fitted first, at its actual size after a click on it, closed by **Esc** or a
+click beside it. A margin comment shows the passage it is attached to, in full, above what
+was said about it. Agents are marked with the Flux seed and their name, their Markdown is
 rendered (lists, code, tables), and an agent's question is marked **Waiting for you** with the
 reply box inviting **Answer heron…**. **R** focuses Reply; **Enter** sends, and **Shift+Enter**
 adds a newline. The short id beside the status copies the full id when clicked, and a tag

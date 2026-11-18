@@ -104,6 +104,32 @@ try {
   h.ok(await page.$eval('.anchors', e => e.textContent.includes('Density')), 'numbered anchors name their semantic target');
   await page.click('.picture'); h.ok(!!await page.$('.picture.zoom'), 'picture opens its zoomed view');
   await page.keyboard.press('Escape'); h.ok(!!await page.$('.inbox-panel') && !await page.$('.picture.zoom'), 'Escape leaves image zoom before closing Inbox');
+  // The thread view (owner, 2026-11-18: "the bottom of the outline of these buttons … being cut off";
+  // "images could render more cleanly, context could be more elegantly displayed").
+  const thread = await page.evaluate(() => {
+    const box = s => document.querySelector(s).getBoundingClientRect();
+    const buttons = [...document.querySelectorAll('.detail .actions button')];
+    // A button's bottom edge is its own: nothing (the reply box used to) is painted over it.
+    const edges = buttons.map(b => { const r = b.getBoundingClientRect(), top = document.elementFromPoint(r.left + r.width / 2, r.bottom - 0.6); return top === b || b.contains(top); });
+    const img = document.querySelector('.picture img'), shot = img.getBoundingClientRect(), column = box('.column'), scroller = box('.detail-scroll');
+    const marks = [...document.querySelectorAll('.anchors li')].map(li => ({ n: li.querySelectorAll('.n').length, kind: li.querySelector('.kind').textContent.trim(), what: li.querySelector('.what').textContent.trim() }));
+    return { edges, natural: [img.naturalWidth, img.naturalHeight], shown: [shot.width, shot.height], dpr: devicePixelRatio, column: column.width, scroller: scroller.width,
+      marks, caption: [...document.querySelectorAll('.shot figcaption > span:not(.grow)')].map(part => part.textContent.trim()).join(' | '),
+      place: [document.querySelector('.place .surface').textContent.trim(), document.querySelector('.place .about')?.textContent.trim() ?? ''],
+      foot: getComputedStyle(document.querySelector('.detail .foot')).backgroundColor, replyShadow: getComputedStyle(document.querySelector('.detail .reply')).boxShadow };
+  });
+  h.ok(thread.edges.length >= 3 && thread.edges.every(Boolean), 'every action button keeps its whole outline, bottom edge included', JSON.stringify(thread.edges));
+  h.ok(thread.foot !== 'rgba(0, 0, 0, 0)' && !/-12px/.test(thread.replyShadow), 'the actions and the reply share one raised foot (no strip painted over the buttons)', thread.replyShadow);
+  h.ok(thread.shown[0] <= thread.natural[0] / thread.dpr + 1 && thread.shown[1] <= 321, 'the picture is never shown larger than it was taken', JSON.stringify(thread));
+  h.ok(/^Snapshot \| \d+ marks? \| \d+ × \d+$/.test(thread.caption), 'the picture is captioned with what it is', thread.caption);
+  h.ok(thread.column <= 680.5 && thread.column <= thread.scroller, 'the note is set in a reading column', `${thread.column} of ${thread.scroller}`);
+  h.ok(thread.marks.length >= 1 && new Set(thread.marks.map(m => `${m.kind} ${m.what}`)).size === thread.marks.length && thread.marks.every(m => !m.what.toLowerCase().startsWith(`${m.kind} `)), 'each thing the note points at is listed once, labelled by kind', JSON.stringify(thread.marks));
+  h.ok(thread.place[0].length > 0 && !thread.place[1].toLowerCase().startsWith(`${thread.place[0].toLowerCase()} `), 'the heading names the surface once', thread.place.join(' | '));
+  await page.click('.picture');
+  const viewer = await page.evaluate(() => { const v = document.querySelector('.lightbox').getBoundingClientRect(), p = document.querySelector('.inbox-panel').getBoundingClientRect(), i = document.querySelector('.lb-img img').getBoundingClientRect(), s = document.querySelector('.lb-stage').getBoundingClientRect(); return { covers: Math.abs(v.width - p.width) < 3 && Math.abs(v.height - p.height) < 3, inside: i.left >= s.left && i.right <= s.right && i.top >= s.top && i.bottom <= s.bottom, w: i.width }; });
+  h.ok(viewer.covers && viewer.inside, 'the picture opens large over the whole Inbox, fitted to it', JSON.stringify(viewer));
+  await page.click('.lb-img'); h.ok(!!await page.$('.lb-img.actual') && await page.$eval('.lb-img img', (img, w) => img.getBoundingClientRect().width >= w - 0.5, viewer.w), 'a click on it shows it at the size it was taken');
+  await page.click('.lb-bar'); h.ok(!await page.$('.lightbox') && !!await page.$('.inbox-panel'), 'a click beside the picture closes the viewer, not the Inbox');
   // --- 2026-11-18 refinement: the Flux AI header, the turning mark, and state without motion ---
   const head = await page.evaluate(() => {
     const header = document.querySelector('.inbox-panel header'), mark = header.querySelector('.flux-ai-mark'), style = getComputedStyle(mark);

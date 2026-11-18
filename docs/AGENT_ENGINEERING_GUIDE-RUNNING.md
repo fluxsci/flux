@@ -3041,6 +3041,18 @@ Persistence invariants (all machine-checked — do not weaken):
     does, and why that one runs only while busy). `verify-inbox-gui` pins the animation to `transform` on the
     root, forbids animations inside it, and forbids any other infinite animation in the Inbox (the claimed
     chip used to breathe forever; live is now a filled dot in a ring).
+    **The Inbox's thread (round 2, same day; owner: "images could render more cleanly, context could be more
+    elegantly displayed").** One `.column` (680 px measure) holds the note, the picture (`figure.shot`: a mat, the
+    image capped at the snapshot's own CSS width `context.snapshot.rect.w` so it is never enlarged, a caption),
+    `.context` and the replies. `pointersOf(item)` builds **Points at**: marks grouped by the most specific
+    non-region target under each (`JSON.stringify(target)` is the identity), then the item's other targets;
+    regions are mark geometry and are never listed; a comment's doc target is left out because its passage is
+    quoted in full. `.anchors` is still the list (the gate reads the target's name from it) and `.picture.zoom`
+    still means "the viewer is open", but the viewer is `.lightbox` over the whole `.inbox-panel`
+    (`container-type:size` on `.lb-stage`, so the image fits with `cqw`/`cqh` and no measuring). The action bar
+    and the reply share `.foot`; the reply's old `box-shadow: 0 -12px` (there to continue the raised colour) is
+    what covered the bottom border of every button: join two blocks with a shared parent, never with a shadow
+    drawn over the neighbour.
     **Annotate and Ask (2026-11-18).** Both headers are `[mark] Flux AI │ Annotate|Ask │ where`. Ask's
     SYNCHRONOUS bootstrap (`askChord.ts`, DOM built by hand) and the lazy `AskSurface` draw the same header from
     the same two functions: `fluxAiMarkElement` and `askWhere(stamp)`; `verify-ask-gui` compares them piece by
