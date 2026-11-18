@@ -41,7 +41,7 @@ export interface DocsContext {
 }
 export interface DocsTarget {
   url: string;
-  /** What the page is about, for the button's tooltip: "Figure", "Settings". */
+  /** What the page is about, for the button's tooltip: "Figure", "Settings". Empty for the guide's start. */
   label: string;
 }
 
@@ -55,7 +55,7 @@ export function docsTarget(context: DocsContext = {}): DocsTarget {
     return { url: `${DOCS_BASE}shortcuts.html${anchor}`, label: "Keyboard shortcuts" };
   }
   const mode = context.view === "home" ? undefined : MODE_PAGE[context.mode ?? ""];
-  return mode ? { url: `${DOCS_BASE}${mode.page}`, label: mode.label } : { url: DOCS_BASE, label: "Flux" };
+  return mode ? { url: `${DOCS_BASE}${mode.page}`, label: mode.label } : { url: DOCS_BASE, label: "" };
 }
 
 /**

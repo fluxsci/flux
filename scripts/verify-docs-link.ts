@@ -10,8 +10,8 @@ const h = harness("verify-docs-link");
 
 h.section("pages");
 h.eq(DOCS_BASE, "https://fluxsci.org/docs/", "the guide's address");
-h.eq(docsTarget({ view: "home", mode: "paper" }), { url: DOCS_BASE, label: "Flux" }, "Home opens the guide's start, whatever mode was last focused");
-h.eq(docsTarget(), { url: DOCS_BASE, label: "Flux" }, "no context opens the guide's start");
+h.eq(docsTarget({ view: "home", mode: "paper" }), { url: DOCS_BASE, label: "" }, "Home opens the guide's start, whatever mode was last focused");
+h.eq(docsTarget(), { url: DOCS_BASE, label: "" }, "no context opens the guide's start");
 h.eq(docsTarget({ view: "workspace", mode: "nowhere" }).url, DOCS_BASE, "an unknown mode opens the guide's start, never a made-up page");
 const pages = Object.fromEntries(MODE_ORDER.map((mode) => [mode, docsTarget({ view: "workspace", mode }).url.slice(DOCS_BASE.length)]));
 h.eq(pages, { figure: "figure.html", slide: "slides.html", paper: "paper.html", library: "library.html", reader: "reader.html" }, "each mode opens its own page (Slide's is slides.html)");
