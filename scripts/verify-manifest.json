@@ -476,7 +476,8 @@
       "verify-word-count.ts",
       "verify-mode-icons.ts",
       "verify-help-shortcuts.ts",
-      "verify-docs-link.ts"
+      "verify-docs-link.ts",
+      "verify-dissect-format.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -12392,6 +12393,15 @@
       "coverage": "behavior"
     },
     "verify-docs-link.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-dissect-format.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

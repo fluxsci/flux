@@ -64,25 +64,43 @@ from). With a file selected, clicking another plot that has a file of the same n
 selected in the same place, so you can flip between plots and compare one subject. The pin
 holds the pane on one plot while you work elsewhere.
 
-**Full screen.** In the figure editor, select a plot and press **D** (or click **Dissections** in the
-Inspector — it shows a count). The viewer opens full-screen, and the **⧉** button shrinks it
+**Full screen.** In the Figure or Slide editor, select a plot and press **D** (or click **Dissections** in the
+Inspector — it shows a count). The viewer opens full-screen, and the window button at its top right shrinks it
 to a floating window you can keep beside the canvas. It is the rail's pane at full size: tables
 first as Summary previews, then each folder of panels as its own section at the panels' own
 shapes, then the remaining files as a list:
 
 - **Arrow keys** move through the files; **[** / **]** (or **Ctrl+scroll**) make the tiles
   smaller or larger; **1–9** jump to a section; a section's ▾ folds it.
-- **Enter** expands a file. Images zoom at the cursor with **Ctrl+scroll**, pan with
-  **Space+drag** or plain scroll, and toggle fit/1:1 with **Enter**. CSV/TSV files open as
-  tables with a sticky header — click a column to sort, numeric columns right-align.
-- **Esc** steps back: detail → grid → closed.
+- **Enter** opens a file. Images zoom at the cursor with **Ctrl+scroll**, pan with
+  **Space+drag** or plain scroll, and toggle fit/1:1 with **Enter**.
+- **An open file has a strip of every file under it**, the open one marked and kept in the
+  middle, each group named where it starts. **←** / **→** flip to the previous / next file,
+  **↑** / **↓** step a whole group, **Home** / **End** go to the first / last, **1–9** open a
+  section's first file, and a click in the strip opens that file: you can go through twenty
+  per-subject panels without returning to the grid. The bar above the file says where you
+  are (section › file, and *8 of 24*), with **All files** to go back.
+- **Tables are shown the way you would read them.** A long number is rounded to four
+  significant digits (`6.596349872904714` → 6.596), very small and very large ones are written
+  as powers of ten (`3.88e-05` → 3.88 × 10⁻⁵), and a number that is already short is left exactly
+  as written. Hover a cell for the file's own text, or switch **Rounded** to **As written** to
+  see every cell untouched. Columns of p-values carry the usual marks (\* below .05, \*\* below
+  .01, \*\*\* below .001). Click a column to sort; numeric columns right-align. The cards in the
+  grid and in the sidebar use the same formatting.
+- **A table of test results is also read out as sentences** above the table (*Reads as*): for
+  example *open vs laparoscopic — Paired t-test, t(11) = 6.596, p = 3.9 × 10⁻⁵ (Holm 7.8 × 10⁻⁵),
+  Hedges' g_z = 1.771 [0.922, 2.86], n = 12*. **Copy** puts a sentence (or all of them) on the
+  clipboard for your results section. This appears for tables with a p-value column and a test
+  name or a test statistic, which is what fluxplot's `_stats` files contain.
+- **Esc** steps back: open file → grid → closed.
 
 The viewer is live: files dropped into the folder while it's open simply appear.
 
 # Notes and finding plots
 
-In the sidebar's Dissections pane, switch from **Files** to **✎ Notes**, or click **✎ Notes**
-in the full viewer, then **+ Note** to create a text file. Give each note a name; Flux adds
+In the sidebar's Dissections pane, switch from **Files** to **✎ Notes**, or click **Notes**
+in the full viewer (where a note is a page: one readable column of text), then **+ Note** to
+create a text file. Give each note a name; Flux adds
 `.txt` if needed. Select a file to edit it; double-clicking a `.txt` among a plot's files opens
 it here too. Notes save as you type and when you leave the field; **Ctrl+S** saves immediately.
 A failed save keeps your draft, and an external edit is reported instead of being overwritten.

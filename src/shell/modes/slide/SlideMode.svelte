@@ -114,6 +114,7 @@
   import CascadePopover from "../../../lib/CascadePopover.svelte";
   import { trackCascadeAdapter, openTrackCascade } from "./animator/cascadeTracks";
   import FluxFigMenu from "../../../lib/FluxFigMenu.svelte";
+  import DissectOverlay from "../../../lib/dissect/DissectOverlay.svelte";
   import Xray from "../../../lib/Xray.svelte";
   import PlotImporter, { type PlotPick } from "../../../lib/PlotImporter.svelte";
   import { readIncomingPlot, importPlotsFromPaths, type Incoming, type PlaceAt } from "../../../lib/io";
@@ -2043,6 +2044,9 @@
 <!-- shared figure surfaces: X-ray, property cockpit, plots/ browser, presets -->
 <FluxFigMenu />
 <Xray />
+<!-- D opens a plot's dissections on a slide too. The key always set the viewer's target; with no
+     viewer mounted here, nothing appeared and the keyboard stayed yielded to it (2026-11-18). -->
+<DissectOverlay />
 <PlotImporter {active} rootOverride={pm?.root ?? ""} title={morphFor ? morphFor.kind==="model3d" ? "Become — choose the next 3D model" : "Become — choose the plot whose data it becomes" : "Plot and video gallery"}
   allowVideos={!morphFor} allowModels={!morphFor||morphFor.kind==="model3d"} initialModelsOnly={morphFor?.kind==="model3d"} importItems={importSlideItems} importStatus={videoImportStatus} cancelImport={videoImport ? cancelClipImport : undefined}
   onPick={morphFor ? acceptMorphTarget : undefined} />

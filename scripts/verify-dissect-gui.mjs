@@ -196,6 +196,77 @@ ok(
   s.cells.map((c) => c.name).join(","),
 );
 
+// ---- 2026-11-18 rebuild: the rolodex, results read as sentences, numbers as a reader wants them ----
+// A statistics table in fluxplot's _stats shape arrives live, like the one above.
+await page.evaluate(async (root) => {
+  const file = `${root}/plots/_dissections/growth-cal/_stats/ttest.csv`;
+  await window.fig.writeText(file, "sig_test_used,test_statistic_value,p-value,p_corrected_holm,dof,effect_size_method,effect_size_value,effect_size_ci_low,effect_size_ci_high,n_total,groups\nPaired t-test,6.596349872904714,3.8829874339838984e-05,7.765974867967797e-05,11.0,Hedges' g_z,1.7713508719955768,0.9222804075578142,2.8575306535839893,12,\"['open', 'laparoscopic']\"\n");
+  window.__fluxEmitFsChange({ subsystem: "dissections", path: file });
+}, ROOT);
+await page.waitForSelector('[data-dissect-cell][data-name="ttest.csv"]');
+// The grid's own card already shows the rounded value with its marks, the file's text in the tooltip.
+const card = await page.$eval('[data-dissect-cell][data-name="ttest.csv"]', (cell) => {
+  const p = [...cell.querySelectorAll(".td, .v")].find((n) => n.dataset.sig);
+  return p ? { text: p.textContent, marks: getComputedStyle(p, "::after").content, raw: p.title } : null;
+});
+ok(card?.text === "3.9 × 10⁻⁵" && card.marks === '"***"' && card.raw === "3.8829874339838984e-05", "a table card shows a p-value rounded, with its marks, and keeps the file's text in the tooltip", JSON.stringify(card));
+await page.click('[data-dissect-cell][data-name="ttest.csv"]');
+await page.keyboard.press("Enter");
+await page.waitForSelector("[data-dissect-report]");
+const read = await page.evaluate(() => {
+  const report = document.querySelector("[data-dissect-report]"), row = document.querySelector("[data-dissect-table] .row");
+  const cells = [...row.querySelectorAll(".cell")];
+  return { sentence: report.querySelector("li").textContent.replace(/\s+/g, " ").trim(), statistic: cells[1].textContent, statisticRaw: cells[1].title, p: cells[2].textContent, marks: getComputedStyle(cells[2], "::after").content,
+    seg: [...document.querySelectorAll("[data-dissect-table] .seg button")].map((b) => `${b.textContent}:${b.getAttribute("aria-pressed")}`) };
+});
+ok(/open vs laparoscopic/.test(read.sentence) && /t\(11\) = 6\.596/.test(read.sentence) && /p = 3\.9 × 10⁻⁵/.test(read.sentence) && /Holm 7\.8 × 10⁻⁵/.test(read.sentence) && /Hedges' g_z = 1\.771 \[0\.922, 2\.86\]/.test(read.sentence) && /n = 12/.test(read.sentence),
+  "a statistics table is also read out as a result sentence", read.sentence);
+ok(read.statistic === "6.596" && read.statisticRaw === "6.596349872904714" && read.p === "3.9 × 10⁻⁵" && read.marks === '"***"', "long numbers are rounded in the table; the tooltip keeps what the file says; p-values carry their marks", JSON.stringify(read));
+ok(JSON.stringify(read.seg) === JSON.stringify(["Rounded:true", "As written:false"]), "Rounded is the default of the two ways to show numbers", JSON.stringify(read.seg));
+await page.evaluate(() => [...document.querySelectorAll("[data-dissect-table] .seg button")].find((b) => b.textContent === "As written").click());
+await page.waitForFunction(() => document.querySelector("[data-dissect-table] .row .cell:nth-child(2)")?.textContent === "6.596349872904714");
+ok(true, "As written shows every cell exactly as the file has it");
+await page.evaluate(() => { window.__copied = []; Object.defineProperty(navigator.clipboard, "writeText", { configurable: true, value: async (text) => { window.__copied.push(text); } }); });
+await page.evaluate(() => document.querySelector("[data-dissect-report] .copy").click());
+await page.waitForFunction(() => window.__copied.length === 1);
+ok(await page.evaluate(() => window.__copied[0] === "open vs laparoscopic: Paired t-test: t(11) = 6.596, p = 3.9 × 10⁻⁵ (Holm 7.8 × 10⁻⁵), Hedges' g_z = 1.771 [0.922, 2.86], n = 12"), "Copy puts the sentence on the clipboard, ready for a results section");
+// The rolodex: every file in one strip under the open one; the keys flip without leaving it.
+const strip = async () => page.evaluate(() => {
+  const el = document.querySelector("[data-dissect-strip]"), current = el?.querySelector(".item.current");
+  const box = el?.getBoundingClientRect(), c = current?.getBoundingClientRect();
+  return { there: !!el, current: current?.dataset.stripItem ?? "", centred: !!box && !!c && (Math.abs(c.left + c.width / 2 - (box.left + box.width / 2)) < 60 || el.scrollLeft === 0 || el.scrollLeft >= el.scrollWidth - el.clientWidth - 1),
+    groups: [...(el?.querySelectorAll(".group") ?? [])].map((g) => g.textContent), open: document.querySelector(".opened .fname")?.textContent ?? "", detail: !!document.querySelector("[data-dissect-detail]"), pos: document.querySelector(".opened .pos")?.textContent ?? "" };
+});
+let st = await strip();
+ok(st.there && st.detail && st.current === "ttest.csv" && st.open === "ttest.csv" && st.centred, "an open file has the strip of all files under it, itself marked and in view", JSON.stringify(st));
+ok(st.groups.includes("Summary") && st.groups.includes("by_subject"), "the strip names where each group starts", st.groups.join(","));
+const before = st.pos;
+await page.keyboard.press("ArrowRight");
+st = await strip();
+ok(st.detail && st.open !== "ttest.csv" && st.current === st.open && st.pos !== before, "→ flips to the next file and stays in the open view", JSON.stringify(st));
+await page.keyboard.press("ArrowLeft");
+st = await strip();
+ok(st.open === "ttest.csv", "← flips back");
+await page.keyboard.press("ArrowDown");
+st = await strip();
+const afterDown = st.open;
+ok(st.detail && afterDown === "overview.svg", "↓ steps to the next group's first file", afterDown);
+await page.keyboard.press("3");
+st = await strip();
+ok(st.detail && st.open === "subj01.svg", "a digit opens that section's first file without going back to the grid", st.open);
+await page.keyboard.press("End");
+st = await strip();
+const last = st.open;
+await page.keyboard.press("Home");
+st = await strip();
+ok(st.detail && last !== st.open && /^1 of /.test(st.pos.trim()), "End and Home go to the last and the first file", `${last} → ${st.open} (${st.pos})`);
+await page.click('[data-dissect-strip] [data-strip-item="subj02.svg"]').catch(() => {});
+st = await strip();
+ok(st.open === "subj02.svg" && st.current === "subj02.svg", "a click in the strip opens that file", st.open);
+ok(await page.evaluate(() => [...document.querySelectorAll("[data-dissect] *")].flatMap((e) => e.getAnimations()).filter((a) => a.effect?.getComputedTiming().iterations === Infinity).length === 0), "nothing in the viewer animates at rest");
+await shot(page, "dissect-rolodex");
+await page.keyboard.press("Escape"); // open file → grid
+
 // ---- Esc ladder closes ----------------------------------------------------------
 await page.keyboard.press("Escape");
 s = await snap();

@@ -2631,6 +2631,29 @@ Persistence invariants (all machine-checked — do not weaken):
   (`RunnerSettings.svelte`, also in AI status) repeat the anatomy and read the dialog's `--ctl`
   control width. The dialog is mounted by `Shell.svelte` (it was inside the workspace, so the
   gear did nothing on Home and the dialog appeared by itself once a project opened).
+  **The Dissect viewer (rebuilt 2026-11-18; owner: "BOTH the visual design/appearance AND the
+  UI/UX and features/functionality could be so much better … roladexes to view dissection plots,
+  better formatting for tables, stats, notes").**
+  (1) `dissect/format.ts` (pure, `verify-dissect-format`) is the ONE rule for showing a table's
+  numbers, used by `DissectTable` and by the rail's `TableCard`: a short value is shown AS
+  WRITTEN (the GUI gate still reads "0.42" and "0.003" out of cells), a long one is rounded to
+  4 significant digits (p-values to 2), extremes are powers of ten, and the file's text stays
+  in the cell's `title` and behind "As written". A viewer must never invent precision.
+  p-value marks are a `data-sig` attribute drawn by `::after`, so a cell's text is still the
+  number. `statsReport` reads fluxplot's `_stats` columns (and common variants) into result
+  sentences; it returns null unless there is a p column AND a test name or statistic, and
+  gives an unknown test the word "statistic", never a guessed letter.
+  (2) The rolodex is `DissectFilmstrip`: windowed (each mounted thumbnail holds a request on
+  the shared thumbnail client), the open file centred by setting `scrollLeft` (a flip is
+  instant, never animated), laid out from the image sizes the grid already probed
+  (`DissectSections.onProbed`). In an open file ←/→ flip, ↑/↓ step a section, Home/End and 1–9
+  jump WITHOUT leaving it (1–9 used to drop back to the grid).
+  (3) The viewer is mounted by SlideMode as well as FigureMode. `d` set `dissectTarget` in both
+  tenants but only Figure had a viewer, so on a slide nothing appeared and `handleKey` yielded
+  to the phantom overlay until the mode changed: any store that makes `keyboard.ts` yield must
+  have its surface mounted wherever the key that sets it works.
+  (4) Its key handler runs on `window` in the capture phase and reads `e.target.closest`: a gate
+  must press real keys (a synthetic event dispatched on `document` has no `closest`).
   **Figure-Meta (rebuilt 2026-11-18; owner: "sloppy and unpleasant and feels a bit half-baked").**
   Three columns: which figure · how it will print · what you write. The header is one 36 px bar
   (`.title`, then `.ctx` = name · title; the old 62 px banner and the second heading over the

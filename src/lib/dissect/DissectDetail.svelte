@@ -22,6 +22,7 @@
     keyboardTarget,
     noteOwner,
     caption = true,
+    roomy = false,
     zoomLabel = $bindable("fit"),
   }: {
     file: DissectFile;
@@ -34,6 +35,8 @@
     noteOwner?: { root: string; key: string; group: string };
     /** A host that names the file itself (the gallery's Preview tab) hides the caption bar. */
     caption?: boolean;
+    /** A full-size host gives a text note a page to be read and written on. */
+    roomy?: boolean;
     zoomLabel?: string;
   } = $props();
 
@@ -286,7 +289,7 @@
       <DissectTable {text} {inputTruncated} name={file.name} />
     {/if}
   {:else if /\.txt$/i.test(file.name) && noteOwner}
-    <TextNoteEditor note={plotNote(noteOwner.root, noteOwner.key, noteOwner.group, file.name)} />
+    <TextNoteEditor note={plotNote(noteOwner.root, noteOwner.key, noteOwner.group, file.name)} {roomy} />
   {:else}
     <div class="stage">
       <div class="absent">
@@ -350,7 +353,7 @@
     align-items: center;
     gap: 8px;
     color: var(--c-tx-muted);
-    font-style: italic;
+    font: italic 13px var(--font-serif);
   }
   .absent .k {
     font-style: normal;
@@ -363,12 +366,13 @@
     border-radius: var(--r-ui);
     background: none;
     color: var(--c-tx);
-    font: 12px var(--font-ui);
+    font: 12.5px var(--font-serif);
     font-style: normal;
     cursor: var(--cursor-cross-hover);
   }
   .open-ext:hover {
     border-color: var(--c-tx-muted);
+    background: var(--c-surface-2);
     color: var(--c-tx-hi);
   }
   .caption-bar {

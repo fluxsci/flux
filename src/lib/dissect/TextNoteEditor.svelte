@@ -5,10 +5,12 @@
   import type { NoteDraft, NoteDraftState } from "./noteDraftCore";
   import { nativeClick, nativeEvent } from "../ui/nativeEvents";
   const nativeInput = nativeEvent("input"), nativeBlur = nativeEvent("blur"), nativeKey = nativeEvent("keydown");
-  let { note, onSaved, missing = false, named = true }: {
+  let { note, onSaved, missing = false, named = true, roomy = false }: {
     note: PlotNote; onSaved?: () => void; missing?: boolean;
     /** The bar names the file (off where note tabs already do). */
     named?: boolean;
+    /** A page to read and write on (the full-size viewer): a measured serif column. The rail keeps the compact field. */
+    roomy?: boolean;
   } = $props();
   let noteState = $state.raw<NoteDraftState>({ text: "", saved: "", pending: false, error: "" });
   let controller = $state.raw<NoteDraft | null>(null);
@@ -62,7 +64,7 @@
     } catch(e) { if (componentAlive) loadError = String((e as Error)?.message ?? e); }
   }
 </script>
-<div class="note-editor" data-plot-note={note.path}>
+<div class="note-editor" class:roomy data-plot-note={note.path}>
   <div class="bar" class:floating={!named}>{#if named}<span class="nm">{note.group ? `${note.group}/` : ""}{note.name}</span>{/if}<span class="grow"></span><span class="status" aria-live="polite" title="Notes save as you type · Ctrl+S saves now">{noteState.pending ? "Saving…" : loading ? "Opening…" : dirty ? "Unsaved" : controller ? "Saved" : ""}</span></div>
   {#if missing}<p class="error"><button disabled={noteState.pending} use:nativeClick={restoreMissing}>Restore deleted note</button></p>{/if}
   {#if loadError || noteState.error}<p class="error" role="alert">{loadError || noteState.error} <button disabled={noteState.pending} use:nativeClick={reload}>Discard draft and reload</button></p>{/if}
@@ -79,4 +81,11 @@
   textarea { flex:1; min-height:100px; width:100%; box-sizing:border-box; resize:none; padding:9px; border:0; outline:0; background:var(--c-bg); color:var(--c-tx); font:12px/1.55 var(--font-mono); user-select:text; }
   textarea:focus { box-shadow:inset 0 0 0 1px var(--c-accent); }
   .error { margin:0; padding:6px 8px; color:var(--c-danger); overflow-wrap:anywhere; }
+  /* Roomy: the note as a page. One column of the manuscript's serif, at a measure that reads. */
+  .roomy { background:var(--c-bg); font:12.5px var(--font-serif); }
+  .roomy .bar .nm { font:600 13px var(--font-serif); }
+  .roomy .status { font:10.5px var(--font-mono); }
+  .roomy textarea { align-self:center; width:min(76ch, 100%); padding:28px 24px 40px; background:transparent; color:var(--c-tx-hi); font:16px/1.65 var(--font-serif); }
+  .roomy textarea:focus { box-shadow:none; }
+  .roomy .bar.floating { top:10px; right:16px; }
 </style>

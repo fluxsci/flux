@@ -9,6 +9,17 @@
   // the capture phase so canvas-level window listeners never see swallowed keys — except
   // Space, which the detail's hand tool owns). Live: a watcher bump on the dissections
   // subsystem re-lists in place, keeping the selection by name.
+  //
+  // 2026-11-18 rebuild (owner: "BOTH the visual design/appearance AND the UI/UX and
+  // features/functionality could be so much better! … roladexes to view dissection plots,
+  // better formatting for tables, stats, notes"):
+  //   · an open file has the ROLODEX under it (DissectFilmstrip): every file of the plot in
+  //     one strip, the open one in the middle; ← / → flip, ↑ / ↓ step a whole group, Home / End
+  //     and 1–9 jump, all without leaving the open view;
+  //   · tables read like results (format.ts, DissectTable): rounded numbers with the file's
+  //     own text one click away, p-value marks, and test results as copyable sentences;
+  //   · notes are a page to write on (PlotNotes, roomy);
+  //   · the chrome is the house's: serif words, mono eyebrows, key caps, hairlines.
   import { onDestroy } from "svelte";
   import { fade } from "svelte/transition";
   import { dissectTarget, closeDissect, dissectRoot } from "./state";
@@ -23,7 +34,9 @@
   import DissectSections, { zoomDissectRows } from "./DissectSections.svelte";
   import { arrangeDissections } from "../plotsRail/dissectionsModel";
   import DissectDetail from "./DissectDetail.svelte";
+  import DissectFilmstrip from "./DissectFilmstrip.svelte";
   import PlotNotes from "./PlotNotes.svelte";
+  import type { DissectionImageSize } from "../plotsRail/dissectionsModel";
 
   const LAYOUT_KEY = "flux-dissect-layout";
   interface Layout {
@@ -65,6 +78,8 @@
   let sectionsRef = $state<ReturnType<typeof DissectSections> | null>(null);
   let detailView = $state<{ toggleFit: () => void; zoomBy: (f: number) => void; resetZoom: () => void } | null>(null);
   let panelEl = $state<HTMLDivElement | null>(null);
+  let imageSizes = $state.raw<Map<string, DissectionImageSize>>(new Map());
+  let detailZoom = $state("fit");
 
   const target = $derived($dissectTarget);
   const sections = $derived(arrangeDissections(listing));
@@ -74,6 +89,9 @@
   const selectedFile = $derived(find(selectedRef) ?? files[0] ?? null);
   const detailFile = $derived(find(detailAt));
   const detailPos = $derived(detailFile ? files.indexOf(detailFile) : 0);
+  const detailSection = $derived(detailFile ? sections.findIndex((sec) => sec.files.includes(detailFile)) : -1);
+  const noteCount = $derived(files.filter((f) => /\.txt$/i.test(f.name)).length);
+  const mac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
   let refreshEpoch = 0;
   onDestroy(() => { refreshEpoch++; });
@@ -168,13 +186,20 @@
     if (notesOpen) return;
     if (/^[1-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
-      detailAt = null;
-      sectionsRef?.jumpTo(Number(e.key) - 1);
+      // In an open file the digit flips to that section's first file; in the grid it scrolls there.
+      const first = sections[Number(e.key) - 1]?.files[0];
+      if (inDetail) { if (first) openDetail(first); }
+      else sectionsRef?.jumpTo(Number(e.key) - 1);
       return;
     }
     if (inDetail) {
-      if (e.key === "ArrowLeft" && detailPos > 0) openDetail(files[detailPos - 1]);
-      else if (e.key === "ArrowRight" && detailPos < files.length - 1) openDetail(files[detailPos + 1]);
+      const sectionStep = (delta: number) => { const first = sections[detailSection + delta]?.files[0]; if (first) openDetail(first); };
+      if (e.key === "ArrowLeft") { if (detailPos > 0) openDetail(files[detailPos - 1]); }
+      else if (e.key === "ArrowRight") { if (detailPos < files.length - 1) openDetail(files[detailPos + 1]); }
+      else if (e.key === "ArrowUp") sectionStep(-1);
+      else if (e.key === "ArrowDown") sectionStep(1);
+      else if (e.key === "Home") openDetail(files[0]);
+      else if (e.key === "End") openDetail(files[files.length - 1]);
       else if (e.key === "Enter") detailView?.toggleFit();
       else if (e.key === "+" || e.key === "=") detailView?.zoomBy(1.25);
       else if (e.key === "-") detailView?.zoomBy(1 / 1.25);
@@ -230,7 +255,7 @@
 {#if target}
   {#if layout.mode === "full"}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="dbackdrop" data-dissect-backdrop transition:fade={{ duration: 110 }} onpointerdown={close}></div>
+    <div class="dbackdrop" data-dissect-backdrop transition:fade={{ duration: 80 }} onpointerdown={close}></div>
   {/if}
   <div
     class="dpanel"
@@ -247,39 +272,42 @@
   >
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="dhead" class:draggable={layout.mode === "win"} onmousedown={headerDown}>
+      <svg class="mark" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h6v5h-6zM10.5 3.5h3M10.5 6h3M10.5 8.5h3M2.5 11h11M2.5 13.5h7" /></svg>
       <span class="ttl">Dissect</span>
+      <span class="vsep" aria-hidden="true"></span>
       <span class="plot" title={relPath}>{target.displayName}</span>
-      {#if listing?.total}<span class="count">{listing.total}</span>{/if}
+      {#if listing?.total}<span class="count" title={`${listing.total} file${listing.total === 1 ? "" : "s"} in ${relPath}`}>{listing.total}</span>{/if}
       <nav class="views" aria-label="Plot companion views">
         <button class:chosen={!notesOpen} aria-pressed={!notesOpen} onclick={() => { notesOpen = false; }}>Files</button>
-        <button class:chosen={notesOpen} aria-pressed={notesOpen} aria-label="Plot text notes" onclick={() => notesOpen ? (notesOpen = false) : showNotes()}>✎ Notes</button>
+        <button class:chosen={notesOpen} aria-pressed={notesOpen} aria-label="Plot text notes" onclick={() => notesOpen ? (notesOpen = false) : showNotes()}>Notes{#if noteCount}<i>{noteCount}</i>{/if}</button>
       </nav>
       <span class="grow"></span>
       <button
         class="hb"
         title={layout.mode === "full" ? "Shrink to a window" : "Expand to full screen"}
+        aria-label={layout.mode === "full" ? "Shrink to a window" : "Expand to full screen"}
         onclick={() => (layout.mode = layout.mode === "full" ? "win" : "full")}
       >
-        {layout.mode === "full" ? "⧉" : "⛶"}
+        <svg viewBox="0 0 16 16" aria-hidden="true">{#if layout.mode === "full"}<path d="M5.5 2.5h8v8h-8zM2.5 5.5v8h8" />{:else}<path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" />{/if}</svg>
       </button>
-      <button class="hb" title="Close (Esc)" onclick={close}>✕</button>
+      <button class="hb" title="Close (Esc)" aria-label="Close" onclick={close}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg></button>
     </div>
 
     <div class="dbody">
       {#if notesOpen}
-        <PlotNotes root={dissectRoot()} plotKey={target.key} onChanged={() => void refresh()} />
+        <PlotNotes root={dissectRoot()} plotKey={target.key} onChanged={() => void refresh()} roomy />
       {:else if !listing}
-        <div class="empty">Loading…</div>
+        <div class="empty">Opening…</div>
       {:else if listing.groups === null}
         <div class="empty" data-dissect-empty>
-          <p>No dissections yet for <b>{target.displayName}</b>.</p>
+          <p class="lead">No dissections yet for <b>{target.displayName}</b>.</p>
           <p class="path">{relPath}</p>
           <button class="mkbtn" data-dissect-create onclick={createFolder}>Create dissection folder</button>
           <p class="hint">Drop per-subject panels, alternative analyses, or _stats CSVs there — subfolders become sections.</p>
         </div>
       {:else if listing.total === 0}
         <div class="empty" data-dissect-empty>
-          <p>The dissection folder is empty.</p>
+          <p class="lead">The dissection folder is empty.</p>
           <p class="path">{relPath}</p>
           <p class="hint">Drop images (svg/png) and CSVs there — subfolders become sections. They appear here live.</p>
         </div>
@@ -289,207 +317,126 @@
           {listing}
           selected={selectedFile?.abs ?? ""}
           onSelect={(f) => (selectedRef = refOf(f))}
-          onOpen={openDetail} />
+          onOpen={openDetail}
+          onProbed={(sizes) => (imageSizes = sizes)} />
         {#if detailFile}
-          <DissectDetail
-            bind:this={detailView}
-            file={detailFile}
-            pos={detailPos}
-            count={files.length}
-            groupName={detailFile.group}
-            onClose={backToGrid}
-            noteOwner={{ root: dissectRoot(), key: target.key, group: detailFile.group }}
-          />
+          <!-- The open file, and the rolodex under it. -->
+          <div class="opened">
+            <div class="crumbs">
+              <button class="back" title="Back to all files (Esc)" onclick={backToGrid}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 3.5 5 8l4.5 4.5" /></svg>All files</button>
+              <span class="sec">{sections[detailSection]?.title ?? ""}</span>
+              <span class="sep" aria-hidden="true">›</span>
+              <span class="fname" title={detailFile.name}>{detailFile.name}</span>
+              <span class="grow"></span>
+              {#if detailFile.kind === "image"}<span class="zoom" data-dissect-zoom>{detailZoom}</span>{/if}
+              <span class="pos"><b>{detailPos + 1}</b> of {files.length}</span>
+              <span class="flip" role="group" aria-label="Previous and next file">
+                <button title="Previous file (←)" aria-label="Previous file" disabled={detailPos === 0} onclick={() => openDetail(files[detailPos - 1])}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 3.5 5 8l4.5 4.5" /></svg></button>
+                <button title="Next file (→)" aria-label="Next file" disabled={detailPos >= files.length - 1} onclick={() => openDetail(files[detailPos + 1])}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 3.5 11 8l-4.5 4.5" /></svg></button>
+              </span>
+            </div>
+            <div class="opened-file">
+              <DissectDetail
+                bind:this={detailView}
+                bind:zoomLabel={detailZoom}
+                file={detailFile}
+                pos={detailPos}
+                count={files.length}
+                groupName={detailFile.group}
+                onClose={backToGrid}
+                caption={false}
+                roomy
+                noteOwner={{ root: dissectRoot(), key: target.key, group: detailFile.group }}
+              />
+            </div>
+            {#if files.length > 1}<DissectFilmstrip {sections} sizes={imageSizes} current={detailFile.abs} onPick={openDetail} />{/if}
+          </div>
         {/if}
       {/if}
     </div>
 
     <div class="dfoot">
       {#if notesOpen}
-        <span><b>esc</b> close</span>
+        <span><kbd>{mac ? "⌘" : "Ctrl"}</kbd><kbd>S</kbd> save now</span>
+        <span><kbd>Esc</kbd> close</span>
       {:else if detailFile}
-        <span><b>←→</b> prev/next</span>
+        <span><kbd>←</kbd><kbd>→</kbd> flip</span>
+        {#if sections.length > 1}<span><kbd>↑</kbd><kbd>↓</kbd> group</span><span><kbd>1</kbd>–<kbd>{Math.min(9, sections.length)}</kbd> section</span>{/if}
         {#if detailFile.kind === "image"}
-          <span><b>ctrl+scroll</b> zoom</span>
-          <span><b>space+drag</b> pan</span>
-          <span><b>↵</b> fit/1:1</span>
-          <span><b>0</b> reset</span>
+          <span><kbd>{mac ? "⌘" : "Ctrl"}</kbd> wheel zooms</span>
+          <span><kbd>Space</kbd> drag pans</span>
+          <span><kbd>↵</kbd> fit / 1:1</span>
+          <span><kbd>0</kbd> reset</span>
         {/if}
-        <span><b>esc</b> back</span>
+        <span class="grow"></span>
+        <span><kbd>Esc</kbd> all files</span>
       {:else}
-        <span><b>←→↑↓</b> navigate</span>
-        <span><b>↵</b> open</span>
-        <span><b>[ ]</b> size</span>
-        {#if sections.length > 1}<span><b>1–{Math.min(9, sections.length)}</b> section</span>{/if}
-        <span><b>esc</b> close</span>
+        <span><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> move</span>
+        <span><kbd>↵</kbd> open</span>
+        <span><kbd>[</kbd><kbd>]</kbd> size</span>
+        {#if sections.length > 1}<span><kbd>1</kbd>–<kbd>{Math.min(9, sections.length)}</kbd> section</span>{/if}
+        <span class="grow"></span>
+        <span><kbd>Esc</kbd> close</span>
       {/if}
     </div>
   </div>
 {/if}
 
 <style>
-  .dbackdrop {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.32);
-    z-index: 330;
-  }
-  .dpanel {
-    display: flex;
-    flex-direction: column;
-    background: var(--c-bg);
-    border: 1px solid var(--c-line-strong);
-    color: var(--c-tx);
-    font: 12px/1.35 var(--font-ui);
-    overflow: hidden;
-    z-index: 331;
-    box-shadow: var(--elev-3, 0 12px 40px rgba(0, 0, 0, 0.5));
-  }
-  .dpanel.full {
-    position: fixed;
-    inset: 14px;
-    border-radius: var(--r-panel);
-  }
-  .dpanel.win {
-    position: fixed;
-    min-width: 380px;
-    min-height: 260px;
-    max-width: 96vw;
-    max-height: 94vh;
-    border-radius: var(--r-2, 8px);
-    resize: both;
-  }
-  .dhead {
-    flex: 0 0 auto;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 0 4px 0 10px;
-    min-height: 30px;
-    background: var(--c-bg-raised);
-    border-bottom: 1px solid var(--c-line);
-    user-select: none;
-  }
-  .dhead.draggable {
-    cursor: grab;
-  }
-  .dhead.draggable:active {
-    cursor: grabbing;
-  }
-  .ttl {
-    font: 600 10px var(--font-mono);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--c-tx-faint);
-  }
-  .plot {
-    font-size: 12px;
-    color: var(--c-tx-hi);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .count {
-    flex-shrink: 0;
-    color: var(--c-tx-faint);
-    font: 10.5px var(--font-mono);
-  }
-  /* Files | Notes: the rail pane's view switch. */
-  .views {
-    display: flex;
-    gap: 2px;
-    margin-left: 6px;
-  }
-  .views button {
-    padding: 3px 7px;
-    border: 0;
-    border-radius: var(--r-ui);
-    background: none;
-    color: var(--c-tx-muted);
-    font: 11px var(--font-ui);
-    cursor: var(--cursor-cross-hover);
-  }
-  .views button:hover {
-    background: var(--c-surface-2);
-    color: var(--c-tx-hi);
-  }
-  .views .chosen {
-    background: var(--c-accent-tint);
-    color: var(--c-accent);
-  }
-  .grow {
-    flex: 1;
-  }
-  .hb {
-    border: none;
-    background: none;
-    color: var(--c-tx-muted);
-    cursor: var(--cursor-cross-hover);
-    font-size: 14px;
-    padding: 2px 6px;
-    border-radius: var(--r-1, 4px);
-  }
-  .hb:hover {
-    background: var(--c-surface-2);
-    color: var(--c-tx-hi);
-  }
-  .dbody {
-    flex: 1;
-    min-height: 0;
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    background: var(--c-bg-raised);
-  }
-  .empty {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    color: var(--c-tx-muted);
-    text-align: center;
-    padding: 24px;
-  }
-  .empty b {
-    color: var(--c-tx);
-  }
-  .path {
-    font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 12px;
-    color: var(--c-accent-bright);
-    user-select: text;
-  }
-  .hint {
-    font-size: 12px;
-    font-style: italic;
-    max-width: 420px;
-  }
-  .mkbtn {
-    margin-top: 4px;
-    background: var(--c-accent);
-    color: var(--c-on-accent);
-    border: none;
-    border-radius: 6px;
-    cursor: var(--cursor-cross-hover);
-    font-family: inherit;
-    font-size: 13px;
-    padding: 6px 14px;
-  }
-  .mkbtn:hover {
-    background: var(--c-accent-bright);
-  }
-  .dfoot {
-    flex: 0 0 auto;
-    display: flex;
-    gap: 16px;
-    padding: 5px 10px;
-    border-top: 1px solid var(--c-line);
-    font: 10.5px var(--font-mono);
-    color: var(--c-tx-muted);
-  }
-  .dfoot b {
-    color: var(--c-accent-bright);
-  }
+  .dbackdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.32); z-index: 330; }
+  .dpanel { display: flex; flex-direction: column; background: var(--c-surface); border: 1px solid var(--c-line-strong); color: var(--c-tx); font: 13px/1.35 var(--font-serif); overflow: hidden; z-index: 331; box-shadow: var(--elev-3, 0 12px 40px rgba(0, 0, 0, 0.5)); }
+  .dpanel.full { position: fixed; inset: 14px; border-radius: var(--r-panel); }
+  .dpanel.win { position: fixed; min-width: 380px; min-height: 260px; max-width: 96vw; max-height: 94vh; border-radius: var(--r-panel); resize: both; }
+  svg { display: block; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+  button { cursor: var(--cursor-cross-hover); transition: background-color 80ms linear, border-color 80ms linear, color 80ms linear; }
+  button:focus-visible { outline: 1px solid var(--c-accent); outline-offset: 1px; }
+  .grow { flex: 1; }
+
+  /* ---- header: Dissect │ which plot · how much … Files | Notes … window, close ---------------- */
+  .dhead { flex: 0 0 36px; display: flex; align-items: center; gap: 10px; padding: 0 6px 0 12px; background: var(--c-bg-raised); border-bottom: 1px solid var(--c-line); user-select: none; }
+  .dhead.draggable { cursor: grab; } .dhead.draggable:active { cursor: grabbing; }
+  .mark { width: 15px; height: 15px; color: var(--c-tx-muted); }
+  .ttl { font: 600 14px var(--font-serif); color: var(--c-tx-hi); white-space: nowrap; }
+  .vsep { flex: 0 0 1px; height: 14px; background: var(--c-line-strong); }
+  .plot { min-width: 0; font: 13px var(--font-serif); color: var(--c-tx); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .count { flex-shrink: 0; color: var(--c-tx-muted); font: 11px var(--font-mono); font-variant-numeric: tabular-nums; }
+  /* Files | Notes: two tabs, the open one underlined. */
+  .views { display: flex; gap: 2px; align-self: stretch; margin-left: 8px; }
+  .views button { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border: 0; background: none; color: var(--c-tx-muted); font: 13px var(--font-serif); }
+  .views button:hover { color: var(--c-tx-hi); }
+  .views .chosen { color: var(--c-tx-hi); font-weight: 600; }
+  .views .chosen::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; background: var(--c-accent); }
+  .views i { font: 400 10.5px var(--font-mono); font-style: normal; color: var(--c-tx-muted); }
+  .hb { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 1px solid transparent; border-radius: var(--r-ui); background: none; color: var(--c-tx-muted); }
+  .hb svg { width: 14px; height: 14px; }
+  .hb:hover { background: var(--c-surface-2); color: var(--c-tx-hi); }
+
+  .dbody { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; background: var(--c-bg-raised); }
+  .empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; padding: 24px; color: var(--c-tx-muted); text-align: center; }
+  .empty p { margin: 0; } .empty .lead { font: 15px var(--font-serif); color: var(--c-tx-2); } .empty b { color: var(--c-tx-hi); font-weight: 600; }
+  .path { font: 11.5px var(--font-mono); color: var(--c-accent-bright); user-select: text; }
+  .hint { max-width: 440px; font: italic 12.5px/1.5 var(--font-serif); }
+  .mkbtn { height: 26px; margin-top: 4px; padding: 0 14px; background: var(--c-accent-tint); border: 1px solid color-mix(in oklab, var(--c-accent) 60%, transparent); border-radius: var(--r-ui); color: var(--c-tx-hi); font: 600 12.5px var(--font-serif); }
+  .mkbtn:hover { background: color-mix(in oklab, var(--c-accent) 28%, transparent); border-color: var(--c-accent); }
+
+  /* ---- an open file: where it is · the file · the rolodex -------------------------------------- */
+  .opened { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; background: var(--c-bg); }
+  .crumbs { flex: 0 0 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 6px; background: var(--c-surface); border-bottom: 1px solid var(--c-line); white-space: nowrap; }
+  .back { display: inline-flex; align-items: center; gap: 3px; height: 22px; padding: 0 8px 0 4px; border: 1px solid transparent; border-radius: var(--r-ui); background: none; color: var(--c-tx-muted); font: 12.5px var(--font-serif); }
+  .back svg { width: 13px; height: 13px; }
+  .back:hover { background: var(--c-surface-2); color: var(--c-tx-hi); }
+  .sec { color: var(--c-tx-muted); font: 600 10px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+  .sep { color: var(--c-tx-faint); }
+  .fname { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--c-tx-hi); font: 600 13px var(--font-serif); }
+  .zoom, .pos { flex-shrink: 0; color: var(--c-tx-muted); font: 11px var(--font-mono); font-variant-numeric: tabular-nums; } .pos b { color: var(--c-tx-hi); font-weight: 600; }
+  .flip { display: inline-flex; border: 1px solid var(--c-line); border-radius: var(--r-ui); }
+  .flip button { display: grid; place-items: center; width: 24px; height: 20px; padding: 0; border: 0; background: none; color: var(--c-tx-2); } .flip button + button { border-left: 1px solid var(--c-line); }
+  .flip svg { width: 13px; height: 13px; }
+  .flip button:hover:not(:disabled) { background: var(--c-surface-2); color: var(--c-tx-hi); } .flip button:active:not(:disabled) { background: var(--c-accent-tint); } .flip button:disabled { opacity: .3; }
+  .opened-file { position: relative; flex: 1; min-height: 0; }
+
+  /* ---- foot: the keys that work right now ---------------------------------------------------- */
+  .dfoot { flex: 0 0 28px; display: flex; align-items: center; gap: 16px; padding: 0 12px; background: var(--c-bg-raised); border-top: 1px solid var(--c-line); color: var(--c-tx-muted); font: 11px var(--font-ui); white-space: nowrap; overflow: hidden; }
+  .dfoot kbd { margin-right: 3px; } .dfoot kbd + kbd { margin-left: -1px; }
+  @media (prefers-reduced-motion: reduce) { button { transition: none; } }
 </style>

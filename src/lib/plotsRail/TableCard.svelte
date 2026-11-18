@@ -1,5 +1,6 @@
 <script lang="ts">
   import { isNumericCell } from "../dissect/csv";
+  import { columnKind, formatCell, significance } from "../dissect/format";
   import type { TablePreview } from "./tableCard";
   // A CSV/TSV dissection file as a real mini-table (not an icon): header + the first rows, mono,
   // numbers right-aligned, clipped at the card's right edge with a fade. A one-row wide table is
@@ -8,6 +9,11 @@
   const pad = (row: string[], n: number) => Array.from({ length: n }, (_, i) => row[i] ?? "");
   const meta = $derived(!preview ? "" : preview.error ? "unreadable" : `${preview.complete ? preview.rowCount : `≥${preview.rowCount}`} × ${preview.cols}`);
   const cols = $derived(preview ? Math.min(preview.cols, 24) : 0);
+  // Numbers as a reader wants them (dissect/format.ts): long ones rounded, short ones as written,
+  // the file's own text in the tooltip; p-values carry their marks.
+  const kindOf = (name: string, value: string) => columnKind(name, isNumericCell(value));
+  const shown = (name: string, value: string) => formatCell(value, kindOf(name, value));
+  const marks = (name: string, value: string) => (kindOf(name, value) === "p" ? significance(value) || undefined : undefined);
 </script>
 
 <div class="card" class:selected class:focused data-table-card={name}>
@@ -19,14 +25,15 @@
   {:else if preview.transposed}
     <div class="kv">
       {#each pad(preview.header, preview.cols).slice(0, 8) as key, i (i)}
-        <div class="kv-row"><span class="k">{key}</span><span class="v" class:num={isNumericCell(preview.rows[0]?.[i] ?? "")}>{preview.rows[0]?.[i] ?? ""}</span></div>
+        {@const value = preview.rows[0]?.[i] ?? ""}
+        <div class="kv-row"><span class="k">{key}</span><span class="v" class:num={isNumericCell(value)} data-sig={marks(key, value)} title={value}>{shown(key, value)}</span></div>
       {/each}
     </div>
   {:else}
     <div class="table" style:grid-template-columns={`repeat(${cols}, max-content)`}>
       {#each pad(preview.header, cols) as h, i (i)}<span class="th">{h}</span>{/each}
       {#each preview.rows as row, r (r)}
-        {#each pad(row, cols) as cell, i (i)}<span class="td" class:num={isNumericCell(cell)}>{cell}</span>{/each}
+        {#each pad(row, cols) as cell, i (i)}<span class="td" class:num={isNumericCell(cell)} data-sig={marks(preview.header[i] ?? "", cell)} title={cell}>{shown(preview.header[i] ?? "", cell)}</span>{/each}
       {/each}
     </div>
   {/if}
@@ -44,6 +51,7 @@
   .table { display: grid; column-gap: 10px; min-width: 0; overflow: hidden; white-space: nowrap; }
   .th { color: var(--c-tx-hi); font-weight: 600; }
   .td.num, .v.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .td[data-sig]::after, .v[data-sig]::after { content: attr(data-sig); margin-left: 2px; color: var(--c-comment); font-weight: 600; }
   .kv { display: flex; flex-direction: column; min-width: 0; }
   .kv-row { display: flex; gap: 10px; white-space: nowrap; }
   .k { flex: 0 0 auto; min-width: 72px; max-width: 55%; overflow: hidden; text-overflow: ellipsis; color: var(--c-tx-muted); }

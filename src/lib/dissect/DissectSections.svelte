@@ -35,12 +35,14 @@
   import type { DissectListing, DissectFile } from "./loader";
 
   type File = DissectFile & { group: string };
-  let { listing, selected, onSelect, onOpen }: {
+  let { listing, selected, onSelect, onOpen, onProbed }: {
     listing: DissectListing;
     /** The selected file's absolute path. */
     selected: string;
     onSelect: (file: File) => void;
     onOpen: (file: File) => void;
+    /** The images' header sizes, once known (the overlay's filmstrip lays out from them). */
+    onProbed?: (sizes: Map<string, DissectionImageSize>) => void;
   } = $props();
 
   const sections = $derived(arrangeDissections(listing));
@@ -50,7 +52,7 @@
   $effect(() => {
     const files = sections.flatMap((s) => s.files);
     let alive = true;
-    void probeDissectionFiles(files).then((next) => { if (alive) { sizes = next.sizes; tables = next.tables; } });
+    void probeDissectionFiles(files).then((next) => { if (alive) { sizes = next.sizes; tables = next.tables; onProbed?.(next.sizes); } });
     return () => { alive = false; };
   });
 

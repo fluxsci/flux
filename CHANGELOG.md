@@ -67,6 +67,24 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 
 ### Figure and Slide
 
+- **The Dissect viewer (D), rebuilt.**
+  - **Flip through a plot's files.** An open file has a strip of every file under it, the
+    open one marked, each group named where it starts. **←** / **→** flip, **↑** / **↓** step a
+    whole group, **Home** / **End** and **1–9** jump, and a click opens: twenty per-subject
+    panels without going back to the grid. A bar above the file says where you are.
+  - **Tables read the way you would write them.** Long numbers are rounded (6.596349872904714
+    → 6.596), very small ones are powers of ten (3.88 × 10⁻⁵), short ones are left as written,
+    and the file's own text is in each cell's tooltip and one click away (**As written**).
+    p-value columns carry \*, \*\*, \*\*\*. The table cards in the grid and the sidebar use the
+    same formatting.
+  - **Test results as sentences.** A statistics table is also read out above the table, one
+    line per test (*t(11) = 6.596, p = 3.9 × 10⁻⁵ (Holm 7.8 × 10⁻⁵), Hedges' g_z = 1.771
+    [0.922, 2.86], n = 12*), with **Copy** for your results section.
+  - **Notes are a page**: one readable column in the manuscript's type, instead of a
+    full-width monospace box.
+  - The header, tabs, buttons and key hints are redrawn in the same style as the rest of Flux.
+  - **D works on a slide.** It used to do nothing visible there and leave the keyboard dead
+    until you left the mode.
 - **Figure-Meta (Alt+M), rebuilt.** One slim header instead of a tall banner; three clear
   columns: which figure, how it will print, what you write. The preview is a page proof: the
   figure and its caption on paper, in the manuscript's type. The list shows how many words

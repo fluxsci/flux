@@ -284,6 +284,25 @@ try {
   ok(sw.selCleared, "selection clears on slide switch (figure active-figure semantics)");
   ok(sw.dt < 250, `switch painted in ${sw.dt.toFixed(0)}ms (dev-mode smoke; the scale gate owns the p95 budget)`);
 
+  // D on a slide's plot opens its dissections here too. The key always set the viewer's target, but the
+  // viewer was mounted only in Figure mode: on a slide nothing appeared, and the editor's keyboard stayed
+  // yielded to an overlay that was not there (2026-11-18).
+  const dissect = { shown: await page.evaluate(async () => {
+    const state = await import("/src/lib/dissect/state.ts");
+    window.__dissectState = state;
+    state.dissectTarget.set({ key: "slide-gate/no-such-plot", displayName: "no-such-plot" });
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    return !!document.querySelector("[data-dissect]");
+  }) };
+  await page.keyboard.press("Escape");
+  await sleep(150);
+  Object.assign(dissect, await page.evaluate(() => {
+    let target = null; window.__dissectState.dissectTarget.subscribe((v) => (target = v))();
+    return { closed: !document.querySelector("[data-dissect]"), released: target === null };
+  }));
+  ok(dissect.shown, "the Dissect viewer is mounted in Slide mode (a target shows the viewer)");
+  ok(dissect.closed && dissect.released, "Esc closes it and releases the keyboard", JSON.stringify(dissect));
+
   await shot(page, "slide-editor-gui");
   const errs = realErrors(page);
   ok(errs.length === 0, "console is clean", errs.slice(0, 3).join(" | "));
