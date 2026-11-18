@@ -144,11 +144,18 @@ The sidebar's **Plots** view keeps your plots beside the canvas while you compos
   the companion collections (`_dissections`, `_lighttable`) — **Enter** goes in,
   **Backspace** in an empty search comes back out. **Proj** / **Glob** (**Alt+1** /
   **Alt+2**) switch between this project and your global plot library.
-- **Alt+/** switches the lower pane between Dissections and **Folders**. The tree shows the
-  plot folders and how many plots each holds, with a search box for finding a nested
-  directory. Choose a folder to show only its plots; **↑/↓**, **←/→**, and **Enter** navigate
-  and choose from the tree. The folder stays chosen while you flip to Layers and back.
-  Companion directories stay out of this tree. Use **Alt+/** again to return to dissections.
+- **Alt+/** opens **Folders**: a panel beside the rail, over the edge of the canvas, with
+  Dissections left in place below the gallery. The tree shows the plot folders and how many
+  plots each holds. The caret starts in its search: type part of a name and the matches are
+  marked, with the highlight on the first; **↑** / **↓** move the highlight without leaving the
+  search, and **Enter** shows that folder's plots in the gallery. In the tree, **←** / **→**
+  fold and unfold (or step out and in), a folder's arrow does the same, and **Alt-click** on an
+  arrow folds or unfolds the whole branch. The folder stays chosen while you flip to Layers and
+  back. Companion directories stay out of this tree. **Esc** clears the search, then closes the
+  panel; **Alt+/** closes it too.
+- Prefer the folders **in the lower pane**, in place of Dissections? The button in the panel's
+  header docks it there (and floats it again), and **Settings → Figure → Plot gallery →
+  Folders open** sets the same thing.
 - Plots sit at their true shape, several to a row, and every one is drawn on a background
   chosen so **all of it shows**: dark ink on paper, white ink (a plot made for a dark slide)
   on dark, both on grey, and a plot's own paper colour when it declares one. The **⋯** menu

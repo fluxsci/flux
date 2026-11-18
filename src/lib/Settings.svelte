@@ -33,6 +33,7 @@
   import ColorField from "./ColorField.svelte";
   import Icon from "../shell/Icon.svelte";
   import { openDocs } from "../shell/docsLink";
+  import { railPrefs } from "./plotsRail/railPrefs";
   import { modalFocus } from "./ui/modalFocus";
   import { fileBridge } from "./project/types";
   import {
@@ -513,6 +514,13 @@
                 <span class="nm">Search reaches<small>What typing in the Plot gallery <kbd>Shift+Alt+G</kbd> searches. <b>Project</b> is this project's <code>plots/</code> folder; <b>Global</b> is your plot library in <code>{plotLibPath || "FluxConfig/plot_library"}</code>, shared by every project. The switch at the top of the gallery picks which one you browse.</small></span>
                 <select bind:value={$settings.plotSearchScope} aria-label="Plot gallery search scope">
                   {#each PLOT_SEARCH_SCOPES as o (o.id)}<option value={o.id}>{o.label}</option>{/each}
+                </select>
+              </label>
+              <label class="row">
+                <span class="nm">Folders open<small>Where the Plots rail's folder navigator <kbd>Alt+/</kbd> appears. <b>Beside the rail</b> is a panel off the rail's edge that leaves Dissections in place; <b>In the lower pane</b> takes the place of Dissections. The button in the navigator's header switches too.</small></span>
+                <select value={$railPrefs.folders} aria-label="Folder navigator placement" onchange={(e) => railPrefs.update((p) => ({ ...p, folders: e.currentTarget.value === "below" ? "below" : "beside" }))}>
+                  <option value="beside">Beside the rail</option>
+                  <option value="below">In the lower pane</option>
                 </select>
               </label>
               <label class="chk">

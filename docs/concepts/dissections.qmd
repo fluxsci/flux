@@ -112,10 +112,12 @@ plot, note, line and the matching text; click it to select that plot and open th
 Notes pane below. Switch **Notes** off to return to searching plot names.
 
 To browse folders, click **Folders** in the Dissections pane or press **Alt+/** (from anywhere
-in Figure or Slide; it opens the Plots view if needed). The lower
-pane becomes a searchable folder tree with the number of plots under each folder. Click a
-folder (or use **Arrow keys** and **Enter**) to show only its plots; choose the top folder to
-see everything again. Press **Alt+/** again, or **Esc**, to restore Dissections. The chosen
+in Figure or Slide; it opens the Plots view if needed). A searchable folder tree opens in a
+panel beside the rail, with the number of plots under each folder; Dissections stays where it
+is. Click a folder (or type in the search, use **↑** / **↓**, and press **Enter**) to show only
+its plots; choose the top folder to see everything again. Press **Alt+/** again, or **Esc**, to
+close it. (The button in the panel's header, or **Settings → Figure → Plot gallery**, puts the
+tree in the lower pane instead, in place of Dissections.) The chosen
 folder stays in place while you switch the sidebar to Layers and back. Companion
 collections such as `_dissections` stay out of this tree.
 

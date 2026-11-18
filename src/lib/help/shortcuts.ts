@@ -231,7 +231,7 @@ export const SECTIONS: ShortcutSection[] = [
         title: "Plots",
         rows: [
           r("Alt+G", "Sidebar: Plots / Layers (a hidden sidebar opens to Plots)"),
-          r("Alt+Slash", "Plots view: folder tree / dissections"),
+          r("Alt+Slash", "Open or close the folder navigator, beside the rail"),
           r("Alt+1 / Alt+2", "Plots view or gallery: this project's plots / your global library"),
           r("Shift+Alt+G", "Plot gallery in its own window"),
           r("Alt+Shift+C", "Copy the selected plots' full source paths"),
@@ -252,6 +252,18 @@ export const SECTIONS: ShortcutSection[] = [
           r("Mod+Plus / Mod+Minus", "Bigger / smaller thumbnails"),
           r("Backspace", "Step out: of similar names, a folder shown alone, a collection"),
           r("Esc", "Clear the search, then step out, then leave the view"),
+        ],
+      },
+      {
+        title: "Folder navigator",
+        when: "after Alt+/ on the Plots view",
+        rows: [
+          r("type", "Search the folders: matches are marked, the highlight goes to the first"),
+          r("Up / Down", "Move the highlight (the caret stays in the search)"),
+          r("Enter", "Show the highlighted folder's plots in the gallery"),
+          r("Left / Right", "In the tree: fold, or step out to the parent / unfold, or step in"),
+          r("Alt+click a folder's arrow", "Fold or unfold the whole branch"),
+          r("Esc", "Clear the search, then close the navigator"),
         ],
       },
       {

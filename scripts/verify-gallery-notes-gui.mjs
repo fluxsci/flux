@@ -170,8 +170,40 @@ try{
   await waitFor(page,()=>document.querySelector('[data-left-rail]')?.getAttribute('data-left-rail')==='plots'&&!!document.querySelector('[data-plots-directories]'),null,{label:'Alt+/ from Layers'});
   h.ok(true,'Alt+/ from the Layers view shows Plots with the folder navigator');
   await shot('folders');
+  // --- 2026-11-18: the navigator opens BESIDE the rail and leaves Dissections in place; the search leads ---
+  const beside=await page.evaluate(()=>{const nav=document.querySelector('[data-plots-directories]'),rail=document.querySelector('[data-plots-rail]'),n=nav.getBoundingClientRect(),r=rail.getBoundingClientRect();
+    return {placement:nav.dataset.placement,dissections:!!document.querySelector('[data-plots-dissections]'),offEdge:Math.abs(n.left-r.right)<=8,tall:n.height>=r.height-16,focusInSearch:document.activeElement?.getAttribute('aria-label')==='Search plot folders',inScope:!!nav.closest('[data-command-scope="plots-rail"]')};});
+  h.eq(beside,{placement:'beside',dissections:true,offEdge:true,tall:true,focusInSearch:true,inScope:true},'the folder navigator opens beside the rail, ready to type into, with Dissections still showing');
+  await page.keyboard.type('oth');
+  await waitFor(page,()=>document.querySelector('[data-plots-directories] .row.focused .name')?.textContent==='other',null,{label:'search highlights its first match'});
+  h.ok(await page.$eval('[data-plots-directories] .row.focused mark',m=>m.textContent==='oth')&&await page.$eval('[data-plots-directories] .found',n=>n.textContent==='1'),'a search marks the match in the name, counts the matches and puts the highlight on the first');
+  await page.keyboard.press('ArrowUp');await page.keyboard.press('ArrowDown');
+  h.ok(await page.evaluate(()=>document.activeElement?.getAttribute('aria-label')==='Search plot folders'&&document.querySelector('[data-plots-directories] .row.focused .name')?.textContent==='other'),'↑ and ↓ move the highlight while the caret stays in the search');
+  await input('[data-plots-search]','');await page.click('[aria-label="Search plot folders"]');
+  await page.keyboard.press('Enter');
+  await waitFor(page,()=>document.querySelector('[data-focus-folder]')?.getAttribute('data-focus-folder')==='other'&&document.querySelector('[data-plots-directories] .row.selected .name')?.textContent==='other',null,{label:'Enter shows the highlighted folder'});
+  h.ok(await page.evaluate(()=>document.activeElement?.getAttribute('aria-label')==='Search plot folders'),'Enter shows the highlighted folder in the gallery and leaves the caret where it was');
+  await page.keyboard.press('Escape');
+  h.ok(await page.$eval('[aria-label="Search plot folders"]',e=>e.value==='')&&!!(await page.$('[data-plots-directories]')),'Esc clears the search first');
+  // The header button docks it in the lower pane (the older arrangement) and floats it again; the choice is kept.
+  await page.click('[data-directory-placement]');
+  await waitFor(page,()=>document.querySelector('[data-plots-directories]')?.dataset.placement==='below'&&!document.querySelector('[data-plots-dissections]')&&!document.querySelector('[data-folders-fly]'),null,{label:'docked below'});
+  h.ok(await page.evaluate(()=>JSON.parse(localStorage.getItem('flux.plotsRail')).folders==='below'),'the placement button docks the navigator in the lower pane, in place of Dissections, and remembers it');
+  await page.click('[data-directory-placement]');
+  await waitFor(page,()=>document.querySelector('[data-plots-directories]')?.dataset.placement==='beside'&&!!document.querySelector('[data-plots-dissections]'),null,{label:'floated again'});
+  h.ok(await page.evaluate(()=>JSON.parse(localStorage.getItem('flux.plotsRail')).folders==='beside'),'and floats it beside the rail again');
+  // Folding: a click on a folder's arrow folds it; Alt-click folds the whole branch; nothing animates but the arrow.
+  const fold=await page.evaluate(()=>{const rows=()=>[...document.querySelectorAll('[data-plots-directories] .row')],root=rows()[0],before=rows().length;
+    root.querySelector('.disclose').click();return new Promise(r=>requestAnimationFrame(()=>{const closed=rows().length;rows()[0].querySelector('.disclose').click();requestAnimationFrame(()=>r({before,closed,after:rows().length,
+      transition:getComputedStyle(root).transitionProperty,arrow:getComputedStyle(root.querySelector('.disclose svg')).transitionProperty}));}));});
+  h.ok(fold.before>1&&fold.closed===1&&fold.after===fold.before&&fold.arrow==='transform'&&!/height|top|max-height/.test(fold.transition),'folding the root hides its folders at once and unfolding brings them back; only the arrow turns',JSON.stringify(fold));
+  await page.click('[aria-label="Search plot folders"]');
+  await page.keyboard.press('Escape');
+  h.ok(!(await page.$('[data-plots-directories]')),'Esc with an empty search closes the navigator');
   await page.keyboard.down('Alt');await page.keyboard.press('Slash');await page.keyboard.up('Alt');
-  h.ok(!(await page.$('[data-plots-directories]'))&&!!(await page.$('[data-plots-dissections]')),'Alt+/ returns the lower pane to dissections');
+  await waitFor(page,()=>!!document.querySelector('[data-plots-directories]'),null,{label:'Alt+/ opens again'});
+  await page.keyboard.down('Alt');await page.keyboard.press('Slash');await page.keyboard.up('Alt');
+  h.ok(!(await page.$('[data-plots-directories]'))&&!!(await page.$('[data-plots-dissections]')),'Alt+/ closes the navigator again (it works from inside its search)');
   await input('[data-plots-search]','beta');await clickTile('beta');
   if(await page.$('[data-plots-dissections] [data-plot-notes]'))await page.click('[data-plot-notes-toggle]');
   await page.click('[data-plots-dissections] .pane-views button');

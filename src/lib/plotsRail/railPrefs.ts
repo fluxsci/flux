@@ -27,11 +27,15 @@ export interface RailPrefs {
   widthBadge: boolean;
   /** Collapse fig1_a…f / _v1…_v7 variants in one folder into one stack tile. */
   stacks: boolean;
+  /** Where the folder navigator (Alt+/) opens: beside the rail, as a panel that leaves the
+   *  Dissections pane in place, or below the gallery, in place of it. */
+  folders: "beside" | "below";
 }
 
 export const RAIL_PREFS_DEFAULTS: RailPrefs = {
   scope: "project", sort: "folders", names: true, backdrop: "auto", tileH: 112, dissectTileH: 84, autoReveal: true,
   peek: true, filterUnused: false, filterFluxplot: false, filterDissected: false, widthBadge: false, stacks: false,
+  folders: "beside",
 };
 export const TILE_H_MIN = 56;
 export const TILE_H_MAX = 360;
@@ -44,6 +48,7 @@ function load(): RailPrefs {
       scope: { enum: ["project", "global"] },
       sort: { enum: ["folders", "recent"] },
       backdrop: { enum: ["auto", "paper", "dark", "checker", "destination"] },
+      folders: { enum: ["beside", "below"] },
       tileH: { min: TILE_H_MIN, max: TILE_H_MAX },
       dissectTileH: { min: TILE_H_MIN, max: TILE_H_MAX },
     });

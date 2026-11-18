@@ -2654,6 +2654,22 @@ Persistence invariants (all machine-checked — do not weaken):
   have its surface mounted wherever the key that sets it works.
   (4) Its key handler runs on `window` in the capture phase and reads `e.target.closest`: a gate
   must press real keys (a synthetic event dispatched on `document` has no `closest`).
+  **The Plots rail's folder navigator (2026-11-18; owner: "the feel … when expanding/collapsing,
+  selecting, searching, and I'd also love the option for this to NOT take over the dissection
+  pane … Go with whatever you think is best").** It opens BESIDE the rail by default: a panel off
+  the rail's right edge, `position: fixed` to the rail's own box (PlotsRail measures it; a
+  ResizeObserver follows rail resizes), rendered INSIDE the rail's element so it is in the
+  rail's key scope (Alt+/ must close it from inside its own search, and `handleKey` only lets
+  Alt+/ through while typing when the target is in that scope). `railPrefs.folders`
+  ("beside" | "below") is the choice; the header's button and Settings → Figure → Plot gallery
+  set it; "below" is the old swap with the Dissections pane. The SEARCH LEADS: the caret stays
+  in the field while ↑/↓ move `focus` and Enter chooses (`choose(row, keepFocus)`), a search
+  puts the highlight on its first match, and typing in the tree focuses the search. A re-read
+  keeps the old tree on screen; 20,000 folders is a cap with a line saying so, not an error;
+  the tree re-reads itself when the gallery lists plots under a folder it has not seen (once
+  per new set, and never for reserved companion folders, which it leaves out on purpose).
+  The gallery gate reads row text and `.count`, so a match is marked with `<mark>` inside
+  `.name`, never by changing the name.
   **Figure-Meta (rebuilt 2026-11-18; owner: "sloppy and unpleasant and feels a bit half-baked").**
   Three columns: which figure · how it will print · what you write. The header is one 36 px bar
   (`.title`, then `.ctx` = name · title; the old 62 px banner and the second heading over the

@@ -50,9 +50,30 @@
     gallery?.showFolder(folder);
   }
   function toggleDirectories() { railFoldersOpen.update((open) => !open); }
-  // The navigator takes the lower pane, so opening it (Alt+/ is handled in keyboard.ts)
-  // unfolds a collapsed Dissections pane.
-  $effect(() => { if ($railFoldersOpen) untrack(() => showDissections()); });
+  // Where the folder navigator opens (owner, 2026-11-18: "the option for this to NOT take over the
+  // dissection pane"). BESIDE the rail by default: a panel off the rail's right edge, over the
+  // canvas's margin, with Dissections left where it is. BELOW is the older arrangement: it takes
+  // the lower pane, so opening it (Alt+/ is handled in keyboard.ts) unfolds a collapsed pane.
+  const foldersBeside = $derived($railPrefs.folders !== "below");
+  $effect(() => { if ($railFoldersOpen && !foldersBeside) untrack(() => showDissections()); });
+  // The panel hangs off the rail's edge: fixed to the rail's own box, which a rail resize moves.
+  let flyBox = $state({ left: 0, top: 0, height: 0 });
+  $effect(() => {
+    const el = body;
+    if (!el || !$railFoldersOpen || !foldersBeside) return;
+    const place = () => { const r = el.getBoundingClientRect(); flyBox = { left: Math.round(r.right) + 1, top: Math.round(r.top), height: Math.round(r.height) }; };
+    const ro = new ResizeObserver(place);
+    ro.observe(el);
+    window.addEventListener("resize", place);
+    place();
+    return () => { ro.disconnect(); window.removeEventListener("resize", place); };
+  });
+  function closeFolders() {
+    railFoldersOpen.set(false);
+    // The keyboard goes back to the gallery it was scoping.
+    body?.querySelector<HTMLElement>("[data-plots-gallery] input, .gallery-slot input")?.focus({ preventScroll: true });
+  }
+  const moveFolders = () => railPrefs.update((p) => ({ ...p, folders: p.folders === "below" ? "beside" : "below" }));
   const root = $derived($embeddedProjectRoot || $projectDir || "");
 
   const layout = $derived($figureLayout);
@@ -171,10 +192,16 @@
   {#if !galleryCollapsed && !dissectCollapsed}
     <div class="splitter" role="separator" aria-orientation="horizontal" aria-label="Resize gallery and dissections (double-click resets)" onpointerdown={startSplit} ondblclick={resetSplit} data-plots-splitter></div>
   {/if}
-  {#if $railFoldersOpen && !dissectCollapsed}
-    <DirectoryPane base={browse.base} selected={browse.folder} counts={browse.counts} onChoose={(folder) => void showFolder(folder)} onClose={() => railFoldersOpen.set(false)} />
+  {#if $railFoldersOpen && !foldersBeside && !dissectCollapsed}
+    <DirectoryPane base={browse.base} selected={browse.folder} counts={browse.counts} onChoose={(folder) => void showFolder(folder)} onClose={closeFolders} onPlacement={moveFolders} />
   {:else}
     <DissectionsPane {active} {hitBridge} {place} collapsed={dissectCollapsed} {galleryCollapsed} onCollapse={toggleDissections} onMaximize={toggleMaximize} onDirectories={toggleDirectories} />
+  {/if}
+  {#if $railFoldersOpen && foldersBeside && active}
+    <!-- Inside the rail's element, so it is in the rail's key scope; fixed, so the rail does not clip it. -->
+    <div class="folders-fly" data-folders-fly style:left={`${flyBox.left}px`} style:top={`${flyBox.top}px`} style:height={`${flyBox.height}px`}>
+      <DirectoryPane floating base={browse.base} selected={browse.folder} counts={browse.counts} onChoose={(folder) => void showFolder(folder)} onClose={closeFolders} onPlacement={moveFolders} />
+    </div>
   {/if}
 </div>
 {#if active}<Peek {unit} railEl={body} />{/if}
@@ -188,4 +215,8 @@
   .collapsed-bar:hover { color: var(--c-tx-hi); }
   .eyebrow { color: var(--c-tx-muted); font: 600 10px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
   .hint { color: var(--c-tx-faint); font: 10.5px var(--font-ui); }
+  /* The folder navigator beside the rail. It arrives by opacity and a few pixels of slide (transform only). */
+  .folders-fly { position: fixed; z-index: 70; width: min(300px, calc(100vw - 24px)); padding: 6px 0 6px 5px; box-sizing: border-box; animation: folders-in 90ms var(--ease-enter, ease-out) both; }
+  @keyframes folders-in { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .folders-fly { animation-name: flux-arrive; } }
 </style>

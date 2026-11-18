@@ -67,6 +67,13 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 
 ### Figure and Slide
 
+- **The folder navigator (Alt+/) opens beside the Plots rail** instead of taking the place of
+  Dissections, so you can pick a folder and still see the dissections of the plot you clicked.
+  The caret starts in its search: matches are marked in the names, **↑** / **↓** move the
+  highlight without leaving the search, and **Enter** shows that folder. Folders have guide
+  lines, an open or closed icon and a crisp fold; **Alt-click** on a folder's arrow folds the
+  whole branch. New folders appear by themselves. If you prefer it in the lower pane, the button
+  in its header docks it there, as does **Settings → Figure → Plot gallery → Folders open**.
 - **The Dissect viewer (D), rebuilt.**
   - **Flip through a plot's files.** An open file has a strip of every file under it, the
     open one marked, each group named where it starts. **←** / **→** flip, **↑** / **↓** step a
