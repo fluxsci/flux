@@ -16,7 +16,15 @@ export function modalFocus(node: HTMLElement) {
     }
   }
   node.addEventListener('keydown', key);
-  queueMicrotask(() => { if (node.isConnected && !node.contains(node.ownerDocument.activeElement)) (node.querySelector<HTMLElement>('textarea,input,button,[tabindex="0"]') ?? node).focus(); });
+  // Take the focus on opening: the first control that can hold it. (A disabled first control used
+  // to be chosen, `focus()` on it did nothing, and the focus stayed outside the modal: Figure-Meta's
+  // first control is its Undo button, disabled until there is something to undo, so none of the
+  // dialog's own keys worked until you clicked in it.)
+  queueMicrotask(() => {
+    if (!node.isConnected || node.contains(node.ownerDocument.activeElement)) return;
+    const first = [...node.querySelectorAll<HTMLElement>('textarea,input,button,[tabindex="0"]')].find(el => !(el as HTMLButtonElement).disabled && el.getClientRects().length > 0);
+    (first ?? node).focus();
+  });
   return { destroy() {
     node.removeEventListener('keydown', key);
     if (previous?.isConnected && (node.contains(node.ownerDocument.activeElement) || document.activeElement === document.body)) previous.focus();

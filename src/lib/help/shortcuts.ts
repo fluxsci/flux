@@ -272,6 +272,7 @@ export const SECTIONS: ShortcutSection[] = [
         rows: [
           r("Up / Down", "In the search: move through the figures"),
           r("Enter", "In the search: go to the chosen figure's first field"),
+          r("Alt+N", "Show or hide the figure's name (title, family, number) under the preview"),
           r("Mod+S", "Save at once (captions also save as you leave a field)"),
           r("Mod+Z / Mod+Shift+Z", "Outside a field: undo / redo a metadata edit"),
           r("Mod+wheel", "Zoom the preview at the pointer"),

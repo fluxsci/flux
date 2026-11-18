@@ -21,7 +21,7 @@ try{
   const lum=c=>{const [r,g,b]=rgb(c);return .2126*r+.7152*g+.0722*b};
   return {headH:Math.round(head.getBoundingClientRect().height),title:head.querySelector('.title')?.textContent,ctx:head.querySelector('.ctx')?.textContent.trim(),brandWord:!!head.querySelector('.brand-word'),
    paper:lum(getComputedStyle(sheet).backgroundColor),ink:lum(getComputedStyle(cap).color),capInside:cap.getBoundingClientRect().left>=sheet.getBoundingClientRect().left&&cap.getBoundingClientRect().right<=sheet.getBoundingClientRect().right+1,
-   words:meta.querySelector('.caption-toolbar .count')?.textContent,rowFont:getComputedStyle(meta.querySelector('.figure-row b')).fontFamily};});
+   words:meta.querySelector('.pane-head .count')?.textContent,rowFont:getComputedStyle(meta.querySelector('.figure-row b')).fontFamily};});
  h.ok(look.headH===36&&look.title==='Figure-Meta'&&!look.brandWord&&look.ctx.length>0,'one 36 px header: Figure-Meta, then which figure',JSON.stringify(look));
  h.ok(look.paper>230&&look.ink<40&&look.capInside,'the preview is a page proof: paper, with the caption on it in ink',JSON.stringify({paper:look.paper,ink:look.ink}));
  h.ok(/^\d+ words?$/.test(look.words)&&/Georgia|serif/i.test(look.rowFont),'the caption’s word count is shown, and the figures are named in the serif',JSON.stringify(look.words));
@@ -81,6 +81,33 @@ try{
    const n=await page.evaluate(()=>window.__metaPaint.length);await click(page,selector);await page.waitForFunction(n=>window.__metaPaint.length>n,{},n);
  }
  const paint=await page.evaluate(()=>window.__metaPaint);writeFileSync(path.join(process.env.FLUX_OUT||'test-results/out','metadata-control-paint.json'),JSON.stringify({captionBlocks:30,milliseconds:paint,max:Math.max(...paint),budget:100},null,2));h.ok(Math.max(...paint)<=100,'all six font/fold/zoom clicks paint within 100 ms with 30 caption blocks',{milliseconds:paint});
+ // --- round 2 (owner, 2026-11-18: "we shouldn't have a split for name vs captions … the name panel should
+ //     in fact be in box 4 - i.e. an easily hideable/showable bottom panel … below the figure preview") ----
+ await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.figure-meta'));
+ await page.evaluate(()=>localStorage.removeItem('flux.figureMeta.name'));await open();await fit(page);
+ const r2=await page.evaluate(()=>{const box=s=>document.querySelector(s)?.getBoundingClientRect(),meta=document.querySelector('.figure-meta'),prev=box('.preview-pane'),bar=box('.name-bar'),view=box('.preview-viewport'),edit=box('.edit-pane');
+  return {tabs:!!meta.querySelector('[role=tab],.tabs'),head:meta.querySelector('.pane-head b')?.textContent,focus:document.activeElement?.classList[0],closed:!meta.querySelector('.name-body'),
+   under:bar.top>=view.bottom-1&&Math.abs(bar.left-prev.left)<1&&Math.abs(bar.width-prev.width)<1&&bar.bottom<=prev.bottom+1,barH:Math.round(bar.height),beside:edit.left>=prev.right,barText:document.querySelector('.name-bar').textContent.replace(/\s+/g,' ').trim()};});
+ h.ok(!r2.tabs&&r2.head==='Captions','the right column is the captions, with no tabs',JSON.stringify(r2));
+ h.ok(r2.focus==='meta-search','the dialog takes the focus as it opens (its search), so its keys answer at once',String(r2.focus));
+ h.ok(r2.closed&&r2.under&&r2.barH===30&&r2.beside&&/^Name /.test(r2.barText),'the name is a slim bar under the preview that says what the figure is called',JSON.stringify(r2));
+ const viewH=()=>page.$eval('.preview-viewport',e=>e.getBoundingClientRect().height),tall=await viewH();
+ const altN=async()=>{await page.keyboard.down('Alt');await page.keyboard.press('KeyN');await page.keyboard.up('Alt')};
+ await altN();await page.waitForSelector('.name-body [aria-label="Figure title"]');
+ await page.waitForFunction(()=>document.activeElement?.getAttribute('aria-label')==='Figure title');
+ const opened=await page.evaluate(()=>{const b=s=>document.querySelector(s).getBoundingClientRect(),f=['[aria-label="Figure title"]','[aria-label="Figure family"]','[aria-label="Figure number"]','.new-family','button.save'].map(b);
+  return {row:f.every(r=>Math.abs(r.bottom-f[0].bottom)<1.5)&&f.every((r,i)=>i===0||r.left>f[i-1].right-1),bodyH:Math.round(b('.name-body').height),stored:localStorage.getItem('flux.figureMeta.name'),ref:document.querySelector('.name-body .reference code')?.textContent,inside:b('.name-panel').bottom<=b('.preview-pane').bottom+1,captions:!!document.querySelector('.caption-block textarea')};});
+ h.ok(opened.row&&opened.bodyH<200&&opened.inside,'Alt+N opens it into one row (title, family, number, new family, save), with the caret in the title',JSON.stringify(opened));
+ h.ok(/^@/.test(opened.ref??'')&&opened.stored==='1'&&opened.captions,'the permanent reference is in the panel, the captions stay beside it, and how you left it is remembered',JSON.stringify(opened));
+ await fit(page);h.ok(await viewH()<tall-60,'the preview gives the panel its room and refits');
+ await click(page,'.new-family');await page.waitForSelector('[aria-label="Family name"]');
+ const making=await page.evaluate(()=>{const b=s=>document.querySelector(s).getBoundingClientRect(),f=['[aria-label="Family name"]','[aria-label="In-text template"]','[aria-label="Caption template"]'].map(b);return {row:f.every(r=>Math.abs(r.top-f[0].top)<1.5),save:document.querySelector('button.save').disabled,inside:b('.name-panel').bottom<=b('.preview-pane').bottom+1};});
+ h.ok(making.row&&making.save&&making.inside,'a new family opens a second row of three fields; Save waits for it',JSON.stringify(making));
+ await page.evaluate(()=>[...document.querySelectorAll('.name-body fieldset button')].find(b=>b.textContent.trim()==='Cancel').click());
+ await page.waitForFunction(()=>!document.querySelector('.name-body fieldset'));
+ h.ok(await page.evaluate(()=>document.activeElement?.classList.contains('new-family')),'cancelling it hands the focus on (it used to fall out of the dialog, and the keys with it)');
+ await altN();await page.waitForFunction(()=>!document.querySelector('.name-body'));
+ h.eq(await page.evaluate(()=>localStorage.getItem('flux.figureMeta.name')),'0','Alt+N hides it again, and that is remembered');
  h.ok(!realErrors(page).length,'clean console',realErrors(page));
 }finally{await browser.close()}
 await h.done();

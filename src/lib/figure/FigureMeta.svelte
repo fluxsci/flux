@@ -34,7 +34,15 @@
   $: if (($projectModel?.root ?? null) !== root) figureMeta.set(null);
   let model: Project | null = null;
   let chosen = get(figureMeta)?.figureId ?? (get(storeTenantState) === 'figure' ? get(activeFigureId) : null);
-  let tab: 'captions' | 'name' = get(figureMeta)?.tab ?? 'captions';
+  // The name lives in a panel under the preview that you show and hide (round 2: no Name tab;
+  // the right column is the captions). It remembers how you left it; a request for the name
+  // (the Inspector, a double-click in the sidebar) opens it with the caret in the title.
+  let nameOpen = get(figureMeta)?.tab === 'name';
+  let nameFocus = nameOpen;
+  try { if (!nameOpen) nameOpen = localStorage.getItem('flux.figureMeta.name') === '1'; } catch {}
+  function rememberName() { try { localStorage.setItem('flux.figureMeta.name', nameOpen ? '1' : '0'); } catch {} }
+  // The caret goes to the title once, when the name was asked for and its form has appeared.
+  $: if (nameFocus && nameForm) { nameFocus = false; void tick().then(() => nameForm?.focusTitle()); }
   let query = '', family = '', canvas = '';
   let error = '', status = '', saving = false;
   let preview = '', previewError = '', previewFor = '', ownedPreview = '';
@@ -46,7 +54,7 @@
     reconnectList(); return { destroy() { observer.disconnect(); reconnectList = () => {}; } };
   }
   onDestroy(registerTargetResolver({ get surface() { return get(focusedMode); }, root: () => wrap ?? null,
-    revision: () => [selected, drafts, tab],
+    revision: () => [selected, drafts, nameOpen],
     current() {
       if (!selected) return [];
       const block = wrap?.ownerDocument.activeElement?.closest('[data-caption-panel]');
@@ -187,7 +195,13 @@
   }
   function discardDrafts() { drafts = new Map(); nameForm?.reset(); error = ''; status = 'Draft discarded'; void refresh(); }
   async function choose(id: string) { if (id !== chosen && await flush()) { chosen = id; error = ''; status = ''; } }
-  async function selectTab(next: 'captions' | 'name') { if (tab !== next && await flush()) tab = next; }
+  /** Show or hide the name. Hiding it saves it first (an unfinished new family keeps it open). */
+  async function toggleName(focus = true) {
+    if (nameOpen) { if (!await flush()) return; nameOpen = false; }
+    else { nameFocus = focus; nameOpen = true; }
+    rememberName();
+  }
+  function showName() { nameFocus = true; if (!nameOpen) { nameOpen = true; rememberName(); } }
   async function close() { if (await flush()) figureMeta.set(null); else if (detached && popup) dock(); }
   function pin() {
     if (detached) { popup?.focus(); return; }
@@ -210,6 +224,7 @@
     const mod = e.ctrlKey || e.metaKey;
     if (e.key === 'Escape') { e.preventDefault(); nameForm?.reset(); void close(); }
     else if (e.altKey && !mod && e.code === 'KeyM') { e.preventDefault(); if (e.shiftKey) pin(); else void close(); }
+    else if (e.altKey && !mod && !e.shiftKey && e.code === 'KeyN') { e.preventDefault(); void toggleName(); }
     else if (mod && e.code === 'KeyR') { e.preventDefault(); void close(); }
     else if (mod && !e.shiftKey && e.code === 'KeyS') { e.preventDefault(); void flush(); }
     else if (mod && e.code === 'KeyZ' && !['INPUT','TEXTAREA'].includes((e.target as HTMLElement).tagName)) { e.preventDefault(); void undoMeta(!e.shiftKey); }
@@ -259,10 +274,12 @@
     if (root && metadataUsesLiveFigure(root) && !(await flushByIdChecked('figure')).ok) throw new Error('Figure metadata is still waiting for the figure save.'); } });
   onMount(() => {
     if (!model) void refresh();
+    // The search is the dialog's keyboard hub (↑/↓ walk the figures, Enter goes to the first field).
+    wrap.querySelector<HTMLInputElement>('.meta-search')?.focus();
     let initial = true;
     const unsub = figureMeta.subscribe(request => {
       if (!request) return;
-      if (!initial) void flush().then(ok => { if (ok && alive) { if (request.figureId) chosen = request.figureId; tab = request.tab; if (request.pinned) pin(); else popup?.focus(); } });
+      if (!initial) void flush().then(ok => { if (ok && alive) { if (request.figureId) chosen = request.figureId; if (request.tab === 'name') void showName(); if (request.pinned) pin(); else popup?.focus(); } });
       initial = false;
     });
     if (get(figureMeta)?.pinned) pin();
@@ -313,34 +330,47 @@
           {#if selected}
             <FigureMetaPreview bind:this={previewView} figureId={selected.id} title={selected.nickname || selected.name} image={preview} error={previewError} {caption} {captionLabel} aspect={selected.width/selected.height} />
           {/if}
+          {#if selected && model}
+            <!-- The name: a bar under the preview that opens into one row of fields. -->
+            <section class="name-panel" class:open={nameOpen} aria-label="Figure name">
+              <button class="name-bar" aria-expanded={nameOpen} aria-controls="figure-meta-name" title={nameOpen ? 'Hide the name (Alt+N)' : 'Show the name: title, family and number (Alt+N)'} on:click={() => toggleName()}>
+                <span class="block-chev" class:open={nameOpen} aria-hidden="true"></span>
+                <span class="section-label">Name</span>
+                <span class="name-now"><b>{selected.name}</b>{#if selected.nickname}<span>{selected.nickname}</span>{/if}</span>
+                <span class="grow"></span>
+                <code class="name-ref" title="Permanent reference: what the manuscript cites, whatever the figure is called">@{selected.referenceKey}</code>
+                <span class="chord" aria-hidden="true"><kbd>Alt</kbd><kbd>N</kbd></span>
+              </button>
+              {#if nameOpen}
+                <div class="name-body" id="figure-meta-name">
+                  {#key selected.id}<FigureIdentityForm {model} figure={selected} save={apply} bind:this={nameForm} />{/key}
+                  <div class="reference"><span>Permanent reference</span><code>@{selected.referenceKey}</code><button on:click={copyReference}>Copy</button></div>
+                </div>
+              {/if}
+            </section>
+          {/if}
         </div>
         <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
         <div class="splitter" role="separator" aria-label="Resize figure preview" aria-orientation="vertical" aria-valuenow={Math.round(split*100)} aria-valuemin="25" aria-valuemax="75" tabindex="0" on:pointerdown={resize} on:keydown={splitKeys} on:dblclick={() => split = .52}></div>
         <div class="edit-pane">
-          <div class="tabs" role="tablist" aria-label="Figure metadata">
-            <button role="tab" aria-selected={tab==='captions'} class:on={tab==='captions'} title="The story behind the figure" on:click={() => selectTab('captions')}><Icon name="textFlow" size={15} /><span>Captions</span></button>
-            <button role="tab" aria-selected={tab==='name'} class:on={tab==='name'} title="Title, family and number" on:click={() => selectTab('name')}><Icon name="hash" size={15} /><span>Name</span></button>
-          </div>
-          <div class="fields" role="tabpanel" aria-label={tab === 'captions' ? 'Captions' : 'Name'}>
+          <!-- The right column is the captions: no tabs. -->
+          <div class="pane-head"><Icon name="textFlow" size={15} /><b>Captions</b><span class="count">{captionWordCount} word{captionWordCount === 1 ? '' : 's'}</span><span class="grow"></span><div class="text-size" role="group" aria-label="Caption text size"><span>Aa</span><button aria-label="Decrease caption text size" title="Smaller caption text" disabled={$settings.captionFontSize<=9} on:click={() => changeTextSize(-1)}><Icon name="min" size={12} /></button><output aria-label="Caption text size">{$settings.captionFontSize}</output><button aria-label="Increase caption text size" title="Larger caption text" disabled={$settings.captionFontSize>=28} on:click={() => changeTextSize(1)}><Icon name="plus" size={12} /></button></div></div>
+          <div class="fields" role="region" aria-label="Captions">
             {#if selected && model}
               {#key selected.id}
-                {#if tab==='captions'}
-                  <div class="caption-toolbar"><span class="section-label">Caption <span class="count">{captionWordCount} word{captionWordCount === 1 ? '' : 's'}</span></span><div class="text-size" role="group" aria-label="Caption text size"><span>Aa</span><button aria-label="Decrease caption text size" title="Smaller caption text" disabled={$settings.captionFontSize<=9} on:click={() => changeTextSize(-1)}><Icon name="min" size={12} /></button><output aria-label="Caption text size">{$settings.captionFontSize}</output><button aria-label="Increase caption text size" title="Larger caption text" disabled={$settings.captionFontSize>=28} on:click={() => changeTextSize(1)}><Icon name="plus" size={12} /></button></div></div>
                   {#each blocks as block (block.id)}
-                    {@const folded = collapsed.has(`${selected.id}:${block.id}`)}
-                    <div class="caption-block" data-caption-panel={block.id === "__figure__" ? "" : block.label || block.id} class:folded class:postscript={block.id===POSTSCRIPT_CAPTION}>
-                      <div class="block-heading">
-                        <button class="block-toggle" aria-expanded={!folded} aria-controls={`caption-${selected.id}-${block.id}`} aria-label={`${folded ? 'Expand' : 'Collapse'} ${block.label || 'Figure'} caption`} title="Fold or unfold this caption" on:click={() => toggleBlock(block.id)}><span class="block-chev" class:open={!folded} aria-hidden="true"></span><span class="block-tag">{block.label || 'Figure'}</span><span class="block-kind">{block.id==='__figure__' ? 'opens the caption' : block.id===POSTSCRIPT_CAPTION ? 'closes the caption' : 'panel'}</span><span class="block-rule"></span></button>
-                        {#if block.id===POSTSCRIPT_CAPTION}<button class="remove-ps" aria-label="Remove closing caption" title="Remove closing caption (undo available)" on:click={removePostscript}><Icon name="x" size={12} /></button>{/if}
-                      </div>
-                      {#if !folded}<div class="caption-content" id={`caption-${selected.id}-${block.id}`}><textarea aria-label={`${block.label || 'Figure'} caption`} style={`font-size:${$settings.captionFontSize}px`} value={draftValue(block.id)} rows="2" placeholder={block.id==='__figure__' ? 'Introduce the figure…' : block.id===POSTSCRIPT_CAPTION ? 'Add a closing sentence…' : `Describe panel ${block.label}…`} on:input={e => editCaption(block.id,e.currentTarget.value)} on:change={() => flushCaptions()} use:autogrow={{value:draftValue(block.id),fs:$settings.captionFontSize}}></textarea></div>{/if}
+                  {@const folded = collapsed.has(`${selected.id}:${block.id}`)}
+                  <div class="caption-block" data-caption-panel={block.id === "__figure__" ? "" : block.label || block.id} class:folded class:postscript={block.id===POSTSCRIPT_CAPTION}>
+                    <div class="block-heading">
+                      <button class="block-toggle" aria-expanded={!folded} aria-controls={`caption-${selected.id}-${block.id}`} aria-label={`${folded ? 'Expand' : 'Collapse'} ${block.label || 'Figure'} caption`} title="Fold or unfold this caption" on:click={() => toggleBlock(block.id)}><span class="block-chev" class:open={!folded} aria-hidden="true"></span><span class="block-tag">{block.label || 'Figure'}</span><span class="block-kind">{block.id==='__figure__' ? 'opens the caption' : block.id===POSTSCRIPT_CAPTION ? 'closes the caption' : 'panel'}</span><span class="block-rule"></span></button>
+                      {#if block.id===POSTSCRIPT_CAPTION}<button class="remove-ps" aria-label="Remove closing caption" title="Remove closing caption (undo available)" on:click={removePostscript}><Icon name="x" size={12} /></button>{/if}
                     </div>
-                  {/each}
-                  {#if !blocks.some(b => b.id===POSTSCRIPT_CAPTION)}<button class="add-ps" on:click={addPostscript}><Icon name="plus" size={13} /><span>Add a closing caption <b>ps</b></span></button>{:else}<p class="hint ps-hint">The closing text follows the last panel, without a label.</p>{/if}
-                  {#if blocks.every(b => b.id==='__figure__' || b.id===POSTSCRIPT_CAPTION)}<p class="hint">To caption a panel, mark its letter as a <b>Panel label</b>: select the text on the figure and press <kbd>Alt</kbd><kbd>L</kbd>.</p>{/if}
-                {:else}<FigureIdentityForm {model} figure={selected} save={apply} bind:this={nameForm} />{/if}
+                    {#if !folded}<div class="caption-content" id={`caption-${selected.id}-${block.id}`}><textarea aria-label={`${block.label || 'Figure'} caption`} style={`font-size:${$settings.captionFontSize}px`} value={draftValue(block.id)} rows="2" placeholder={block.id==='__figure__' ? 'Introduce the figure…' : block.id===POSTSCRIPT_CAPTION ? 'Add a closing sentence…' : `Describe panel ${block.label}…`} on:input={e => editCaption(block.id,e.currentTarget.value)} on:change={() => flushCaptions()} use:autogrow={{value:draftValue(block.id),fs:$settings.captionFontSize}}></textarea></div>{/if}
+                  </div>
+                {/each}
+                {#if !blocks.some(b => b.id===POSTSCRIPT_CAPTION)}<button class="add-ps" on:click={addPostscript}><Icon name="plus" size={13} /><span>Add a closing caption <b>ps</b></span></button>{:else}<p class="hint ps-hint">The closing text follows the last panel, without a label.</p>{/if}
+                {#if blocks.every(b => b.id==='__figure__' || b.id===POSTSCRIPT_CAPTION)}<p class="hint">To caption a panel, mark its letter as a <b>Panel label</b>: select the text on the figure and press <kbd>Alt</kbd><kbd>L</kbd>.</p>{/if}
               {/key}
-              <div class="reference"><span>Permanent reference</span><code>@{selected.referenceKey}</code><button on:click={copyReference}>Copy</button></div>
             {:else}<p class="empty">{model ? 'This project has no figures yet.' : 'Opening figures…'}</p>{/if}
           </div>
         </div>
@@ -394,14 +424,21 @@
   .preview-pane { display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; background:var(--c-bg); }
   .splitter { position:relative; background:var(--c-line); cursor:col-resize; touch-action:none; transition:background-color 80ms linear; } .splitter::after { content:""; position:absolute; left:1px; top:calc(50% - 12px); width:3px; height:24px; border-radius:1px; background:var(--c-line-strong); } .splitter:hover,.splitter:focus-visible { background:var(--c-accent); } .splitter:hover::after,.splitter:focus-visible::after { background:var(--c-on-accent, #fff); }
   .edit-pane { display:flex; flex-direction:column; min-width:0; min-height:0; }
-  /* Two tabs, the chosen one underlined, like the title bar's modes. */
-  .tabs { display:flex; gap:2px; height:36px; flex-shrink:0; padding:0 12px; border-bottom:1px solid var(--c-line); }
-  .tabs button { position:relative; display:flex; align-items:center; gap:7px; height:35px; padding:0 10px; border:0; border-radius:0; color:var(--c-tx-muted); font:13px var(--font-serif); }
-  .tabs button:hover:not(:disabled) { background:transparent; color:var(--c-tx-hi); }
-  .tabs .on { color:var(--c-tx-hi); font-weight:600; } .tabs .on::after { content:""; position:absolute; left:8px; right:8px; bottom:-1px; height:2px; background:var(--c-accent); }
+  /* The column's head: what it is, how much of it there is, and its text size. */
+  .pane-head { display:flex; align-items:center; gap:8px; height:36px; flex-shrink:0; padding:0 12px 0 16px; border-bottom:1px solid var(--c-line); color:var(--c-tx-muted); }
+  .pane-head b { font:600 13px var(--font-serif); color:var(--c-tx-hi); } .pane-head .count { font:10.5px var(--font-mono); font-variant-numeric:tabular-nums; color:var(--c-tx-faint); }
+  .grow { flex:1; }
+  /* The name, under the preview: a bar that says what the figure is called and opens into one row of
+     fields. Its height is its content's; the preview above takes what is left. */
+  .name-panel { flex-shrink:0; background:var(--c-surface); border-top:1px solid var(--c-line); }
+  .name-bar { display:flex; align-items:center; gap:9px; width:100%; height:30px; padding:0 10px 0 12px; border:0; border-radius:0; text-align:left; color:var(--c-tx-muted); }
+  .name-bar:hover:not(:disabled) { background:var(--c-surface-2); }
+  .name-panel.open .name-bar { border-bottom:1px solid var(--c-line); background:var(--c-bg-raised); }
+  .name-now { display:inline-flex; align-items:baseline; gap:8px; min-width:0; } .name-now b { font:600 13px var(--font-serif); color:var(--c-tx-hi); white-space:nowrap; } .name-now span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font:13px var(--font-serif); color:var(--c-tx-2); }
+  .name-ref { flex-shrink:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font:10.5px var(--font-mono); color:var(--c-tx-faint); }
+  .name-panel.open .name-ref { display:none; }
+  .name-body { display:flex; flex-direction:column; gap:10px; padding:12px 14px 12px; animation:flux-arrive 90ms ease-out both; }
   .fields { flex:1; min-height:0; overflow:auto; padding:16px 18px 18px; scrollbar-gutter:stable; }
-  .caption-toolbar { position:sticky; top:-16px; z-index:1; display:flex; align-items:center; justify-content:space-between; gap:8px; margin:-16px -18px 14px; padding:10px 18px 9px; background:var(--c-surface); border-bottom:1px solid var(--c-line); }
-  .caption-toolbar .section-label { justify-content:flex-start; gap:10px; }
   .text-size { display:flex; align-items:center; border:1px solid var(--c-line); border-radius:var(--r-ui); background:var(--c-bg); } .text-size>span { padding:0 8px 0 9px; font:13px var(--font-serif); color:var(--c-tx-muted); } .text-size button { display:grid; place-items:center; width:22px; height:22px; padding:0; border:0; border-left:1px solid var(--c-line); border-radius:0; } .text-size output { min-width:26px; padding:0 2px; text-align:center; border-left:1px solid var(--c-line); font:11px/22px var(--font-mono); color:var(--c-tx); font-variant-numeric:tabular-nums; }
   .hint { margin:0 0 12px; color:var(--c-tx-muted); font:11.5px/1.5 var(--font-serif); } .hint b { color:var(--c-tx-2); font-weight:600; } .hint kbd { margin:0 1px; vertical-align:1px; }
   .caption-block { display:flex; flex-direction:column; gap:7px; margin-bottom:14px; } .block-heading { display:flex; align-items:center; gap:3px; }
@@ -412,7 +449,7 @@
   .folded { gap:0; margin-bottom:8px; } .folded .block-tag { background:transparent; color:var(--c-tx-2); border-color:var(--c-line-strong); } .remove-ps { display:grid; place-items:center; width:22px; height:22px; padding:0; border-color:transparent; }
   textarea { box-sizing:border-box; width:100%; min-height:60px; border:1px solid var(--c-line-strong); border-radius:var(--r-ui); background:var(--c-bg); color:var(--c-tx-hi); padding:10px 12px; font:16px/1.55 var(--font-serif); resize:none; overflow:hidden; display:block; outline:none; transition:border-color 80ms linear, box-shadow 80ms linear; } textarea:hover { border-color:var(--c-tx-muted); } textarea:focus { border-color:var(--c-accent); box-shadow:0 0 0 3px var(--c-accent-tint-2); } textarea::placeholder { color:var(--c-tx-faint); font-style:italic; } .caption-content { animation:caption-reveal 80ms ease-out; } @keyframes caption-reveal { from {opacity:0} to {opacity:1} } @media(prefers-reduced-motion:reduce) { .caption-content { animation:none; } button, textarea, .find, .splitter, .block-chev { transition:none; } }
   .add-ps { display:flex; align-items:center; justify-content:center; gap:7px; width:100%; height:32px; border-style:dashed; border-color:var(--c-line-strong); color:var(--c-tx-muted); margin:2px 0 12px; } .add-ps b { margin-left:5px; font:600 10px var(--font-mono); color:var(--c-accent-bright); } .ps-hint { margin-top:-7px; }
-  .reference { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:16px; padding-top:11px; border-top:1px solid var(--c-line); color:var(--c-tx-muted); } .reference code { flex:1; font:11.5px var(--font-mono); color:var(--c-tx-2); overflow-wrap:anywhere; user-select:text; } .reference>span { font:600 10px var(--font-mono); text-transform:uppercase; letter-spacing:.08em; } .reference button { height:22px; }
+  .reference { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding-top:9px; border-top:1px solid var(--c-line); color:var(--c-tx-muted); } .reference code { flex:1; font:11.5px var(--font-mono); color:var(--c-tx-2); overflow-wrap:anywhere; user-select:text; } .reference>span { font:600 10px var(--font-mono); text-transform:uppercase; letter-spacing:.08em; } .reference button { height:22px; }
   /* The state of your words, said once: a dot and a line. */
   .status { min-height:30px; display:flex; gap:10px; align-items:center; padding:0 10px 0 12px; background:var(--c-bg-raised); border-top:1px solid var(--c-line); color:var(--c-tx-muted); font:11px var(--font-ui); }
   .status .state { display:inline-flex; align-items:center; gap:7px; } .status .state::before { content:""; width:7px; height:7px; border-radius:50%; box-sizing:border-box; border:1px solid var(--c-tx-faint); }
@@ -423,6 +460,7 @@
   .hints { display:inline-flex; gap:14px; white-space:nowrap; } .hints kbd { margin-right:3px; }
   .empty { padding:14px; color:var(--c-tx-muted); }
   @media(max-width:1100px) { .hints span:first-child { display:none; } }
-  @media(max-width:900px) { .meta-wrap { padding:10px; } .detached { padding:0; } aside { width:160px; } .fields { padding:12px; } .caption-toolbar { top:-12px; margin:-12px -12px 12px; padding:9px 12px; } .chord { display:none; } footer { display:none; } }
+  @media(prefers-reduced-motion:reduce) { .name-body { animation:none; } }
+  @media(max-width:900px) { .meta-wrap { padding:10px; } .detached { padding:0; } aside { width:160px; } .fields { padding:12px; } .chord { display:none; } footer { display:none; } }
   @media(max-width:650px) { aside { width:128px; } .detail { grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(180px,40%) minmax(0,1fr); } .splitter { display:none; } .preview-pane { border-bottom:1px solid var(--c-line); } header { gap:6px; padding:0 4px 0 8px; } .ctx, .vsep { display:none; } .title { flex:1; } .hints { display:none; } }
 </style>

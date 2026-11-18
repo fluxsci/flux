@@ -39,7 +39,7 @@ the element you clicked. You can start dragging that element straight away.
   open.
 - The **sidebar** has two views, **Layers** and **Plots** (the tabs at its top; **Alt+G** goes
   to Plots — see [The Plots rail](#the-plots-rail)). **Layers** lists Canvases (pages — add, rename, delete), Figures on the active canvas
-  (family-aware number badges — "2", "S2", "ED3"; double-click opens Figure-Meta’s Name tab), and
+  (family-aware number badges — "2", "S2", "ED3"; double-click opens Figure-Meta on the figure's name), and
   **Layers** — the z-ordered element tree, with per-row show/hide, lock, drag-to-reorder, and
   collapsible groups. Drag its right edge to resize it — as wide as you like, the canvas always
   keeps a strip beside the right rail — and double-click the edge to reset; **Ctrl+B** hides it (bold still wins
@@ -51,7 +51,7 @@ the element you clicked. You can start dragging that element straight away.
   **Alt+↑** / **Alt+↓**. **Shift+click** picks a run of rows and **Ctrl+click**
   (**⌘+click** on macOS) adds or drops one, and the whole pick then moves as a block.
   This changes the *order of the list only*: nothing moves on the canvas, and no figure is
-  renumbered — reordering and renumbering are separate on purpose, so use Figure-Meta’s Name tab
+  renumbered — reordering and renumbering are separate on purpose, so use the name panel in Figure-Meta
   below when you want the numbers to follow.
 - The **Inspector** puts the selection’s position, size and appearance first. Alignment and
   arrangement tools, the color palette and journal export options can be expanded as needed; drag its left edge to resize it, **Ctrl+Shift+B** hides it for a
@@ -831,13 +831,17 @@ one gesture.
   until you restore the panel or repair that reference.
 - **Alt+M** opens **Figure-Meta** in Figure or Paper, starting with the active figure. It has
   three columns: which figure, how it will print, and what you write.
-  Browse every canvas, search and filter families, and edit the **Captions** or **Name** tab.
+  Browse every canvas, search and filter families, and write the captions in the right-hand
+  column. The figure's **name** is in a bar under the preview: it says what the figure is
+  called, and opens (click it, or **Alt+N**) into one row with its title, family and number,
+  how the name will read in the text and in the caption, and its permanent reference. Hide it
+  the same way; Figure-Meta remembers how you left it.
   In the list, a small number beside a figure is how many words its caption has, and a ring
   means it has none yet. With the caret in the search, **↑** and **↓** move through the figures
   and **Enter** goes to the chosen figure's first field.
   The figure and composed caption preview sit beside the fields, drawn as a page proof: the
   figure and its caption on paper, in the manuscript's type; drag the divider to resize
-  them. The toolbar above the fields counts the caption's words as you type. The Name tab includes family, number, title and custom families. Existing captions
+  them. The head of the captions column counts the caption's words as you type. **+ New family…** in the name panel makes a custom family (its own numbering and wording). Existing captions
   and permanent references are preserved. Captions flow into the [manuscript](paper.qmd)
   and exports automatically. Each field grows to fit; the fields column scrolls. Set the
   typing size with the **− / +** controls above the blocks (also in **Settings → Figure**).

@@ -28,11 +28,11 @@ async function main(){
  await wait(()=>saved().captions.__ps__==='Native closing sentence.','postscript saved');
  check(fs.readFileSync(path.join(root,'fig/captions/meta-0.md'),'utf8').trim().endsWith('Native closing sentence.')&&!fs.readFileSync(path.join(root,'fig/captions/meta-0.md'),'utf8').includes('**ps**'),'native closing prose persists with no output label');
 
- await click(child,'.tabs button:nth-child(2)');await wait(()=>js(child,"!!document.querySelector('[aria-label=\"Figure title\"]')"),'Name');
+ if(!await js(child,"!!document.querySelector('.name-body')"))await click(child,'.name-bar');await wait(()=>js(child,"!!document.querySelector('[aria-label=\"Figure title\"]')"),'Name');
  await fill(child,'[aria-label="Figure title"]','Native title');await click(child,'.new-family');await fill(child,'[aria-label="Family name"]','Movie');key(child,'Enter');await wait(()=>js(child,"!document.querySelector('fieldset')&&document.querySelector('[aria-label=\"Figure family\"]').value==='movie'&&!document.querySelector('.save').disabled"),'Enter stages the new family');await click(child,'.save');
  await wait(()=>saved().family==='movie'&&saved().nickname==='Native title','custom family saved');
  check(saved().referenceKey==='fig-meta-0','permanent references retained');
- await click(child,'.tabs button:first-child');await wait(()=>js(child,"!!document.querySelector('[aria-label=\"Figure caption\"]')"),'captions tab');win.hide();child.focus();child.setSize(820,660);await wait(()=>js(child,'innerWidth<830'),'utility resized with hidden owner');
+ await click(child,'.name-bar');await wait(()=>js(child,"!document.querySelector('.name-body')&&!!document.querySelector('[aria-label=\"Figure caption\"]')"),'name hidden, captions beside it');win.hide();child.focus();child.setSize(820,660);await wait(()=>js(child,'innerWidth<830'),'utility resized with hidden owner');
  await fill(child,'[aria-label="Figure caption"]','Long native caption. '.repeat(60));key(child,'Tab');
  await wait(()=>js(child,"[...document.querySelectorAll('textarea')].every(t=>t.scrollHeight<=t.clientHeight+2)"),'fields refit with hidden owner');check(true,'native resize refits captions while owner is hidden');
  await wait(()=>js(child,`(()=>{const v=document.querySelector('.preview-viewport'),s=document.querySelector('.preview-sheet');const a=v.getBoundingClientRect(),b=s.getBoundingClientRect();return b.top>=a.top-1&&b.bottom<=a.bottom+1&&b.left>=a.left-1&&b.right<=a.right+1})()`),'whole figure and caption fit with hidden owner');

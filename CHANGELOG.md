@@ -109,9 +109,15 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   figure and its caption on paper, in the manuscript's type. The list shows how many words
   each figure's caption has (a ring when it has none), and **↑** / **↓** in the search move
   through the figures, with **Enter** going to the first field. The fields count the caption's
-  words as you type. The bar at the bottom says plainly whether your words are saved. The Name
-  tab and the preview's controls are redrawn to match. Filtering the list now returns it to
-  its top.
+  words as you type. The bar at the bottom says plainly whether your words are saved. The
+  preview's controls are redrawn to match. Filtering the list now returns it to its top.
+- **Figure-Meta: the captions have the right column to themselves, and the name is a panel
+  under the preview.** No Captions / Name tabs. A slim bar under the preview says what the
+  figure is called; click it or press **Alt+N** and it opens into one row (title, family,
+  number, new family, save), with how the name will read and the permanent reference. It
+  remembers whether you left it open. The dialog now takes the keyboard as it opens (its keys
+  were dead until you clicked in it), and editing a caption with the name showing no longer
+  puts a phantom "name change" ahead of it in the undo history.
 - **Crystallize (Shift+A).** Select objects you placed by hand and press **Shift+A**: Flux reads
   them as the row, column or grid they are closest to and snaps them into it, aligned and evenly
   spaced, as one Undo step. Three in a row with a fourth under the first become a 2 × 2. A small

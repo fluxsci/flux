@@ -22,7 +22,9 @@ try {
  h.ok(saved.caption.includes('**a**, Panel a from Paper.'), 'cold Paper saves composed Markdown under the existing panel identity');
  h.ok(saved.model.figures[0].captions['el-a']==='Panel a from Paper.', 'cold Paper saves canonical caption block');
  h.ok(await page.evaluate(old=>JSON.stringify(window.__flux.get(window.__flux.fig.project))===old,before),'cold Paper does not replace the figure/slide editing store');
- await page.click('.tabs button:nth-child(2)'); await page.waitForSelector('[aria-label="Figure title"]');
+ // Round 2 (2026-11-18): no Name tab. The name is a panel under the preview, shown and hidden by its bar.
+ h.ok(!await page.$('.figure-meta .tabs')&&!await page.$('.name-body')&&!!await page.$('[aria-label="a caption"]'),'the right column is the captions; the name is closed until asked for');
+ await page.click('.name-bar'); await page.waitForSelector('[aria-label="Figure title"]');
  await fill(page,'[aria-label="Figure title"]','Metadata growth'); await page.click('button.save');
  await page.waitForFunction(()=>document.querySelector('.status')?.textContent.includes('Saved'));
  saved=await disk(); h.ok(saved.model.figures[0].nickname==='Metadata growth' && saved.model.figures[0].referenceKey==='fig-growth','naming persists without changing permanent references');
@@ -31,7 +33,9 @@ try {
  await page.evaluate(()=>document.querySelector('.sidebar section:nth-of-type(2) li .item').dispatchEvent(new MouseEvent('dblclick',{bubbles:true})));
  await page.waitForSelector('[aria-label="Figure title"]');
  h.ok(await page.$eval('[aria-label="Figure title"]',e=>e.value==='Metadata growth'),'sidebar double-click opens Name with the saved title');
- await page.click('.tabs button:first-child'); await page.waitForSelector('[aria-label="a caption"]');
+ await page.waitForFunction(()=>document.activeElement?.getAttribute('aria-label')==='Figure title');
+ h.ok(true,'…with the caret in the title');
+ await page.waitForSelector('[aria-label="a caption"]');
  await fill(page,'[aria-label="a caption"]','Panel a from Figure.'); await page.keyboard.press('Tab');
  await page.waitForFunction(()=>document.querySelector('.caption-preview')?.textContent.includes('Panel a from Figure.'));
  await page.click('[aria-label="Undo metadata edit"]');
@@ -50,12 +54,12 @@ try {
  h.ok(await popup.$eval('.meta-wrap',el=>el.classList.contains('detached')),'pin moves the same metadata view into its utility window');
  await fill(popup,'[aria-label="b caption"]','Pinned caption.');await popup.keyboard.press('Tab');
  await popup.waitForFunction(()=>document.querySelector('.caption-preview')?.textContent.includes('Pinned caption.'));
- await click(popup,'.tabs button:nth-child(2)');await popup.waitForSelector('[aria-label="Figure title"]');
+ if(!await popup.$('.name-body'))await click(popup,'.name-bar');await popup.waitForSelector('[aria-label="Figure title"]');
  await fill(popup,'[aria-label="Figure title"]','Pinned title');await click(popup,'button.save');
  // 2026-11-18: the figure's title is in the header (name · title), no longer a second heading over the preview.
  await popup.waitForFunction(()=>document.querySelector('.figure-meta header .ctx')?.textContent.endsWith(' · Pinned title'));
  h.ok(true,'caption and naming events work in the detached document');
- await click(popup,'.tabs button:first-child');await popup.setViewport({width:850,height:700});
+ await click(popup,'.name-bar');await popup.waitForFunction(()=>!document.querySelector('.name-body'));await popup.setViewport({width:850,height:700});
  await fill(popup,'[aria-label="Figure caption"]','A long caption '.repeat(45));await popup.keyboard.press('Tab');
  await popup.waitForFunction(()=>[...document.querySelectorAll('textarea')].every(t=>t.scrollHeight<=t.clientHeight+2));
  h.ok(true,'pinned resize and long captions retain fit-to-content fields');

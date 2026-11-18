@@ -2748,6 +2748,29 @@ Persistence invariants (all machine-checked — do not weaken):
   at where the control HAD been, or found no control (1 run in 4 under load). In a native
   driver, wait for the control to exist before aiming, and for the state a key was meant to
   produce before the next click.
+  **Round 2 (owner: "we shouldn't have a split for name vs captions … the name panel should in fact
+  be in box 4 … below the figure preview").** No tabs: `.edit-pane` is the captions (`.pane-head`
+  carries the word count and the text size), and the name is `.name-panel` inside `.preview-pane`,
+  under the preview: a 30 px `.name-bar` (what the figure is called, its reference, Alt+N) that
+  opens `.name-body` = `FigureIdentityForm` in one row + the permanent reference. Open/closed is
+  `localStorage["flux.figureMeta.name"]`. `openFigureMeta(id, "name")` still exists and now means
+  "open the name panel with the caret in the title": the dialog raises `nameFocus` and a reactive
+  statement calls `nameForm.focusTitle()` ONCE when the form has mounted (the form must never
+  take the focus by itself: it is keyed on the figure and remounts for every figure you walk past
+  from the search). Three defects this surfaced, all older than the change:
+  (a) `modalFocus` focused the first `textarea,input,button` even when it was DISABLED; `focus()`
+  then does nothing and the focus stays outside the modal. Figure-Meta's first control is its Undo
+  button, disabled until there is something to undo, so every key of the dialog (Esc excepted,
+  which is handled above it) was dead until a click. It now takes the first control that can
+  hold the focus, and Figure-Meta focuses its search itself.
+  (b) `FigureIdentityForm` decided "unchanged" by comparing `JSON.stringify` of two objects built
+  in different key orders (`identityOf` → family, number, nickname; the form → nickname, family,
+  number): never equal, so the first flush of an untouched form wrote a no-op identity change
+  and pushed it on the undo history. Hidden while the form lived on its own tab; with the form
+  beside the captions it put a phantom entry AHEAD of the caption just edited (Undo "did
+  nothing"). Compare records field by field, never as text.
+  (c) Cancelling or adding a new family removed the focused field; the focus fell to the page and
+  the dialog's keys with it. Whoever removes the focused control hands the focus on.
   **Running the native tier on this desktop:** `env -u WAYLAND_DISPLAY DISPLAY=:<private Xvfb>
   FLUX_PRIVATE_DISPLAY=1 FLUX_XVFB=<path to Xvfb> FLUX_URL=<dev server>`. Without `FLUX_XVFB`
   five gates stop at "Xvfb unavailable"; without `FLUX_URL` the raster-fidelity probe loads

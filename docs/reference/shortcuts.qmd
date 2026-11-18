@@ -210,7 +210,8 @@ finishes, **Escape** drops the draft).
 | **Delete** / **Backspace** | Delete selection |
 
 In Figure-Meta (**Alt+M**): **↑ / ↓** in the search move through the figures · **Enter** there
-goes to the chosen figure's first field · **Ctrl+S** saves at once · **Ctrl+Z** /
+goes to the chosen figure's first field · **Alt+N** shows or hides the figure's name (title,
+family, number) under the preview · **Ctrl+S** saves at once · **Ctrl+Z** /
 **Ctrl+Shift+Z** outside a field undo / redo a metadata edit · **Ctrl+wheel** zooms the preview
 (**Ctrl+=** / **Ctrl+−** too) and **Ctrl+0** fits the figure and its caption · **Shift+Alt+M**
 pins it in its own window · **Escape** closes it.
