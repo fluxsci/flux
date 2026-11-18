@@ -32,6 +32,7 @@
   import { cursorPress } from "./cursor/cursorPress";
   import ColorField from "./ColorField.svelte";
   import Icon from "../shell/Icon.svelte";
+  import { openDocs } from "../shell/docsLink";
   import { modalFocus } from "./ui/modalFocus";
   import { fileBridge } from "./project/types";
   import {
@@ -325,6 +326,10 @@
               onclick={() => selectTab(t.id)}
               onkeydown={onTabKey}><span class="ti" aria-hidden="true">{#if t.icon}<Icon name={t.icon} size={16} />{:else}<svg viewBox="0 0 24 24" width="16" height="16"><path d="M3 18.5c1.5-2 3-2 4.5 0s3 2 4.5 0 3-2 4.5 0 3 2 4.5 0" stroke-width="1.8" /><path d="M6.5 9.5l3.5 3.5L17.5 5" stroke="var(--c-accent)" stroke-width="2.2" /></svg>{/if}</span>{t.label}</button>
           {/each}
+          <button class="guide" title="Open this section of the guide in your browser" onclick={() => void openDocs({ surface: "settings", tab })}>
+            <span>Guide</span>
+            <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 2.5h5v5M9.5 2.5l-7 7" /></svg>
+          </button>
         </div>
 
         <div class="content">
@@ -782,6 +787,31 @@
   .tab.on {
     background: var(--c-accent-tint);
     box-shadow: inset 2px 0 0 var(--c-accent);
+    color: var(--c-tx-hi);
+  }
+
+  /* The guide's page for the open section, at the foot of the rail. */
+  .guide {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 26px;
+    margin-top: auto;
+    padding: 0 9px;
+    background: transparent;
+    border: 0;
+    border-radius: var(--r-ui);
+    color: var(--c-tx-muted);
+    font: 12px var(--font-serif);
+    text-align: left;
+  }
+  .guide svg {
+    width: 10px;
+    height: 10px;
+    stroke-width: 1.4;
+  }
+  .guide:hover {
+    background: var(--c-surface-2);
     color: var(--c-tx-hi);
   }
 

@@ -27,6 +27,11 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   shortcuts where it had about 120, including the keys of the X-ray, the Plots view, the
   animator, presenting, tables and the margin panes, and several rows that were wrong or stale
   are corrected. **Esc** clears the search before it closes the reference.
+- **The Docs button opens the guide where you are.** It goes to fluxsci.org/docs at the page for
+  the mode you are in (Figure, Slide, Paper, Library, Reader; the start page from Home), and
+  its tooltip says which. Settings and the keyboard reference each have a **Guide** link to
+  their own page, at the open section. With no network connection, the copy of the guide inside
+  the app opens instead.
 - **Bring to front / send to back with Ctrl+Shift+] and Ctrl+Shift+[ works.** On a US keyboard
   the chord did nothing.
 - **Notices are redrawn.** Each has a mark for its kind (done, problem, information), a

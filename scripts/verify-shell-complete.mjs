@@ -201,6 +201,56 @@ ok(await helpOpen(), "the title-bar help button opens the reference");
 await page.keyboard.press("Escape");
 await sleep(150);
 
+// --- the Docs button opens the guide's page for where you are -------------------------------
+// Online: the published page, through the bridge's external opener. Offline: the copy inside
+// the app. The fixture bridge's openers are replaced by recorders for the length of this block.
+const tbDocs = '.titlebar button[aria-label="Documentation"]';
+await page.evaluate(() => {
+  window.__docs = { external: [], local: 0, was: { openExternal: window.fig.openExternal, openDocs: window.fig.openDocs } };
+  window.fig.openExternal = async (url) => { window.__docs.external.push(url); };
+  window.fig.openDocs = async () => { window.__docs.local++; return { ok: true }; };
+});
+const docsSeen = {};
+for (const [label, page_] of [["Figure", "figure.html"], ["Slide", "slides.html"], ["Paper", "paper.html"], ["Library", "library.html"], ["Reader", "reader.html"]]) {
+  await clickMode(page, label);
+  await sleep(250);
+  const before = await page.evaluate(() => window.__docs.external.length);
+  await page.click(tbDocs);
+  await waitFor(page, (n) => window.__docs.external.length > n, before, { label: `Docs opened from ${label}` });
+  docsSeen[label] = { opened: await page.evaluate(() => window.__docs.external.at(-1)), title: await page.$eval(tbDocs, (el) => el.title), want: `https://fluxsci.org/docs/${page_}` };
+}
+ok(Object.values(docsSeen).every((d) => d.opened === d.want), "in each mode the Docs button opens that mode's page of the guide", JSON.stringify(Object.fromEntries(Object.entries(docsSeen).map(([k, d]) => [k, d.opened]))));
+ok(Object.entries(docsSeen).every(([label, d]) => d.title.includes(`the ${label} guide`)), "and its tooltip names the page", JSON.stringify(Object.values(docsSeen).map((d) => d.title)));
+ok(await page.evaluate(() => window.__docs.local === 0), "online, the copy inside the app is not opened");
+await page.evaluate(() => Object.defineProperty(navigator, "onLine", { configurable: true, get: () => false }));
+const externalBefore = await page.evaluate(() => window.__docs.external.length);
+await page.click(tbDocs);
+await waitFor(page, () => window.__docs.local === 1, null, { label: "offline Docs opens the bundled guide" });
+ok(await page.evaluate((n) => window.__docs.external.length === n, externalBefore), "offline, the Docs button opens the guide that ships with the app instead");
+const offlineToast = await page.$eval(".toasts .toast .t-msg", (e) => e.textContent || "").catch(() => "");
+ok(/guide that ships with Flux/.test(offlineToast), "and says that it did", JSON.stringify(offlineToast));
+await page.click(".toasts .toast .t-x").catch(() => {});
+await page.evaluate(() => { delete navigator.onLine; });
+// Settings and the keyboard reference link to their own pages, at the open section.
+await page.click(tbGear);
+await page.waitForSelector(`${setSel} .guide`);
+await page.click("#settings-tab-paper");
+await page.click(`${setSel} .guide`);
+await page.keyboard.press("Escape");
+await sleep(150);
+await page.click(tbHelp);
+await page.waitForSelector(`${helpSel} .guide`);
+await page.$$eval(`${helpSel} .tab`, (els) => els.find((e) => e.textContent.trim() === "Slide").click());
+await page.click(`${helpSel} .guide`);
+await page.keyboard.press("Escape");
+await sleep(150);
+const surfaceLinks = await page.evaluate(() => window.__docs.external.slice(-2));
+ok(surfaceLinks[0] === "https://fluxsci.org/docs/settings.html#paper" && surfaceLinks[1] === "https://fluxsci.org/docs/shortcuts.html#slide", "Settings and the keyboard reference link to their own page at the open section", JSON.stringify(surfaceLinks));
+await page.evaluate(() => { Object.assign(window.fig, window.__docs.was); delete window.__docs; });
+await page.click("#settings-tab-general").catch(() => {});
+await clickMode(page, "Paper").catch(() => {});
+await sleep(300);
+
 await page.click(tbGear);
 await sleep(250);
 ok(await setOpen(), "the title-bar gear opens Settings (reachable from every mode)");
@@ -369,6 +419,7 @@ ok(rows2 === 0 && stored === "[]", "Clear empties the recents list and persists 
 await gotoApp(page, { url: "http://127.0.0.1:1420/", settle: 1500 });
 await page.waitForSelector(".wordmark", { timeout: 15000 });
 ok(!(await setOpen()) && await page.$eval(tbGear, (e) => !!e).catch(() => false), "Home shows the gear with Settings closed");
+ok(await page.$eval('.titlebar button[aria-label="Documentation"]', (el) => el.dataset.docsUrl === "https://fluxsci.org/docs/" && /the Flux user guide/.test(el.title)), "on Home the Docs button leads to the guide's start");
 await page.click(tbGear);
 await waitFor(page, (sel) => !!document.querySelector(sel), setSel, { label: "Settings opens from Home" });
 ok(await page.$eval(`${setSel} #settings-pane-general`, (el) => /FluxConfig folder/.test(el.textContent || "")), "the gear opens Settings on Home, before any project");

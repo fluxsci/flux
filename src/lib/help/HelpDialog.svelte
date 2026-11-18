@@ -16,6 +16,7 @@
   import { focusedMode } from "../../shell/paneStore";
   import { modalFocus } from "../ui/modalFocus";
   import Icon from "../../shell/Icon.svelte";
+  import { openDocs } from "../../shell/docsLink";
   import { SECTIONS, keyPieces, keyText, markRuns, queryTerms, searchShortcuts, shortcutCount, type ShortcutGroup, type ShortcutRow, type SectionId } from "./shortcuts";
 
   const mac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
@@ -209,6 +210,7 @@
     <div class="foot">
       <span class="legend">{mac ? "⌘ is Ctrl, and ⌥ is Alt, on Windows and Linux" : "On macOS, Ctrl is ⌘ and Alt is ⌥"}</span>
       <span class="hints"><kbd>↑</kbd><kbd>↓</kbd> sections <span class="dot">·</span> <kbd>Esc</kbd> {query ? "clear" : "close"}</span>
+      <button class="guide" title="Open this section of the guide in your browser" onclick={() => void openDocs({ surface: "shortcuts", tab })}>Guide <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 2.5h5v5M9.5 2.5l-7 7" /></svg></button>
       <button class="close" onclick={() => helpOpen.set(false)}>Close</button>
     </div>
   </div>
@@ -590,6 +592,28 @@
   .hints .dot {
     margin: 0 5px;
     color: var(--c-tx-faint);
+  }
+  .guide {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 24px;
+    padding: 0 8px;
+    background: transparent;
+    border: 0;
+    border-radius: var(--r-ui);
+    color: var(--c-tx-muted);
+    font: 12px var(--font-serif);
+  }
+  .guide svg {
+    width: 10px;
+    height: 10px;
+    stroke-width: 1.4;
+  }
+  .guide:hover {
+    background: var(--c-surface-2);
+    color: var(--c-tx-hi);
   }
   .close {
     flex: 0 0 auto;

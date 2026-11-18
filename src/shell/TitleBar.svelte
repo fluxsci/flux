@@ -6,6 +6,7 @@
   import { currentProject, goHome, view, type ModeId } from "./shellStore";
   import { focusedMode, setFocusedMode, splitWith } from "./paneStore";
   import { MODE_LABEL, MODE_ORDER } from "./modeOrder";
+  import { docsTarget, openDocs } from "./docsLink";
   import { helpOpen, settingsOpen } from "../lib/settings";
   import { dirtyPulse } from "../lib/autosave";
   import { anyDirty } from "./lifecycle";
@@ -53,11 +54,9 @@
     if (res && !res.ok) pushToast("error", "Could not launch Lighttable", { detail: res.error });
   }
 
-  // Open the user documentation (the rendered docs/ site) in the OS browser.
-  async function openDocs() {
-    const res = await fileBridge()?.openDocs?.();
-    if (res && !res.ok) pushToast("error", "Could not open the docs", { detail: res.error });
-  }
+  // The Docs button opens the guide's page for where you are: the focused mode in a project,
+  // the guide's start on Home (docsLink.ts; the copy inside the app when offline).
+  const docs = $derived(docsTarget({ view: $view, mode: $focusedMode }));
 
   let maximized = $state(false);
 
@@ -141,7 +140,7 @@
     <button class="ubtn" title="Lighttable — browse image sets" aria-label="Lighttable" onclick={launchLighttable}>
       <Icon name="lighttable" size={17} />
     </button>
-    <button class="ubtn" title="Documentation — the Flux user guide" aria-label="Documentation" onclick={openDocs}>
+    <button class="ubtn" title={docs.label === "Flux" ? "Documentation: the Flux user guide" : `Documentation: the ${docs.label} guide`} aria-label="Documentation" data-docs-url={docs.url} onclick={() => void openDocs({ view: $view, mode: $focusedMode })}>
       <Icon name="bookText" size={17} />
     </button>
     <button class="ubtn" title="Settings" aria-label="Settings" onclick={() => settingsOpen.set(true)}>

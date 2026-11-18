@@ -2654,6 +2654,17 @@ Persistence invariants (all machine-checked — do not weaken):
   (5) do not lay groups out with CSS multi-column inside a scrolling box of fixed height: the
   overflow goes sideways into columns nobody can reach (the first cut did this); the dialog
   deals groups into two flex columns, shorter column next.
+  **The Docs button is contextual** (2026-11-18; owner: "should take you to
+  https://fluxsci.org/docs/ , even better if the button intelligently sensed where you were").
+  `src/shell/docsLink.ts`: `docsTarget({view, mode, surface, tab})` → the published page (one
+  per mode; Slide's is `slides.html`; Settings and the keyboard reference link to their own
+  page at the open tab), and `openDocs` opens it through `openExternal`, or the copy inside the
+  app (`docs:open`, still packaged and still gated by verify-documentation-package) when
+  `navigator.onLine` is false. The site is ANOTHER repository (`fluxsci.github.io`, flat slugs
+  under `/docs/`, unlike this repo's nested `docs/modes/…`), so `verify-docs-link` pins the
+  table: renaming a page there means editing the table here. The title-bar button cannot be
+  reached while a modal covers the bar, which is why Settings and the reference carry their
+  own **Guide** link.
   The same audit found Figure's Ctrl+Shift+] / Ctrl+Shift+[ dead on US layouts: with Shift held
   `e.key` is `}` / `{`, and the handler compared against `]` / `[`. Match both, or use `e.code`.
   - **Property menu (F) = `FluxFigMenu.svelte` + `interact/propertyMenu.ts`.** One `Field` model

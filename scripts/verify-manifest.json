@@ -475,7 +475,8 @@
       "verify-manuscript-check.ts",
       "verify-word-count.ts",
       "verify-mode-icons.ts",
-      "verify-help-shortcuts.ts"
+      "verify-help-shortcuts.ts",
+      "verify-docs-link.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -4347,6 +4348,15 @@
         "verify-w1-toast.mjs",
         "verify-paper-export.mjs",
         "verify-no-retired-agent-layer.ts"
+      ]
+    },
+    {
+      "$why": "2026-11-18: the Docs button opens the published guide at the page for where you are; the table is pinned because the site is another repository.",
+      "glob": "src/shell/docsLink.ts",
+      "run": [
+        "verify-docs-link.ts",
+        "verify-shell-complete.mjs",
+        "verify-startup.mjs"
       ]
     },
     {
@@ -12373,6 +12383,15 @@
       "coverage": "presence"
     },
     "verify-help-shortcuts.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-docs-link.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
