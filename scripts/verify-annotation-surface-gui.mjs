@@ -43,6 +43,23 @@ try {
  await selectTool('ArrowDown');await selectTool('ArrowDown');
  await drag(page,{x:p.x+80,y:p.y+50},p);
  h.ok(await page.$eval('.annotation-marks .mark',e=>e.dataset.kind==='arrow'&&e.dataset.n==='1'&&e.querySelector('.badge-n').textContent==='1'),'Drag draws numbered arrow #1');
+ // 2026-11-18: the number sits at the arrow's TAIL and the head is a dart at the tip, so the point and what it points
+ // at stay visible ("the number blob gets in the way at the tip"); the shaft stops inside the head.
+ const arrowGeometry=await page.$eval('.annotation-marks .mark',(e,ends)=>{
+  const svg=e.ownerSVGElement,m=svg.getScreenCTM(),screen=(x,y)=>{const q=new DOMPoint(x,y).matrixTransform(m);return [q.x,q.y]};
+  const near=(a,b,tol=1.5)=>Math.hypot(a[0]-b[0],a[1]-b[1])<=tol,badge=e.querySelector('.badge');
+  const head=e.querySelector('.head').getAttribute('points').split(' ').map(q=>q.split(',').map(Number)),shaft=e.querySelector('.ink').getAttribute('points').split(' ').map(q=>q.split(',').map(Number));
+  const tip=screen(...head[0]),tail=screen(+badge.getAttribute('cx'),+badge.getAttribute('cy')),shaftEnd=screen(...shaft.at(-1));
+  return {badgeAtTail:near(tail,[ends.from.x,ends.from.y]),tipAtEnd:near(tip,[ends.to.x,ends.to.y]),dart:head.length===4,clear:Math.hypot(tip[0]-tail[0],tip[1]-tail[1])>+badge.getAttribute('r')+16,
+   shaftInsideHead:Math.hypot(shaftEnd[0]-tip[0],shaftEnd[1]-tip[1])>4&&Math.hypot(shaftEnd[0]-tip[0],shaftEnd[1]-tip[1])<16,shaftFromTail:near(screen(...shaft[0]),tail)};
+ },{from:{x:p.x+80,y:p.y+50},to:p});
+ h.eq(arrowGeometry,{badgeAtTail:true,tipAtEnd:true,dart:true,clear:true,shaftInsideHead:true,shaftFromTail:true},'An arrow’s number sits at its tail; its dart head is at the tip, clear of the number');
+ const annotateHead=await page.evaluate(()=>{const head=document.querySelector('.annotation-composer .surface-head'),mark=head.querySelector('.flux-ai-mark'),tool=document.querySelector('.annotation-tools button[aria-pressed="true"]');
+  return {words:[head.querySelector('.brand')?.textContent,head.querySelector('.ttl')?.textContent],first:head.firstElementChild===mark,turn:mark&&getComputedStyle(mark).animationName,tone:mark?.dataset.tone,
+   chosenFill:getComputedStyle(tool).backgroundColor,eyebrow:!!document.querySelector('.annotation-tools .eyebrow')};});
+ h.eq(annotateHead.words,['Flux AI','Annotate'],'The composer header reads Flux AI, then Annotate');
+ h.ok(annotateHead.first&&annotateHead.turn==='flux-ai-turn'&&annotateHead.tone==='ready','The Flux AI mark leads it, turning, in the bloom’s colours while the note goes to the Inbox',JSON.stringify(annotateHead));
+ h.ok(/rgba?\(|color\(|oklab\(/.test(annotateHead.chosenFill)&&!/^rgb\(/.test(annotateHead.chosenFill)&&!annotateHead.eyebrow,'The chosen tool is a tint, never a solid fill, and the bar no longer repeats the surface’s name',annotateHead.chosenFill);
  h.ok(await page.$eval('.target-chips',(el,id)=>[...el.querySelectorAll('[data-target]')].some(e=>e.dataset.target.includes('#'+id)),p.ref.partId),'Arrow tip adds its semantic target chip');
  await page.mouse.move(textPoint.x,textPoint.y);
  h.ok(await page.$eval('[data-annotation-surface] .target-label',e=>e.textContent.includes('Sample size')),'Text-box hover names the text object');

@@ -7,6 +7,12 @@
   // Chips name targets in words (ids in their tooltips); hovering a numbered chip
   // lights up its mark on the still. The drawing geometry is untouched: the
   // screenshot and the SVG map pointer coordinates through the SVG's CTM.
+  //
+  // 2026-11-18 (owner: "CLOSE, but the feel/look could be a lot better"; "the
+  // number blob gets in the way at the tip"): the composer's header reads
+  // Flux AI │ Annotate │ where, with the turning mark; a mark's number sits at
+  // the arrow's TAIL and the head is a dart, so the tip and what it points at
+  // stay visible; the tools are cap · glyph · word cells in the ink colour.
   import { fullscreenPortal } from "../../lib/ui/portal";
   import { onDestroy, tick, untrack } from "svelte";
   import { get } from "svelte/store";
@@ -21,11 +27,12 @@
   import type { InboxItem } from "../../lib/project/inbox";
   import { describeTarget, formatTarget, shortTarget, targetPrompt, resolvedTargetKey, widenTarget, uniqueTargets, type TargetRef } from "../../lib/project/targets";
   import { resolveAt, resolveWithin, elementUnder, type TargetHit } from "../../lib/bridge/targetResolvers";
-  import { anchorPathOf, arrowHead, markBadgePoint, markTargetPoint, snapshotCrop, type FeedbackMark, type MarkKind } from "../../lib/project/annotationCapture";
+  import { anchorPathOf, arrowHead, arrowShaft, markBadgePoint, markTargetPoint, snapshotCrop, type FeedbackMark, type MarkKind } from "../../lib/project/annotationCapture";
   import { pushToast } from "../../lib/toast";
 
   import RecipientList from "./RecipientList.svelte";
   import AgentMark from "./AgentMark.svelte";
+  import FluxAiMark from "./FluxAiMark.svelte";
   import { recipientOptions } from "../../lib/project/agentRouting";
   import { backgroundAvailable } from "./backgroundAvailability";
 
@@ -68,6 +75,14 @@
   const routeSession = $derived(typeof route === "object" && "session" in route ? $sessions.find(s => s.id === route.session.id) : null);
   const placeholder = $derived(targetPrompt(stamp?.targets, "What should change about").replace(/…$/, "?") + " #tags · @agent");
   const routeName = $derived(describeRoute(route));
+  // The header mark's colour: blue when what you add goes straight to an agent that is listening
+  // (or one is being started for it), red on a failure, the bloom's own colours for the Inbox.
+  const markTone = $derived(error ? "error" as const : busy || background || routeSession?.watching ? "live" as const : "ready" as const);
+  const TOOLS: { id: MarkKind; key: string; d: string }[] = [
+    { id: "arrow", key: "A", d: "M3 13 12.5 3.5M12.5 3.5H7M12.5 3.5V9" },
+    { id: "box", key: "B", d: "M3 4h10v8H3z" },
+    { id: "pen", key: "P", d: "M2.5 12c1.5-5 3.5 1.5 5.5-3s3-3.5 5.5-5" },
+  ];
   const whereHuman = $derived(stamp?.targets?.[0] ? `${stamp.surface} · ${shortTarget(stamp.targets[0])}${(stamp.targets.length ?? 0) > 1 ? ` +${stamp.targets.length - 1}` : ""}` : stamp?.activeFigureName ? `${stamp.surface} · figure “${stamp.activeFigureName}”` : stamp?.doc?.path ? `${stamp.surface} · ${stamp.doc.path.split("/").pop()}` : stamp ? `${stamp.surface} view` : "");
 
   function clearPicture() { if (frozen) URL.revokeObjectURL(frozen); frozen = null; frozenImg = null; }
@@ -281,7 +296,7 @@
           ctx.strokeRect(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]));
         } else {
           ctx.beginPath();
-          m.points.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+          (m.kind === "arrow" ? arrowShaft(a, b) : m.points).forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
           ctx.stroke();
         }
         if (m.kind === "arrow") {
@@ -301,13 +316,15 @@
       ctx.strokeStyle = "#fff";
       ctx.stroke();
       ctx.fillStyle = "#fff";
-      ctx.font = "700 12px ui-sans-serif, system-ui, sans-serif";
+      ctx.font = `700 12px ${uiFont()}`; // the same face as the SVG badge on screen
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(String(m.n), bx, by + 0.5);
     }
   }
-  const pts = (m: FeedbackMark) => m.points.map((p) => p.join(",")).join(" ");
+  const uiFont = () => (typeof getComputedStyle === "function" && getComputedStyle(document.documentElement).getPropertyValue("--font-ui").trim()) || "ui-sans-serif, system-ui, sans-serif";
+  /** A mark's line: an arrow's shaft stops at its head's notch. */
+  const pts = (m: FeedbackMark) => (m.kind === "arrow" ? arrowShaft(m.points[0], m.points.at(-1)!) : m.points).map((p) => p.join(",")).join(" ");
   const box = (m: FeedbackMark) => {
     const a = m.points[0], b = m.points[m.points.length - 1];
     return { x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: Math.abs(b[0] - a[0]), h: Math.abs(b[1] - a[1]) };
@@ -330,7 +347,7 @@
       {#if hit}<rect class="target-outline" x={hit.bounds.x} y={hit.bounds.y} width={hit.bounds.w} height={hit.bounds.h} />{/if}
       {#each [...marks, ...(drawing ? [drawing] : [])] as m (m.n)}
         {@const badge = markBadgePoint(m)}
-        <g class="mark" class:dim={litMark !== null && litMark !== m.n} class:lift={litMark === m.n} data-kind={m.kind} data-n={m.n}>
+        <g class="mark" class:dim={litMark !== null && litMark !== m.n} class:lift={litMark === m.n} class:landed={m !== drawing} data-kind={m.kind} data-n={m.n}>
           {#if m.kind === "box"}{@const r = box(m)}
             <rect class="halo" x={r.x} y={r.y} width={r.w} height={r.h} /><rect class="ink" x={r.x} y={r.y} width={r.w} height={r.h} />
           {:else}<polyline class="halo" points={pts(m)} /><polyline class="ink" points={pts(m)} />{/if}
@@ -341,19 +358,22 @@
     </svg>
     {#if hit}<div class="target-label" style:transform={`translate(${Math.max(8, Math.min(pointer.x + 14, window.innerWidth - 350))}px, ${Math.max(8, pointer.y - 36)}px)`}><span class="glyph" aria-hidden="true">{kindGlyph(hit.ref.kind)}</span>{hit.label}{#if hoverHints <= 3}<small>Alt ↑↓ · widen / narrow</small>{/if}</div>{/if}
     <div class="annotation-tools" role="toolbar" aria-label="Annotation tools">
-      <span class="eyebrow">ANNOTATE</span>
+      <span class="held" title="The tool keys are pressed with Alt"><kbd>Alt</kbd><i aria-hidden="true">+</i></span>
       <span class="seg">
-        {#each [{ id: "arrow", key: "A", glyph: "↗" }, { id: "box", key: "B", glyph: "▢" }, { id: "pen", key: "P", glyph: "✎" }] as t}
-          <button class:chosen={tool === t.id} aria-pressed={tool === t.id} disabled={!!editing || staleView} title={`Alt ${t.key}`} onclick={() => tool = t.id as MarkKind}><span class="glyph" aria-hidden="true">{t.glyph}</span>{t.id}<kbd>{t.key}</kbd></button>
+        {#each TOOLS as t (t.id)}
+          <button class:chosen={tool === t.id} aria-pressed={tool === t.id} disabled={!!editing || staleView} title={`Alt ${t.key}`} onclick={() => tool = t.id}><kbd>{t.key}</kbd><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d={t.d} /></svg><span class="word">{t.id}</span></button>
         {/each}
       </span>
       <span class="vsep"></span>
-      <button class="undo" disabled={!marks.length} title="Alt Z" onclick={undo}>Undo mark<kbd>Z</kbd></button>
+      <button class="undo" disabled={!marks.length} title="Alt Z" onclick={undo}><kbd>Z</kbd><svg class="glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.5h5.5a3 3 0 0 1 0 6H7M4 6.5l2.5-2.5M4 6.5 6.5 9" /></svg><span class="word">Undo mark</span></button>
       <span class="vsep"></span>
-      <span class="frozen-note">{staleView ? "earlier view" : "view frozen"}{#if editing} · editing{/if}</span>
+      <span class="frozen-note"><i class="frozen-dot" aria-hidden="true"></i>{staleView ? "earlier view" : "view frozen"}{#if editing} · editing{/if}</span>
     </div>
     <div class="annotation-composer">
       <div class="heading surface-head">
+        <FluxAiMark size={16} tone={markTone} />
+        <span class="brand">Flux AI</span>
+        <span class="vsep"></span>
         <strong class="ttl">{editing ? "Edit annotation" : "Annotate"}</strong>
         <span class="vsep"></span>
         <span class="ctx" title={describeStamp(stamp)}>{whereHuman}</span>
@@ -385,7 +405,7 @@
             </span>
             <span class="grow"></span>
             <label class="attach" title={hasMarks ? "Marks always carry the view" : "Send the frozen view with the note"}><input type="checkbox" checked={attach} disabled={hasMarks} onchange={e => settings.update(s => ({ ...s, "annotate.attachView": e.currentTarget.checked }))} /><span class="switch" aria-hidden="true"></span>Attach view</label>
-            <button class="primary" disabled={!canAdd} onclick={() => void add()}>{busy ? "Saving…" : "Add"} <kbd>Enter</kbd></button>
+            <button class="primary" disabled={!canAdd} onclick={() => void add()}>{busy ? "Saving…" : "Add"} <kbd>↵</kbd></button>
           </div>
         </div>
         {#if routeOpen}<div class="routes-pop arrive"><RecipientList choose={chooseRoute} /></div>{/if}
@@ -395,13 +415,16 @@
         {#if error}<p role="alert">{error} Your draft is retained.</p>{/if}
         {#if !$currentProject?.path}<p class="hint">Demo project — annotations are not saved</p>{/if}
         {#if !frozen && attach}<p class="hint">Screenshot unavailable — your targets and marks will still be saved.</p>{/if}
-        <div class="foot"><small class="hint">Drag to point · <kbd>Shift</kbd><kbd>Enter</kbd> new line · <kbd>Tab</kbd> To: · <kbd>Esc</kbd> keeps draft</small><span class="inbox-link"><button onclick={() => { closeAnnotation(); requestInbox(); }}>Open inbox ↗</button></span></div>
+        <div class="foot"><small class="hint"><span><kbd>Shift</kbd><kbd>↵</kbd> new line</span><span><kbd>Tab</kbd> recipient</span><span><kbd>Esc</kbd> keeps the draft</span></small><span class="inbox-link"><button onclick={() => { closeAnnotation(); requestInbox(); }}>Open inbox ↗</button></span></div>
       </div>
     </div>
   </div>
 {/if}
 
 <style>
+  /* Annotate in the house vocabulary: serif words, mono caps, 2 px radii, hairlines. The ink
+     (--c-ink-mark, the marks' magenta) is this tool's colour and marks only state: the chosen
+     drawing tool and the numbers. */
   .annotation-surface { position: fixed; inset: 0; z-index: 2000; user-select: none; cursor: var(--cursor-cross); animation: flux-arrive var(--dur-fade) both; }
   .annotation-shot, .annotation-marks { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
   .annotation-shot { pointer-events: none; background: var(--c-bg); }
@@ -413,77 +436,91 @@
   .mark.dim { opacity: .3; }
   .badge-g { transform-box: view-box; transition: transform var(--dur-instant) var(--ease-enter); }
   .mark.lift .badge-g { transform: scale(1.18); }
+  /* A committed mark's number settles onto its spot once. */
+  .mark.landed .badge-g { animation: badge-land 110ms var(--ease-enter) 1; }
+  @keyframes badge-land { from { transform: scale(1.28); } to { transform: scale(1); } }
   .halo, .ink { fill: none; stroke-linecap: round; stroke-linejoin: round; }
-  .halo { stroke: var(--c-ink-halo); stroke-width: 6; }
+  .halo { stroke: var(--c-ink-halo); stroke-width: 6.5; }
   .ink { stroke: var(--c-ink-mark); stroke-width: 3; }
-  .head, .badge { fill: var(--c-ink-mark); stroke: #fff; stroke-width: 2; }
+  /* The dart: ink with a light edge, drawn outside the fill so the point stays sharp. */
+  .head { fill: var(--c-ink-mark); stroke: var(--c-ink-halo); stroke-width: 2.5; stroke-linejoin: round; paint-order: stroke; }
+  .badge { fill: var(--c-ink-mark); stroke: #fff; stroke-width: 2; }
   .badge-n { fill: #fff; font: 700 12px var(--font-ui); text-anchor: middle; dominant-baseline: central; }
-  .annotation-tools, .annotation-composer, .target-label { background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-1); box-shadow: var(--elev-3); color: var(--c-tx); }
-  .annotation-tools { position: absolute; top: 12px; left: 50%; translate: -50% 0; display: flex; gap: 8px; align-items: center; height: 34px; padding: 0 10px 0 12px; border-radius: var(--r-pill); font: var(--ts-xs) var(--font-ui); }
-  .eyebrow { font: 600 10px var(--font-mono); letter-spacing: .1em; color: var(--c-tx-muted); }
+  .annotation-tools, .annotation-composer, .target-label { background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-panel); box-shadow: var(--elev-3); color: var(--c-tx); }
+
+  /* Tools: cap · glyph · word, in the ink. */
+  .annotation-tools { --ink: var(--c-ink-mark); position: absolute; top: 12px; left: 50%; translate: -50% 0; display: flex; gap: 8px; align-items: center; height: 34px; padding: 0 12px 0 8px; font: 12.5px var(--font-serif); white-space: nowrap; }
+  .held { display: inline-flex; align-items: center; gap: 5px; color: var(--c-tx-faint); } .held i { font: 11px var(--font-mono); font-style: normal; }
   .vsep { width: 1px; height: 14px; background: var(--c-line-strong); flex-shrink: 0; }
-  .seg { display: inline-flex; gap: 2px; padding: 2px; background: var(--c-bg); border-radius: var(--r-pill); }
-  .seg button { height: 22px; padding: 0 9px 0 7px; border-radius: var(--r-pill); display: inline-flex; align-items: center; gap: 5px; }
-  .seg .glyph { font-size: 11px; opacity: .8; }
-  .annotation-tools button { font: var(--ts-xs) var(--font-ui); color: var(--c-tx-2); background: transparent; border: 1px solid transparent; border-radius: var(--r-ui); padding: 3px 7px; cursor: var(--cursor-cross-hover); }
-  .annotation-tools button:hover:not(:disabled) { color: var(--c-tx); background: var(--c-ui-hover); }
+  .seg { display: inline-flex; gap: 3px; }
+  svg.glyph { width: 14px; height: 14px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+  .annotation-tools button { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px 0 5px; background: var(--c-bg); border: 1px solid var(--c-line); border-radius: var(--r-ui); color: var(--c-tx-2); font: 12.5px var(--font-serif); cursor: var(--cursor-cross-hover); transition: background-color 80ms linear, border-color 80ms linear, color 80ms linear; }
+  .seg .word { text-transform: capitalize; }
+  .annotation-tools button:hover:not(:disabled) { color: var(--c-tx-hi); background: var(--c-surface-2); border-color: var(--c-line-strong); }
+  .annotation-tools button:active:not(:disabled) { background: color-mix(in oklab, var(--ink) 18%, transparent); border-color: var(--ink); }
   .annotation-tools button:disabled { opacity: .4; cursor: var(--cursor-cross); }
-  .annotation-tools button.chosen { background: var(--c-accent); color: var(--c-on-accent); }
-  .annotation-tools button.chosen kbd { color: var(--c-on-accent); border-color: color-mix(in srgb, var(--c-on-accent) 45%, transparent); opacity: .85; }
-  .annotation-tools kbd { margin-left: 2px; }
-  .frozen-note { color: var(--c-tx-muted); font: var(--ts-xs) var(--font-ui); white-space: nowrap; }
-  .annotation-composer { position: absolute; bottom: 16px; right: 16px; width: min(460px, calc(100vw - 32px)); max-height: calc(100vh - 82px); display: flex; flex-direction: column; box-sizing: border-box; user-select: text; overflow: hidden; animation: composer-enter var(--dur-instant) var(--ease-enter) both; transform-origin: right bottom; }
+  .annotation-tools button.chosen { background: color-mix(in oklab, var(--ink) 16%, transparent); border-color: color-mix(in oklab, var(--ink) 60%, transparent); box-shadow: inset 0 -2px 0 var(--ink); color: var(--c-tx-hi); }
+  .annotation-tools button.chosen .glyph, .annotation-tools button.chosen kbd { color: var(--ink); }
+  .annotation-tools kbd { color: var(--c-tx-muted); }
+  .frozen-note { display: inline-flex; align-items: center; gap: 6px; color: var(--c-tx-muted); font: 10.5px var(--font-mono); }
+  .frozen-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--c-accent); }
+
+  /* The composer. */
+  .annotation-composer { position: absolute; bottom: 16px; right: 16px; width: min(480px, calc(100vw - 32px)); max-height: calc(100vh - 82px); display: flex; flex-direction: column; box-sizing: border-box; user-select: text; overflow: hidden; animation: composer-enter var(--dur-instant) var(--ease-enter) both; transform-origin: right bottom; }
   @keyframes composer-enter { from { opacity: 0; transform: scale(.985); } to { opacity: 1; transform: none; } }
-  @media (prefers-reduced-motion: reduce) { .annotation-composer { animation-name: flux-arrive; } }
-  .heading .ctx { font: var(--ts-xs) var(--font-ui); }
+  @media (prefers-reduced-motion: reduce) { .annotation-composer { animation-name: flux-arrive; } .mark.landed .badge-g { animation: none; } }
+  .heading .ctx { font: 11px var(--font-mono); }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .body { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 10px; overflow: auto; min-height: 0; }
+  .body { display: flex; flex-direction: column; gap: 9px; padding: 11px 12px 10px; overflow: auto; min-height: 0; }
   .flux-composer textarea { min-height: calc(3 * 1.5em + 15px); }
   .tags { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 11px 2px; }
-  .tags span { color: var(--c-accent); background: var(--c-accent-tint); font: 10px var(--font-mono); padding: 2px 5px; border-radius: var(--r-ui); }
+  .tags span { color: var(--c-accent-bright); background: var(--c-accent-tint); font: 10px var(--font-mono); padding: 2px 5px; border-radius: var(--r-ui); }
   .actions { flex-wrap: wrap; row-gap: 4px; }
   .routing { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
-  .to-pill { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; border: 1px solid var(--c-line-strong) !important; border-radius: var(--r-pill) !important; color: var(--c-tx-2); font: var(--ts-xs) var(--font-ui); background: transparent; cursor: var(--cursor-cross-hover); }
-  .to-pill b { color: var(--c-tx); font-weight: 600; }
-  .muted { font: 10.5px var(--font-ui); color: var(--c-tx-muted); white-space: nowrap; }
-  .muted.live { color: var(--c-accent); }
+  .to-pill { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; border: 1px solid var(--c-line-strong) !important; border-radius: var(--r-ui) !important; color: var(--c-tx-muted); font: 12px var(--font-serif); background: transparent; cursor: var(--cursor-cross-hover); }
+  .to-pill:hover, .to-pill[aria-expanded="true"] { border-color: var(--c-tx-muted) !important; color: var(--c-tx-2); }
+  .to-pill[aria-expanded="true"] { background: var(--c-accent-tint) !important; border-color: var(--c-accent) !important; }
+  .to-pill b { color: var(--c-tx-hi); font-weight: 600; }
+  .muted { font: 10.5px var(--font-mono); color: var(--c-tx-muted); white-space: nowrap; }
+  .muted.live { color: var(--c-accent-bright); }
   .grow { flex: 1; }
-  .attach { position: relative; display: inline-flex; align-items: center; gap: 6px; font: var(--ts-xs) var(--font-ui); color: var(--c-tx-2); cursor: var(--cursor-cross-hover); white-space: nowrap; }
-  /* The real checkbox sits invisibly over the switch so clicks, keys and gates hit it. */
-  .attach input { position: absolute; left: 0; top: 50%; translate: 0 -50%; width: 26px; height: 15px; margin: 0; opacity: 0; cursor: inherit; }
-  .switch { width: 26px; height: 15px; border-radius: var(--r-pill); background: var(--c-ui-active); position: relative; transition: background var(--dur-fade); flex-shrink: 0; }
-  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: var(--c-tx-hi); transition: translate var(--dur-instant) var(--ease-standard); }
-  .attach input:checked + .switch { background: var(--c-accent); }
-  .attach input:checked + .switch::after { translate: 11px 0; }
+  .attach { position: relative; display: inline-flex; align-items: center; gap: 7px; font: 12px var(--font-serif); color: var(--c-tx-2); cursor: var(--cursor-cross-hover); white-space: nowrap; }
+  /* The real checkbox sits invisibly over the switch so clicks, keys and gates hit it. The switch
+     is the square one Settings uses: a track and a knob that slides. */
+  .attach input { position: absolute; left: 0; top: 50%; translate: 0 -50%; width: 30px; height: 16px; margin: 0; opacity: 0; cursor: inherit; }
+  .switch { box-sizing: border-box; width: 30px; height: 16px; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); background: var(--c-bg); position: relative; transition: background-color 90ms linear, border-color 90ms linear; flex-shrink: 0; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 1px; background: var(--c-tx-muted); transition: transform 90ms var(--ease-standard), background-color 90ms linear; }
+  .attach:hover .switch { border-color: var(--c-tx-muted); }
+  .attach input:checked + .switch { background: var(--c-accent-tint); border-color: var(--c-accent); }
+  .attach input:checked + .switch::after { transform: translateX(14px); background: var(--c-accent); }
   .attach input:disabled + .switch { opacity: .55; }
-  .attach input:focus-visible + .switch { outline: 2px solid var(--c-accent); outline-offset: 2px; }
-  .primary { color: var(--c-on-accent) !important; background: var(--c-accent) !important; border-color: var(--c-accent) !important; }
-  .primary kbd { color: var(--c-on-accent); border-color: color-mix(in srgb, var(--c-on-accent) 45%, transparent); }
+  .attach input:focus-visible + .switch { outline: 1px solid var(--c-accent); outline-offset: 1px; }
   .routes-pop { border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); overflow: hidden; }
   .routes-pop :global(.routes) { border: 0; }
-  .hint, .muted { font: 11px/1.5 var(--font-ui); color: var(--c-tx-muted); margin: 0; }
-  .hint button { background: none; border: 0; padding: 0; color: var(--c-accent); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: var(--cursor-cross-hover); }
-  p[role="alert"] { font: 12px var(--font-ui); color: var(--c-danger); margin: 0; }
-  .target-label { position: fixed; left: 0; top: 0; max-width: 330px; padding: 6px 9px; font: 12px var(--font-ui); pointer-events: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; will-change: transform; }
+  .hint { font: 11.5px/1.5 var(--font-serif); color: var(--c-tx-muted); margin: 0; }
+  .hint button { background: none; border: 0; padding: 0; color: var(--c-accent-bright); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: var(--cursor-cross-hover); }
+  p[role="alert"] { font: 12px var(--font-serif); color: var(--c-danger); margin: 0; }
+  .target-label { position: fixed; left: 0; top: 0; max-width: 330px; padding: 5px 9px; font: 12.5px var(--font-serif); pointer-events: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; will-change: transform; }
   .target-label .glyph { color: var(--c-tx-muted); font-size: 11px; }
   .target-label small { flex-basis: 100%; font: 10px var(--font-mono); color: var(--c-tx-muted); margin-top: 1px; }
   .target-chips { display: flex; flex-wrap: wrap; gap: 4px; max-height: 110px; overflow: auto; }
-  .target-chip { display: inline-flex; align-items: center; gap: 0; max-width: 100%; height: 24px; background: var(--c-surface-2); border: 1px solid var(--c-line); border-radius: var(--r-pill); font: var(--ts-xs) var(--font-ui); color: var(--c-tx-2); padding-right: 4px; transition: border-color var(--dur-fade), background var(--dur-fade); }
-  .target-chip:hover { border-color: var(--c-line-strong); color: var(--c-tx); }
+  .target-chip { display: inline-flex; align-items: center; gap: 0; max-width: 100%; height: 24px; background: var(--c-bg); border: 1px solid var(--c-line); border-radius: var(--r-ui); font: 12px var(--font-serif); color: var(--c-tx-2); padding-right: 4px; transition: border-color var(--dur-fade), background var(--dur-fade); }
+  .target-chip:hover { border-color: var(--c-line-strong); color: var(--c-tx-hi); }
   .target-chip.numbered:hover { border-color: var(--c-ink-mark); }
   .target-chip .glyph { padding: 0 2px 0 8px; color: var(--c-tx-muted); font-size: 11px; }
   .target-chip .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 4px 0 6px; }
   .target-chip b { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-left: 3px; border-radius: 50%; background: var(--c-ink-mark); color: #fff; font: 700 10px var(--font-ui); flex-shrink: 0; }
   .chip-acts { display: inline-flex; opacity: 0; transition: opacity var(--dur-fade); }
   .target-chip:hover .chip-acts, .target-chip:focus-within .chip-acts { opacity: 1; }
-  .chip-acts button { width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--c-tx-muted); font: 11px var(--font-ui); cursor: var(--cursor-cross-hover); }
-  .chip-acts button:hover:not(:disabled) { background: var(--c-ui-hover); color: var(--c-tx); }
+  .chip-acts button { width: 18px; height: 18px; padding: 0; border: 0; border-radius: var(--r-ui); background: transparent; color: var(--c-tx-muted); font: 11px var(--font-ui); cursor: var(--cursor-cross-hover); }
+  .chip-acts button:hover:not(:disabled) { background: var(--c-surface-2); color: var(--c-tx-hi); }
   .chip-acts button:disabled { opacity: .3; }
-  .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid var(--c-line); padding-top: 7px; }
-  .foot .hint { font-size: 10.5px; }
-  .foot kbd { margin: 0 1px; }
-  .inbox-link button { background: none; border: 0; padding: 0; color: var(--c-tx-muted); font: var(--ts-xs) var(--font-ui); cursor: var(--cursor-cross-hover); white-space: nowrap; }
-  .inbox-link button:hover { color: var(--c-tx); }
+  .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid var(--c-line); padding-top: 8px; }
+  .foot .hint { display: flex; flex-wrap: wrap; gap: 2px 12px; min-width: 0; font: 11px var(--font-ui); }
+  .foot .hint span { white-space: nowrap; }
+  .foot kbd { margin-right: 3px; }
+  .inbox-link button { background: none; border: 0; padding: 0; color: var(--c-tx-muted); font: 12px var(--font-serif); cursor: var(--cursor-cross-hover); white-space: nowrap; }
+  .inbox-link button:hover { color: var(--c-tx-hi); }
 
-  @media (max-width: 650px) { .eyebrow, .frozen-note { display: none; } .annotation-tools kbd { display: none; } }
+  @media (max-width: 650px) { .held, .frozen-note { display: none; } .annotation-tools kbd { display: none; } }
 </style>

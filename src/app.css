@@ -474,16 +474,20 @@ textarea,
    One focus ring (the frame's), never the textarea's own. */
 .flux-composer { display: flex; flex-direction: column; border: 1px solid var(--c-line-strong); border-radius: var(--r-1); background: var(--c-bg); transition: border-color var(--dur-fade), box-shadow var(--dur-fade); }
 .flux-composer:focus-within { border-color: var(--c-accent); box-shadow: 0 0 0 3px var(--c-accent-tint-2); }
-.flux-composer textarea { box-sizing: border-box; display: block; width: 100%; margin: 0; padding: 9px 11px 6px; background: transparent; color: var(--c-tx); border: 0; outline: none; resize: none; font: var(--ts-base)/1.5 var(--font-ui); field-sizing: content; min-height: calc(2 * 1.5em + 15px); max-height: calc(10 * 1.5em + 15px); }
-.flux-composer textarea::placeholder { color: var(--c-tx-faint); }
+/* What you write to an agent is set in the manuscript's serif, like the note it becomes in the Inbox. */
+.flux-composer textarea { box-sizing: border-box; display: block; width: 100%; margin: 0; padding: 9px 11px 6px; background: transparent; color: var(--c-tx-hi); border: 0; outline: none; resize: none; font: 14px/1.5 var(--font-serif); field-sizing: content; min-height: calc(2 * 1.5em + 15px); max-height: calc(10 * 1.5em + 15px); }
+.flux-composer textarea::placeholder { color: var(--c-tx-faint); font-style: italic; }
 .flux-composer .composer-bar { display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 2px 6px 4px 11px; }
 .flux-composer .composer-bar .hint { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-tx-faint); font: 10.5px var(--font-ui); }
 .flux-composer .composer-bar button { height: 24px; padding: 0 9px; background: transparent; border: 1px solid transparent; border-radius: var(--r-ui); color: var(--c-tx-2); font: var(--ts-xs) var(--font-ui); white-space: nowrap; }
 .flux-composer .composer-bar button:hover:not(:disabled) { background: var(--c-ui-hover); color: var(--c-tx); }
 .flux-composer .composer-bar button:disabled { opacity: .4; }
-.flux-composer .composer-bar button.primary { color: var(--c-on-accent); background: var(--c-accent); border-color: var(--c-accent); font-weight: 500; }
-.flux-composer .composer-bar button.primary:hover:not(:disabled) { background: var(--c-accent-bright); border-color: var(--c-accent-bright); color: var(--c-on-accent); }
-.flux-composer .composer-bar button.primary:disabled { opacity: .35; }
+/* The one action: the accent as a tint and an edge (the house's "this one"), never a solid fill. */
+.flux-composer .composer-bar button.primary { display: inline-flex; align-items: center; gap: 6px; padding: 0 11px; color: var(--c-tx-hi); background: var(--c-accent-tint); border-color: color-mix(in oklab, var(--c-accent) 60%, transparent); font: 600 12.5px var(--font-serif); transition: background-color 80ms linear, border-color 80ms linear; }
+.flux-composer .composer-bar button.primary:hover:not(:disabled) { background: color-mix(in oklab, var(--c-accent) 28%, transparent); border-color: var(--c-accent); color: var(--c-tx-hi); }
+.flux-composer .composer-bar button.primary:active:not(:disabled) { background: color-mix(in oklab, var(--c-accent) 38%, transparent); }
+.flux-composer .composer-bar button.primary:disabled { opacity: .4; }
+.flux-composer .composer-bar button.primary kbd { margin-left: 0; color: var(--c-accent-bright); }
 .flux-composer .composer-bar button.stop { border-color: var(--c-line-strong); }
 .flux-composer .composer-bar kbd { margin-left: 5px; }
 
@@ -541,4 +545,5 @@ kbd, .hk, .kc { display: inline-flex; align-items: center; justify-content: cent
    exactly like the surface that adopts it. */
 .ask-bootstrap-layer { position: fixed; inset: 0; z-index: 2001; }
 .ask-bootstrap { position: fixed; z-index: 2001; box-sizing: border-box; display: flex; flex-direction: column; width: min(480px, calc(100vw - 16px)); background: var(--c-surface); color: var(--c-tx); border: 1px solid var(--c-line-strong); border-radius: var(--r-1); box-shadow: var(--elev-3); overflow: hidden; }
+.ask-bootstrap .surface-head .ctx { font: 11px var(--font-mono); }
 .ask-bootstrap .ask-body { padding: 10px 12px 12px; }

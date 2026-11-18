@@ -11,12 +11,29 @@ async function open(coldText = '') {
     const start = performance.now();
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'J', code: 'KeyJ', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }));
     if (document.activeElement?.getAttribute('aria-label') !== 'Ask a question') throw Error('Ask did not focus synchronously');
+    // The header the bootstrap drew, read in the same task: the lazy surface must draw the same one.
+    const head = document.querySelector('.ask-bootstrap .surface-head'), mark = head?.querySelector('.flux-ai-mark');
+    window.__askBootHead = head && { words: [...head.querySelectorAll('.brand, .ttl, .ctx')].map(e => `${e.classList[0]}:${e.textContent}`), order: [...head.children].slice(0, 6).map(e => e.classList[0]),
+      mark: mark && { first: head.firstElementChild === mark, dots: mark.querySelectorAll('circle').length, size: mark.getAttribute('width'), box: mark.getAttribute('viewBox'), turn: getComputedStyle(mark).animationName, geometry: [...mark.querySelectorAll('circle')].map(c => `${c.getAttribute('cx')},${c.getAttribute('cy')},${c.getAttribute('r')},${c.getAttribute('fill')}`).join(' ') } };
     if (coldText) { document.activeElement.value = coldText; document.activeElement.dispatchEvent(new Event('input', { bubbles: true })); }
     return performance.now() - start;
   }, coldText);
   h.ok(ms <= 100, `Ask input focuses in ${ms.toFixed(1)} ms (≤100)`);
   await waitFor(page, () => !!document.querySelector('.ask-panel'), null, { label: 'lazy Ask surface' });
+  if (!headerChecked) {
+    headerChecked = true;
+    // [mark] Flux AI │ Ask │ where: drawn by hand in the bootstrap, by the component in the surface, identically.
+    const heads = await page.evaluate(() => {
+      const head = document.querySelector('.ask-panel .surface-head'), mark = head.querySelector('.flux-ai-mark');
+      return { boot: window.__askBootHead, lazy: { words: [...head.querySelectorAll('.brand, .ttl, .ctx')].map(e => `${e.classList[0]}:${e.textContent}`), order: [...head.children].slice(0, 6).map(e => e.classList[0]),
+        mark: { first: head.firstElementChild === mark, dots: mark.querySelectorAll('circle').length, size: mark.getAttribute('width'), box: mark.getAttribute('viewBox'), turn: getComputedStyle(mark).animationName, geometry: [...mark.querySelectorAll('circle')].map(c => `${c.getAttribute('cx')},${c.getAttribute('cy')},${c.getAttribute('r')},${c.getAttribute('fill')}`).join(' ') } } };
+    });
+    h.ok(!!heads.boot && heads.boot.words[0] === 'brand:Flux AI' && heads.boot.words[1] === 'ttl:Ask' && /^ctx:\w+ /.test(heads.boot.words[2]), `the bootstrap header reads Flux AI, Ask, then where (${heads.boot?.words.join(' | ')})`);
+    h.ok(heads.boot.mark.first && heads.boot.mark.dots === 13 && heads.boot.mark.turn === 'flux-ai-turn', 'the Flux AI mark leads it, already turning');
+    h.eq(heads.lazy, heads.boot, 'the surface that adopts the bootstrap draws the same header: same words, same order, same mark');
+  }
 }
+let headerChecked = false;
 async function emit(event) {
   await page.evaluate(event => {
     const calls = window.fig._runnerCalls, id = calls.filter(c => c.method === 'start').at(-1).options.runId;

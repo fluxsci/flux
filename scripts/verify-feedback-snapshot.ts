@@ -7,6 +7,7 @@
 import {
   anchorPathOf,
   arrowHead,
+  arrowShaft,
   describeSnapshot,
   markBadgePoint,
   markTargetPoint,
@@ -45,11 +46,19 @@ const pen: FeedbackMark = { kind: "pen", n: 3, points: [[100, 100], [110, 120], 
 }
 // (2) badge and target points
 {
-  assert(markBadgePoint(arrow).join() === "520,260" && markTargetPoint(arrow).join() === "520,260", "an arrow's badge and target are its head");
+  // 2026-11-18: the number sits at the arrow's TAIL. At the head it covered the tip and the thing pointed at.
+  assert(markBadgePoint(arrow).join() === arrow.points[0].join() && markBadgePoint(arrow).join() !== "520,260" && markTargetPoint(arrow).join() === "520,260", "an arrow's badge is its tail and its target is its head");
   assert(markBadgePoint(box).join() === "640,420" && markTargetPoint(box).join() === "670,460", "a box badges its top-left and targets its centre");
   assert(markBadgePoint(pen).join() === "100,100" && markTargetPoint(pen).join() === "100,100", "a stroke badges and targets its start");
   const head = arrowHead([0, 0], [100, 0]);
-  assert(head[0].join() === "100,0" && head[1][0] === 100 - ARROW_HEAD && Math.abs(head[1][1]) > 0, "the arrow head triangle sits at the tip");
+  assert(head[0].join() === "100,0" && head[1][0] === 100 - ARROW_HEAD && Math.abs(head[1][1]) > 0, "the arrow head sits at the tip");
+  assert(head.length === 4 && head[2][1] === 0 && head[2][0] > head[1][0] && head[2][0] < 100 && head[3][0] === head[1][0] && head[3][1] === -head[1][1], "it is a dart: two wings and a notch on the axis between them and the tip");
+  const shaft = arrowShaft([0, 0], [100, 0]);
+  assert(shaft[0].join() === "0,0" && shaft[1].join() === head[2].join(), "the shaft ends at the head's notch, so its round cap never blunts the point");
+  assert(arrowShaft([0, 0], [3, 0])[1].join() === "0,0", "an arrow shorter than its head has no shaft");
+  // The badge's disc (r 11) at the tail is clear of the head for any arrow longer than a nub.
+  const tail = markBadgePoint(arrow), tip = markTargetPoint(arrow), wings = arrowHead(tail, tip);
+  assert(wings.every(([x, y]) => Math.hypot(x - tail[0], y - tail[1]) > 11 + 4), "the badge at the tail does not touch the head");
 }
 // (3) the anchor path builder (fake DOM)
 {

@@ -6,7 +6,7 @@
   // this chunk arrives, and keeps its top edge while the answer streams. The
   // conversation is the shared Transcript over the one transcript model.
   import { onDestroy, tick, untrack } from "svelte";
-  import { closeAsk, type AskRequest } from "./askChord";
+  import { askWhere, closeAsk, type AskRequest } from "./askChord";
   import { fileBridge, type RunnerDriver, type RunnerEvent } from "../../lib/project/types";
   import { askPacket } from "../../lib/project/ask";
   import { describeStamp, type ContextStamp } from "../../lib/project/annotations";
@@ -22,7 +22,7 @@
   import { emptyTranscript, askTurn, reduceTranscript, cancelTranscript, lastAnswer, transcriptMessages, transcriptActivity, type Transcript } from "../../lib/agent/transcript";
   import Transcript_ from "./Transcript.svelte";
   import WorkingLine from "./WorkingLine.svelte";
-  import AgentMark from "./AgentMark.svelte";
+  import FluxAiMark from "./FluxAiMark.svelte";
   let { request }: { request: AskRequest } = $props();
   const req = untrack(() => request);
   const fb = fileBridge();
@@ -38,9 +38,12 @@
   const stamp: ContextStamp = structuredClone(req.stamp);
   const targets = stamp.targets ?? [];
   const passage = targets.find(t => t.kind === "passage" || t.kind === "doc");
-  // The header says where in words; the full stamp (with ids) is the tooltip and the hidden .context line.
-  const human = targets[0] ? `${stamp.surface} · ${shortTarget(targets[0])}${targets.length > 1 ? ` +${targets.length - 1}` : ""}` : stamp.doc?.path ? `${stamp.surface} · ${stamp.doc.path.split("/").pop()}` : stamp.activeFigureName ? `${stamp.surface} · figure “${stamp.activeFigureName}”` : `${stamp.surface} view`;
+  // The header says where in words (the same line the bootstrap drew); the full stamp (with ids) is
+  // the tooltip and the hidden .context line.
+  const human = askWhere(stamp);
   const quote = passage && "quote" in passage ? passage.quote : undefined;
+  // A chip names a target once: a quoted passage by its source (its words are the quote above).
+  const pillText = (t: (typeof targets)[number]) => t.kind === "passage" ? `${t.citekey} p.${t.page}` : t.kind === "doc" ? `${t.path.split("/").pop() ?? t.path}${t.heading ? ` § ${t.heading}` : ""}` : shortTarget(t);
   const driverName = $derived(driver === "claude" ? "Claude Code" : "Codex");
   const messages = $derived(transcriptMessages(transcript));
   const answered = $derived(messages.some(m => m.role === "agent" && m.text.trim()));
@@ -223,7 +226,9 @@
   {#if req.avoid}<div class="ask-anchor" aria-hidden="true" style={`left:${req.avoid.x - 3}px;top:${req.avoid.y - 2}px;width:${req.avoid.w + 6}px;height:${req.avoid.h + 4}px`}></div>{/if}
   <div class="ask-panel agent-surface" class:nudge data-ask-surface role="dialog" aria-modal="true" aria-label="Ask about this" tabindex="-1" use:place use:modalFocus>
     <header class="surface-head">
-      <AgentMark size={14} state={busy ? "working" : answered ? "done" : "idle"} seed={driver} />
+      <FluxAiMark size={16} tone={error ? "error" : busy ? "live" : answered ? "done" : "ready"} />
+      <span class="brand">Flux AI</span>
+      <span class="vsep"></span>
       <span class="ttl">Ask</span>
       <span class="vsep"></span>
       <span class="ctx" title={describeStamp(stamp)}>{human}</span>
@@ -232,10 +237,11 @@
       {#if preview}<button class="shot" class:open={viewOpen} title={viewOpen ? "Hide the captured view" : "Show the captured view"} aria-pressed={viewOpen} onclick={() => viewOpen = !viewOpen}><img src={preview} alt="" /></button>{/if}
       <button class="xbtn" aria-label="Close Ask" title="Discard this exchange. The CLI's own session history remains." onclick={closeAsk}></button>
     </header>
-    {#if quote || (targets.length && !passage)}
+    <!-- The header already names a single target; the card is for a quote, or for several targets. -->
+    {#if quote || targets.length > 1}
       <div class="context-card">
         {#if quote}<blockquote class="quote">{quote}</blockquote>{/if}
-        <div class="pills">{#each targets.slice(0, 3) as t, i (i)}<span class="pill" data-kind={t.kind} title={describeTarget(t)}>{shortTarget(t)}</span>{/each}{#if targets.length > 3}<span class="pill more">+{targets.length - 3}</span>{/if}</div>
+        <div class="pills">{#each targets.slice(0, 3) as t, i (i)}<span class="pill" data-kind={t.kind} title={describeTarget(t)}>{pillText(t)}</span>{/each}{#if targets.length > 3}<span class="pill more">+{targets.length - 3}</span>{/if}</div>
       </div>
     {/if}
     {#if preview && viewOpen}<div class="view"><img src={preview} alt="View captured when Ask opened" /></div>{/if}
@@ -268,7 +274,8 @@
   .ask-layer { position: fixed; inset: 0; z-index: 2001; }
   .ask-backdrop { position: absolute; inset: 0; }
   .ask-anchor { position: fixed; pointer-events: none; border-radius: 3px; box-shadow: 0 0 0 1.5px var(--c-accent), 0 0 0 5px var(--c-accent-tint-2); animation: flux-arrive var(--dur-fade-slow) both; }
-  .ask-panel { position: fixed; box-sizing: border-box; display: flex; flex-direction: column; max-height: min(78vh, 720px, var(--ask-max, 720px)); border: 1px solid var(--c-line-strong); border-radius: var(--r-1); background: var(--c-surface); color: var(--c-tx); font: var(--ts-sm) var(--font-ui); box-shadow: var(--elev-3); overflow: hidden; animation: ask-enter var(--dur-instant) var(--ease-enter) both; }
+  .ask-panel { position: fixed; box-sizing: border-box; display: flex; flex-direction: column; max-height: min(78vh, 720px, var(--ask-max, 720px)); border: 1px solid var(--c-line-strong); border-radius: var(--r-1); background: var(--c-surface); color: var(--c-tx); font: 13px var(--font-serif); box-shadow: var(--elev-3); overflow: hidden; animation: ask-enter var(--dur-instant) var(--ease-enter) both; }
+  .surface-head .ctx { font: 11px var(--font-mono); }
   .ask-panel.nudge { animation: ask-nudge var(--dur-quick) var(--ease-standard); }
   @keyframes ask-enter { from { opacity: 0; transform: scale(.985); } to { opacity: 1; transform: none; } }
   @keyframes ask-nudge { 30% { transform: translateX(3px); } 60% { transform: translateX(-2px); } }
@@ -281,7 +288,7 @@
   .context-card { display: flex; flex-direction: column; gap: 6px; padding: 8px 12px 0; }
   .quote { margin: 0; padding: 1px 0 1px 10px; border-left: 2px solid var(--c-line-strong); font: italic var(--ts-sm)/1.5 var(--font-serif); color: var(--c-tx-2); display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .pills { display: flex; flex-wrap: wrap; gap: 4px; }
-  .pill { font: var(--ts-xs) var(--font-ui); color: var(--c-tx-2); background: var(--c-surface-2); border: 1px solid var(--c-line); border-radius: var(--r-ui); padding: 2px 7px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pill { font: 12px var(--font-serif); color: var(--c-tx-2); background: var(--c-bg); border: 1px solid var(--c-line); border-radius: var(--r-ui); padding: 2px 7px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pill.more { color: var(--c-tx-muted); }
   .view { padding: 8px 12px 0; } .view img { display: block; max-width: 100%; border: 1px solid var(--c-line); border-radius: var(--r-ui); }
   .exchange { position: relative; flex: 1; min-height: 0; overflow: auto; scrollbar-gutter: stable; padding: 12px 12px 4px; overflow-wrap: anywhere; }

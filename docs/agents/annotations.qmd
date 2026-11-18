@@ -20,16 +20,19 @@ choose who handles each item, and see its status. Reader PDF **Highlights** rema
 
 ## Point, type, add {#sec-annotate}
 
-The frozen view fills the window inside a thin frame, with a capsule of drawing tools at
+The frozen view fills the window inside a thin frame, with a bar of drawing tools at
 the top centre (it says **view frozen**, so you know the app is not hung) and a focused note
-at the bottom right. Hover to see the target's outline and name: a plot series, text box,
+at the bottom right, headed **Flux AI │ Annotate** and where you are. The small mark beside
+that (the seed of the Flux logo, always turning) is blue when what you add goes straight to
+an agent that is listening, and the logo's own colours when it goes to the Inbox. Hover to see the target's outline and name: a plot series, text box,
 figure, caption, paragraph, slide, animation clip, PDF passage, or reference. Target chips
 name things in words (the full name with its id is the tooltip); hovering a numbered chip
 lights up its mark on the picture.
 
-**Drag** to draw a numbered arrow. **Alt+A**, **Alt+B**, and **Alt+P** select arrow, box,
-and pen. An arrow names its tip's target; a box names the objects inside; a pen names its
-starting target. **Alt+Z** undoes a mark. Use **Alt+↑ / ↓** or the wheel to widen/narrow the
+**Drag** to draw a numbered arrow: its number sits where you began, and its head points at
+what you end on, so the tip and the thing under it stay visible. **Alt+A**, **Alt+B**, and
+**Alt+P** select arrow, box, and pen. An arrow names its tip's target; a box names the objects
+inside; a pen names its starting target. **Alt+Z** undoes a mark. Use **Alt+↑ / ↓** or the wheel to widen/narrow the
 hovered target; each chip also has widening and remove controls.
 
 **Enter** adds the annotation; **Shift+Enter** inserts a newline. **Escape** or the chord
@@ -183,7 +186,9 @@ See the [CLI reference](../reference/cli.qmd) for the complete tool reference.
 Press **Ctrl+Shift+J**, choose **Ask about this…** in **Ctrl+K**, or use **Ask** beside
 Reader's passage action. The Figure properties menu also offers **✦ Ask**. Ask captures
 your current selection and window; type immediately, then press **Enter** to send.
-**Shift+Enter** adds a newline. It works in every project surface, including Present and
+**Shift+Enter** adds a newline. The panel is headed **Flux AI │ Ask** and what the question is
+about; its mark turns blue (and faster) while the agent answers, green when it has, and red if
+something went wrong. It works in every project surface, including Present and
 pinned utility windows.
 
 Choose your installed agent, model, and effort in **Settings → General → Agent that

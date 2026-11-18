@@ -33,7 +33,7 @@ export interface FeedbackSnapshot {
 
 export const SNAPSHOT_DIR_REL = ".meta/feedback";
 export const SNAPSHOT_PAD = 48;
-export const ARROW_HEAD = 14;
+export const ARROW_HEAD = 16;
 const MIN_W = 240;
 const MIN_H = 160;
 
@@ -64,12 +64,16 @@ export function snapshotCrop(
   return { x, y, w, h };
 }
 
-/** Where a mark's number badge sits: an arrow's head, a box's top-left corner, a stroke's start. */
+/**
+ * Where a mark's number sits. An arrow's is at its TAIL, where the drag began: the head is the
+ * thing being pointed at, and a badge there covered both the head and the target (owner,
+ * 2026-11-18: "the number blob gets in the way at the tip"). A box's is its top-left corner, a
+ * stroke's its start.
+ */
 export function markBadgePoint(m: FeedbackMark): [number, number] {
   const p = m.points;
   if (!p.length) return [0, 0];
   const a = p[0], b = p[p.length - 1];
-  if (m.kind === "arrow") return b;
   if (m.kind === "box") return [Math.min(a[0], b[0]), Math.min(a[1], b[1])];
   return a;
 }
@@ -84,14 +88,29 @@ export function markTargetPoint(m: FeedbackMark): [number, number] {
   return a;
 }
 
-/** The arrow-head triangle at `to`, pointing away from `from`. */
+/** How far behind the tip the head's back notch sits, as a share of its length. */
+const HEAD_NOTCH = 0.7;
+
+/**
+ * The arrow head at `to`, pointing away from `from`: a dart [tip, wing, notch, wing]. The notch
+ * is where the shaft ends (`arrowShaft`), so the line's round cap never blunts the point.
+ */
 export function arrowHead(from: [number, number], to: [number, number], size = ARROW_HEAD): [number, number][] {
   const dx = to[0] - from[0], dy = to[1] - from[1];
   const len = Math.hypot(dx, dy) || 1;
   const ux = dx / len, uy = dy / len;
   const bx = to[0] - ux * size, by = to[1] - uy * size;
   const wx = -uy * size * 0.45, wy = ux * size * 0.45;
-  return [to, [bx + wx, by + wy], [bx - wx, by - wy]];
+  return [to, [bx + wx, by + wy], [to[0] - ux * size * HEAD_NOTCH, to[1] - uy * size * HEAD_NOTCH], [bx - wx, by - wy]];
+}
+
+/** An arrow's shaft: from its tail to the head's notch (the tail itself when the arrow is shorter than its head). */
+export function arrowShaft(from: [number, number], to: [number, number], size = ARROW_HEAD): [[number, number], [number, number]] {
+  const dx = to[0] - from[0], dy = to[1] - from[1];
+  const len = Math.hypot(dx, dy);
+  const back = size * HEAD_NOTCH;
+  if (len <= back) return [from, from];
+  return [from, [to[0] - (dx / len) * back, to[1] - (dy / len) * back]];
 }
 
 /** The minimal element shape the path builder reads (DOM elements satisfy it; gates fake it). */

@@ -10,8 +10,10 @@ import { pushToast } from "../../lib/toast";
 import { captureAnnotationView, closeAnnotation } from "./annotateChord";
 import { annotationOpen, askOpen } from "./annotationVisibility";
 import { anchorPanel, unionRects, type Rect, type AnchorResult } from "../../lib/ui/anchor";
-import { targetPrompt, type TargetRef } from "../../lib/project/targets";
+import { shortTarget, targetPrompt, type TargetRef } from "../../lib/project/targets";
+import type { ContextStamp } from "../../lib/project/annotations";
 import type { AnnotationRequest } from "./annotateChord";
+import { fluxAiMarkElement } from "./fluxAiMark";
 export { askOpen } from "./annotationVisibility";
 /** The panel's planned footprint: the lazy surface keeps this width and this top edge. */
 export const ASK_WIDTH = 480;
@@ -23,6 +25,20 @@ export interface AskRequest extends AnnotationRequest {
   onEscape?: () => boolean;
 }
 export const askRequest = writable<AskRequest | null>(null);
+/**
+ * Where a question points, in words: the header's context line. The bootstrap and the surface
+ * both call this, so the line does not change when the surface takes over. A quoted passage is
+ * named by its source only: the quote itself is shown in the card under the header.
+ */
+export function askWhere(stamp: Pick<ContextStamp, "surface" | "targets" | "doc" | "activeFigureName">): string {
+  const targets = stamp.targets ?? [], first = targets[0], more = targets.length > 1 ? ` +${targets.length - 1}` : "";
+  if (first?.kind === "passage") return `${stamp.surface} · ${first.citekey} p.${first.page}${more}`;
+  if (first?.kind === "doc") return `${stamp.surface} · ${first.path.split("/").pop() ?? first.path}${more}`;
+  if (first) return `${stamp.surface} · ${shortTarget(first)}${more}`;
+  if (stamp.doc?.path) return `${stamp.surface} · ${stamp.doc.path.split("/").pop()}`;
+  if (stamp.activeFigureName) return `${stamp.surface} · figure “${stamp.activeFigureName}”`;
+  return `${stamp.surface} view`;
+}
 let previousFocus: HTMLElement | null = null, previousWindow: Window | null = null;
 export function isAskChord(e: KeyboardEvent): boolean {
   return (e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.code === "KeyJ";
@@ -58,11 +74,13 @@ export function requestAsk(opts: { targets?: TargetRef[]; utility?: { name: stri
   const panel = document.createElement("div"); panel.className = "ask-bootstrap agent-surface";
   bootstrap.dataset.askSurface = "";
   bootstrap.setAttribute("role", "dialog"); bootstrap.setAttribute("aria-label", "Ask about this");
+  // [mark] Flux AI │ Ask │ where: the same pieces, in the same order, as AskSurface's header.
   const head = document.createElement("div"); head.className = "surface-head";
+  const brand = document.createElement("span"); brand.className = "brand"; brand.textContent = "Flux AI";
   const ttl = document.createElement("span"); ttl.className = "ttl"; ttl.textContent = "Ask";
-  const sep = document.createElement("span"); sep.className = "vsep";
-  const ctx = document.createElement("span"); ctx.className = "ctx"; ctx.textContent = targets.length ? targetPrompt(targets, "About").replace(/…$/, "") : "about this view";
-  head.append(ttl, sep, ctx);
+  const sep = () => { const el = document.createElement("span"); el.className = "vsep"; return el; };
+  const ctx = document.createElement("span"); ctx.className = "ctx"; ctx.textContent = askWhere(capture.stamp);
+  head.append(fluxAiMarkElement(document, 16), brand, sep(), ttl, sep(), ctx);
   const body = document.createElement("div"); body.className = "ask-body";
   const composer = document.createElement("div"); composer.className = "flux-composer";
   const input = document.createElement("textarea"); input.setAttribute("aria-label", "Ask a question"); input.placeholder = targetPrompt(targets); input.rows = 2;

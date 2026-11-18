@@ -2932,6 +2932,16 @@ Persistence invariants (all machine-checked — do not weaken):
     does, and why that one runs only while busy). `verify-inbox-gui` pins the animation to `transform` on the
     root, forbids animations inside it, and forbids any other infinite animation in the Inbox (the claimed
     chip used to breathe forever; live is now a filled dot in a ring).
+    **Annotate and Ask (2026-11-18).** Both headers are `[mark] Flux AI │ Annotate|Ask │ where`. Ask's
+    SYNCHRONOUS bootstrap (`askChord.ts`, DOM built by hand) and the lazy `AskSurface` draw the same header from
+    the same two functions: `fluxAiMarkElement` and `askWhere(stamp)`; `verify-ask-gui` compares them piece by
+    piece (it reads `classList[0]`, because a scoped Svelte rule adds a hash class). A mark's NUMBER is at the
+    arrow's tail (`markBadgePoint`), its head is a dart `[tip, wing, notch, wing]` (`arrowHead`), and the shaft
+    ends at the notch (`arrowShaft`) so the round cap never blunts the point; the SVG on screen and
+    `paintMarks` (the canvas twin that makes the saved PNG) must be changed together, and both take the badge
+    face from `--font-ui`. The chosen drawing tool wears the ink (`--c-ink-mark`) as a tint and a rail; the
+    composer's primary button is the accent as a tint and an edge everywhere (`.flux-composer .primary` in
+    app.css), never a solid fill; what you type to an agent is serif.
     **Inbox details that gates read:** a status chip's text is exactly `item.chip`; `.notice` is exactly the
     notice; a row's liveness is the chip's `title` ("Agent is active" / "Agent is offline"); the detail
     buttons are found by their exact text, so a key drawn on a button is CSS content (`data-key` +

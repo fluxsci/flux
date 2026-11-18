@@ -11,6 +11,20 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 
 ### Flux AI
 
+- **Annotate and Ask are "Flux AI".** Their headers read **Flux AI │ Annotate │ where** and
+  **Flux AI │ Ask │ where**, with the seed of the Flux logo in the top-left corner, always
+  turning. Its colour is the state: blue when what you send goes straight to an agent that is
+  listening or while an agent answers, green when an answer is done, red on a failure, and the
+  logo's own colours otherwise.
+- **Arrows point properly.** An arrow's number now sits at its tail, where you began the drag,
+  and its head is a sharp dart at the tip, so the number no longer covers the point or the
+  thing it points at. Saved pictures are drawn the same way.
+- **Annotate's tools are redrawn**: a key cap, an icon and a word for arrow, box, pen and undo,
+  with the chosen tool marked in the annotation colour. What you type to an agent is set in the
+  same serif as the note it becomes, and the buttons that send use the accent as a tint
+  rather than a solid block.
+- **Ask names a quoted passage once.** The quote appears in the card under the header, no
+  longer also in the header and again in a chip.
 - **The Inbox is refined.** Its header reads **Flux AI │ Inbox**, with the seed of the Flux logo
   turning beside it: gold while something is waiting for you, blue while a connected agent is at
   work, the logo's colours otherwise. Rows show two lines of the note instead of one clipped
