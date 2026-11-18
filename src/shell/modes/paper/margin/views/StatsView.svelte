@@ -29,85 +29,177 @@
       readMins: Math.max(1, Math.round(b.total / 200)),
     };
   });
+  // Where the words are: the top-level sections, in document order, against the longest one.
+  // The same idle-tick budget the outline's per-heading counts come from, so nothing new runs.
+  const sections = $derived(wc.budget.sections.filter((x) => x.top && x.words > 0));
+  const longest = $derived(Math.max(1, ...sections.map((x) => x.words)));
+  const target = $derived(wc.target);
+  const fmt = (n: number) => n.toLocaleString();
 </script>
 
-<div class="stats">
+<div class="stats mk-pane">
   <div class="hero" data-stats-words={stats.words}>
-    <span class="n">{stats.words.toLocaleString()}</span>
-    <span class="l">main-text words</span>
+    <span class="n">{fmt(stats.words)}</span>
+    <span class="mk-eyebrow">main-text words</span>
     <span class="venue">counted for {wc.venueId === "flux" ? "no journal (house rules)" : wc.style.name}</span>
+    {#if target}
+      {@const over = stats.words > target}
+      <div class="goal" class:over title="word-target: {fmt(target)} (front matter)">
+        <div class="track"><i style="transform:scaleX({Math.min(1, stats.words / target)})"></i></div>
+        <span class="mk-num">{over ? `${fmt(stats.words - target)} over` : `${fmt(target - stats.words)} to go`} · target {fmt(target)}</span>
+      </div>
+    {/if}
   </div>
-  <div class="grid">
-    <div class="cell"><span class="n">{stats.total.toLocaleString()}</span><span class="l">all words</span></div>
-    <div class="cell"><span class="n">{stats.abstract.toLocaleString()}</span><span class="l">abstract</span></div>
-    <div class="cell"><span class="n">{stats.methods.toLocaleString()}</span><span class="l">methods</span></div>
-    <div class="cell"><span class="n">{stats.legends.toLocaleString()}</span><span class="l">legends</span></div>
-    <div class="cell"><span class="n">{stats.chars.toLocaleString()}</span><span class="l">characters</span></div>
-    <div class="cell"><span class="n">~{stats.readMins}</span><span class="l">min read</span></div>
-    <div class="cell"><span class="n">{stats.sentences.toLocaleString()}</span><span class="l">sentences</span></div>
-    <div class="cell"><span class="n">{stats.paras.toLocaleString()}</span><span class="l">paragraphs</span></div>
-    <div class="cell"><span class="n">{stats.headings}</span><span class="l">headings</span></div>
-    <div class="cell"><span class="n">{host.citedKeys.size}</span><span class="l">citations</span></div>
-  </div>
+
+  <dl class="ledger">
+    <div><dt>All words</dt><dd>{fmt(stats.total)}</dd></div>
+    <div><dt>Abstract</dt><dd>{fmt(stats.abstract)}</dd></div>
+    <div><dt>Methods</dt><dd>{fmt(stats.methods)}</dd></div>
+    <div><dt>Legends</dt><dd>{fmt(stats.legends)}</dd></div>
+    <div><dt>Characters</dt><dd>{fmt(stats.chars)}</dd></div>
+    <div><dt>Reading</dt><dd>~{stats.readMins} min</dd></div>
+    <div><dt>Sentences</dt><dd>{fmt(stats.sentences)}</dd></div>
+    <div><dt>Paragraphs</dt><dd>{fmt(stats.paras)}</dd></div>
+    <div><dt>Headings</dt><dd>{stats.headings}</dd></div>
+    <div><dt>Citations</dt><dd>{host.citedKeys.size}</dd></div>
+  </dl>
+
+  {#if sections.length > 1}
+    <div class="bysec">
+      <div class="mk-eyebrow">By section</div>
+      <ol>
+        {#each sections as sec (sec.from)}
+          <li title="{sec.heading}: {fmt(sec.words)} words">
+            <span class="sname mk-clip">{sec.heading}</span>
+            <span class="swords mk-num">{fmt(sec.words)}</span>
+            <span class="sbar"><i style="transform:scaleX({sec.words / longest})"></i></span>
+          </li>
+        {/each}
+      </ol>
+    </div>
+  {/if}
 </div>
 
 <style>
   .stats {
-    padding: var(--sp-4);
+    height: auto;
+    min-height: 100%;
+    gap: 14px;
+    padding-top: 12px;
+    padding-bottom: 14px;
   }
   .hero {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: var(--sp-5) 0 var(--sp-4);
-    border-bottom: 1px solid var(--c-line);
-    margin-bottom: var(--sp-4);
+    display: grid;
+    justify-items: center;
+    gap: 5px;
+    padding: 6px 0 2px;
   }
   .hero .n {
     font-family: var(--font-serif);
-    font-size: 44px;
-    font-weight: 700;
+    font-size: calc(38px * var(--ts-scale, 1));
+    font-weight: 400;
+    letter-spacing: -0.01em;
     color: var(--c-tx-hi);
     line-height: 1;
-    font-variant-numeric: tabular-nums;
-  }
-  .hero .l {
-    margin-top: 6px;
-    font-size: var(--ts-sm);
-    color: var(--c-tx-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+    font-variant-numeric: lining-nums tabular-nums;
   }
   .hero .venue {
-    margin-top: 4px;
     font-size: var(--ts-xs);
+    font-style: italic;
     color: var(--c-tx-faint);
   }
-  .grid {
+  .goal {
+    width: 100%;
+    display: grid;
+    justify-items: center;
+    gap: 5px;
+    margin-top: 6px;
+    color: var(--c-tx-muted);
+    font-size: calc(10.5px * var(--ts-scale, 1));
+  }
+  .track,
+  .sbar {
+    display: block;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--c-line);
+    overflow: hidden;
+  }
+  .track {
+    width: 100%;
+  }
+  .track i,
+  .sbar i {
+    display: block;
+    height: 100%;
+    background: var(--pane-c);
+    transform-origin: left center;
+  }
+  .goal.over {
+    color: var(--c-warning);
+  }
+  .goal.over .track i {
+    background: var(--c-warning);
+  }
+  /* Label left, figure right, a hairline under each pair: a ledger, not a wall of tiles. */
+  .ledger {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: var(--sp-2);
+    column-gap: 16px;
+    margin: 0;
+    border-top: 1px solid var(--c-line-strong);
   }
-  .cell {
+  .ledger div {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: var(--sp-3);
-    background: var(--c-surface);
-    border: 1px solid var(--c-line);
-    border-radius: var(--r-2);
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+    padding: calc(6px * var(--ts-scale, 1)) 1px;
+    border-bottom: 1px solid var(--c-line);
   }
-  .cell .n {
-    font-family: var(--font-serif);
-    font-size: var(--ts-lg);
-    font-weight: 700;
-    color: var(--c-tx);
-    font-variant-numeric: tabular-nums;
-  }
-  .cell .l {
-    font-size: var(--ts-xs);
-    color: var(--c-tx-muted);
+  .ledger dt {
+    font: 600 calc(9.5px * var(--ts-scale, 1)) / 1.2 var(--font-mono);
+    letter-spacing: 0.07em;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    color: var(--c-tx-muted);
+    white-space: nowrap;
+  }
+  .ledger dd {
+    margin: 0;
+    font-family: var(--font-serif);
+    font-size: var(--ts-base);
+    font-variant-numeric: lining-nums tabular-nums;
+    color: var(--c-tx);
+    white-space: nowrap;
+  }
+  .bysec {
+    display: grid;
+    gap: 7px;
+  }
+  .bysec ol {
+    display: grid;
+    gap: calc(7px * var(--ts-scale, 1));
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .bysec li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 8px;
+    row-gap: 3px;
+    align-items: baseline;
+  }
+  .sname {
+    font-size: var(--ts-xs);
+    color: var(--c-tx-2);
+  }
+  .swords {
+    font-size: calc(10.5px * var(--ts-scale, 1));
+    color: var(--c-tx-muted);
+  }
+  .sbar {
+    grid-column: 1 / -1;
   }
 </style>

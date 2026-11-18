@@ -1,8 +1,10 @@
 // The Dynamic Margin's pane registry. Every surface is a "dynamic pane" —
 // summoned by hotkey or ⌘K, stacked vertically in the margin, splitting its
-// height equally. Adding a pane is a single entry here (plus a hotkey branch
-// in PaperMode if it earns one). Colors are the pane's outline/legend ink,
+// height equally. Adding a pane is a single entry here (plus a row in
+// commands.ts if it earns a key). Colors are the pane's outline/legend ink,
 // matching the owner's color-coding: search blue, comments magenta, figures cyan.
+// A colour must be a token that EXISTS in tokens.css: an undefined one computes to
+// no outline and a black title (verify-margin-panes requires a real ink per pane).
 
 import type { PaneDescriptor } from "./types";
 import StatsView from "./views/StatsView.svelte";
@@ -47,7 +49,7 @@ export const PANES: PaneDescriptor[] = [
   {
     id: "manuscript-check",
     title: "Manuscript Check",
-    color: "var(--flx-green-600)",
+    color: "var(--flx-olive-600)",
     hotkey: "Alt+K",
     component: ManuscriptCheckView,
   },

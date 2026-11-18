@@ -70,31 +70,31 @@
   }
 </script>
 
-<div class="jc">
+<div class="jc mk-pane">
   <div class="jc-controls">
-    <select aria-label="Journal" bind:value={styleId}>
+    <select class="mk-select" aria-label="Journal" bind:value={styleId}>
       {#each options as o (o.id)}<option value={o.id}>{o.label}</option>{/each}
     </select>
-    <select aria-label="Submission stage" bind:value={stage}>
+    <select class="mk-select" aria-label="Submission stage" bind:value={stage}>
       <option value="initial">Initial submission</option>
       <option value="final">Accepted / final</option>
     </select>
   </div>
 
   {#if !findings.length}
-    <p class="jc-clean">Nothing to flag for {style.name}.</p>
+    <p class="jc-clean mk-empty">Nothing to flag for {style.name}.</p>
   {:else}
     <p class="jc-summary">
-      {findings.length} item{findings.length === 1 ? "" : "s"}{warnCount ? ` · ${warnCount} to fix` : ""}
-      — advice only, exports are never blocked.
+      <b class="mk-num">{findings.length}</b> item{findings.length === 1 ? "" : "s"}{#if warnCount}<span class="dot" aria-hidden="true">·</span><span class="tofix"><b class="mk-num">{warnCount}</b> to fix</span>{/if}
+      <span class="advice">Advice only: exports are never blocked.</span>
     </p>
-    <ul class="jc-list">
+    <ul class="jc-list mk-list">
       {#each findings as f, i (f.ruleId + ":" + (f.from ?? i))}
-        <li class="jc-item" class:warn={f.severity === "warn"}>
-          <button class="jc-msg" disabled={f.from == null} onclick={() => jump(f)}>
-            {#if f.excerpt}<span class="jc-excerpt">{f.excerpt}</span>{/if}
+        <li class="jc-item mk-find" class:warn={f.severity === "warn"}>
+          <button class="jc-msg mk-find-msg" disabled={f.from == null} onclick={() => jump(f)} title={f.from == null ? undefined : "Go to this place in the manuscript"}>
+            {#if f.excerpt}<span class="jc-excerpt mk-quote">{f.excerpt}</span>{/if}
             <span>{f.message}</span>
-            {#if f.suggestion}<span class="jc-sugg">→ {f.suggestion}</span>{/if}
+            {#if f.suggestion}<span class="jc-sugg mk-sugg">→ {f.suggestion}</span>{/if}
           </button>
         </li>
       {/each}
@@ -103,74 +103,39 @@
 </div>
 
 <style>
-  .jc {
-    display: flex;
-    flex-direction: column;
-    gap: var(--sp-2);
-    height: 100%;
-    overflow: auto;
-    font-size: var(--ts-sm);
-  }
   .jc-controls {
-    display: flex;
-    gap: var(--sp-2);
+    flex: 0 0 auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+    gap: 6px;
   }
-  .jc-controls select {
-    flex: 1 1 0;
-    min-width: 0;
-    padding: 2px 4px;
-    border: 1px solid var(--c-line);
-    border-radius: var(--r-1);
-    background: var(--c-surface);
-    color: inherit;
-    font: inherit;
-    font-size: var(--ts-sm);
-  }
-  .jc-clean,
   .jc-summary {
+    flex: 0 0 auto;
     margin: 0;
-    color: var(--c-tx-2);
+    font-size: var(--ts-sm);
+    line-height: 1.4;
+    color: var(--c-tx);
+  }
+  .jc-summary b {
+    font-weight: 600;
+    font-size: 1em;
+  }
+  .dot {
+    margin: 0 6px;
+    color: var(--c-tx-faint);
+  }
+  .tofix {
+    color: var(--c-warning);
+  }
+  .advice {
+    display: block;
+    color: var(--c-tx-faint);
+    font-size: var(--ts-xs);
+    font-style: italic;
   }
   .jc-list {
-    list-style: none;
     margin: 0;
     padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .jc-item {
-    border-left: 2px solid var(--c-line-strong);
-    padding-left: var(--sp-2);
-  }
-  .jc-item.warn {
-    border-left-color: var(--c-danger);
-  }
-  .jc-msg {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    width: 100%;
-    text-align: left;
-    background: none;
-    border: none;
-    padding: 2px 0;
-    color: var(--c-tx-2);
-    font: inherit;
-    font-size: var(--ts-sm);
-    cursor: var(--cursor-cross-hover);
-  }
-  .jc-msg:disabled {
-    cursor: var(--cursor-cross);
-  }
-  .jc-msg:hover:not(:disabled) {
-    color: var(--c-tx-hi);
-  }
-  .jc-excerpt {
-    font-family: var(--font-mono, monospace);
-    color: var(--c-tx-hi);
-  }
-  .jc-sugg {
-    color: var(--c-accent-bright);
+    list-style: none;
   }
 </style>

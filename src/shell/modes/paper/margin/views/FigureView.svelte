@@ -70,9 +70,9 @@
   }
 </script>
 
-<div class="fv">
+<div class="fv mk-pane">
   {#if figures.length === 0}
-    <p class="empty">No figures in this project yet.</p>
+    <p class="mk-empty">No figures in this project yet. Compose one in Figure mode and it appears here.</p>
   {:else}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
@@ -93,38 +93,44 @@
         {/if}
       </div>
       {#if zoom !== 1 || panX !== 0 || panY !== 0}
-        <button class="zreset" onclick={resetView} title="Reset view (double-click)">
+        <button class="zreset mk-num" onclick={resetView} title="Reset the view (or double-click the figure)">
           {Math.round(zoom * 100)}%
         </button>
+      {:else}
+        <span class="ztip" aria-hidden="true">scroll to zoom · drag to pan</span>
       {/if}
     </div>
     {#if current}
       <div class="meta">
-        <p class="cap"><b>{current.captionLabel.trimEnd()}</b> {current.caption || current.nickname || ""}</p>
+        <p class="cap" title={current.caption || current.nickname || ""}><b>{current.captionLabel.trimEnd()}</b> {current.caption || current.nickname || ""}</p>
         {#if current.panels.length}
           <div class="panels" role="group" aria-label="Panels to reference">
-            <span>Panels</span>
-            {#each current.panels as panel}
-              <button class:chosen={panels.includes(panel)} aria-pressed={panels.includes(panel)} aria-label={`Panel ${panel}`} onclick={() => togglePanel(panel)}>{panel}</button>
-            {/each}
+            <span class="mk-eyebrow">Panels</span>
+            <span class="letters">
+              {#each current.panels as panel}
+                <button class:chosen={panels.includes(panel)} aria-pressed={panels.includes(panel)} aria-label={`Panel ${panel}`} onclick={() => togglePanel(panel)}>{panel}</button>
+              {/each}
+            </span>
           </div>
         {/if}
         <div class="acts">
-          <button onclick={() => host.insertFigure(current)} title="Insert the figure itself">Insert figure</button>
-          <button class="ghost" onclick={() => host.insertFigureReference(reference)} title={`Insert a cross-reference (${reference})`}>Insert {referenceLabel}</button>
-          <button class="ghost" onclick={() => host.openFigure(current.id)}>Open in Figure</button>
+          <button class="mk-btn primary" onclick={() => host.insertFigure(current)} title="Insert the figure itself at the caret">Insert figure</button>
+          <button class="mk-btn" onclick={() => host.insertFigureReference(reference)} title={`Insert a cross-reference (${reference})`}>Insert {referenceLabel}</button>
+          <button class="mk-btn quiet ghost" onclick={() => host.openFigure(current.id)} title="Open this figure in Figure mode">Open in Figure</button>
         </div>
       </div>
     {/if}
-    <div class="thumbs">
+    <div class="thumbs" role="listbox" aria-label="Figures">
       {#each figures as f (f.id)}
         <button
           class="thumb"
           class:sel={f.id === current?.id}
-          title={f.nickname ? `${f.name} — ${f.nickname}` : f.name}
+          role="option"
+          aria-selected={f.id === current?.id}
+          title={f.nickname ? `${f.name}: ${f.nickname}` : f.name}
           onclick={() => (selId = f.id)}>
           <div class="art"><img use:figureThumb={f.id} alt="" draggable="false" /></div>
-          <span class="tn">{f.display}</span>
+          <span class="tn mk-clip">{f.display}</span>
         </button>
       {/each}
     </div>
@@ -133,31 +139,26 @@
 
 <style>
   .fv {
-    padding: var(--sp-3);
-    display: flex;
-    flex-direction: column;
-    gap: var(--sp-3);
-    height: 100%;
     overflow: auto;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--c-tx) 22%, transparent) transparent;
   }
-  .empty {
-    color: var(--c-tx-faint);
-    font-style: italic;
-    font-size: var(--ts-sm);
-    padding: var(--sp-4);
-    text-align: center;
-  }
+  /* The viewing stage: the figure on white, with room to look closely. */
   .stage {
     position: relative;
     flex: 1 1 auto;
-    min-height: 160px;
-    background: var(--flx-paper);
+    min-height: calc(170px * var(--ts-scale, 1));
+    background: #fff;
     border: 1px solid var(--c-line-strong);
-    border-radius: var(--r-2);
+    border-radius: var(--r-1);
     overflow: hidden;
     cursor: grab;
     touch-action: none;
     contain: layout paint;
+    transition: border-color 80ms linear;
+  }
+  .stage:hover {
+    border-color: var(--mk-edge);
   }
   .stage.dragging {
     cursor: grabbing;
@@ -168,7 +169,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: var(--sp-4);
+    padding: 12px;
     transform-origin: 0 0;
     will-change: transform;
   }
@@ -176,120 +177,184 @@
     max-width: 100%;
     max-height: 100%;
     height: auto;
-    pointer-events: none;
     user-select: none;
+    pointer-events: none;
   }
-  .zreset {
+  /* A figure still being drawn has no bitmap yet: an <img> without a source paints the
+     browser's broken-picture box. Hide it and let its frame say "coming" instead. */
+  .fv img:global([data-figure-state="pending"]) {
+    visibility: hidden;
+  }
+  .fv img:global([data-figure-state="ready"]) {
+    animation: fv-arrive var(--dur-fade) linear both;
+  }
+  @keyframes fv-arrive {
+    from {
+      opacity: 0;
+    }
+  }
+  .zoomer:has(img:global([data-figure-state="pending"]))::after,
+  .thumb .art:has(img:global([data-figure-state="pending"]))::after {
+    content: "";
     position: absolute;
-    right: 6px;
-    bottom: 6px;
-    font: inherit;
-    font-size: var(--ts-xs);
-    font-variant-numeric: tabular-nums;
-    padding: 2px 8px;
-    border: 1px solid var(--c-line-strong);
-    border-radius: var(--r-pill);
-    background: color-mix(in oklab, var(--flx-paper) 82%, transparent);
-    color: var(--c-tx-muted);
-    cursor: var(--cursor-cross-hover);
+    inset: 22%;
+    border-radius: var(--r-ui);
+    background: repeating-linear-gradient(135deg, var(--c-line) 0 1px, transparent 1px 7px);
+    opacity: 0.9;
   }
-  .zreset:hover {
-    color: var(--c-tx-hi);
-    border-color: var(--c-accent);
+  .zoomer:has(img:global([data-figure-state="pending"]))::before {
+    content: "drawing the figure…";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 12px;
+    text-align: center;
+    font: italic var(--ts-xs) var(--font-serif);
+    color: var(--c-tx-faint);
+  }
+  .fv img:global([data-figure-state="missing"]) {
+    font: italic var(--ts-xs) var(--font-serif);
+    color: var(--c-tx-faint);
   }
   .noprev {
     color: var(--c-tx-faint);
     font-style: italic;
     font-size: var(--ts-sm);
   }
+  .zreset,
+  .ztip {
+    position: absolute;
+    right: 7px;
+    bottom: 7px;
+    height: calc(20px * var(--ts-scale, 1));
+    padding: 0 7px;
+    border-radius: var(--r-pill);
+    font-size: calc(10px * var(--ts-scale, 1));
+    line-height: calc(20px * var(--ts-scale, 1));
+  }
+  .zreset {
+    border: 1px solid var(--mk-edge);
+    background: var(--flx-paper);
+    color: var(--pane-c);
+    cursor: var(--cursor-cross-hover);
+    transition: background 80ms linear;
+  }
+  .zreset:hover {
+    background: color-mix(in oklab, var(--pane-c) 12%, var(--flx-paper));
+  }
+  /* Says what the stage can do, then gets out of the way the moment you use it. */
+  .ztip {
+    font-family: var(--font-serif);
+    font-style: italic;
+    color: var(--c-tx-faint);
+    background: color-mix(in oklab, #fff 82%, transparent);
+    opacity: 0;
+    transition: opacity var(--dur-fade) linear;
+    pointer-events: none;
+  }
+  .stage:hover .ztip {
+    opacity: 1;
+  }
+  .meta {
+    flex: 0 0 auto;
+    display: grid;
+    gap: 8px;
+  }
   .cap {
-    margin: 0 0 var(--sp-2);
-    font-size: var(--ts-sm);
-    line-height: 1.5;
+    margin: 0;
     color: var(--c-tx-2);
+    font-size: var(--ts-sm);
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
   .cap b {
-    color: var(--c-accent-bright);
+    color: var(--pane-c);
+    font-weight: 600;
   }
   .panels {
     display: flex;
-    flex-wrap: wrap;
     align-items: center;
-    gap: 4px;
-    margin-bottom: var(--sp-2);
-    font-size: var(--ts-xs);
-    color: var(--c-tx-muted);
+    gap: 9px;
   }
-  .panels span {
-    margin-right: 2px;
+  .letters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
   }
-  .panels button {
-    font: inherit;
-    min-width: 24px;
-    padding: 2px 6px;
-    border: 1px solid var(--c-line);
-    border-radius: var(--r-1);
-    background: var(--c-surface);
+  .letters button {
+    min-width: calc(22px * var(--ts-scale, 1));
+    height: calc(22px * var(--ts-scale, 1));
+    padding: 0 5px;
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-ui);
+    background: var(--mk-field);
     color: var(--c-tx-2);
+    font: 600 calc(11px * var(--ts-scale, 1)) / 1 var(--font-mono);
     cursor: var(--cursor-cross-hover);
+    transition:
+      background 80ms linear,
+      border-color 80ms linear,
+      color 80ms linear,
+      transform 60ms linear;
   }
-  .panels button.chosen {
-    border-color: var(--c-accent);
-    color: var(--c-accent);
-    background: var(--c-accent-tint);
+  .letters button:hover {
+    border-color: var(--mk-edge);
+    background: var(--mk-tint);
+  }
+  .letters button:active {
+    transform: scale(0.94);
+  }
+  .letters button.chosen {
+    border-color: var(--pane-c);
+    background: var(--mk-tint-2);
+    color: var(--pane-c);
+    box-shadow: inset 0 -2px 0 var(--pane-c);
   }
   .acts {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--sp-2);
-  }
-  .acts button {
-    font: inherit;
-    font-size: var(--ts-sm);
-    padding: 5px 12px;
-    border-radius: var(--r-1);
-    cursor: var(--cursor-cross-hover);
-    background: var(--c-accent);
-    color: var(--c-on-accent);
-    border: 1px solid transparent;
-    font-weight: 600;
-  }
-  .acts button.ghost {
-    background: none;
-    border-color: var(--c-line-strong);
-    color: var(--c-tx-2);
-    font-weight: 400;
-  }
-  .acts button:hover {
-    filter: brightness(1.05);
-  }
-  .acts button.ghost:hover {
-    color: var(--c-tx-hi);
-    border-color: var(--c-accent);
-    filter: none;
+    gap: 6px;
   }
   .thumbs {
+    flex: 0 0 auto;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
-    gap: var(--sp-2);
+    grid-template-columns: repeat(auto-fill, minmax(calc(74px * var(--ts-scale, 1)), 1fr));
+    gap: 6px;
+    padding-top: 9px;
+    border-top: 1px solid var(--c-line);
   }
   .thumb {
-    position: relative;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
+    gap: 3px;
     aspect-ratio: 4 / 3;
-    background: var(--flx-paper);
+    padding: 4px 4px 3px;
     border: 1px solid var(--c-line);
     border-radius: var(--r-1);
-    padding: 5px;
+    background: #fff;
     cursor: var(--cursor-cross-hover);
-    overflow: hidden;
+    transition:
+      border-color 80ms linear,
+      box-shadow 80ms linear,
+      transform 60ms linear;
+  }
+  .thumb:hover {
+    border-color: var(--mk-edge);
+  }
+  .thumb:active {
+    transform: scale(0.97);
   }
   .thumb.sel {
-    border-color: var(--c-accent);
-    box-shadow: 0 0 0 1px var(--c-accent);
+    border-color: var(--pane-c);
+    box-shadow: 0 0 0 2px var(--mk-ring);
   }
   .thumb .art {
-    width: 100%;
-    height: 100%;
+    position: relative;
+    min-height: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -298,15 +363,14 @@
     max-width: 100%;
     max-height: 100%;
     height: auto;
+    pointer-events: none;
   }
   .tn {
-    position: absolute;
-    left: 3px;
-    bottom: 2px;
-    font-size: var(--ts-xs);
     color: var(--c-tx-muted);
-    background: color-mix(in oklab, var(--flx-paper) 80%, transparent);
-    padding: 0 4px;
-    border-radius: 3px;
+    font: calc(9.5px * var(--ts-scale, 1)) / 1.2 var(--font-mono);
+    text-align: left;
+  }
+  .thumb.sel .tn {
+    color: var(--pane-c);
   }
 </style>

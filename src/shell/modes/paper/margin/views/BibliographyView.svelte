@@ -103,13 +103,12 @@
   }
 </script>
 
-<div class="bib" bind:this={rootEl}>
-  <div class="head">
-    <span class="count">{refs.length} reference{refs.length === 1 ? "" : "s"}</span>
-    <span class="cited">{citedCount} cited</span>
+<div class="bib mk-pane" bind:this={rootEl}>
+  <div class="head mk-row-flex">
+    <span class="count mk-grow"><b class="mk-num">{refs.length}</b> reference{refs.length === 1 ? "" : "s"}<span class="dot" aria-hidden="true">·</span><span class="cited"><b class="mk-num">{citedCount}</b> cited</span></span>
     <!-- 2.2: citation-style toggle — writes `citation-style:` into the front
          matter (single-line dispatch); chips + References re-render live. -->
-    <span class="style-toggle" role="group" aria-label="Citation style">
+    <span class="style-toggle mk-seg" role="group" aria-label="Citation style">
       <button
         class="stbtn"
         class:on={$citationStyle !== "numeric"}
@@ -128,17 +127,17 @@
 
   {#if group}
     <div class="grpcard">
-      <div class="grphead">
-        <span>At cursor · {group.keys.length} ref{group.keys.length === 1 ? "" : "s"}</span>
-        <button class="grpedit" onclick={() => margin.summon("citation-group")}>Edit… <kbd>Alt+C</kbd></button>
+      <div class="grphead mk-row-flex">
+        <span class="mk-eyebrow mk-grow">At the cursor · {group.keys.length}</span>
+        <button class="grpedit mk-btn sm" onclick={() => margin.summon("citation-group")}>Edit…<kbd>Alt C</kbd></button>
       </div>
       <div class="grpchips">
         {#each group.keys as key (key)}
-          <span class="gchip">
+          <span class="gchip mk-chip">
             {#if $citationStyle === "numeric"}
-              <b>[{$citationOrdinals.get(key) ?? "?"}]</b>
+              <b class="mk-num">[{$citationOrdinals.get(key) ?? "?"}]</b>
             {/if}
-            {memberLabel(key)}
+            <span class="mk-clip">{memberLabel(key)}</span>
             <button onclick={() => removeFromGroup(key)} aria-label="Remove {key} from group">✕</button>
           </span>
         {/each}
@@ -146,44 +145,56 @@
     </div>
   {/if}
 
-  <button class="search" onclick={() => margin.summon("reference-search")}>Search references…</button>
-
-  <div class="adddoi" class:failed>
-    <input
-      bind:value={doi}
-      placeholder="Add by DOI or URL…"
-      spellcheck="false"
-      onkeydown={(e) => e.key === "Enter" && add()} />
-    <button onclick={add} disabled={adding} title="Fetch reference">{adding ? "…" : "+"}</button>
+  <div class="tools">
+    <button class="search" onclick={() => margin.summon("reference-search")}>
+      <svg viewBox="0 0 14 14" width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4.2" /><path d="M9.2 9.2l3.3 3.3" /></svg>
+      <span class="mk-grow">Search references…</span><kbd>Alt R</kbd>
+    </button>
+    <div class="adddoi" class:failed>
+      <input
+        class="mk-input"
+        bind:value={doi}
+        placeholder="Add by DOI or URL…"
+        aria-label="Add a reference by DOI or URL"
+        spellcheck="false"
+        oninput={() => (failed = false)}
+        onkeydown={(e) => e.key === "Enter" && add()} />
+      <button class="mk-btn icon" onclick={add} disabled={adding || !doi.trim()} title="Fetch this reference" aria-label="Fetch reference">{adding ? "…" : "+"}</button>
+    </div>
+    {#if failed}<p class="doierr" role="status">Could not resolve that DOI or URL.</p>{/if}
   </div>
 
   {#if refs.length === 0}
-    <p class="empty">Your library is empty. Paste a DOI above, or add entries to references/library.bib.</p>
+    <p class="mk-empty">No references in this project yet. Paste a DOI above, or cite one from Reference Search.</p>
   {:else}
-    <ul class="list">
+    <ul class="list mk-list">
       {#each refs as r (r.key)}
-        <li class="ref" class:on={host.citedKeys.has(r.key)} class:flash={flashKey === r.key} data-refkey={r.key}>
-          <button class="dot" title={host.citedKeys.has(r.key) ? "Cited — click to remove" : "Click to cite"} onclick={() => toggle(r.key)} aria-label="Toggle citation"></button>
+        {@const cited = host.citedKeys.has(r.key)}
+        {@const open = expanded.has(r.key)}
+        <li class="ref mk-item" class:on={cited} class:flash={flashKey === r.key} data-refkey={r.key}>
+          <button class="mk-dot" class:on={cited} title={cited ? "Cited: click to remove every citation of it" : "Cite at the caret"} onclick={() => toggle(r.key)} aria-label="Toggle citation" aria-pressed={cited}></button>
           <div class="body">
-            <button class="t" onclick={() => toggleExpand(r.key)} aria-expanded={expanded.has(r.key)}>
-              <span class="tw" class:open={expanded.has(r.key)}>▸</span>
-              {#if $citationStyle === "numeric" && $citationOrdinals.get(r.key) !== undefined}
-                <span class="ord">[{$citationOrdinals.get(r.key)}]</span>
-              {/if}
-              {r.title || r.key}
+            <button class="t" onclick={() => toggleExpand(r.key)} aria-expanded={open}>
+              <svg class="tw" class:open viewBox="0 0 8 8" width="8" height="8" aria-hidden="true"><path d="M2.5 1.2L5.8 4 2.5 6.8" /></svg>
+              <span class="title">
+                {#if $citationStyle === "numeric" && $citationOrdinals.get(r.key) !== undefined}
+                  <span class="ord mk-num">[{$citationOrdinals.get(r.key)}]</span>
+                {/if}
+                {r.title || r.key}
+              </span>
             </button>
-            <div class="m">{r.authors.slice(0, 3).join(", ")}{r.authors.length > 3 ? " et al." : ""}{r.year ? ` · ${r.year}` : ""}{r.container ? ` · ${r.container}` : ""}</div>
-            {#if expanded.has(r.key)}
+            <div class="m">{r.authors.slice(0, 3).join(", ")}{r.authors.length > 3 ? " et al." : ""}{#if r.year}<span class="mk-num"> · {r.year}</span>{/if}{#if r.container}<i> · {r.container}</i>{/if}</div>
+            {#if open}
               <div class="detail">
                 {#if r.authors.length > 3}
                   <div class="d-authors">{r.authors.join(", ")}</div>
                 {/if}
-                {#if r.doi}
-                  <button class="d-doi" onclick={() => openDoi(r.doi!)}>doi.org/{r.doi}</button>
-                {/if}
                 <div class="d-actions">
                   {#if hasPdfIn($pdfKeys, r.key)}
-                    <button class="d-pill" onclick={() => revealReader(r.key)}>Read PDF</button>
+                    <button class="d-pill mk-btn sm" onclick={() => revealReader(r.key)}>Read PDF</button>
+                  {/if}
+                  {#if r.doi}
+                    <button class="d-doi mk-btn sm quiet" title="Open doi.org/{r.doi}" onclick={() => openDoi(r.doi!)}>DOI ↗</button>
                   {/if}
                   <code class="d-key">@{r.key}</code>
                 </div>
@@ -197,298 +208,243 @@
 </div>
 
 <style>
-  .bib {
-    padding: var(--sp-3);
-    display: flex;
-    flex-direction: column;
-    gap: var(--sp-3);
-    height: 100%;
-    overflow: auto;
-  }
   .head {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 8px;
-    font-size: var(--ts-sm);
-  }
-  .style-toggle {
-    display: inline-flex;
-    border: 1px solid var(--c-line);
-    border-radius: var(--r-pill);
-    overflow: hidden;
-  }
-  .stbtn {
-    background: none;
-    border: none;
-    font: inherit;
-    font-size: var(--ts-xs);
-    color: var(--c-tx-faint);
-    padding: 1px 8px;
-    cursor: var(--cursor-cross-hover);
-  }
-  .stbtn.on {
-    background: var(--c-ui-hover);
-    color: var(--c-tx);
+    flex: 0 0 auto;
+    min-height: calc(26px * var(--ts-scale, 1));
   }
   .count {
     color: var(--c-tx);
+    font-size: var(--ts-sm);
+  }
+  .count b {
     font-weight: 600;
+    font-size: 1em;
   }
   .cited {
-    color: var(--c-accent-bright);
+    color: var(--pane-c);
   }
-  .biberr {
+  .dot {
+    margin: 0 6px;
+    color: var(--c-tx-faint);
+  }
+  .biberr,
+  .doierr {
+    margin: 0;
+    padding: 7px 10px;
+    border: 1px solid color-mix(in oklab, var(--c-danger) 55%, transparent);
+    border-radius: var(--r-1);
+    background: color-mix(in oklab, var(--c-danger) 8%, transparent);
+    color: var(--c-tx);
     font-size: var(--ts-xs);
     line-height: 1.4;
-    padding: 7px 10px;
-    border: 1px solid var(--c-danger);
-    border-radius: var(--r-1);
-    background: color-mix(in srgb, var(--c-danger) 12%, transparent);
-    color: var(--c-tx);
+  }
+  .doierr {
+    padding: 4px 9px;
   }
   .grpcard {
-    border: 1px solid var(--c-accent);
-    border-radius: var(--r-2);
-    padding: var(--sp-2) var(--sp-3);
-    display: flex;
-    flex-direction: column;
-    gap: var(--sp-2);
-    background: var(--c-surface);
-  }
-  .grphead {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: var(--ts-xs);
-    color: var(--c-tx-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-  .grpedit {
-    font: inherit;
-    font-size: var(--ts-xs);
-    text-transform: none;
-    letter-spacing: 0;
-    background: none;
-    border: 1px solid var(--c-line-strong);
+    flex: 0 0 auto;
+    display: grid;
+    gap: 7px;
+    padding: 8px 9px 9px;
+    border: 1px solid color-mix(in oklab, var(--pane-c) 30%, var(--c-line-strong));
     border-radius: var(--r-1);
-    color: var(--c-tx-2);
-    padding: 2px 7px;
-    cursor: var(--cursor-cross-hover);
+    background: var(--mk-tint);
   }
-  .grpedit:hover {
-    border-color: var(--c-accent);
-    color: var(--c-tx-hi);
+  .grpedit kbd {
+    margin-left: 2px;
   }
-  .grpedit kbd { margin-left: 4px; color: var(--c-tx-faint); }
   .grpchips {
     display: flex;
     flex-wrap: wrap;
     gap: 5px;
   }
-  .gchip {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 2px 4px 2px 9px;
-    font-size: var(--ts-xs);
-    background: var(--c-accent-tint);
-    color: var(--c-accent);
-    border-radius: var(--r-pill);
-  }
   .gchip b {
-    font-variant-numeric: tabular-nums;
-  }
-  .gchip button {
-    background: none;
-    border: none;
-    color: inherit;
-    cursor: var(--cursor-cross-hover);
-    opacity: 0.7;
-    font-size: 10px;
-    padding: 0 2px;
-  }
-  .gchip button:hover {
-    opacity: 1;
-  }
-  .ord {
-    color: var(--c-accent-bright);
-    font-variant-numeric: tabular-nums;
     font-weight: 600;
   }
+  .tools {
+    flex: 0 0 auto;
+    display: grid;
+    gap: 7px;
+  }
+  /* A way into Reference Search that looks like the field it opens. */
   .search {
-    font: inherit;
-    font-size: var(--ts-sm);
-    text-align: left;
-    padding: 7px 11px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-sizing: border-box;
+    width: 100%;
+    height: calc(32px * var(--ts-scale, 1));
+    padding: 0 8px 0 10px;
     border: 1px solid var(--c-line-strong);
     border-radius: var(--r-1);
-    background: var(--c-surface);
-    color: var(--c-tx-2);
+    background: var(--mk-field);
+    color: var(--c-tx-faint);
+    font: var(--ts-sm) var(--font-serif);
+    text-align: left;
     cursor: var(--cursor-cross-hover);
+    transition:
+      border-color 80ms linear,
+      background 80ms linear,
+      color 80ms linear;
+  }
+  .search svg {
+    flex: 0 0 auto;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+    stroke-linecap: round;
   }
   .search:hover {
-    border-color: var(--c-accent);
-    color: var(--c-tx-hi);
+    border-color: var(--mk-edge);
+    background: var(--mk-tint);
+    color: var(--c-tx-2);
+  }
+  .search:active {
+    background: var(--mk-tint-2);
   }
   .adddoi {
     display: flex;
-    gap: 5px;
+    gap: 6px;
   }
-  .adddoi input {
-    flex: 1 1 auto;
+  .adddoi :global(.mk-input) {
+    flex: 1 1 0;
+    width: auto;
     min-width: 0;
-    padding: 6px 10px;
-    border: 1px solid var(--c-line-strong);
-    border-radius: var(--r-1);
-    background: var(--c-bg);
-    color: var(--c-tx);
-    font: inherit;
-    font-size: var(--ts-sm);
-    outline: none;
   }
-  .adddoi.failed input {
+  .search span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .search kbd {
+    flex: 0 0 auto;
+  }
+  .adddoi.failed :global(.mk-input) {
     border-color: var(--c-danger);
   }
-  .adddoi input:focus {
-    border-color: var(--c-accent);
-  }
-  .adddoi button {
-    flex: 0 0 auto;
-    width: 30px;
-    border: 1px solid var(--c-line-strong);
-    border-radius: var(--r-1);
-    background: var(--c-surface);
-    color: var(--c-tx-2);
-    cursor: var(--cursor-cross-hover);
-    font-size: var(--ts-md);
-  }
-  .empty {
-    color: var(--c-tx-faint);
-    font-style: italic;
-    font-size: var(--ts-sm);
-    line-height: 1.5;
-  }
   .list {
-    list-style: none;
     margin: 0;
     padding: 0;
-    display: flex;
-    flex-direction: column;
+    list-style: none;
   }
   .ref {
-    display: flex;
-    gap: var(--sp-2);
-    padding: var(--sp-2) 4px;
-    border-bottom: 1px solid var(--c-line);
-    border-radius: var(--r-1);
-    transition: background 600ms ease;
+    display: grid;
+    grid-template-columns: calc(24px * var(--ts-scale, 1)) minmax(0, 1fr);
+    align-items: start;
+    padding: calc(7px * var(--ts-scale, 1)) 9px calc(7px * var(--ts-scale, 1)) 6px;
+    cursor: default;
   }
+  .ref :global(.mk-dot) {
+    justify-self: center;
+    margin-top: calc(4px * var(--ts-scale, 1));
+  }
+  /* "Revealed from a citation's hover card": one flash of the pane's tint, then rest. */
   .ref.flash {
-    background: var(--c-accent-tint);
-    transition: none;
+    animation: bib-flash 1500ms ease-out 1;
   }
-  .dot {
-    flex: 0 0 auto;
-    margin-top: 4px;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    border: 1.5px solid var(--c-danger);
-    background: transparent;
-    cursor: var(--cursor-cross-hover);
-    padding: 0;
-  }
-  .ref.on .dot {
-    background: var(--c-danger);
+  @keyframes bib-flash {
+    0%,
+    35% {
+      background: var(--mk-tint-2);
+      box-shadow: inset 2px 0 0 var(--pane-c);
+    }
+    100% {
+      background: transparent;
+      box-shadow: inset 2px 0 0 transparent;
+    }
   }
   .body {
     min-width: 0;
   }
   .t {
-    display: block;
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
     width: 100%;
-    background: none;
-    border: none;
     padding: 0;
+    border: 0;
+    background: none;
+    color: var(--c-tx);
+    font: var(--ts-sm) / 1.3 var(--font-serif);
     text-align: left;
     cursor: var(--cursor-cross-hover);
-    font: inherit;
-    font-size: var(--ts-sm);
-    color: var(--c-tx);
-    line-height: 1.35;
+  }
+  .t:focus-visible {
+    outline: 2px solid var(--pane-c);
+    outline-offset: 2px;
+    border-radius: 2px;
   }
   .tw {
-    display: inline-block;
-    width: 0.9em;
-    color: var(--c-tx-faint);
-    font-size: var(--ts-xs);
-    transition: transform var(--dur-quick, 120ms) ease;
+    flex: 0 0 auto;
+    fill: none;
+    stroke: var(--c-tx-faint);
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 80ms linear;
   }
   .tw.open {
     transform: rotate(90deg);
+    stroke: var(--pane-c);
+  }
+  .t:hover .tw {
+    stroke: var(--pane-c);
+  }
+  .title {
+    min-width: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .t[aria-expanded="true"] .title {
+    -webkit-line-clamp: unset;
+    line-clamp: unset;
+  }
+  .ord {
+    color: var(--pane-c);
+    font-weight: 600;
+    margin-right: 3px;
   }
   .m {
-    font-size: var(--ts-xs);
+    margin: calc(2px * var(--ts-scale, 1)) 0 0 13px;
     color: var(--c-tx-muted);
-    margin-top: 2px;
+    font-size: var(--ts-xs);
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .detail {
-    display: flex;
-    flex-direction: column;
-    gap: var(--sp-2);
-    margin-top: var(--sp-2);
-    padding: var(--sp-2) 0 2px var(--sp-2);
-    border-left: 2px solid var(--c-line);
+    display: grid;
+    gap: 6px;
+    margin: 6px 0 2px 13px;
+    animation: bib-open var(--dur-fade) linear both;
+  }
+  @keyframes bib-open {
+    from {
+      opacity: 0;
+    }
   }
   .d-authors {
+    color: var(--c-tx-2);
     font-size: var(--ts-xs);
-    color: var(--c-tx-muted);
     line-height: 1.4;
-  }
-  .d-doi {
-    background: none;
-    border: none;
-    padding: 0;
-    min-width: 0;
-    max-width: 100%;
-    overflow-wrap: anywhere;
-    text-align: left;
-    color: var(--c-accent-bright);
-    font-family: var(--font-mono);
-    font-size: var(--ts-xs);
-    cursor: var(--cursor-cross-hover);
-    text-decoration: underline;
   }
   .d-actions {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     flex-wrap: wrap;
-    gap: 3px var(--sp-2);
-  }
-  .d-pill {
-    font: inherit;
-    font-size: var(--ts-xs);
-    line-height: 1.5;
-    padding: 1px 10px;
-    border: 1px solid var(--c-line-strong);
-    border-radius: var(--r-pill);
-    background: var(--c-surface);
-    color: var(--c-tx-2);
-    cursor: var(--cursor-cross-hover);
-  }
-  .d-pill:hover {
-    border-color: var(--c-accent);
-    color: var(--c-tx-hi);
+    gap: 6px;
   }
   .d-key {
     margin-left: auto;
-    min-width: 0;
-    max-width: 100%;
-    overflow-wrap: anywhere;
-    color: var(--c-tx-faint);
-    font-family: var(--font-mono);
-    font-size: var(--ts-xs);
+    padding: 1px 5px;
+    border-radius: var(--r-ui);
+    background: var(--c-surface);
+    color: var(--c-tx-muted);
+    font: calc(10.5px * var(--ts-scale, 1)) var(--font-mono);
+    user-select: all;
   }
 </style>

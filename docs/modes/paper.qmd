@@ -208,9 +208,11 @@ doi.org link) straight into the text — Flux fetches the metadata, adds the ref
 leaves a citation chip where you pasted.
 
 **Double-click a citation chip** to edit its group — add, remove, and reorder the references
-cited at that spot as one unit. **Alt+R** opens Reference Search in the margin (mark rows with
-**Space**, insert them as one citation with **Enter**); **Alt+C** edits the citation under the
-caret.
+cited at that spot as one unit. **Alt+R** opens Reference Search in the margin: type to
+filter, **↓** into the list, and **Enter** cites the row you are on. To cite several papers
+as one group, mark each with **Space** (they are numbered in the order you mark them) and
+press **Enter** to insert them together. The red dot on a row cites or un-cites that paper
+directly. **Alt+C** edits the citation under the caret.
 
 **Reference style for Word exports.** In **Export…** (**Alt+E**), with the Flux house style,
 the **References** menu picks the citation style the Word export uses: Nature, Science or Cell,
@@ -327,7 +329,9 @@ rendered block below, numbered when labeled.
 
 # The margin
 
-Helper panes summon beside your text and stack in one column:
+Helper panes summon beside your text and stack in one column. Each is a card with its name
+set into its outline at the top-left and a close button at the top-right; when several are
+open, the one you are working in has the stronger outline.
 
 | Shortcut | Pane |
 |---|---|
@@ -338,9 +342,20 @@ Helper panes summon beside your text and stack in one column:
 | **Alt+J** | Journal Check — the selected journal's rulebook, as advice |
 | **Alt+K** | Manuscript Check — broken references, figure order, placeholders, abbreviations, open comments |
 
+Two more panes open from **Ctrl+K** (and from the places that lead to them): **References**,
+the papers this project cites, with the author–year / numbered switch (also reached from a
+citation's hover card), and **Statistics**, the word count for your journal with a ledger of
+the smaller counts and a bar for each section (also reached from the status bar's word
+count). With a [word target](#word-counts) set, Statistics also shows how far you are from
+it.
+
+In the two check panes every finding is a way to its place in the manuscript: click it and
+the editor selects the words it is about. Manuscript Check groups its findings; click a
+group's heading to fold it away.
+
 **Alt+P** closes the active pane, and **Escape** always returns focus to your writing.
-**Ctrl+Shift+B** hides the margin column entirely; the outline rail's edge
-drags to resize. (When idle, the margin shows an ambient background — pick your scene in
+**Ctrl+Shift+B** hides the margin column entirely; drag the margin's left edge to resize it.
+(When idle, the margin shows an ambient background — pick your scene in
 Settings › Paper.)
 
 # Two manuscripts side by side

@@ -1,5 +1,5 @@
-// Dynamic-margin pane gate — the summonable frosted-glass pane stack
-// (src/shell/modes/paper/margin/marginPanes.ts + MarginPaneFrame.svelte).
+// Dynamic-margin pane gate — the summonable pane stack: paper cards whose title sits in a real
+// break in the outline (src/shell/modes/paper/margin/marginPanes.ts + MarginPaneFrame.svelte).
 // Verifies the owner's contract: at rest the margin shows NOTHING but the
 // outline + dynamic background; Alt+R/J/A/F summon panes (open-or-FOCUS if
 // already open); panes stack in one column splitting the height equally;
@@ -128,6 +128,40 @@ const notch = await (async () => {
 })();
 const notchOk = notch.length === 3 && notch.every((r) => r.coverage < 0.6);
 
+// --- the card chrome (2026-11-18 rebuild): the title on ONE surface, the close in its own break ---
+// The title used to straddle a frosted grey card and the cream margin. Now the card is opaque
+// paper, the title carries a plate of the same paper, and nothing blurs the animated background.
+const chrome = await page.evaluate(() =>
+  [...document.querySelectorAll(".dynmargin [data-pane-id]")].map((el) => {
+    const cs = getComputedStyle(el), legend = el.querySelector(".legend"), x = el.querySelector(".x"), body = el.querySelector(".body");
+    const l = legend.getBoundingClientRect(), xr = x.getBoundingClientRect(), p = el.getBoundingClientRect(), b = body.getBoundingClientRect();
+    const prev = el.previousElementSibling?.getBoundingClientRect();
+    return {
+      id: el.getAttribute("data-pane-id"),
+      card: cs.backgroundColor,
+      plate: getComputedStyle(legend).backgroundColor,
+      closePlate: getComputedStyle(x).backgroundColor,
+      blur: cs.backdropFilter,
+      straddles: l.top < p.top && l.bottom > p.top && xr.top < p.top && xr.bottom > p.top,
+      apart: l.right + 8 <= xr.left,
+      clearOfBody: l.bottom <= b.top + 0.5,
+      clearOfPrevious: !prev || l.top >= prev.bottom + 1,
+      titleInk: getComputedStyle(legend).color,
+      edge: getComputedStyle(el.querySelector(".rule")).borderTopColor,
+    };
+  }),
+);
+const PAPER = "rgb(255, 252, 240)";
+const chromeOk =
+  chrome.length === 3 &&
+  chrome.every(
+    (c) =>
+      c.card === PAPER && c.plate === PAPER && c.closePlate === PAPER && (!c.blur || c.blur === "none") &&
+      c.straddles && c.apart && c.clearOfBody && c.clearOfPrevious &&
+      // every pane has a real ink: an undefined colour token computed to black and no outline (Manuscript Check, until 2026-11-18)
+      c.titleInk !== "rgb(16, 15, 15)" && c.edge !== "rgba(0, 0, 0, 0)",
+  );
+
 // --- eviction past the max (default 4): oldest goes --------------------------------
 // Stack is [journal-check, comments, figure]; + stats = 4; + bibliography evicts journal-check.
 await page.evaluate(() => window.__fluxMargin.summon("stats"));
@@ -234,11 +268,46 @@ await sleep(600);
 const sm3 = await panesState();
 const debounceOk = sm3.ids.join() === "reference-search";
 
+// --- every registered pane has a real ink, and Reference Search windows the library ------------
+await page.evaluate(() => window.__fluxMargin.closeAll());
+const inks = [];
+for (const id of ["reference-search", "comments", "figure", "journal-check", "manuscript-check", "bibliography", "citation-group", "stats"]) {
+  await page.evaluate((id) => { window.__fluxMargin.closeAll(); window.__fluxMargin.summon(id); }, id);
+  await sleep(260);
+  inks.push(await page.evaluate((id) => {
+    const el = document.querySelector(`.dynmargin [data-pane-id="${id}"]`);
+    return el ? { id, ink: getComputedStyle(el.querySelector(".legend")).color, edge: getComputedStyle(el.querySelector(".rule")).borderTopColor } : { id, ink: "", edge: "" };
+  }, id));
+}
+const inkOk = inks.every((p) => p.ink && p.ink !== "rgb(16, 15, 15)" && p.edge && p.edge !== "rgba(0, 0, 0, 0)") && new Set(inks.map((p) => p.ink)).size === inks.length;
+// A library far larger than the pane: only a window of rows may exist, on one pitch, and the
+// keyboard still reaches the last entry.
+await page.evaluate(() => {
+  const kept = window.__fluxBib.entries();
+  window.__fluxSeedBib([...kept, ...Array.from({ length: 3000 }, (_, i) => ({ key: `bulk${i}`, type: "article", title: `Bulk title ${i}`, authors: [`Author${i}`, "Second"], container: "Journal of Rows", year: String(1990 + (i % 30)) }))]);
+});
+await page.evaluate(() => { window.__fluxMargin.closeAll(); window.__fluxMargin.summon("reference-search"); });
+await sleep(500);
+const refList = await page.evaluate(async () => {
+  const list = document.querySelector('[data-pane-id="reference-search"] .rs-list'), rows = () => [...list.querySelectorAll(".rs-row")];
+  const total = Number(document.querySelector('[data-pane-id="reference-search"] .count').textContent.replace(/\D/g, ""));
+  const first = rows(), tops = first.slice(0, 4).map((r) => r.getBoundingClientRect().top), pitch = tops[1] - tops[0];
+  const fits = first.slice(0, 4).every((r) => [...r.querySelectorAll(".who, .rs-title")].every((e) => e.getBoundingClientRect().width > 20));
+  list.focus();
+  list.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const last = rows().find((r) => r.classList.contains("hl"));
+  const lr = last?.getBoundingClientRect(), box = list.getBoundingClientRect();
+  return { total, mounted: first.length, pitch, even: tops.every((t, i) => !i || Math.abs(t - tops[i - 1] - pitch) < 0.5), fits, endVisible: !!lr && lr.top >= box.top - 1 && lr.bottom <= box.bottom + 1, after: rows().length };
+});
+const refListOk = refList.total >= 3000 && refList.mounted < 80 && refList.after < 80 && refList.pitch >= 30 && refList.even && refList.fits && refList.endVisible;
+await page.evaluate(() => window.__fluxMargin.closeAll());
+
 const errs = realErrors(page);
 await browser.close();
 
-const res = { restOk, summonOk, splitOk, fourOk, editorStableOk, refocusOk, closeActiveOk, notchOk, evictOk, clearOk, escOk, zoomOk, panOk, zresetOk, toggleOk, maxOk, cleanOk, debounceOk };
-console.log(JSON.stringify({ panes: res, s4, s7, notch, errs }, null, 2));
+const res = { restOk, summonOk, splitOk, fourOk, editorStableOk, refocusOk, closeActiveOk, notchOk, chromeOk, evictOk, clearOk, escOk, zoomOk, panOk, zresetOk, toggleOk, maxOk, cleanOk, debounceOk, inkOk, refListOk };
+console.log(JSON.stringify({ panes: res, s4, s7, notch, chrome, inks, refList, errs }, null, 2));
 const ok = Object.values(res).every(Boolean) && errs.length === 0;
 if (!ok) {
   console.error("\nMARGIN PANES VERIFY: FAIL");

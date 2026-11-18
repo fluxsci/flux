@@ -117,178 +117,144 @@
   onMount(() => inputEl?.focus());
 </script>
 
-<div class="cgp">
-  <div class="head">
-    <span class="title">
-      {members.length ? `${members.length} ref${members.length === 1 ? "" : "s"} at cursor` : "New citation"}
-    </span>
-  </div>
-
+<div class="cgp mk-pane">
   <input
+    class="mk-input"
     bind:this={inputEl}
     bind:value={query}
     onkeydown={onKey}
-    placeholder="Search to add… (↑↓ move · ⌫ removes · Enter adds)"
+    placeholder={members.length ? "Search to add another…" : "Search for a reference to cite…"}
+    aria-label="Search references to add"
     spellcheck="false"
     autocomplete="off" />
 
-  <div class="list" bind:this={listEl}>
+  <div class="list mk-list" bind:this={listEl}>
+    <div class="zone mk-zone">
+      <span class="mk-eyebrow mk-grow">{members.length ? "In this citation" : "New citation"}</span>
+      {#if members.length}<span class="mk-num mk-meta">{members.length}</span>{/if}
+    </div>
     {#if members.length}
-      <div class="zone">In this citation</div>
       {#each members as key, i (key)}
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-        <div class="row member" class:hl={i === hl} data-i={i} onclick={() => (hl = i)}>
+        <div class="row member mk-item on" class:hl={i === hl} data-i={i} onclick={() => (hl = i)}>
           {#if ordinal(key) !== undefined}
-            <span class="ord">[{ordinal(key)}]</span>
+            <span class="ord mk-num">[{ordinal(key)}]</span>
           {:else if $citationStyle === "numeric"}
-            <span class="ord unresolved">[?]</span>
+            <span class="ord unresolved mk-num">[?]</span>
+          {:else}
+            <span class="ord mk-num">{i + 1}</span>
           {/if}
-          <span class="who">{label(key)}</span>
-          <span class="what" title={title(key)}>{title(key)}</span>
-          <button class="rm" onclick={(e) => { e.stopPropagation(); removeMember(key); }} aria-label="Remove {key}">✕</button>
+          <div class="main">
+            <span class="who mk-clip">{label(key)}</span>
+            <span class="what mk-clip" title={title(key)}>{title(key)}</span>
+          </div>
+          <button class="rm" onclick={(e) => { e.stopPropagation(); removeMember(key); }} aria-label="Remove {key}" title="Remove from this citation">
+            <svg viewBox="0 0 10 10" width="8" height="8" aria-hidden="true"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7" /></svg>
+          </button>
         </div>
       {/each}
     {:else}
-      <div class="none">No citation at the cursor — search and press Enter to insert one.</div>
+      <p class="mk-empty">No citation at the cursor. Search, then press Enter to insert one.</p>
     {/if}
 
     {#if results.length}
-      <div class="zone">{query ? "Matches" : "Library"}</div>
+      <div class="zone mk-zone"><span class="mk-eyebrow">{query ? "Matches" : "Library"}</span></div>
       {#each results as r, i (r.key)}
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
         <div
-          class="row"
+          class="row mk-item"
           class:hl={members.length + i === hl}
           data-i={members.length + i}
           onclick={() => addResult(r.key)}>
-          <span class="add">+</span>
-          <span class="who">{label(r.key)}</span>
-          <span class="what" title={r.title}>{r.title}</span>
+          <span class="add" aria-hidden="true">+</span>
+          <div class="main">
+            <span class="who mk-clip">{label(r.key)}</span>
+            <span class="what mk-clip" title={r.title}>{r.title}</span>
+          </div>
         </div>
       {/each}
+    {:else if query}
+      <p class="mk-empty">Nothing in your library matches.</p>
     {/if}
   </div>
 
-  <div class="foot">
-    <span class="hint">Changes apply immediately · each is one undo step</span>
+  <div class="mk-foot">
+    <span class="mk-hint mk-grow"><kbd>↵</kbd>add<span class="sep">·</span><kbd>⌫</kbd>remove</span>
+    <span class="mk-hint live">applies as you go</span>
   </div>
 </div>
 
 <style>
-  .cgp {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    padding: var(--sp-3);
-    gap: var(--sp-2);
-  }
-  .head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .title {
-    font-size: var(--ts-xs);
-    color: var(--c-tx-muted);
-  }
-  input {
-    width: 100%;
-    box-sizing: border-box;
-    padding: 8px 11px;
-    border: 1px solid var(--c-accent);
-    border-radius: var(--r-1);
-    background: var(--c-bg);
-    color: var(--c-tx);
-    font-family: var(--font-mono);
-    font-size: var(--ts-sm);
-    outline: none;
-  }
-  .list {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow: auto;
-    border: 1px solid var(--c-line);
-    border-radius: var(--r-2);
-  }
-  .zone {
-    position: sticky;
-    top: 0;
-    padding: 4px 8px;
-    background: var(--c-surface);
-    color: var(--c-tx-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    font-size: 10px;
-  }
   .row {
-    display: flex;
-    align-items: baseline;
-    gap: 7px;
-    padding: 5px 8px;
-    border-bottom: 1px solid var(--c-line);
-    font-size: var(--ts-xs);
-    cursor: var(--cursor-cross-hover);
+    display: grid;
+    grid-template-columns: calc(24px * var(--ts-scale, 1)) minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 4px;
+    min-height: calc(42px * var(--ts-scale, 1));
+    padding: calc(5px * var(--ts-scale, 1)) 8px;
   }
-  .row.hl {
-    background: var(--c-accent-tint-2);
+  .main {
+    min-width: 0;
+    display: grid;
+    row-gap: calc(2px * var(--ts-scale, 1));
   }
-  .row.member {
-    background: var(--c-accent-tint);
-  }
-  .row.member.hl {
-    outline: 1.5px solid var(--c-accent);
-    outline-offset: -1.5px;
-  }
-  .ord {
-    font-variant-numeric: tabular-nums;
-    color: var(--c-accent-bright);
+  .ord,
+  .add {
+    justify-self: center;
+    color: var(--pane-c);
+    font-size: calc(10.5px * var(--ts-scale, 1));
     font-weight: 600;
-    flex: 0 0 auto;
   }
   .ord.unresolved {
     color: var(--c-tx-faint);
   }
   .add {
+    font-family: var(--font-mono);
+    font-size: var(--ts-sm);
+    font-weight: 400;
     color: var(--c-tx-faint);
-    flex: 0 0 auto;
+  }
+  .row:hover .add,
+  .row.hl .add {
+    color: var(--pane-c);
   }
   .who {
     color: var(--c-tx);
-    white-space: nowrap;
-    flex: 0 0 auto;
+    font-size: var(--ts-sm);
+    font-weight: 600;
+    line-height: 1.15;
   }
   .what {
-    color: var(--c-tx-muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    flex: 1 1 auto;
+    color: var(--c-tx-2);
+    font-size: var(--ts-xs);
+    line-height: 1.2;
   }
   .rm {
-    background: none;
-    border: none;
+    display: inline-grid;
+    place-items: center;
+    width: calc(20px * var(--ts-scale, 1));
+    height: calc(20px * var(--ts-scale, 1));
+    padding: 0;
+    border: 0;
+    border-radius: var(--r-1);
+    background: transparent;
     color: var(--c-tx-faint);
     cursor: var(--cursor-cross-hover);
-    font-size: 10px;
-    padding: 0 2px;
-    flex: 0 0 auto;
+    transition:
+      color 80ms linear,
+      background 80ms linear;
+  }
+  .rm svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+    stroke-linecap: round;
   }
   .rm:hover {
     color: var(--c-danger);
+    background: color-mix(in oklab, var(--c-danger) 12%, transparent);
   }
-  .none {
-    padding: var(--sp-4);
-    text-align: center;
-    color: var(--c-tx-faint);
+  .live {
     font-style: italic;
-    font-size: var(--ts-sm);
-  }
-  .foot {
-    display: flex;
-    justify-content: flex-end;
-  }
-  .hint {
-    font-size: var(--ts-xs);
-    color: var(--c-tx-faint);
   }
 </style>

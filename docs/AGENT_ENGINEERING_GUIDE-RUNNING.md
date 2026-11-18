@@ -1286,6 +1286,36 @@ Persistence invariants (all machine-checked — do not weaken):
   the browser process and the renderer would never see Ctrl+/−/0 (verify-w6-flush §4 pins
   it). Gates: `verify-paper-textscale.ts` (pure) + `verify-paper-textsize-gui.mjs` (ui,
   paper-gate), and `src/styles/tokens.css` maps to both.
+  **The dynamic margin's cards and their kit** (rebuilt 2026-11-18; owner: the title "looks SO
+  hideous", "ALL of these could be so much better"). `margin/MarginPaneFrame.svelte` is an
+  OPAQUE paper card (`--flx-paper`, the margin's own base colour) whose top edge is BUILT as a
+  flex row: corner cap · `.legend` · rule · close `.x` · corner cap, the caps and rule carrying
+  the border. The outline is therefore really absent behind the title (no measured notch
+  width, no mask, nothing to mispaint at the fractional y the equal flex split produces), and
+  the title and close each carry a plate of the same paper, so the title sits on ONE surface
+  (it straddled a frosted grey card and the cream margin). Their seat (`--seat`, scaled) is
+  centred on the line by a negative margin, never a transform (half-pixel text), and
+  `.edge` is tall enough that the title never reaches the content. No `backdrop-filter`: a
+  blur over the animated background canvas was recomputed for every pane on every frame.
+  The stack's gap and top padding are sized so a title never touches the card above it.
+  Everything INSIDE a card is built from `margin/marginKit.css` (global, scoped under
+  `.dynmargin`, classes `mk-…`): `mk-pane`, `mk-input`/`mk-select`/`mk-textarea`, `mk-btn`
+  (`primary`, `quiet`, `sm`, `icon`), `mk-seg`, `mk-list` + `mk-item` (`hl` = the keyboard's
+  row: tint + inset rail; `on` = chosen), `mk-zone` (sticky group heading), `mk-find` +
+  `mk-find-msg` + `mk-quote` (a finding with its severity rail), `mk-chip`, `mk-dot` (the
+  shared "cited" mark), `mk-eyebrow`, `mk-num`, `mk-hint`, `mk-foot`, `mk-empty`. A pane's ink
+  arrives as `--pane-c` and the kit derives every tint, ring and rail from it, so a control
+  wears the colour of the card it sits on. Sizes multiply through `--ts-scale`; a fixed row
+  pitch used in JS reads `clampScale($paperTextScale.scale.margin)` (Reference Search's
+  46 px rows). A pane colour must be a DEFINED token: `registry.ts` named
+  `--flx-green-600`, which does not exist, so Manuscript Check had a black title and no
+  outline until 2026-11-18 (`verify-margin-panes` now requires a distinct real ink per pane).
+  Reference Search is WINDOWED (an empty query is the whole library: 1,600+ rows used to
+  mount on every Alt+R) with two-line rows; Enter with nothing marked cites the row the
+  keyboard is on, but only after the user typed or moved (`engaged`). `.grid .grow` belongs
+  to Library mode's gates (unscoped `document.querySelectorAll`): never reuse those classes
+  in a margin pane. `verify-margin-panes.mjs` / `verify-margin-bg.mjs` are ui-extra and now
+  ride the pathMap rule for `margin/**`.
   **Local corrections** live in `editing/localCorrections.ts`, using Harper slim WASM
   in lazy module workers. An abbreviation-aware segmenter schedules completed-word and
   completed-sentence mechanical checks; exact current source and protected Markdown are

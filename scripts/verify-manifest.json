@@ -3145,7 +3145,10 @@
         "group:slide-ghosts",
         "group:inline-slides",
         "group:slide-stash",
-        "verify-journal-export-gui.mjs"
+        "verify-journal-export-gui.mjs",
+        "verify-margin-panes.mjs",
+        "verify-margin-bg.mjs",
+        "verify-paper-export.mjs"
       ]
     },
     {

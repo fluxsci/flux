@@ -2,10 +2,11 @@
   // The Dynamic Margin — an outlined rounded box (same card recipe as the left
   // outline) holding, at rest, NOTHING but the always-running dynamic
   // background: something to stare into while you think. Dynamic panes are
-  // summoned into it (Alt+R/T/A/F, ⌘K) as frosted-glass cards stacked in one
-  // column, splitting the height equally. Pane state lives in marginPanes.ts;
-  // this component renders the stack, routes focus, and keeps the feel
-  // contract: every close hands focus back to the editor.
+  // summoned into it (Alt+R/F/A/C/J/K, ⌘K) as paper cards stacked in one
+  // column, splitting the height equally; the art shows around and between
+  // them. Pane state lives in marginPanes.ts; this component renders the
+  // stack, routes focus, and keeps the feel contract: every close hands focus
+  // back to the editor. Everything inside a card is built from marginKit.css.
   import { tick } from "svelte";
   import { get } from "svelte/store";
   import { fadeRise } from "../../../../lib/motion/actions";
@@ -16,6 +17,7 @@
   import MarginPaneFrame from "./MarginPaneFrame.svelte";
   import { bgSeed, rerollBgSeed } from "./bgSources";
   import type { MarginPaneStack } from "./marginPanes";
+  import "./marginKit.css";
 
   // Dual-paper (2026-08-11): the pane stack arrives as a per-PaperMode instance
   // (panes prop) instead of module imports — two margins keep separate stacks.
@@ -47,8 +49,8 @@
 
   // Focus routing: a summon (fresh open or focus-if-open) bumps paneFocusReq;
   // we focus the pane's natural target after it has rendered. Requests that
-  // predate this mount are stale — Alt+D reopening the margin must NOT replay
-  // the last summon and steal focus from the editor.
+  // predate this mount are stale — reopening the margin (Ctrl+Shift+B) must NOT
+  // replay the last summon and steal focus from the editor.
   let lastFocusN = get(paneFocusReq).n;
   $effect(() => {
     const req = $paneFocusReq;
@@ -115,8 +117,8 @@
   in:fadeRise={{ y: 8 }}
   onkeydown={(e) => {
     // One consistent exit from anywhere in the margin: Escape → editor.
-    // Inputs own their Escape (clear-query-first, close → focusEditor, xterm)
-    // — don't race them; everything else gets the escape hatch.
+    // Inputs own their Escape (clear-query-first, close → focusEditor) —
+    // don't race them; everything else gets the escape hatch.
     const t = e.target as Element | null;
     if (e.key === "Escape" && !t?.matches?.("input, textarea, [contenteditable]")) {
       e.preventDefault();
@@ -157,8 +159,10 @@
     inset: 0;
     display: flex;
     flex-direction: column;
-    gap: var(--sp-2);
-    padding: var(--sp-3) var(--sp-2) var(--sp-2);
+    /* A card's title rises half its height above the card's top edge: the gap between cards
+       and the room above the first one are sized so it never touches the card before it. */
+    gap: calc(8px + 10px * var(--ts-scale, 1));
+    padding: calc(4px + 10px * var(--ts-scale, 1)) var(--sp-2) var(--sp-2);
     /* gaps stay transparent to the canvas below */
     pointer-events: none;
   }

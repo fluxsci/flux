@@ -118,6 +118,16 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 
 ### Paper
 
+- **The margin's panes are rebuilt.** Each is a clean paper card with its name set into a real
+  break in its outline (it no longer sits half on the card and half on the margin) and a close
+  button in the outline on the right. Inside, all eight panes share one set of fields, buttons,
+  lists and key hints. Reference Search shows each paper on two readable lines (authors, journal
+  and year, then the full title) instead of four truncated columns, opens instantly on any size
+  of library, and **Enter** cites the row you are on (mark several with **Space** to cite them
+  as one group). Statistics is a ledger with a bar per section. Manuscript Check folds its
+  groups. Figures no longer shows broken-picture boxes while a figure is being drawn.
+- Manuscript Check's pane has its green title and outline (it was drawn in black with no
+  outline).
 - Journal submission export for **Nature, Science, Cell and bioRxiv**: Word and PDF, venue rules
   (title page, citations, reference lists, section order, legends, line numbers, page setup), a
   venue-aware Journal Check, stages in the export dialog and an export summary. The export assets

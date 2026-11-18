@@ -94,6 +94,9 @@
   // idle tick would put the pane's own paint on the main thread.
   const PAGE = 50;
   let expanded = $state<Partial<Record<CheckPackId, boolean>>>({});
+  // A pack folds away under its heading (a long Abbreviations list should not bury the two
+  // errors below it). View state only; a folded pack still counts in the summary.
+  let folded = $state<Partial<Record<CheckPackId, boolean>>>({});
 
   const groups = $derived.by(() => {
     const by = new Map<CheckPackId, CheckFinding[]>();
@@ -105,14 +108,16 @@
     return CHECK_PACKS.filter((p) => by.has(p)).map((p) => ({ pack: p, findings: by.get(p)! }));
   });
 
+  // The summary reads "3 errors · 4 warnings" (one phrase per severity present), each in the
+  // colour its findings carry.
   const summary = $derived.by(() => {
-    if (!result) return "";
+    if (!result) return [] as { sev: string; text: string }[];
     const { error, warn, info } = result.counts;
-    const parts: string[] = [];
-    if (error) parts.push(`${error} error${error === 1 ? "" : "s"}`);
-    if (warn) parts.push(`${warn} warning${warn === 1 ? "" : "s"}`);
-    if (info) parts.push(`${info} note${info === 1 ? "" : "s"}`);
-    return parts.join(" · ");
+    const parts: { sev: string; text: string }[] = [];
+    if (error) parts.push({ sev: "error", text: `${error} error${error === 1 ? "" : "s"}` });
+    if (warn) parts.push({ sev: "warn", text: `${warn} warning${warn === 1 ? "" : "s"}` });
+    if (info) parts.push({ sev: "info", text: `${info} note${info === 1 ? "" : "s"}` });
+    return parts;
   });
 
   function jump(f: CheckFinding): void {
@@ -147,167 +152,159 @@
   }
 </script>
 
-<div class="mc">
-  <div class="mc-head">
-    <p class="mc-summary" aria-live="polite">
-      {#if !result}Checking…{:else if !result.findings.length}Nothing to fix in this document.{:else}{summary}{/if}
+<div class="mc mk-pane">
+  <div class="mc-head mk-row-flex">
+    <p class="mc-summary mk-grow" aria-live="polite">
+      {#if !result}Checking…{:else if !result.findings.length}Nothing to fix in this document.{:else}{#each summary as part, i (part.sev)}{#if i}{" · "}{/if}<span class="sev-{part.sev}">{part.text}</span>{/each}{/if}
     </p>
-    <button class="mc-now" onclick={checkNow} disabled={checking} title="Check the document now">Check now</button>
+    <button class="mc-now mk-btn sm" onclick={checkNow} disabled={checking} title="Check the document now">{checking ? "Checking…" : "Check now"}</button>
   </div>
   {#if notice}<p class="mc-notice">{notice}</p>{/if}
 
-  {#each groups as g (g.pack)}
-    <section class="mc-pack" data-pack={g.pack}>
-      <h4 class="mc-pack-title">{PACK_TITLES[g.pack]} <span class="mc-n">{g.findings.length}</span></h4>
-      <ul class="mc-list">
-        {#each expanded[g.pack] ? g.findings : g.findings.slice(0, PAGE) as f, i (f.ruleId + ":" + (f.from ?? -1) + ":" + i)}
-          <li class="mc-item sev-{f.severity}" data-rule={f.ruleId}>
-            <button class="mc-msg" disabled={f.from == null} onclick={() => jump(f)}>
-              {#if f.excerpt}<span class="mc-excerpt">{f.excerpt}</span>{/if}
-              <span>{f.message}</span>
+  <div class="mc-packs mk-list">
+    {#each groups as g (g.pack)}
+      {@const shut = !!folded[g.pack]}
+      <section class="mc-pack" data-pack={g.pack}>
+        <h4 class="mc-pack-title mk-zone">
+          <button class="mc-fold" aria-expanded={!shut} onclick={() => (folded = { ...folded, [g.pack]: !shut })}>
+            <svg class="tw" class:open={!shut} viewBox="0 0 8 8" width="8" height="8" aria-hidden="true"><path d="M2.5 1.2L5.8 4 2.5 6.8" /></svg>
+            <span class="mk-eyebrow">{PACK_TITLES[g.pack]}</span>
+          </button>
+          <span class="mc-n mk-num">{g.findings.length}</span>
+        </h4>
+        {#if !shut}
+          <ul class="mc-list">
+            {#each expanded[g.pack] ? g.findings : g.findings.slice(0, PAGE) as f, i (f.ruleId + ":" + (f.from ?? -1) + ":" + i)}
+              <li class="mc-item mk-find sev-{f.severity}" data-rule={f.ruleId}>
+                <button class="mc-msg mk-find-msg" disabled={f.from == null} onclick={() => jump(f)} title={f.from == null ? undefined : "Go to this place in the manuscript"}>
+                  {#if f.excerpt}<span class="mc-excerpt mk-quote">{f.excerpt}</span>{/if}
+                  <span>{f.message}</span>
+                </button>
+                {#if f.fix || f.ruleId === "comments.open"}
+                  <div class="mc-actions">
+                    {#if f.fix}
+                      <button class="mc-fix mk-btn sm" onclick={() => applyFix(f)} title="Apply this exact edit (Ctrl+Z undoes it)">{f.fix.label}</button>
+                    {/if}
+                    {#if f.ruleId === "comments.open"}
+                      <button class="mc-fix mk-btn sm" onclick={() => margin.summon("comments")}>Open Comments</button>
+                    {/if}
+                  </div>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+          {#if g.findings.length > PAGE && !expanded[g.pack]}
+            <button class="mc-more" onclick={() => (expanded = { ...expanded, [g.pack]: true })}>
+              Show {g.findings.length - PAGE} more
             </button>
-            {#if f.fix}
-              <button class="mc-fix" onclick={() => applyFix(f)} title="Apply this exact edit (Ctrl+Z undoes it)">{f.fix.label}</button>
-            {/if}
-            {#if f.ruleId === "comments.open"}
-              <button class="mc-fix" onclick={() => margin.summon("comments")}>Open Comments</button>
-            {/if}
-          </li>
-        {/each}
-      </ul>
-      {#if g.findings.length > PAGE && !expanded[g.pack]}
-        <button class="mc-more" onclick={() => (expanded = { ...expanded, [g.pack]: true })}>
-          Show {g.findings.length - PAGE} more
-        </button>
-      {/if}
-    </section>
-  {/each}
+          {/if}
+        {/if}
+      </section>
+    {/each}
+  </div>
 
-  <button class="mc-link" onclick={() => margin.summon("journal-check")}>Venue rules: Journal Check (Alt+J)</button>
+  <button class="mc-link mk-btn sm quiet" onclick={() => margin.summon("journal-check")}>Venue rules: Journal Check<kbd>Alt J</kbd></button>
 </div>
 
 <style>
-  .mc {
-    display: flex;
-    flex-direction: column;
-    gap: var(--sp-2);
-    height: 100%;
-    overflow: auto;
-    font-size: var(--ts-sm);
-  }
   .mc-head {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
+    flex: 0 0 auto;
   }
-  .mc-summary,
-  .mc-notice {
-    flex: 1 1 auto;
+  .mc-summary {
     margin: 0;
-    color: var(--c-tx-2);
+    font-size: var(--ts-sm);
+    color: var(--c-tx);
+  }
+  .mc-summary .sev-error {
+    color: var(--c-danger);
+    font-weight: 600;
+  }
+  .mc-summary .sev-warn {
+    color: var(--c-warning);
+    font-weight: 600;
   }
   .mc-notice {
-    color: var(--c-accent-bright);
-  }
-  .mc-now,
-  .mc-fix,
-  .mc-link {
-    flex: none;
-    padding: 1px 8px;
-    border: 1px solid var(--c-line);
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 5px 9px;
     border-radius: var(--r-1);
-    background: var(--c-surface);
+    background: var(--mk-tint);
     color: var(--c-tx-2);
-    font: inherit;
-    font-size: var(--ts-sm);
-    cursor: var(--cursor-cross-hover);
+    font-size: var(--ts-xs);
   }
-  .mc-now:hover:not(:disabled),
-  .mc-fix:hover,
-  .mc-link:hover {
-    color: var(--c-tx-hi);
-    border-color: var(--c-line-strong);
-  }
-  .mc-now:disabled {
-    cursor: var(--cursor-cross);
-    opacity: 0.6;
-  }
-  .mc-more {
-    margin-top: 4px;
-    padding: 0;
-    border: none;
-    background: none;
-    color: var(--c-tx-2);
-    font: inherit;
-    font-size: var(--ts-sm);
-    text-decoration: underline;
-    cursor: var(--cursor-cross-hover);
-  }
-  .mc-more:hover {
-    color: var(--c-tx-hi);
-  }
-  .mc-link {
-    align-self: flex-start;
-    margin-top: var(--sp-1);
-    border-style: dashed;
+  .mc-packs:empty {
+    display: none;
   }
   .mc-pack-title {
-    margin: var(--sp-1) 0 2px;
-    font-size: var(--ts-sm);
-    font-weight: 600;
-    color: var(--c-tx-hi);
-  }
-  .mc-n {
-    font-weight: 400;
-    color: var(--c-tx-2);
-    font-variant-numeric: tabular-nums;
-  }
-  .mc-list {
-    list-style: none;
     margin: 0;
-    padding: 0;
+    padding: 0 10px 0 4px;
+  }
+  .mc-fold {
+    flex: 1 1 auto;
     display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .mc-item {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    gap: 2px var(--sp-2);
-    border-left: 2px solid var(--c-line-strong);
-    padding-left: var(--sp-2);
-  }
-  .mc-item.sev-error {
-    border-left-color: var(--c-danger);
-  }
-  .mc-item.sev-warn {
-    border-left-color: var(--flx-yellow-600);
-  }
-  .mc-msg {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    flex: 1 1 12em;
+    align-items: center;
+    gap: 6px;
     min-width: 0;
-    text-align: left;
+    height: 100%;
+    padding: 0 0 0 4px;
+    border: 0;
     background: none;
-    border: none;
-    padding: 2px 0;
-    color: var(--c-tx-2);
-    font: inherit;
-    font-size: var(--ts-sm);
+    text-align: left;
     cursor: var(--cursor-cross-hover);
   }
-  .mc-msg:disabled {
-    cursor: var(--cursor-cross);
+  .mc-fold:focus-visible {
+    outline: 2px solid var(--pane-c);
+    outline-offset: -2px;
   }
-  .mc-msg:hover:not(:disabled) {
-    color: var(--c-tx-hi);
+  .tw {
+    flex: 0 0 auto;
+    fill: none;
+    stroke: var(--c-tx-faint);
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 80ms linear;
   }
-  .mc-excerpt {
-    font-family: var(--font-mono, monospace);
-    color: var(--c-tx-hi);
-    overflow-wrap: anywhere;
+  .tw.open {
+    transform: rotate(90deg);
+  }
+  .mc-fold:hover .tw {
+    stroke: var(--pane-c);
+  }
+  .mc-fold:hover :global(.mk-eyebrow) {
+    color: var(--c-tx);
+  }
+  .mc-n {
+    color: var(--c-tx-muted);
+    font-size: calc(10.5px * var(--ts-scale, 1));
+  }
+  .mc-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .mc-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .mc-more {
+    display: block;
+    width: 100%;
+    height: calc(28px * var(--ts-scale, 1));
+    border: 0;
+    border-bottom: 1px solid var(--c-line);
+    background: none;
+    color: var(--pane-c);
+    font: var(--ts-xs) var(--font-serif);
+    cursor: var(--cursor-cross-hover);
+    transition: background 80ms linear;
+  }
+  .mc-more:hover {
+    background: var(--mk-tint);
+  }
+  .mc-link {
+    flex: 0 0 auto;
+    align-self: flex-start;
   }
 </style>
