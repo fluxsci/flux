@@ -77,6 +77,7 @@
   import { EXPORT_PROFILE, journalAssetPlan, journalProfileYaml } from "../../../lib/style/journalAssets";
   import { NATURE_ROLE_ALIASES } from "../../../lib/manuscript/sections";
   import ExportSummaryPanel from "./ExportSummaryPanel.svelte";
+  import ExportReceipt, { type ExportRun } from "./ExportReceipt.svelte";
   import ExportDialog, {
     type ExportFormat,
     type ExportPlan,
@@ -780,15 +781,58 @@
   let previewActive = $state(false);
   let exportOpen = $state(false);
   let exportBusy = $state(false);
-  let exportDone = $state(false);
+  // The receipt (ExportReceipt.svelte): the one account of an export, from the press of Export
+  // to the file on disk or the reason there is none. exportBusy stays the "an export is
+  // running" flag the status bar and the re-entry guard read.
+  let exportRun = $state<ExportRun | null>(null);
+  let exportRunSerial = 0;
+  const QUARTO_STEPS = ["Saving", "Preparing", "Rendering", "Finishing"] as const;
+  const INAPP_STEPS = ["Saving", "Composing", "Writing"] as const;
+  function beginRun(plan: ExportPlan) {
+    exportRun = {
+      id: ++exportRunSerial,
+      label: EXPORT_FORMATS.find((f) => f.id === plan.format)?.label ?? plan.format.toUpperCase(),
+      file: plan.outPath.replace(/^.*[\\/]/, "") || `manuscript.${plan.format}`,
+      outPath: plan.outPath,
+      state: "running",
+      steps: viaQuarto(plan) ? QUARTO_STEPS : INAPP_STEPS,
+      step: 0,
+      log: "",
+      startedAt: Date.now(),
+      cancellable: true,
+      warnings: [],
+    };
+  }
+  function stageRun(step: number, log = "") {
+    if (exportRun?.state !== "running") return;
+    exportRun.step = step;
+    exportRun.log = log;
+  }
+  /** End the run: the receipt becomes the result and the status bar's Export comes back. */
+  function endRun(state: "done" | "cancelled", note = "") {
+    exportBusy = false;
+    if (!exportRun) return;
+    exportRun.state = state;
+    exportRun.endedAt = Date.now();
+    exportRun.cancellable = false;
+    exportRun.cancelling = false;
+    if (note) exportRun.note = note;
+  }
+  function failRun(title: string, detail = "") {
+    exportBusy = false;
+    if (!exportRun) { pushToast("error", title, detail ? { detail } : {}); return; }
+    exportRun.state = "failed";
+    exportRun.endedAt = Date.now();
+    exportRun.cancellable = false;
+    exportRun.cancelling = false;
+    exportRun.error = { title, ...(detail ? { detail } : {}) };
+  }
   let quartoAvail = $state(false);
   // Installing Quarto from "Set up Flux…" unblocks Word export without reopening Paper.
   $effect(() => quartoReady.subscribe((ready) => { if (ready) quartoAvail = true; }));
   // Live render progress (Quarto streams its log through quarto:log).
   let exportToken = $state("");
-  let exportLogTail = $state("");
   let exportCancelled = $state(false);
-  let exportCancellable = $state(false);
   let exportAbort: AbortController | undefined;
 
   const EXPORT_FORMATS: readonly ExportFormat[] = [
@@ -1170,11 +1214,10 @@
     }
     const temporaryOutput = `${plan.outPath}.pending-${crypto.randomUUID()}.${plan.format}`;
     exportBusy = true;
-    exportLogTail = "";
     exportCancelled = false;
-    exportCancellable = true;
     exportAbort = new AbortController();
-    exportLogTail = "Preparing slides and document assets…";
+    beginRun(plan);
+    const formatName = exportRun!.label;
     try {
       await withIpcLock("project", "export", async lease => {
       if (job.root) {
@@ -1185,7 +1228,8 @@
       }
       if (viaQuarto(plan)) {
         if (!job.root || !fb.quartoRender) {
-          exportBusy = false;
+          // This used to return in silence: Export pressed, nothing happened, nothing said.
+          failRun(`${formatName} export needs a saved project`, "Open or create a project (and use the desktop app): this export is rendered from the files on disk.");
           return;
         }
         // Quarto reads DISK — flush the debounced autosave first or it renders stale text.
@@ -1193,10 +1237,7 @@
           await autosave.flush();
         } catch (e) {
           if (e instanceof ConflictError) {
-            exportBusy = false;
-            pushToast("error", "Word export blocked", {
-              detail: "the document changed on disk — resolve the Reload / Keep-mine banner first",
-            });
+            failRun(`${formatName} export blocked`, "The document changed on disk. Resolve the Reload / Keep-mine banner first, then export again.");
             return;
           }
           throw e;
@@ -1211,6 +1252,7 @@
           : "";
         const profileName = `flux-${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`;
         const bibName = `${profileName}.bib`;
+        stageRun(1, "Figures, slides and references…");
         const prepared = await transformDocsForQuarto(fb, style, !!plan.zoteroFields && plan.format === "docx", job.path, job.slides, lease.assertOwned, job.root, job.snapshot, job.live, { originalPath: `${job.root}/${job.bibliographyPath}`, replacement: bibName }, style.manuscript ? { stage: plan.stage ?? "initial", bibText: job.bibText, format: plan.format } : undefined);
         const restoreDocs = prepared.restore;
         const token = `x${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
@@ -1218,7 +1260,7 @@
         const stopLog = fb.onQuartoLog?.((info) => {
           if (info.token && info.token !== token) return;
           const line = info.chunk.trim().split("\n").filter(Boolean).pop();
-          if (line) exportLogTail = line.slice(0, 120);
+          if (line && exportRun?.state === "running") exportRun.log = line.slice(0, 160);
         });
         let r;
         try {
@@ -1236,6 +1278,7 @@
             await publishExportResource(resourceIO, job.root, token, `${manuscriptDir ? manuscriptDir + "/" : ""}${bibName}`, job.bibText);
             await publishExportResource(resourceIO, job.root, token, `${manuscriptDir ? manuscriptDir + "/" : ""}_quarto-${profileName}.yml`, (style.id === "flux" ? "# Captured export bibliography\n" : journalProfileYaml(style, { manuscriptDir })) + `bibliography: ${JSON.stringify(bibName)}\n`);
           }
+          stageRun(2, "Starting Quarto…");
           r = await fb.quartoRender(job.root, plan.format, job.path, {
             outPath: temporaryOutput,
             token,
@@ -1251,21 +1294,22 @@
           exportToken = "";
           await restoreDocs();
         }
-        exportBusy = false;
         if (r?.cancelled) {
-          pushToast("info", "Export cancelled");
+          endRun("cancelled");
           return;
         }
         if (!r?.ok) {
           const { diagnoseQuartoFailure } = await import("../../../lib/style/journalAssets");
           const log = (r?.log || "quarto did not run").trimEnd();
           const hint = diagnoseQuartoFailure(log);
-          pushToast("error", `${plan.format === "pdf" ? "PDF" : "Word"} export failed`, {
-            detail: (hint ? `${hint}\n\n` : "") + log.split("\n").slice(-14).join("\n"),
-          });
+          failRun(`${formatName} export failed`, (hint ? `${hint}\n\n` : "") + log.split("\n").slice(-14).join("\n"));
           return;
         }
         if (!r.outPath) throw new Error("Quarto did not produce an artifact");
+        // The render is done but the file is not: Word figures are still being rasterized and
+        // the bytes written. (The progress used to vanish here, with seconds of work to go.)
+        stageRun(3, plan.format === "docx" ? "Figures and citations in the Word file…" : "Writing the file…");
+        if (exportRun) exportRun.cancellable = false;
         let outBytes: Uint8Array = new Uint8Array(await fb.readFile(r.outPath));
         let zoteroNote = "";
         if (plan.format === "docx") {
@@ -1280,7 +1324,7 @@
           });
           outBytes = processed.bytes;
           zoteroNote = processed.zotero ? ` — ${processed.zotero.citations} live citations` : "";
-          for (const warning of processed.warnings) pushToast("info", warning);
+          for (const warning of processed.warnings) exportRun?.warnings.push(warning);
         } else if (new TextDecoder().decode(outBytes.slice(0, 5)) !== "%PDF-") throw new Error("Invalid PDF output");
         exportAbort?.signal.throwIfAborted();
         await lease.assertOwned?.();
@@ -1292,14 +1336,10 @@
           try { await lease.assertOwned?.(); await fb.writeText(notesPath, summaryMarkdown(summary)); exportSummary = { summary, notesPath, outPath: plan.outPath }; }
           catch { exportSummary = { summary, outPath: plan.outPath }; }
         }
-        exportDone = true;
-        setTimeout(() => (exportDone = false), 2600);
-        const out = plan.outPath;
-        pushToast(
-          "success",
-          `Exported ${out ? out.replace(/^.*\//, "") : "manuscript.docx"}${zoteroNote}`,
-          out && fb.revealPath ? { action: { label: "Reveal", run: () => void fb.revealPath!(out) } } : {},
-        );
+        endRun("done", zoteroNote.replace(/^ — /, ""));
+        // A journal export opens its summary, which names the file and reveals it: one result,
+        // not a receipt beside a panel.
+        if (exportSummary) exportRun = null;
         return;
       }
 
@@ -1315,21 +1355,22 @@
         live.set(entry, job.text);
         exportText = (await readQmdTree(entry, { readText: async p => live.get(p) ?? await fb.readText(p) })).expanded;
       }
+      stageRun(1, "Text, figures and references…");
       const { full } = await renderManuscript(exportText, { paginated: job.paginated, snapshot: job.snapshot, slides: job.slides, documentKey: job.path, print: plan.format === "pdf", strict: true, signal: exportAbort?.signal });
       exportAbort?.signal.throwIfAborted();
-      exportCancellable = false;
+      // Past this point the page is being printed and written: there is nothing left to cancel.
+      if (exportRun) exportRun.cancellable = false;
+      stageRun(2, plan.format === "pdf" ? "Printing the pages…" : "");
       const out = plan.outPath;
       if (plan.format === "pdf") {
         if (!fb.printPdf) {
-          pushToast("error", "PDF export needs the desktop app");
-          exportBusy = false;
+          failRun("PDF export needs the desktop app");
           return;
         }
         // printPdf resolves false when the render/write didn't happen — don't claim success.
         const okPdf = await fb.printPdf(full, temporaryOutput, {});
         if (!okPdf) {
-          pushToast("error", "PDF export failed", { detail: "the PDF could not be written" });
-          exportBusy = false;
+          failRun("PDF export failed", "The PDF could not be written.");
           return;
         }
         const bytes = new Uint8Array(await fb.readFile(temporaryOutput));
@@ -1337,20 +1378,15 @@
         await lease.assertOwned?.();
         await fb.writeFile(out, bytes);
       } else { await lease.assertOwned?.(); await fb.writeText(out, full); }
-      exportBusy = false;
-      exportDone = true;
-      setTimeout(() => (exportDone = false), 2600);
-      pushToast(
-        "success",
-        `Exported ${out.replace(/^.*\//, "")}`,
-        fb.revealPath ? { action: { label: "Reveal", run: () => void fb.revealPath!(out) } } : {},
-      );
+      endRun("done");
       }, { root: job.root });
     } catch (e) {
-      if (exportCancelled) pushToast("info", "Export cancelled");
-      else { console.error("[flux] export failed", e); pushToast("error", "Export failed", { detail: errMsg(e) }); }
-      exportBusy = false;
+      if (exportCancelled) endRun("cancelled");
+      else { console.error("[flux] export failed", e); failRun(`${formatName} export failed`, errMsg(e)); }
     } finally {
+      // Whatever path left the routine, an export is no longer running.
+      exportBusy = false;
+      if (exportRun?.state === "running") exportRun = null;
       await fb.remove?.(temporaryOutput).catch(() => {});
     }
   }
@@ -1358,6 +1394,7 @@
   async function cancelExport() {
     const fb = fileBridge();
     exportCancelled = true;
+    if (exportRun?.state === "running") exportRun.cancelling = true;
     exportAbort?.abort();
     if (exportToken && fb?.quartoCancel) await fb.quartoCancel(exportToken).catch(() => false);
   }
@@ -2826,6 +2863,16 @@
         {#if bodyEmpty && !dismissedEmpty}
           <EmptyState {title} onStart={startFrom} />
         {/if}
+        {#if exportRun}
+          {#key exportRun.id}
+            <ExportReceipt
+              run={exportRun}
+              onCancel={cancelExport}
+              onReveal={fileBridge()?.revealPath ? (p) => void fileBridge()?.revealPath?.(p) : undefined}
+              onOpen={fileBridge()?.openPath ? (p) => void fileBridge()?.openPath?.(p) : undefined}
+              onDismiss={() => (exportRun = null)} />
+          {/key}
+        {/if}
         {#if previewActive}
           <PreviewPane src={latest} paginated={viewMode === "paginated"} rev={figRefsRev} slides={slideRepo} documentKey={activeDocPath} />
         {:else if !(bodyEmpty && !dismissedEmpty)}
@@ -3036,6 +3083,7 @@
       formats={EXPORT_FORMATS}
       styles={EXPORT_STYLES}
       initial={exportPlan}
+      documentTitle={meta.title || activeDocPath.replace(/^.*\//, "").replace(/\.qmd$/i, "")}
       engineLabel={exportEngineLabel(exportPlan)}
       blockedReason={exportBlockedReason(exportPlan)}
       onInstallQuarto={viaQuarto(exportPlan) && !quartoAvail ? () => { exportOpen = false; openSetup(); } : undefined}
@@ -3081,19 +3129,6 @@
     />
   {/if}
 
-  {#if exportBusy}
-    <div class="export-progress" role="status" aria-live="polite">
-      <div class="export-progress-head">Exporting {EXPORT_FORMATS.find((f) => f.id === exportPlan.format)?.label ?? ""}…</div>
-      {#if exportLogTail}<div class="export-progress-log">{exportLogTail}</div>{/if}
-      {#if exportCancellable}
-        <button class="export-cancel" disabled={exportCancelled} onclick={cancelExport}>
-          {exportCancelled ? "Cancelling…" : "Cancel"}
-        </button>
-      {/if}
-    </div>
-  {:else if exportDone}
-    <div class="doi-toast done">Exported ✓</div>
-  {/if}
 </section>
 
 <style>
@@ -3376,49 +3411,5 @@
     background: none;
     color: var(--c-tx-faint);
     border: 1px solid var(--c-line-strong);
-  }
-  /* Export progress: a >1s operation needs feedback, and past ~10s it must be
-     interruptible (Nielsen §6). Sits above the StatusBar, where the old
-     one-line "Exporting…" pill used to be. */
-  .export-progress {
-    position: absolute;
-    bottom: 44px;
-    right: 12px;
-    z-index: 66;
-    max-width: 340px;
-    padding: 8px 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    background: var(--c-surface);
-    border: 1px solid var(--c-line-strong);
-    border-radius: var(--r-2);
-    box-shadow: var(--elev-2);
-    font-size: var(--ts-sm);
-    color: var(--c-tx-2);
-  }
-  .export-progress-log {
-    color: var(--c-tx-faint);
-    font-family: var(--font-mono, monospace);
-    font-size: calc(var(--ts-sm) * 0.9);
-    /* One line only: the log tail is a liveness signal, not a transcript. */
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-  }
-  .export-cancel {
-    align-self: flex-end;
-    background: none;
-    border: 1px solid var(--c-line-strong);
-    border-radius: var(--r-1);
-    padding: 2px 10px;
-    color: var(--c-tx-2);
-    font: inherit;
-    font-size: var(--ts-sm);
-    cursor: var(--cursor-cross-hover);
-  }
-  .export-cancel:disabled {
-    color: var(--c-tx-faint);
-    cursor: var(--cursor-cross);
   }
 </style>

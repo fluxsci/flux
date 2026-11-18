@@ -1316,6 +1316,31 @@ Persistence invariants (all machine-checked — do not weaken):
   to Library mode's gates (unscoped `document.querySelectorAll`): never reuse those classes
   in a margin pane. `verify-margin-panes.mjs` / `verify-margin-bg.mjs` are ui-extra and now
   ride the pathMap rule for `margin/**`.
+  **Export is ONE account** (rebuilt 2026-11-18; owner: "I hate the little popups that happen
+  in the bottom right, they are ugly and confusing … the vibe of the export process feels
+  half-baked"). `ExportDialog.svelte` is a titled sheet (header, choices, a destination strip,
+  key hints); the hooks the gates and native scripts drive are unchanged: the FIRST `select`
+  is the journal style, `[aria-label="File format"] .seg` text is exactly the format's label
+  (icons are SVG, descriptions sit outside the button), `.path-text` textContent is exactly
+  the output path, and the Export button's text is exactly "Export". The path clips from its
+  START with `direction: rtl` on the container and a `<bdo dir="ltr">` inside; a bare rtl run
+  moved the leading slash to the end ("…/x.pdf/"). `PaperMode.doExport` drives one
+  `exportRun` ($state, `ExportReceipt.svelte`): `beginRun` → `stageRun(i, log)` →
+  `endRun("done" | "cancelled")` / `failRun(title, detail)`; `exportBusy` stays the
+  "running" flag the status bar and the re-entry guard read, and the routine's `finally`
+  clears it on every exit. The receipt lives INSIDE `.editor-col` above the status bar (it
+  used to be absolutely placed in `.mc`, which put it on the dynamic margin's corner), opts
+  out of the text-size slider like the status bar, and is the only notice an export raises:
+  no shell toast, no pill. A journal export clears the receipt and opens
+  `ExportSummaryPanel` instead. Quarto steps are Saving › Preparing › Rendering › Finishing
+  (Finishing covers the Word post-processing that used to run with no progress showing);
+  in-app steps are Saving › Composing › Writing, and Cancel disappears once nothing can be
+  cancelled. Native scripts must wait on `[data-export-receipt][data-state=done]`
+  (`model3dNativeSmoke.cjs` waited for the old `.export-progress` to vanish, which would now
+  be true at once). In `.paper`, never read `--c-tx-1`/`--c-tx-3`: those aliases are
+  declared on `:root` and resolve to the DARK values there (the summary panel had pale grey
+  on cream). `Toasts.svelte` (app-wide notices) keeps `.toast(.ok/.err)`, `.t-msg`,
+  `.t-detail`, `.t-act`, `.t-x`; it and `toast.ts` now have a pathMap rule.
   **Local corrections** live in `editing/localCorrections.ts`, using Harper slim WASM
   in lazy module workers. An abbreviation-aware segmenter schedules completed-word and
   completed-sentence mechanical checks; exact current source and protected Markdown are

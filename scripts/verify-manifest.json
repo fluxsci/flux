@@ -4340,6 +4340,15 @@
       ]
     },
     {
+      "$why": "2026-11-18 export receipt + notices restyle: the app-wide toast files had no rule (the broad src/**/*.svelte scan only), so their own gate never ran on a change.",
+      "glob": "{src/lib/toast.ts,src/shell/Toasts.svelte}",
+      "run": [
+        "verify-w1-toast.mjs",
+        "verify-paper-export.mjs",
+        "verify-no-retired-agent-layer.ts"
+      ]
+    },
+    {
       "$why": "2026-11 mode-icon redesign: the five title-bar icons are a designed set (own outline, own accent palette) and modeOrder.ts is the one list of the strip's order. Keeps the retired-agent scan of the broad src/**/*.svelte rule this entry supersedes.",
       "glob": "{src/shell/Icon.svelte,src/shell/modeOrder.ts}",
       "run": [

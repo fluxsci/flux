@@ -392,11 +392,21 @@ The **Export** button in the status bar — or **Alt+E** — opens a dialog with
 independent choices: the **file format** (PDF, Word, HTML) and the **journal style**.
 Every format saves where you choose, defaulting to the project's `exports/` — the
 suggested file name follows the format you pick, so switching to Word gives you a `.docx`
-name, not the `.pdf` one the dialog opened on (a name you choose yourself is kept). Word and
-journal-styled PDF run through Quarto (the dialog says so when Quarto isn't installed —
-see [Installation](../installation.qmd)); a long render shows its progress and can be
-cancelled. Figure renders, captions, and panel references are all resolved during export,
-and failures surface as a toast naming what to fix.
+name, not the `.pdf` one the dialog opened on (a name you choose yourself is kept). A journal
+style lists what it will do to the file (citation form, figure call-outs, type and spacing)
+under the style menu. The bar at the bottom of the dialog shows where the file will go and
+what will make it; **Enter** exports and **Esc** cancels. Word and journal-styled PDF run
+through Quarto (the dialog says so when Quarto isn't installed — see
+[Installation](../installation.qmd)).
+
+Once you press Export, a small **receipt** appears above the status bar and stays with the
+export from start to finish. While it runs it names the stage it is in (saving, preparing,
+rendering, finishing), shows the engine's latest line and the seconds so far, and offers
+**Cancel** for as long as cancelling is possible. When the file is written the same receipt
+says **Exported**, names the file, and offers **Open** and **Reveal**; it leaves by itself
+after a few seconds (not while your pointer is on it). If the export fails, the receipt stays
+and says why, and **Details** opens the engine's log, which you can copy. Figure renders,
+captions, and panel references are all resolved during export.
 
 ## Journal styles
 

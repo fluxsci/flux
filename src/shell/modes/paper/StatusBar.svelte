@@ -193,7 +193,7 @@
       <span class="correction-dot" aria-hidden="true"></span>
       Local
     </button>
-    <button class="seg" onclick={onExport} disabled={exporting} title="Export — PDF · HTML · Word (also in ⌘K)">
+    <button class="seg" onclick={onExport} disabled={exporting} title="Export: PDF · Word · HTML (Alt+E)">
       {exporting ? "Exporting…" : "Export"}
     </button>
     <div class="words" bind:this={countEl}>

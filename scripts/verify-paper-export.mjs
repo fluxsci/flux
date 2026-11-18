@@ -58,7 +58,7 @@ ok(ui.hasPath === true, "dialog shows an output path for the selected format");
 ok(ui.gone === true, "backdrop click closes the dialog");
 ok(ui.focusInEditor === true, "focus returns to the editor after close (feel invariant 7)");
 
-console.log("A2 — quarto {ok:false} surfaces as an error toast (behavioral, WS-7.5):");
+console.log("A2 — quarto {ok:false} surfaces in the export receipt, with its reason and no success (behavioral, WS-7.5):");
 const toastCase = await page.evaluate(async () => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // Stub the bridge's quarto entry points: available, but the render FAILS.
@@ -68,7 +68,8 @@ const toastCase = await page.evaluate(async () => {
   const origAvail = fig.quartoAvailable;
   const origRender = fig.quartoRender;
   fig.quartoAvailable = async () => ({ installed: true });
-  fig.quartoRender = async () => ({ ok: false, log: "stub: pandoc exploded" });
+  // A render that takes a moment, so the receipt's running stage is there to be seen.
+  fig.quartoRender = async () => { await sleep(500); return { ok: false, log: "stub: pandoc exploded" }; };
   try {
     window.__flux.panes.resetPanes("figure");
     await sleep(300);
@@ -86,22 +87,41 @@ const toastCase = await page.evaluate(async () => {
     if (!go) return { error: "no Export button in the dialog" };
     if (go.disabled) return { error: "Export button disabled though quarto is stubbed available" };
     go.click();
-    // The failure toast lands after flush + materialize + the stubbed render.
+    // The receipt (ExportReceipt.svelte) is the ONE account of an export: it runs, names its
+    // stage, and becomes the result. The failure lands after flush + materialize + the stubbed render.
+    const receipt = () => document.querySelector("[data-export-receipt]");
+    const states = new Set(), stages = new Set();
     let toast = "";
-    for (let i = 0; i < 40 && !toast; i++) {
-      await sleep(150);
-      toast = [...document.querySelectorAll(".toast, [class*=toast]")].map((t) => t.textContent || "").join(" ");
-      if (!/word export failed|failed/i.test(toast)) toast = "";
+    for (let i = 0; i < 60 && !toast; i++) {
+      await sleep(100);
+      const r = receipt();
+      if (r) { states.add(r.dataset.state); const now = r.querySelector(".steps .now")?.textContent; if (now) stages.add(now); }
+      if (r?.dataset.state === "failed") toast = (r.textContent || "").replace(/\s+/g, " ").trim();
     }
-    const falseSuccess = [...document.querySelectorAll(".toast, [class*=toast]")].some((t) => /exported ✓|exported/i.test((t.textContent || "").toLowerCase()) && !/failed/i.test(t.textContent || ""));
-    return { toast: toast.slice(0, 120), falseSuccess };
+    const r = receipt();
+    const reasonShown = /pandoc exploded/.test(r?.textContent || "");
+    r && [...r.querySelectorAll("button")].find((b) => /details/i.test(b.textContent || ""))?.click();
+    await sleep(80);
+    const logShown = /stub: pandoc exploded/.test(receipt()?.querySelector(".detail")?.textContent || "");
+    // Nothing else may claim a result: no shell toast, no "Exported" anywhere.
+    const elsewhere = [...document.querySelectorAll(".toast, .doi-toast, .export-progress")].map((t) => t.textContent || "").join(" ");
+    const falseSuccess = /exported/i.test(elsewhere) || /exported/i.test((receipt()?.querySelector(".head")?.textContent || ""));
+    const sticky = await (async () => { await sleep(900); return receipt()?.dataset.state === "failed"; })();
+    const busyCleared = ![...document.querySelectorAll(".statusbar .seg")].some((b) => /exporting/i.test(b.textContent || ""));
+    receipt()?.querySelector('[aria-label="Dismiss"]')?.click();
+    await sleep(120);
+    return { toast: toast.slice(0, 120), falseSuccess, states: [...states], stages: [...stages], reasonShown, logShown, elsewhere: elsewhere.trim().slice(0, 80), sticky, busyCleared, dismissed: !receipt() };
   } finally {
     fig.quartoAvailable = origAvail;
     fig.quartoRender = origRender;
   }
 });
-ok(!toastCase.error && /failed/i.test(toastCase.toast ?? ""), `quarto {ok:false} → error toast ("${(toastCase.toast ?? toastCase.error ?? "").slice(0, 60)}")`);
-ok(toastCase.falseSuccess === false, "no false 'Exported ✓' on failure");
+ok(!toastCase.error && /word export failed/i.test(toastCase.toast ?? ""), `quarto {ok:false} → the receipt says so ("${(toastCase.toast ?? toastCase.error ?? "").slice(0, 60)}")`);
+ok(toastCase.falseSuccess === false, "no false 'Exported' on failure");
+ok((toastCase.states ?? []).includes("running") && (toastCase.stages ?? []).includes("Rendering"), `the receipt named the stage it was in before failing (${(toastCase.stages ?? []).join(" › ")})`);
+ok(toastCase.reasonShown && toastCase.logShown, "the failure carries its reason, and Details opens the engine's log");
+ok(!toastCase.elsewhere, `one notice only: no shell toast or second card repeats it ("${toastCase.elsewhere ?? ""}")`);
+ok(toastCase.sticky && toastCase.busyCleared && toastCase.dismissed, "a failed receipt stays until dismissed, and Export is available again");
 
 console.log("A3 — the destination follows the FORMAT axis (a Word export never lands on a .pdf name):");
 const pathCase = await page.evaluate(async () => {
@@ -154,6 +174,46 @@ ok(pathCase.html?.endsWith(".html"), `HTML → .html name (${pathCase.html})`);
 ok(pathCase.pdf?.endsWith(".pdf"), `back to PDF → .pdf name (${pathCase.pdf})`);
 ok(pathCase.picked === "/demo/exports/my-own-name.pdf", `"Change…" shows the path the user chose (${pathCase.picked})`);
 ok(pathCase.afterPick === pathCase.picked, `…and a format switch leaves it alone (${pathCase.afterPick})`);
+
+console.log("A4 — a successful export ends in ONE receipt that names the file:");
+const okCase = await page.evaluate(async () => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  [...document.querySelectorAll(".statusbar .seg")].find((b) => /export/i.test(b.textContent || ""))?.click();
+  await sleep(300);
+  const d = document.querySelector(".export-dialog");
+  if (!d) return { error: "dialog did not open" };
+  const sel = d.querySelector("select");
+  sel.value = "flux";
+  sel.dispatchEvent(new Event("change", { bubbles: true }));
+  [...d.querySelectorAll('[aria-label="File format"] .seg')].find((b) => /html/i.test(b.textContent || ""))?.click();
+  await sleep(150);
+  const out = (d.querySelector(".path-text")?.textContent || "").trim();
+  [...d.querySelectorAll("button")].find((b) => /^export$/i.test((b.textContent || "").trim()))?.click();
+  const seen = [];
+  let state = "";
+  for (let i = 0; i < 100 && state !== "done" && state !== "failed"; i++) {
+    await sleep(80);
+    const r = document.querySelector("[data-export-receipt]");
+    if (r) { state = r.dataset.state; if (!seen.includes(state)) seen.push(state); }
+  }
+  const r = document.querySelector("[data-export-receipt]");
+  const text = (r?.textContent || "").replace(/\s+/g, " ").trim();
+  let written = "";
+  try { written = await window.fig.readText(out); } catch {}
+  const elsewhere = [...document.querySelectorAll(".toast, .doi-toast, .export-progress")].map((t) => t.textContent || "").join(" ").trim();
+  const box = r?.getBoundingClientRect(), col = document.querySelector(".editor-col")?.getBoundingClientRect(), margin = document.querySelector(".dm-wrap")?.getBoundingClientRect();
+  const insideColumn = !!box && !!col && box.left >= col.left && box.right <= col.right + 0.5 && (!margin || box.right <= margin.left + 0.5);
+  const exportBack = [...document.querySelectorAll(".statusbar .seg")].some((b) => /^export$/i.test((b.textContent || "").trim()) && !b.disabled);
+  r?.querySelector('[aria-label="Dismiss"]')?.click();
+  await sleep(150);
+  return { state, seen, text: text.slice(0, 140), out, bytes: written.length, elsewhere: elsewhere.slice(0, 80), insideColumn, exportBack, gone: !document.querySelector("[data-export-receipt]") };
+});
+ok(!okCase.error && okCase.state === "done", okCase.error || `the receipt ends done (${(okCase.seen ?? []).join(" → ")})`);
+ok(/^Exported /.test(okCase.text ?? "") && (okCase.text ?? "").includes((okCase.out ?? "?").replace(/^.*\//, "")), `it names the file it wrote ("${okCase.text}")`);
+ok((okCase.bytes ?? 0) > 100, `and the file is on disk (${okCase.bytes} bytes at ${okCase.out})`);
+ok(!okCase.elsewhere, `no second notice repeats it ("${okCase.elsewhere ?? ""}")`);
+ok(okCase.insideColumn, "the receipt sits inside the editor column, never on the dynamic margin");
+ok(okCase.exportBack && okCase.gone, "Export is available again and the receipt dismisses");
 
 console.log("B — materializeRenders writes embedded figures to fig/renders/:");
 const mat = await page.evaluate(async () => {

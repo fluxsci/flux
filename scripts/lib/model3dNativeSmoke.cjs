@@ -68,7 +68,7 @@ module.exports=async function nativeSmoke(c){
   const destination=await js("document.querySelector('.export-dialog .path-text').textContent.trim()");if(!destination.startsWith(root+path.sep))throw Error('Word output escaped scratch project');
   check(!await js("document.querySelector('.export-dialog button.primary').disabled"),'actual Quarto is available to native Word export');await clickText('.export-dialog button.primary','Export');
   await wait(async()=>{try{return(await fs.stat(destination)).size>100}catch{return false}},'actual native Quarto/Word output',90000);
-  await wait(()=>js("!document.querySelector('.export-progress')"),'native Word publication complete');const bytes=await fs.readFile(destination);await fs.writeFile(path.join(artifacts,'paper.docx'),bytes);
+  await wait(()=>js("document.querySelector('[data-export-receipt]')?.dataset.state==='done'"),'native Word publication complete');const bytes=await fs.readFile(destination);await fs.writeFile(path.join(artifacts,'paper.docx'),bytes);
   const {unzipSync,strFromU8}=require('fflate'),zip=unzipSync(bytes),xml=strFromU8(zip['word/document.xml']);
   check(xml.includes('The neuron above retains its Figure view'),'actual native Word document contains manuscript text');
   const svgEntries=Object.entries(zip).filter(([name])=>/^word\/media\/.*\.svg$/i.test(name));

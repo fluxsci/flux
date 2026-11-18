@@ -11,6 +11,9 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 
 ### Window
 
+- **Notices are redrawn.** Each has a mark for its kind (done, problem, information), a
+  failure's reason wraps over several lines instead of being cut at one, and its buttons look
+  like buttons.
 - **The mode icons sit in the middle of the title bar**, in a rounded strip of their own that
   floats just above the bar, with the blue underline marking the active mode. They stay in the
   exact middle of the window at any width.
@@ -128,6 +131,18 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   groups. Figures no longer shows broken-picture boxes while a figure is being drawn.
 - Manuscript Check's pane has its green title and outline (it was drawn in black with no
   outline).
+- **Export, redone.** The export dialog is a titled sheet: format tiles, the journal style with
+  what it does shown as a list, and a bar at the bottom that says where the file will go and
+  what will make it. After you press Export, one **receipt** above the status bar follows the
+  export: the stage it is in, the engine's latest line, the seconds so far and Cancel; then
+  **Exported**, the file's name, **Open** and **Reveal**. A failure stays there with its
+  reason, and **Details** opens the engine's log to read or copy. It replaces a progress box
+  that sat on the margin's corner, an "Exported ✓" pill and a notice repeating it.
+- Word exports no longer lose their progress display while figures are converted and the
+  file is written; an export that could not start now says why instead of doing nothing; the
+  output path no longer shows a stray trailing slash.
+- The journal export summary is restyled to match, and its section headings and counts are
+  readable (they were pale grey on cream).
 - Journal submission export for **Nature, Science, Cell and bioRxiv**: Word and PDF, venue rules
   (title page, citations, reference lists, section order, legends, line numbers, page setup), a
   venue-aware Journal Check, stages in the export dialog and an export summary. The export assets

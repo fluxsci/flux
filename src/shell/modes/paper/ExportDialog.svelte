@@ -50,6 +50,7 @@
     /** Non-empty when the chosen combination cannot run (missing Quarto/TeX). */
     blockedReason = "",
     initial,
+    documentTitle = "",
     onExport,
     onClose,
     onPickPath,
@@ -68,6 +69,8 @@
     /** Present when the block is a missing Quarto: offers the install right here. */
     onInstallQuarto?: () => void;
     initial: ExportPlan;
+    /** The document being exported, shown in the header. */
+    documentTitle?: string;
     onExport: (plan: ExportPlan) => void;
     onClose: () => void;
     /** Opens the OS save dialog; resolves to null when cancelled. */
@@ -197,6 +200,17 @@
     // Focus the panel so Esc/Enter land here and not in the editor behind it.
     root?.focus();
   });
+
+  // What each file is for, said once beside the format row.
+  const FORMAT_NOTE: Record<ExportFormat["id"], string> = {
+    pdf: "A typeset copy for reading and sending.",
+    docx: "An editable Word file for co-authors and journals.",
+    html: "One self-contained page for the web.",
+  };
+  // A style's blurb is a list ("Superscript citations · Fig. 1a,b · …"): show it as one.
+  const rules = $derived((styleOf(style)?.blurb ?? "").split(" · ").map((r) => r.trim()).filter(Boolean));
+  // The destination, split so the file name reads first and the folder clips from its start.
+  const cut = $derived(Math.max(outPath.lastIndexOf("/"), outPath.lastIndexOf("\\")) + 1);
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
@@ -213,280 +227,584 @@
   onkeydown={onKeydown}
   transition:popIn
 >
-  <div class="row">
-    <span class="lbl">Format</span>
-    <div class="segments" role="group" aria-label="File format">
-      {#each formats as f (f.id)}
-        <button
-          class="seg"
-          class:on={format === f.id}
-          disabled={!supports(f.id, style)}
-          title={supports(f.id, style) ? "" : `${styleOf(style)?.label ?? "This style"} does not produce ${f.label}`}
-          aria-pressed={format === f.id}
-          onclick={() => pick({ format: f.id })}>{f.label}</button
-        >
-      {/each}
-    </div>
-  </div>
+  <header class="xhead">
+    <strong class="xtitle">Export</strong>
+    {#if documentTitle}<span class="xdoc" title={documentTitle}>{documentTitle}</span>{/if}
+    <span class="xgrow"></span>
+    <button class="xclose" onclick={onClose} aria-label="Close export" title="Close (Esc)">
+      <svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7" /></svg>
+    </button>
+  </header>
 
-  <div class="row">
-    <span class="lbl">Style</span>
-    <div class="col">
-      <select aria-label="Journal style" bind:value={style} onchange={() => pick({ style })}>
-        {#each styles as s (s.id)}
-          <option value={s.id}>{s.label}</option>
-        {/each}
-      </select>
-      {#if styleOf(style)?.blurb}
-        <p class="hint">{styleOf(style)!.blurb}</p>
-      {/if}
-    </div>
-  </div>
-
-  {#if styleOf(style)?.journal}
+  <div class="xbody">
     <div class="row">
-      <span class="lbl">Stage</span>
+      <span class="lbl">Format</span>
       <div class="col">
-        <div class="segments" role="group" aria-label="Submission stage">
-          <button class="seg" class:on={stage === "initial"} aria-pressed={stage === "initial"} data-stage="initial" onclick={() => pick({ stage: "initial" })}>Initial submission</button>
-          <button class="seg" class:on={stage === "final"} aria-pressed={stage === "final"} data-stage="final" onclick={() => pick({ stage: "final" })}>Revision files</button>
-        </div>
-        <p class="hint">
-          {stage === "initial"
-            ? "One file to submit: figures sit beside their legends, at 300 dpi."
-            : "The revision text: legends listed after the references, figures uploaded as separate files."}
-          A summary of what to check is written beside the export.
-        </p>
-      </div>
-    </div>
-  {/if}
-
-  {#if onSetCsl && !styleOf(style)?.journal}
-    <div class="row">
-      <span class="lbl">References</span>
-      <div class="col">
-        <select aria-label="Reference style" value={csl} disabled={cslBusy} onchange={chooseCsl}>
-          <option value="">Pandoc default (Chicago author–date)</option>
-          {#each cslOptions as o (o.value)}
-            <option value={o.value}>{o.label}</option>
+        <div class="segments formats" role="group" aria-label="File format">
+          {#each formats as f (f.id)}
+            <button
+              class="seg"
+              class:on={format === f.id}
+              disabled={!supports(f.id, style)}
+              title={supports(f.id, style) ? "" : `${styleOf(style)?.label ?? "This style"} does not produce ${f.label}`}
+              aria-pressed={format === f.id}
+              onclick={() => pick({ format: f.id })}
+              ><svg class="fico" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"
+                ><path d="M4 1.5h5.5L12.5 4.5v10h-8.5z" /><path d="M9.5 1.5v3h3" />{#if f.id === "pdf"}<path d="M6 8.5h4.5M6 10.5h4.5M6 12.5h3" />{:else if f.id === "docx"}<path d="M5.8 8.2l1.1 4.2 1.1-3.6 1.1 3.6 1.1-4.2" />{:else}<path d="M7.3 8.3L5.8 10.3 7.3 12.3M8.9 8.3l1.5 2-1.5 2" />{/if}</svg
+              >{f.label}</button
+            >
           {/each}
-          <option value={CSL_LOAD}>Load .csl file…</option>
-        </select>
-        <p class="hint">
-          Saved in this document as <code>csl:</code>.
-          {format === "docx"
-            ? "Word exports format citations and the reference list in this style."
-            : "Word exports use it; the in-app PDF and HTML keep Flux's own reference format."}
-          The editor is unchanged.
-        </p>
+        </div>
+        <p class="hint">{FORMAT_NOTE[format]}</p>
       </div>
     </div>
-  {/if}
 
-  {#if format === "docx"}
     <div class="row">
-      <span class="lbl">Citations</span>
+      <span class="lbl">Style</span>
       <div class="col">
-        <label class="check">
-          <input
-            type="checkbox"
-            bind:checked={zoteroFields}
-            onchange={() => publish()} />
-          Live Zotero citations
-        </label>
-        <p class="hint">
-          Citations stay editable in Word: refresh, restyle, renumber, and cite alongside
-          them. Without this they are plain text.
-        </p>
-        {#if zoteroFields}
-          <div class="sub">
-            <button class="ghost" onclick={chooseLibraryDocs}>
-              {zoteroLibraryDocs.length ? "Change documents…" : "Link to library from…"}
-            </button>
-            {#if zoteroLibraryDocs.length}
-              <span class="hint"
-                >{zoteroLibraryDocs.length} document{zoteroLibraryDocs.length === 1 ? "" : "s"}{zoteroMatchSummary
-                  ? ` — ${zoteroMatchSummary}`
-                  : ""}</span>
-            {:else}
-              <span class="hint"
-                >Optional. Pick Word files that already use Zotero, and citations to the same
-                works arrive linked to that library instead of embedded.</span>
-            {/if}
-          </div>
+        <select aria-label="Journal style" bind:value={style} onchange={() => pick({ style })}>
+          {#each styles as s (s.id)}
+            <option value={s.id}>{s.label}</option>
+          {/each}
+        </select>
+        {#if rules.length > 1}
+          <ul class="rules" aria-label="What this style does">
+            {#each rules as rule (rule)}<li>{rule}</li>{/each}
+          </ul>
+        {:else if rules.length}
+          <p class="hint">{rules[0]}</p>
         {/if}
       </div>
     </div>
-  {/if}
 
-  {#if engineLabel || blockedReason}
+    {#if styleOf(style)?.journal}
+      <div class="row">
+        <span class="lbl">Stage</span>
+        <div class="col">
+          <div class="segments" role="group" aria-label="Submission stage">
+            <button class="seg" class:on={stage === "initial"} aria-pressed={stage === "initial"} data-stage="initial" onclick={() => pick({ stage: "initial" })}>Initial submission</button>
+            <button class="seg" class:on={stage === "final"} aria-pressed={stage === "final"} data-stage="final" onclick={() => pick({ stage: "final" })}>Revision files</button>
+          </div>
+          <p class="hint">
+            {stage === "initial"
+              ? "One file to submit: figures sit beside their legends, at 300 dpi."
+              : "The revision text: legends listed after the references, figures uploaded as separate files."}
+            A summary of what to check is written beside the export.
+          </p>
+        </div>
+      </div>
+    {/if}
+
+    {#if onSetCsl && !styleOf(style)?.journal}
+      <div class="row">
+        <span class="lbl">References</span>
+        <div class="col">
+          <select aria-label="Reference style" value={csl} disabled={cslBusy} onchange={chooseCsl}>
+            <option value="">Pandoc default (Chicago author–date)</option>
+            {#each cslOptions as o (o.value)}
+              <option value={o.value}>{o.label}</option>
+            {/each}
+            <option value={CSL_LOAD}>Load .csl file…</option>
+          </select>
+          <p class="hint">
+            Saved in this document as <code>csl:</code>.
+            {format === "docx"
+              ? "Word exports format citations and the reference list in this style."
+              : "Word exports use it; the in-app PDF and HTML keep Flux's own reference format."}
+            The editor is unchanged.
+          </p>
+        </div>
+      </div>
+    {/if}
+
+    {#if format === "docx"}
+      <div class="row">
+        <span class="lbl">Citations</span>
+        <div class="col">
+          <label class="check">
+            <input
+              type="checkbox"
+              bind:checked={zoteroFields}
+              onchange={() => publish()} />
+            <span class="switch" aria-hidden="true"></span>
+            Live Zotero citations
+          </label>
+          <p class="hint">
+            Citations stay editable in Word: refresh, restyle, renumber, and cite alongside
+            them. Without this they are plain text.
+          </p>
+          {#if zoteroFields}
+            <div class="sub">
+              <button class="ghost" onclick={chooseLibraryDocs}>
+                {zoteroLibraryDocs.length ? "Change documents…" : "Link to library from…"}
+              </button>
+              {#if zoteroLibraryDocs.length}
+                <span class="hint"
+                  >{zoteroLibraryDocs.length} document{zoteroLibraryDocs.length === 1 ? "" : "s"}{zoteroMatchSummary
+                    ? `: ${zoteroMatchSummary}`
+                    : ""}</span>
+              {:else}
+                <span class="hint"
+                  >Optional. Pick Word files that already use Zotero, and citations to the same
+                  works arrive linked to that library instead of embedded.</span>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      </div>
+    {/if}
+  </div>
+
+  <!-- Where it goes and what makes it: the last thing to read before Export. -->
+  <div class="xdest" class:blocked={!!blockedReason}>
     <div class="row">
-      <span class="lbl">Engine</span>
-      <div class="col">
-        <p class="hint" class:warn={!!blockedReason}>{engineLabel}</p>
-        {#if blockedReason}<p class="hint warn">{blockedReason}</p>{/if}
-        {#if blockedReason && onInstallQuarto}<button class="ghost install-quarto" type="button" data-install-quarto onclick={onInstallQuarto}>Install Quarto…</button>{/if}
+      <span class="lbl">Output</span>
+      <div class="path">
+        <span class="path-text" title={outPath}><bdo dir="ltr"><span class="dir">{outPath.slice(0, cut)}</span><b class="file">{outPath.slice(cut)}</b></bdo></span>
+        <button class="ghost" onclick={choosePath}>Change…</button>
       </div>
     </div>
-  {/if}
-
-  <div class="row">
-    <span class="lbl">Output</span>
-    <div class="path">
-      <span class="path-text" title={outPath}>{outPath}</span>
-      <button class="ghost" onclick={choosePath}>Change…</button>
-    </div>
+    {#if engineLabel || blockedReason}
+      <div class="row">
+        <span class="lbl">Engine</span>
+        <div class="col">
+          <p class="engine" class:warn={!!blockedReason}>{engineLabel}</p>
+          {#if blockedReason}<p class="hint warn">{blockedReason}</p>{/if}
+          {#if blockedReason && onInstallQuarto}<button class="ghost install-quarto" type="button" data-install-quarto onclick={onInstallQuarto}>Install Quarto…</button>{/if}
+        </div>
+      </div>
+    {/if}
   </div>
 
   <div class="actions">
+    <span class="keys"><kbd>Esc</kbd>cancel<span class="sep">·</span><kbd>↵</kbd>export</span>
     <button class="ghost" onclick={onClose}>Cancel</button>
     <button class="primary" {disabled} onclick={() => onExport(plan())}>Export</button>
   </div>
 </div>
 
 <style>
-  .check {
-    display: flex;
-    align-items: center;
-    gap: 0.5em;
-    cursor: var(--cursor-cross-hover);
-  }
-  .sub {
-    display: flex;
-    align-items: center;
-    gap: 0.6em;
-    flex-wrap: wrap;
-    margin-top: 0.35em;
-  }
   .export-backdrop {
     position: absolute;
     inset: 0;
     z-index: 70;
-    background: rgba(0, 0, 0, 0.18);
+    background: color-mix(in oklab, var(--flx-black) 26%, transparent);
   }
   .export-dialog {
     position: absolute;
     z-index: 71;
-    top: 14vh;
+    top: 11vh;
     left: 50%;
     transform: translateX(-50%);
-    width: min(520px, 92%);
+    width: min(560px, 92%);
+    max-height: 80vh;
     display: flex;
     flex-direction: column;
-    gap: var(--sp-3);
-    padding: var(--sp-4);
-    background: var(--c-surface, #fff);
-    border: 1px solid var(--c-line-strong, #ccc);
-    border-radius: 10px;
-    box-shadow: var(--elev-2);
+    background: var(--flx-paper);
+    border: 1.5px solid var(--c-edge);
+    border-radius: var(--r-3);
+    box-shadow:
+      0 24px 60px -18px rgba(40, 30, 10, 0.5),
+      0 6px 16px -6px rgba(40, 30, 10, 0.28);
+    color: var(--c-tx);
+    font-family: var(--font-serif);
+    font-size: var(--ts-sm);
+    overflow: hidden;
     outline: none;
   }
-  .row {
+
+  /* ---- header ---------------------------------------------------------------------------- */
+  .xhead {
+    flex: 0 0 auto;
     display: flex;
     align-items: baseline;
-    gap: var(--sp-3);
+    gap: 10px;
+    padding: 13px 12px 11px 18px;
+    border-bottom: 1px solid var(--c-line-strong);
+  }
+  .xtitle {
+    font-size: var(--ts-md);
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    color: var(--c-tx-hi);
+  }
+  .xdoc {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-style: italic;
+    color: var(--c-tx-muted);
+  }
+  .xgrow {
+    flex: 1;
+  }
+  .xclose {
+    align-self: center;
+    display: inline-grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--r-1);
+    background: transparent;
+    color: var(--c-tx-muted);
+    cursor: var(--cursor-cross-hover);
+    transition:
+      background 80ms linear,
+      color 80ms linear;
+  }
+  .xclose svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+    stroke-linecap: round;
+  }
+  .xclose:hover {
+    background: var(--c-ui);
+    color: var(--c-tx);
+  }
+
+  /* ---- the choices ------------------------------------------------------------------------ */
+  .xbody {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    display: grid;
+    gap: 14px;
+    padding: 16px 18px 16px;
+    scrollbar-width: thin;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 84px minmax(0, 1fr);
+    column-gap: 14px;
+    align-items: start;
   }
   .lbl {
-    flex: 0 0 64px;
-    font-size: var(--ts-sm);
-    color: var(--c-tx-2);
+    padding-top: 9px;
+    font: 600 10px/1.2 var(--font-mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--c-tx-muted);
   }
   .col {
-    flex: 1 1 auto;
     min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: var(--sp-1);
+    display: grid;
+    gap: 6px;
   }
   .segments {
-    display: flex;
-    gap: var(--sp-1);
+    display: inline-flex;
+    justify-self: start;
+    max-width: 100%;
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-1);
+    background: #fffefa;
+    overflow: hidden;
   }
   .seg {
-    padding: var(--sp-1) var(--sp-3);
-    border: 1px solid var(--c-line, #ddd);
-    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 32px;
+    padding: 0 14px;
+    border: 0;
+    border-right: 1px solid var(--c-line);
     background: transparent;
-    color: inherit;
-    font: inherit;
-    font-size: var(--ts-sm);
+    color: var(--c-tx-2);
+    font: 600 var(--ts-sm) var(--font-serif);
+    white-space: nowrap;
     cursor: var(--cursor-cross-hover);
+    transition:
+      background 80ms linear,
+      color 80ms linear,
+      box-shadow 80ms linear;
   }
+  .seg:last-child {
+    border-right: 0;
+  }
+  .formats .seg {
+    min-width: 86px;
+    justify-content: center;
+  }
+  .fico {
+    flex: 0 0 auto;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.1;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .seg:hover:not(:disabled):not(.on) {
+    background: var(--c-accent-tint-2);
+    color: var(--c-tx);
+  }
+  .seg:active:not(:disabled) {
+    background: var(--c-accent-tint);
+  }
+  /* The chosen one: a tint and a rail under it, never a solid fill. */
   .seg.on {
-    border-color: var(--c-accent-bright);
-    color: var(--c-accent-bright);
+    background: var(--c-accent-tint-2);
+    color: var(--c-accent);
+    box-shadow: inset 0 -2px 0 var(--c-accent);
   }
   .seg:disabled {
-    opacity: 0.42;
+    color: var(--c-tx-faint);
+    opacity: 0.55;
     cursor: var(--cursor-cross);
   }
+  .seg:focus-visible,
+  select:focus-visible,
+  .ghost:focus-visible,
+  .primary:focus-visible,
+  .xclose:focus-visible {
+    outline: 2px solid var(--c-accent);
+    outline-offset: 1px;
+  }
   select {
-    width: 100%;
+    appearance: none;
     box-sizing: border-box;
-    padding: var(--sp-2) var(--sp-3);
-    border: 1px solid var(--c-line-strong, #ccc);
-    border-radius: 6px;
-    background: var(--c-surface, #fff);
-    color: inherit;
-    font-size: var(--ts-base, 0.95rem);
+    width: 100%;
+    height: 34px;
+    padding: 0 30px 0 11px;
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-1);
+    background-color: #fffefa;
+    background-image:
+      linear-gradient(45deg, transparent 50%, var(--c-tx-muted) 50%),
+      linear-gradient(135deg, var(--c-tx-muted) 50%, transparent 50%);
+    background-position:
+      calc(100% - 16px) 50%,
+      calc(100% - 11px) 50%;
+    background-size:
+      5px 5px,
+      5px 5px;
+    background-repeat: no-repeat;
+    color: var(--c-tx);
+    font: var(--ts-sm) var(--font-serif);
+    cursor: var(--cursor-cross-hover);
+    transition:
+      border-color 80ms linear,
+      box-shadow 80ms linear;
+  }
+  select:hover:not(:disabled) {
+    border-color: color-mix(in oklab, var(--c-accent) 45%, var(--c-line-strong));
+  }
+  select:focus {
+    border-color: var(--c-accent);
+    box-shadow: 0 0 0 3px var(--c-accent-tint-2);
+    outline: none;
   }
   .hint {
     margin: 0;
-    font-size: var(--ts-sm);
-    color: var(--c-tx-2);
+    color: var(--c-tx-muted);
+    font-size: var(--ts-xs);
+    line-height: 1.45;
+  }
+  .hint code {
+    padding: 0 4px;
+    border-radius: var(--r-ui);
+    background: var(--c-surface);
+    font: 0.95em var(--font-mono);
   }
   .hint.warn {
-    color: var(--c-danger, #d14d41);
+    color: var(--c-danger);
   }
-  .install-quarto {
-    align-self: flex-start;
-    margin-top: var(--sp-1);
+  /* What a journal style does, as a list you can scan. */
+  .rules {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 5px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .rules li {
+    padding: 2px 8px;
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-pill);
+    background: #fffefa;
+    color: var(--c-tx-2);
+    font-size: var(--ts-xs);
+    line-height: 1.4;
+  }
+  .check {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    justify-self: start;
+    min-height: 32px;
+    color: var(--c-tx);
+    cursor: var(--cursor-cross-hover);
+  }
+  .check input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .switch {
+    position: relative;
+    flex: 0 0 auto;
+    width: 30px;
+    height: 17px;
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-pill);
+    background: var(--c-ui);
+    transition:
+      background 80ms linear,
+      border-color 80ms linear;
+  }
+  .switch::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--flx-paper);
+    box-shadow: 0 1px 2px rgba(16, 15, 15, 0.35);
+    transition: transform 90ms var(--ease-standard);
+  }
+  .check input:checked + .switch {
+    background: var(--c-accent);
+    border-color: var(--c-accent);
+  }
+  .check input:checked + .switch::after {
+    transform: translateX(13px);
+  }
+  .check input:focus-visible + .switch {
+    outline: 2px solid var(--c-accent);
+    outline-offset: 2px;
+  }
+  .sub {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .sub .ghost {
+    flex: 0 0 auto;
+  }
+
+  /* ---- destination ------------------------------------------------------------------------ */
+  .xdest {
+    flex: 0 0 auto;
+    display: grid;
+    gap: 6px;
+    padding: 11px 18px 12px;
+    border-top: 1px solid var(--c-line-strong);
+    background: var(--c-surface);
+  }
+  .xdest .lbl {
+    padding-top: 8px;
   }
   .path {
-    flex: 1 1 auto;
-    min-width: 0;
     display: flex;
     align-items: center;
-    gap: var(--sp-2);
+    gap: 10px;
+    min-width: 0;
   }
+  /* Clipped from its START, so the file name is always the part you can read. The inner
+     <bdo> keeps every character in reading order (a bare rtl run moved the leading slash to
+     the end: "…/round-1.pdf/"). */
   .path-text {
     flex: 1 1 auto;
     min-width: 0;
-    font-size: var(--ts-sm);
-    color: var(--c-tx-2);
-    /* Long project paths must not widen the dialog — clip from the LEFT so the
-       filename, the part that identifies the artifact, stays visible. */
     overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
     direction: rtl;
     text-align: left;
+    font: 11.5px/1.4 var(--font-mono);
+    color: var(--c-tx-muted);
   }
+  .path-text .file {
+    color: var(--c-tx);
+    font-weight: 600;
+  }
+  .engine {
+    margin: 0;
+    padding-top: 7px;
+    color: var(--c-tx-2);
+    font-size: var(--ts-xs);
+    line-height: 1.45;
+  }
+  .engine.warn {
+    color: var(--c-tx-muted);
+    text-decoration: line-through;
+  }
+  .install-quarto {
+    justify-self: start;
+  }
+
+  /* ---- actions ---------------------------------------------------------------------------- */
   .actions {
+    flex: 0 0 auto;
     display: flex;
-    justify-content: flex-end;
-    gap: var(--sp-2);
-    margin-top: var(--sp-1);
+    align-items: center;
+    gap: 8px;
+    padding: 11px 14px 12px 18px;
+    border-top: 1px solid var(--c-line-strong);
+  }
+  .keys {
+    flex: 1 1 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    color: var(--c-tx-faint);
+    font-size: var(--ts-xs);
+  }
+  .keys > * {
+    flex: 0 0 auto;
+  }
+  .keys kbd {
+    color: var(--c-tx-faint);
+  }
+  .keys .sep {
+    opacity: 0.55;
   }
   .ghost,
   .primary {
-    padding: var(--sp-1) var(--sp-3);
-    border-radius: 6px;
-    font: inherit;
-    font-size: var(--ts-sm);
-    cursor: var(--cursor-cross-hover);
-  }
-  .ghost {
-    border: 1px solid var(--c-line, #ddd);
+    flex: 0 0 auto;
+    height: 30px;
+    padding: 0 14px;
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-1);
     background: transparent;
-    color: inherit;
+    color: var(--c-tx-2);
+    font: 600 var(--ts-sm) var(--font-serif);
+    white-space: nowrap;
+    cursor: var(--cursor-cross-hover);
+    transition:
+      background 80ms linear,
+      border-color 80ms linear,
+      color 80ms linear,
+      transform 60ms linear;
+  }
+  .ghost:hover {
+    background: var(--c-ui);
+    color: var(--c-tx);
+  }
+  .ghost:active,
+  .primary:active:not(:disabled) {
+    transform: translateY(0.5px) scale(0.985);
   }
   .primary {
-    border: 1px solid var(--c-accent-bright);
+    min-width: 92px;
+    border-color: var(--c-accent);
+    background: var(--c-accent);
+    color: var(--c-on-accent);
+  }
+  .primary:hover:not(:disabled) {
     background: var(--c-accent-bright);
-    color: var(--c-bg);
+    border-color: var(--c-accent-bright);
   }
   .primary:disabled {
-    opacity: 0.45;
+    opacity: 0.4;
     cursor: var(--cursor-cross);
   }
 </style>

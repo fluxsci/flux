@@ -56,8 +56,11 @@
   data-export-summary
 >
   <header>
-    <div class="title">{summary.title}</div>
-    <div class="sub">{summary.subtitle}</div>
+    <span class="done-mark" aria-hidden="true"><svg viewBox="0 0 16 16" width="15" height="15"><path d="M3 8.5l3.2 3.2L13 4.8" /></svg></span>
+    <div class="heading">
+      <div class="title">{summary.title}</div>
+      <div class="sub">{summary.subtitle}</div>
+    </div>
     <div class="badges">
       {#if summary.warnings}<span class="badge warn" data-summary-warnings={summary.warnings}>{summary.warnings} to check</span>{:else}<span class="badge ok">Nothing flagged</span>{/if}
       {#if summary.todos}<span class="badge todo">{summary.todos} outside Flux</span>{/if}
@@ -67,7 +70,7 @@
   <div class="body">
     {#each summary.sections as sec (sec.heading)}
       <details open={startsOpen(sec.heading)}>
-        <summary>{sec.heading} <span class="count">{sec.items.length}</span></summary>
+        <summary><svg class="tw" viewBox="0 0 8 8" width="8" height="8" aria-hidden="true"><path d="M2.5 1.2L5.8 4 2.5 6.8" /></svg>{sec.heading} <span class="count">{sec.items.length}</span></summary>
         <ul>
           {#each sec.items as item, i (i)}
             <li class={item.severity}><span class="mark" aria-hidden="true">{MARK[item.severity]}</span><span>{item.text}</span></li>
@@ -79,18 +82,21 @@
   </div>
 
   <div class="actions">
-    {#if notesPath}<span class="notes" title={notesPath}>Saved as {notesPath.replace(/^.*[\\/]/, "")}</span>{/if}
+    {#if notesPath}<span class="notes" title={notesPath}>Saved beside the file as <b>{notesPath.replace(/^.*[\\/]/, "")}</b></span>{/if}
     {#if onReveal}<button class="ghost" onclick={() => onReveal?.(outPath)}>Reveal file</button>{/if}
     <button class="primary" onclick={onClose}>Done</button>
   </div>
 </div>
 
 <style>
+  /* The export dialog's sibling: the same sheet, header bar and buttons. Every colour is a
+     token READ here, inside `.paper`: the numbered aliases (--c-tx-1, --c-tx-3) are declared on
+     :root and resolve to the DARK theme's values there, which put pale grey text on cream. */
   .summary-backdrop {
     position: absolute;
     inset: 0;
     z-index: 70;
-    background: rgba(0, 0, 0, 0.18);
+    background: color-mix(in oklab, var(--flx-black) 26%, transparent);
   }
   .summary-panel {
     position: absolute;
@@ -102,81 +108,161 @@
     max-height: 82vh;
     display: flex;
     flex-direction: column;
-    background: var(--c-surface, #fff);
-    border: 1px solid var(--c-line-strong, #ccc);
-    border-radius: 10px;
-    box-shadow: var(--elev-2);
+    background: var(--flx-paper);
+    border: 1.5px solid var(--c-edge);
+    border-radius: var(--r-3);
+    box-shadow:
+      0 24px 60px -18px rgba(40, 30, 10, 0.5),
+      0 6px 16px -6px rgba(40, 30, 10, 0.28);
+    color: var(--c-tx);
+    font-family: var(--font-serif);
+    font-size: var(--ts-sm);
+    overflow: hidden;
     outline: none;
   }
   header {
-    padding: var(--sp-4) var(--sp-4) var(--sp-2);
-    border-bottom: 1px solid var(--c-line, #e5e5e5);
+    flex: 0 0 auto;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 11px;
+    row-gap: 9px;
+    align-items: center;
+    padding: 14px 18px 13px;
+    border-bottom: 1px solid var(--c-line-strong);
+  }
+  .done-mark {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: color-mix(in oklab, var(--c-success) 14%, transparent);
+    color: var(--c-success);
+  }
+  .done-mark svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .heading {
+    min-width: 0;
   }
   .title {
+    font-size: var(--ts-md);
     font-weight: 600;
-    font-size: var(--ts-md, 15px);
+    letter-spacing: -0.005em;
+    color: var(--c-tx-hi);
+    line-height: 1.25;
   }
   .sub {
-    color: var(--c-tx-2);
-    font-size: var(--ts-sm);
-    margin-top: 2px;
+    margin-top: 1px;
+    color: var(--c-tx-muted);
+    font-size: var(--ts-xs);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .badges {
+    grid-column: 1 / -1;
     display: flex;
-    gap: var(--sp-2);
-    margin-top: var(--sp-2);
+    flex-wrap: wrap;
+    gap: 6px;
   }
   .badge {
-    font-size: var(--ts-xs, 11px);
-    padding: 1px 8px;
-    border-radius: 999px;
-    border: 1px solid var(--c-line-strong, #ccc);
-  }
-  .badge.warn {
-    color: var(--c-warning);
-    border-color: currentColor;
-  }
-  .badge.ok {
-    color: var(--c-success);
-    border-color: currentColor;
-  }
-  .badge.todo {
+    padding: 2px 9px;
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-pill);
+    font-size: var(--ts-xs);
+    line-height: 1.45;
     color: var(--c-tx-2);
   }
+  .badge.warn {
+    border-color: color-mix(in oklab, var(--c-warning) 55%, transparent);
+    background: color-mix(in oklab, var(--c-warning) 9%, transparent);
+    color: var(--c-warning);
+  }
+  .badge.ok {
+    border-color: color-mix(in oklab, var(--c-success) 55%, transparent);
+    background: color-mix(in oklab, var(--c-success) 9%, transparent);
+    color: var(--c-success);
+  }
   .body {
+    flex: 1 1 auto;
+    min-height: 0;
     overflow: auto;
-    padding: var(--sp-2) var(--sp-4);
+    padding: 6px 18px 12px;
+    scrollbar-width: thin;
   }
   details {
-    margin: var(--sp-2) 0;
+    border-bottom: 1px solid var(--c-line);
   }
   summary {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 0;
+    list-style: none;
+    color: var(--c-tx);
+    font: 600 10px/1.2 var(--font-mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
     cursor: var(--cursor-cross-hover);
-    font-size: var(--ts-sm);
-    font-weight: 600;
-    color: var(--c-tx-1, inherit);
+    user-select: none;
+  }
+  summary::-webkit-details-marker {
+    display: none;
+  }
+  summary:hover {
+    color: var(--c-accent);
+  }
+  summary:focus-visible {
+    outline: 2px solid var(--c-accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+  .tw {
+    flex: 0 0 auto;
+    fill: none;
+    stroke: var(--c-tx-faint);
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 80ms linear;
+  }
+  details[open] > summary .tw {
+    transform: rotate(90deg);
   }
   .count {
-    font-weight: 400;
-    color: var(--c-tx-3, #999);
-    margin-left: 4px;
+    margin-left: auto;
+    color: var(--c-tx-muted);
+    font-weight: 500;
+    letter-spacing: 0;
+    font-variant-numeric: tabular-nums;
   }
   ul {
+    display: grid;
+    gap: 6px;
+    margin: 0;
+    padding: 0 0 11px 15px;
     list-style: none;
-    margin: var(--sp-1) 0 0;
-    padding: 0;
   }
   li {
-    display: flex;
-    gap: 8px;
-    font-size: var(--ts-sm);
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr);
+    column-gap: 6px;
+    align-items: baseline;
+    color: var(--c-tx-2);
     line-height: 1.45;
-    padding: 2px 0;
   }
   .mark {
-    flex: 0 0 14px;
+    color: var(--c-tx-faint);
+    font-family: var(--font-mono);
     text-align: center;
-    color: var(--c-tx-3, #999);
+  }
+  li.warn {
+    color: var(--c-tx);
   }
   li.warn .mark {
     color: var(--c-warning);
@@ -185,43 +271,80 @@
   li.done .mark {
     color: var(--c-success);
   }
+  li.todo .mark {
+    color: var(--c-accent);
+  }
   .advisory {
-    font-size: var(--ts-xs, 11px);
-    color: var(--c-tx-3, #999);
-    margin: var(--sp-2) 0;
+    margin: 11px 0 0;
+    color: var(--c-tx-faint);
+    font-size: var(--ts-xs);
+    font-style: italic;
   }
   .actions {
+    flex: 0 0 auto;
     display: flex;
     align-items: center;
-    justify-content: flex-end;
-    gap: var(--sp-2);
-    padding: var(--sp-3) var(--sp-4);
-    border-top: 1px solid var(--c-line, #e5e5e5);
-  }
-  .ghost,
-  .primary {
-    padding: var(--sp-1) var(--sp-3);
-    border-radius: 6px;
-    font: inherit;
-    font-size: var(--ts-sm);
-    cursor: var(--cursor-cross-hover);
-  }
-  .ghost {
-    border: 1px solid var(--c-line, #ddd);
-    background: transparent;
-    color: inherit;
-  }
-  .primary {
-    border: 1px solid var(--c-accent-bright);
-    background: var(--c-accent-bright);
-    color: var(--c-bg);
+    gap: 8px;
+    padding: 11px 14px 12px 18px;
+    border-top: 1px solid var(--c-line-strong);
+    background: var(--c-surface);
   }
   .notes {
-    margin-right: auto;
-    font-size: var(--ts-xs, 11px);
-    color: var(--c-tx-3, #999);
+    flex: 1 1 auto;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    color: var(--c-tx-muted);
+    font-size: var(--ts-xs);
+  }
+  .notes b {
+    font: 600 0.95em var(--font-mono);
+    color: var(--c-tx-2);
+  }
+  .ghost,
+  .primary {
+    flex: 0 0 auto;
+    height: 30px;
+    padding: 0 14px;
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-1);
+    background: var(--flx-paper);
+    color: var(--c-tx-2);
+    font: 600 var(--ts-sm) var(--font-serif);
+    cursor: var(--cursor-cross-hover);
+    transition:
+      background 80ms linear,
+      border-color 80ms linear,
+      color 80ms linear,
+      transform 60ms linear;
+  }
+  .ghost:hover {
+    background: var(--c-ui);
+    color: var(--c-tx);
+  }
+  .ghost:active,
+  .primary:active {
+    transform: translateY(0.5px) scale(0.985);
+  }
+  .primary {
+    min-width: 84px;
+    margin-left: auto;
+    border-color: var(--c-accent);
+    background: var(--c-accent);
+    color: var(--c-on-accent);
+  }
+  .notes + .ghost,
+  .notes ~ .primary {
+    margin-left: 0;
+  }
+  .primary:hover {
+    background: var(--c-accent-bright);
+    border-color: var(--c-accent-bright);
+  }
+  .ghost:focus-visible,
+  .primary:focus-visible {
+    outline: 2px solid var(--c-accent);
+    outline-offset: 1px;
   }
 </style>
