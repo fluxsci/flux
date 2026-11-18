@@ -2729,6 +2729,17 @@ Persistence invariants (all machine-checked — do not weaken):
   keeps its 54 px virtual pitch; a filter change must reset `listEl.scrollTop`, not only the
   mirrored `scroll` (rows stayed drawn for the old offset). `searchKeys` walks `filtered` with
   ↑/↓ through `choose()`, which flushes first, so a failed save keeps you on the figure.
+  Its native gate (`verify-figure-metadata-electron`) drives the built app with `sendInputEvent`
+  and reads it with `executeJavaScript`; the two reach the renderer on different channels, in no
+  promised order. A click aimed straight after a key or a click that redraws the form was aimed
+  at where the control HAD been, or found no control (1 run in 4 under load). In a native
+  driver, wait for the control to exist before aiming, and for the state a key was meant to
+  produce before the next click.
+  **Running the native tier on this desktop:** `env -u WAYLAND_DISPLAY DISPLAY=:<private Xvfb>
+  FLUX_PRIVATE_DISPLAY=1 FLUX_XVFB=<path to Xvfb> FLUX_URL=<dev server>`. Without `FLUX_XVFB`
+  five gates stop at "Xvfb unavailable"; without `FLUX_URL` the raster-fidelity probe loads
+  `:1441` and times out on "shell"; with the session's own `DISPLAY` a gate opens on the
+  owner's screen.
   **The keyboard reference is DATA** (rebuilt 2026-11-18; owner: "more legible, and it should be
   searchable! Also do a check for that it is complete"). `src/lib/help/shortcuts.ts` holds every
   row in a small notation (`Mod+Shift+M`, ` / ` alternatives, ` – ` runs, ` · ` separate things;
