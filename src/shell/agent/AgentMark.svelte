@@ -6,7 +6,7 @@
   // works the seed turns; when it finishes it blooms once; on error the
   // centre turns red. Seeded by the agent's name so heron and wren sit in
   // different poses without any per-agent colour coding.
-  import { logoDots } from "../Logomark.svelte";
+  import { logoDots } from "../logoDots";
   const SEED = logoDots().slice(0, 13);
   const hashPose = (seed: string): number => { let h = 0; for (const c of seed) h = (h * 31 + c.charCodeAt(0)) >>> 0; return (h % 8) * 45; };
 </script>

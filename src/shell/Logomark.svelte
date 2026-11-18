@@ -6,42 +6,10 @@
   // ONE place the full brand palette lives; the rest of the UI stays
   // monochrome blue. Canonical asset: brand/flux-mark-phyllotaxis.svg
   // (regenerate app icons with scripts/gen-app-icons.mjs after editing).
-  const WHEEL = [
-    "#d14d41", // red
-    "#da702c", // orange
-    "#d0a215", // yellow
-    "#35ab49", // green
-    "#3aa99f", // cyan
-    "#4385be", // blue
-    "#8b7ec8", // purple
-    "#ce5d97", // magenta
-  ];
-  const GOLDEN = 137.508; // degrees
-  const N = 88;
-
-  export interface LogoDot {
-    x: number;
-    y: number;
-    r: number;
-    fill: string;
-  }
-
-  /** The mark's dots in a 0–100 viewBox — exported so the asset/icon
-   *  generator (scripts/gen-app-icons.mjs) renders the identical geometry. */
-  export function logoDots(): LogoDot[] {
-    const dots: LogoDot[] = [];
-    for (let i = 1; i <= N; i++) {
-      const a = (i * GOLDEN * Math.PI) / 180;
-      const r = 4.15 * Math.sqrt(i);
-      dots.push({
-        x: +(50 + r * Math.cos(a)).toFixed(2),
-        y: +(50 + r * Math.sin(a)).toFixed(2),
-        r: +(1.35 + i * 0.036).toFixed(2),
-        fill: WHEEL[Math.min(7, Math.floor((r / 39.5) * 8))],
-      });
-    }
-    return dots;
-  }
+  // The geometry itself lives in logoDots.ts (plain TypeScript), so code that is not a
+  // component (the Flux AI mark's bootstrap, pure gates) can draw the same dots.
+  import { logoDots } from "./logoDots";
+  export { logoDots, type LogoDot } from "./logoDots";
 
   const DOTS = logoDots();
 </script>

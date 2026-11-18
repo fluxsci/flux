@@ -11,7 +11,7 @@
 //   wait   the annotation gold: something is waiting for you
 //   done   green: finished
 //   error  red
-import { logoDots } from "../Logomark.svelte";
+import { logoDots } from "../logoDots";
 
 export type FluxAiTone = "ready" | "live" | "wait" | "done" | "error";
 export interface FluxAiDot { cx: number; cy: number; r: number; fill: string; /** 1 at the centre, fading outward: the tinted tones keep the seed's depth. */ o: number }

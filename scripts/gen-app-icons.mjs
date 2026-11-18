@@ -5,7 +5,7 @@
 //   build/icons/icon.icns             — macOS (PNG-typed entries)
 //   build/icons/icon.png              — generic 512px
 //
-// The dot formula is the SAME as src/shell/Logomark.svelte `logoDots()` —
+// The dot formula is the SAME as src/shell/logoDots.ts `logoDots()` —
 // change one, change both (the constants below are the contract: N=88,
 // GOLDEN=137.508, r=4.15√i, dot=1.35+0.036i, hue by radius through the wheel).
 //
