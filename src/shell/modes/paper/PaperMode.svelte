@@ -154,11 +154,17 @@
   import {
     commentField,
     commentClickHandler,
+    commentTypingObserver,
+    commentColors,
+    setCommentColors,
     commentRanges,
     addCommentMark,
     removeCommentMark,
     setCommentActive,
   } from "./comments/commentField";
+  import CommentCard from "./comments/CommentCard.svelte";
+  import { editCommentMessage, setCommentInbox, setCommentTags, normalizeTag } from "../../../lib/project/comments";
+  import { commentColor, formatTagDefs, parseTagDefs, withTag } from "../../../lib/project/commentTags";
   import {
     makeAnchor,
     resolveAnchor,
@@ -701,19 +707,172 @@
     if (sessionCurrent(generation, path) && revision === commentRevision) commentsDirty = false;
   }
 
-  function startComment() {
+  // A new comment is written ON its text, in the card (it used to summon the margin's pane).
+  // `forInbox`: false = a note to yourself, which agents are not shown; true = sent to the AI
+  // Inbox (owner, 2026-11-18: "a mechanism where it is possible to add a comment … and have it
+  // NOT go to the AI inbox … a different icon/button for 'send it to the AI inbox'").
+  function startComment(forInbox = false) {
     if (!view) return;
     const sel = view.state.selection.main;
     if (sel.empty) return;
-    summonPane("comments");
+    const pending = threads.find((t) => t.draft);
+    if (pending) {
+      // One unsent comment at a time. An empty one gives way; one with words in it is kept,
+      // and gets the keyboard back instead (starting another must not throw those words away).
+      const field = document.querySelector<HTMLTextAreaElement>(`[data-comment-thread="${CSS.escape(pending.id)}"] textarea[aria-label="New comment"]`);
+      if (field?.value.trim()) { field.focus(); return; }
+      cancelNew(pending.id);
+    }
     const id = newId();
     const doc = view.state.doc.toString();
     const anchor = makeAnchor(doc, sel.from, sel.to);
-    threads = [...threads, { id, anchor, resolved: false, messages: [], draft: true }];
+    threads = [...threads, { id, anchor, resolved: false, messages: [], inbox: forInbox, draft: true }];
     view.dispatch({ effects: [addCommentMark.of({ id, from: sel.from, to: sel.to }), setCommentActive.of(id)] });
     activeComment = id;
     syncRanges();
+    const editor = view;
+    // The mark is in the page after the editor's next measure: hang the card from it then.
+    editor.requestMeasure({
+      read: () => highlightElement(id),
+      write: (el) => {
+        if (el) commentCard = { id, anchor: el, pinned: true };
+        else summonPane("comments"); // off screen: the pane still has it
+      },
+    });
   }
+  const highlightElement = (id: string) => view?.contentDOM.querySelector<HTMLElement>(`.cm-comment-hl[data-cid="${CSS.escape(id)}"]`) ?? null;
+
+  // ---- the card on the highlighted text --------------------------------------------------
+  // Rest the pointer on a highlight and its thread opens there; move onto the card and it stays;
+  // leave both and it goes. A click on the highlight (or writing a new comment) pins it: then
+  // it stays until Esc, a click elsewhere, or the comment is sent, resolved or deleted.
+  let commentCard = $state<{ id: string; anchor: HTMLElement; pinned: boolean } | null>(null);
+  let cardShowTimer: ReturnType<typeof setTimeout> | undefined;
+  let cardHideTimer: ReturnType<typeof setTimeout> | undefined;
+  const CARD_SHOW_MS = 240, CARD_HIDE_MS = 260;
+  const cardThread = $derived(commentCard ? threads.find((t) => t.id === commentCard!.id) ?? null : null);
+  function closeCommentCard() {
+    clearTimeout(cardShowTimer); clearTimeout(cardHideTimer);
+    const draft = commentCard && threads.find((t) => t.id === commentCard!.id && t.draft);
+    commentCard = null;
+    if (draft) cancelNew(draft.id); // an unsent comment does not outlive its card
+  }
+  // Words typed into the card and not yet sent (a new comment, a reply, an edit): such a card
+  // closes only on purpose (Esc, Cancel, Send), never because the pointer or the caret moved on.
+  const cardHasWriting = () => {
+    const el = commentCard && document.querySelector(`[data-comment-card="${CSS.escape(commentCard.id)}"]`);
+    return !!el && [...el.querySelectorAll("textarea")].some((field) => field.value.trim() !== "");
+  };
+  let lastTyped = 0;
+  const TYPING_QUIET_MS = 700;
+  function hoverComment(hit: { id: string; el: HTMLElement } | null) {
+    clearTimeout(cardShowTimer);
+    if (hit) {
+      clearTimeout(cardHideTimer);
+      if (commentCard?.id === hit.id || commentCard?.pinned) return; // already showing it, or busy with another
+      // Text that slides under a resting pointer while you type is not a pointer asking.
+      if (performance.now() - lastTyped < TYPING_QUIET_MS) return;
+      cardShowTimer = setTimeout(() => { if (hit.el.isConnected && !commentCard?.pinned) commentCard = { id: hit.id, anchor: hit.el, pinned: false }; }, CARD_SHOW_MS);
+    } else leaveCommentCard();
+  }
+  function leaveCommentCard() {
+    clearTimeout(cardHideTimer);
+    if (!commentCard || commentCard.pinned) return;
+    cardHideTimer = setTimeout(() => {
+      if (!commentCard || commentCard.pinned) return;
+      // Typing in it keeps it, wherever the pointer has gone.
+      const el = document.querySelector(`[data-comment-card="${CSS.escape(commentCard.id)}"]`);
+      if (!el?.contains(document.activeElement)) commentCard = null;
+    }, CARD_HIDE_MS);
+  }
+  // A key went to the manuscript: you are writing. A card you were reading gets out of the way
+  // (click into commented text and type, and nothing is left hanging over the line); a comment
+  // you are in the middle of WRITING stays, because it holds unsent words.
+  function typedInManuscript() {
+    lastTyped = performance.now();
+    clearTimeout(cardShowTimer);
+    if (commentCard && !threads.some((t) => t.id === commentCard!.id && t.draft) && !cardHasWriting()) { clearTimeout(cardHideTimer); commentCard = null; }
+  }
+  // Working in a card that only hover opened (a click on Reply, a tag) makes it yours: pinned.
+  function pinCommentCard() {
+    clearTimeout(cardHideTimer);
+    if (commentCard && !commentCard.pinned) commentCard = { ...commentCard, pinned: true };
+  }
+  // The piece of highlight the card hangs from left the page (the editor redrew the line, or
+  // it scrolled far away). Hang from the new piece if there is one; a hover card just goes; a
+  // pinned one waits, hidden, and comes back with its text.
+  function cardAnchorLost() {
+    if (!commentCard) return;
+    const again = highlightElement(commentCard.id);
+    if (again) commentCard = { ...commentCard, anchor: again };
+    else if (!commentCard.pinned) commentCard = null;
+  }
+  function clickComment(id: string, el: HTMLElement) {
+    clearTimeout(cardShowTimer); clearTimeout(cardHideTimer);
+    focusComment(id, false);
+    if (commentCard?.id !== id || !commentCard.pinned) {
+      const draft = commentCard && threads.find((t) => t.id === commentCard!.id && t.draft);
+      if (draft && draft.id !== id) cancelNew(draft.id);
+      // Marking it active redraws its mark: hang from the piece that is in the page NOW.
+      commentCard = { id, anchor: el.isConnected ? el : (highlightElement(id) ?? el), pinned: true };
+    }
+  }
+  // The card follows its comment out: resolved, deleted, another document, text scrolled away.
+  $effect(() => {
+    if (!commentCard) return;
+    const t = cardThread;
+    if (!t || t.resolved || !commentCard.anchor.isConnected) {
+      const again = t && !t.resolved ? highlightElement(t.id) : null;
+      if (again) commentCard = { ...commentCard, anchor: again };
+      else { clearTimeout(cardHideTimer); commentCard = null; }
+    }
+  });
+  // A click anywhere but the card or its own highlight lets a pinned card go.
+  function cardOutsidePress(e: MouseEvent) {
+    if (!commentCard?.pinned) return;
+    const target = e.target as Element | null;
+    const id = CSS.escape(commentCard.id);
+    if (target?.closest?.(`[data-comment-card="${id}"]`) || target?.closest?.(`.cm-comment-hl[data-cid="${id}"]`)) return;
+    if (cardHasWriting()) return;
+    closeCommentCard();
+  }
+  function openCommentInMargin(id: string) {
+    clearTimeout(cardHideTimer);
+    commentCard = null;
+    summonPane("comments");
+    focusComment(id);
+  }
+
+  // ---- tags, colour and the AI Inbox ------------------------------------------------------
+  const commentTagDefs = $derived(parseTagDefs($settings.paperCommentTags));
+  function defineCommentTag(raw: string): string {
+    const name = normalizeTag(raw);
+    if (name) settings.update((s) => ({ ...s, paperCommentTags: formatTagDefs(withTag(parseTagDefs(s.paperCommentTags), name)) }));
+    return name;
+  }
+  const changeThreads = (next: DraftThread[], id: string) => {
+    threads = next;
+    if (!threads.find((t) => t.id === id)?.draft) scheduleCommentSave();
+  };
+  function editComment(id: string, index: number, body: string) {
+    changeThreads(editCommentMessage({ version: 1, threads }, id, index, body).threads, id);
+  }
+  function tagComment(id: string, tags: string[]) {
+    changeThreads(setCommentTags({ version: 1, threads }, id, tags).threads, id);
+  }
+  function routeComment(id: string, inbox: boolean) {
+    changeThreads(setCommentInbox({ version: 1, threads }, id, inbox).threads, id);
+  }
+  // A comment with a coloured tag wears that colour in the text. Compared with what the editor
+  // HOLDS, not with what was last sent: a replaced editor state starts with none.
+  $effect(() => {
+    const colors = new Map<string, string>();
+    for (const t of threads) { const c = commentColor(commentTagDefs, t.tags); if (c) colors.set(t.id, c); }
+    if (!view) return;
+    const held = commentColors(view);
+    if (held.size === colors.size && [...colors].every(([id, c]) => held.get(id) === c)) return;
+    view.dispatch({ effects: setCommentColors.of(colors) });
+  });
 
   function submitNew(id: string, body: string) {
     threads = threads.map((t) =>
@@ -776,11 +935,12 @@
     syncRanges();
     scheduleCommentSave();
   }
-  function focusComment(id: string) {
+  function focusComment(id: string, reveal = true) {
     activeComment = id;
     view?.dispatch({ effects: setCommentActive.of(id) });
     const r = cRanges.get(id);
-    if (r && view) view.dispatch({ effects: EditorView.scrollIntoView(r.from, { y: "center" }) });
+    // From the pane: bring its text into view. From a click ON the text: it is already there.
+    if (reveal && r && view) view.dispatch({ effects: EditorView.scrollIntoView(r.from, { y: "center" }) });
   }
 
   // ---- preview + export --------------------------------------------------
@@ -1819,7 +1979,16 @@
             key: "Mod-Alt-m",
             run: (v) => {
               if (v.state.selection.main.empty) return false;
-              startComment();
+              startComment(false);
+              return true;
+            },
+          },
+          {
+            // The same, addressed to the AI Inbox.
+            key: "Mod-Shift-Alt-m",
+            run: (v) => {
+              if (v.state.selection.main.empty) return false;
+              startComment(true);
               return true;
             },
           },
@@ -1855,7 +2024,8 @@
         doiPaste(handleDoi), // whole-DOI pastes first…
         tablePaste(), // …then TSV grids / pipe-escaping inside tables
         commentField,
-        commentClickHandler(focusComment),
+        commentClickHandler(clickComment, hoverComment),
+        commentTypingObserver(typedInManuscript),
       ],
     });
   }
@@ -2022,7 +2192,10 @@
       .map((t) => {
         const r = cRanges.get(t.id);
         const anchor = r ? makeAnchor(doc, r.from, r.to) : t.anchor;
-        return { id: t.id, anchor, resolved: t.resolved, messages: t.messages };
+        // Everything the thread carries (tags, the inbox choice, fields a newer build added)
+        // except the in-memory draft flag: naming the fields here erased the rest on every save.
+        const { draft: _draft, ...kept } = t;
+        return { ...kept, anchor };
       });
     return writeComments(pm, persist, docPath);
   }
@@ -2523,6 +2696,12 @@
         onDelete: deleteComment,
         onFocus: focusComment,
         onStart: startComment,
+        cardId: commentCard?.id ?? null,
+        tagDefs: commentTagDefs,
+        onEdit: editComment,
+        onTags: tagComment,
+        onInbox: routeComment,
+        onDefineTag: defineCommentTag,
       };
     },
     writeCites: (keys, target) => {
@@ -2790,7 +2969,8 @@
   });
 </script>
 
-<section class="paper" data-paper-sources-ready={sourcesReady}>
+<svelte:window onmousedown={cardOutsidePress} />
+<section class="paper" data-paper-sources-ready={sourcesReady} style:--c-comment-hl={$settings.paperCommentColor}>
   <div class="work" bind:this={workEl} bind:clientWidth={workWidth}>
     {#if $paperLayout.outlinerOpen}
       <div
@@ -2917,7 +3097,22 @@
     {/if}
   </div>
 
-  <SelectionToolbar {view} bubble={selBubble.bubble} onComment={startComment} />
+  <SelectionToolbar {view} bubble={selBubble.bubble} onComment={() => startComment(false)} onCommentAi={() => startComment(true)} />
+  {#if commentCard && cardThread && !cardThread.resolved}
+    {#key commentCard.id}
+      <CommentCard
+        thread={cardThread}
+        api={marginHost.comments}
+        anchor={commentCard.anchor}
+        pinned={commentCard.pinned}
+        onenter={() => clearTimeout(cardHideTimer)}
+        onpin={pinCommentCard}
+        onlost={cardAnchorLost}
+        onleave={leaveCommentCard}
+        onClose={closeCommentCard}
+        onOpenInMargin={() => openCommentInMargin(commentCard!.id)} />
+    {/key}
+  {/if}
 
   {#if paletteOpen}
     <CommandPalette {commands} onClose={() => { paletteOpen = false; view?.focus(); }} />

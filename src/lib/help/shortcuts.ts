@@ -541,7 +541,7 @@ export const SECTIONS: ShortcutSection[] = [
         title: "References and figures",
         rows: [
           r("Alt+C", "Edit the citation at the caret"),
-          r("Mod+Alt+M", "Comment on the selection"),
+          r("Mod+Alt+M / Mod+Shift+Alt+M", "Comment on the selection: for yourself / for Flux AI"),
           r("Mod+Alt+Minus / Mod+Alt+Plus", "Figure width down / up, with the caret on its line"),
           r("Alt+D / Shift+Alt+D", "Add or remove the selected word in your personal / the project's dictionary"),
           r("Shift+Alt+W", "Word tools for the selected word: dictionaries and aliases"),

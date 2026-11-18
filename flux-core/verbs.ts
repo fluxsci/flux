@@ -2198,7 +2198,7 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "all", into: "includeResolved", as: "boolean" },
     ],
     handler: async (ctx, a) => {
-      const threads = await core.listProjectComments(ctx.root, a.doc as string | undefined);
+      const threads = await core.listAgentComments(ctx.root, a.doc as string | undefined);
       return a.includeResolved ? threads : threads.filter((t) => !t.resolved);
     },
     render: {

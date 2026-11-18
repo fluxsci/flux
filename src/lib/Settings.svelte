@@ -20,7 +20,9 @@
   import { COLORMAP_COLLECTIONS, PALETTE_COLLECTIONS } from "./color/collections";
   import { PLOT_SEARCH_SCOPES } from "./plot/galleryScope";
   import { untrack } from "svelte";
-  import { settings, settingsOpen, type Settings } from "./settings";
+  import { COMMENT_COLOR_DEFAULT, settings, settingsOpen, type Settings } from "./settings";
+  import { normalizeTag } from "./project/comments";
+  import { formatTagDefs, parseTagDefs, withTag, withoutTag } from "./project/commentTags";
   import {
     buildCursorFamily, buildCursorFamilyDark, cursorPresetOf, isDefaultCursorParams, CURSOR_DEFAULTS, CURSOR_GAP_RANGE, CURSOR_HALO_OPACITY_RANGE, CURSOR_HALO_WIDTH_RANGE,
     CURSOR_PRESETS, CURSOR_SIZE_RANGE, CURSOR_STROKE_RANGE,
@@ -116,6 +118,20 @@
 
   // --- Rows ------------------------------------------------------------------
   const put = <K extends keyof Settings>(key: K, value: Settings[K]) => settings.update((v) => ({ ...v, [key]: value }));
+
+  // --- Paper: comment tags ---------------------------------------------------
+  // Yours, kept as "name" / "name=#rrggbb" strings (lib/project/commentTags.ts). None until
+  // you make one.
+  const commentTags = $derived(parseTagDefs($settings.paperCommentTags));
+  let newTag = $state("");
+  const newTagName = $derived(normalizeTag(newTag));
+  const newTagTaken = $derived(!!newTagName && commentTags.some((t) => t.name === newTagName));
+  const putTags = (next: ReturnType<typeof parseTagDefs>) => put("paperCommentTags", formatTagDefs(next));
+  function addCommentTag() {
+    if (!newTagName || newTagTaken) return;
+    putTags(withTag(commentTags, newTagName));
+    newTag = "";
+  }
   type NumKey = { [K in keyof Settings]-?: Settings[K] extends number ? K : never }[keyof Settings];
   /** One stepper row: − value unit +. `parse` owns the clamp, so typing and stepping agree. */
   type NumRow = { label: string; aria?: string; sub?: string; unit?: string; value: number; min: number; max: number; step: number; parse: (v: string) => number; set: (n: number) => void };
@@ -572,6 +588,32 @@
               <h3>Dynamic panes</h3>
               {@render numRow({ label: "Max panes open at once", value: $settings.paperMaxMarginPanes, min: 1, max: 6, step: 1, parse: (v) => Math.min(6, Math.max(1, Math.round(parseFloat(v) || 4))), set: (n) => put("paperMaxMarginPanes", n), sub: "Opening one more closes the oldest." })}
               {@render toggle("Clean dynamic margin", $settings.paperCleanMargin, (v) => put("paperCleanMargin", v), "Close all panes when focus returns to the editor.")}
+            </section>
+
+            <section class="grp">
+              <h3>Comments</h3>
+              <div class="row cursor-colour comment-colour">
+                <span class="nm">Highlight colour<small>The tint under text that carries a comment. Rest the pointer on it to read and answer the comment there.</small></span>
+                <ColorField value={$settings.paperCommentColor} fallback={COMMENT_COLOR_DEFAULT} label="Comment highlight colour" onchange={(hex) => put("paperCommentColor", hex)} />
+              </div>
+              <h4>Tags</h4>
+              <p class="hint">Labels you can attach to a comment, such as <code>#needs-reference</code>, then filter by in the Comments pane. A comment takes its first tag's colour as its highlight. Taking a tag off this list leaves it on the comments that carry it.</p>
+              <div class="tags" role="list" aria-label="Comment tags">
+                {#each commentTags as t (t.name)}
+                  <div class="tagrow cursor-colour" role="listitem" data-tag={t.name}>
+                    <span class="tagname" style:--tag-c={t.color || $settings.paperCommentColor}><i aria-hidden="true"></i>#{t.name}</span>
+                    <ColorField value={t.color} fallback={$settings.paperCommentColor} label={`Colour of the tag ${t.name}`} onchange={(hex) => putTags(withTag(commentTags, t.name, hex))} />
+                    <button class="tagdrop" aria-label={`Remove the tag ${t.name}`} title="Take it off the list" onclick={() => putTags(withoutTag(commentTags, t.name))}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6" /></svg></button>
+                  </div>
+                {:else}
+                  <p class="tagnone">No tags yet. Name one below, or type a new name in a comment's <b>+ tag</b> menu.</p>
+                {/each}
+              </div>
+              <form class="tagadd" onsubmit={(e) => { e.preventDefault(); addCommentTag(); }}>
+                <span class="hash" aria-hidden="true">#</span>
+                <input type="text" bind:value={newTag} placeholder="new-tag" aria-label="New tag name" spellcheck="false" autocomplete="off" maxlength="48" />
+                <button type="submit" class="ghost" disabled={!newTagName || newTagTaken}>{newTagTaken ? "On the list" : "Add tag"}</button>
+              </form>
             </section>
           </div>
 
@@ -1244,6 +1286,103 @@
     grid-column: 2;
     grid-row: 1;
     width: var(--ctl);
+  }
+
+  /* ---- Paper: comment tags, one row each: its name in its colour · colour · remove ---- */
+  .tags {
+    margin: 2px 0 6px;
+    border-top: 1px solid var(--c-line);
+  }
+  .tagrow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--ctl) 24px;
+    align-items: center;
+    column-gap: 8px;
+    min-height: 32px;
+    border-bottom: 1px solid var(--c-line);
+  }
+  .tagrow :global(.wrap) {
+    grid-column: 2;
+    width: var(--ctl);
+  }
+  .tagname {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--c-tx);
+    font: 12px var(--font-mono);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tagname i {
+    flex: 0 0 auto;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--tag-c);
+  }
+  .tagdrop {
+    grid-column: 3;
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: var(--r-ui);
+    background: none;
+    color: var(--c-tx-muted);
+  }
+  .tagdrop svg {
+    width: 11px;
+    height: 11px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+  }
+  .tagdrop:hover {
+    border-color: color-mix(in oklab, var(--c-danger) 50%, transparent);
+    background: color-mix(in oklab, var(--c-danger) 9%, transparent);
+    color: var(--c-danger);
+  }
+  .tagnone {
+    margin: 0;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--c-line);
+    color: var(--c-tx-muted);
+    font: italic 12px/1.45 var(--font-serif);
+  }
+  .tagadd {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .tagadd .hash {
+    color: var(--c-tx-faint);
+    font: 12px var(--font-mono);
+  }
+  .tagadd input {
+    flex: 0 1 220px;
+    min-width: 0;
+    height: 24px;
+    padding: 0 8px;
+    background: var(--c-bg);
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-ui);
+    color: var(--c-tx);
+    font: 12px var(--font-mono);
+    transition: border-color 80ms linear;
+  }
+  .tagadd input:hover {
+    border-color: var(--c-tx-muted);
+  }
+  .tagadd input:focus {
+    outline: none;
+    border-color: var(--c-accent);
   }
 
   /* ---- Paper: the margin scenes, each a small drawing and its name ----------- */

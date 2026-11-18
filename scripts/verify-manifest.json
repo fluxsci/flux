@@ -478,7 +478,8 @@
       "verify-help-shortcuts.ts",
       "verify-docs-link.ts",
       "verify-dissect-format.ts",
-      "verify-dissect-names.ts"
+      "verify-dissect-names.ts",
+      "verify-comment-model.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -506,6 +507,7 @@
       "verify-outline-refresh.mjs",
       "verify-figref.mjs",
       "verify-figpicker.mjs",
+      "verify-paper-comments-gui.mjs",
       "verify-paper-tables.mjs",
       "verify-paper-split.mjs",
       "verify-w18-paper.mjs",
@@ -840,6 +842,7 @@
       "verify-outline-refresh.mjs",
       "verify-figref.mjs",
       "verify-figpicker.mjs",
+      "verify-paper-comments-gui.mjs",
       "verify-doc-order-gui.mjs",
       "verify-doc-delete-gui.mjs",
       "verify-figfamily.ts",
@@ -908,7 +911,8 @@
       "verify-manuscript-check-gui.mjs",
       "verify-word-count.ts",
       "verify-paper-wordcount-gui.mjs",
-      "verify-paper-find-gui.mjs"
+      "verify-paper-find-gui.mjs",
+      "verify-comment-model.ts"
     ],
     "reader-gate": [
       "verify-r1-highlights.mjs",
@@ -2885,7 +2889,7 @@
       ]
     },
     {
-      "glob": "{flux-core/{annotations,inboxVerbs,inboxWait,inspect,presence,mcpServer,registry,comments}.ts,src/lib/project/{annotations,inbox,comments,presence,targets}.ts,scripts/{lib/inboxFixture.ts,fixtures/inbox-worker.mjs}}",
+      "glob": "{flux-core/{annotations,inboxVerbs,inboxWait,inspect,presence,mcpServer,registry,comments}.ts,src/lib/project/{annotations,inbox,comments,commentTags,presence,targets}.ts,scripts/{lib/inboxFixture.ts,fixtures/inbox-worker.mjs}}",
       "run": [
         "verify-inbox.ts",
         "verify-inbox-wait.ts",
@@ -2901,7 +2905,9 @@
         "verify-scale-inbox.mjs",
         "verify-agent-routing.ts",
         "verify-annotation-surface-gui.mjs",
-        "verify-ai-monitor-gui.mjs"
+        "verify-ai-monitor-gui.mjs",
+        "verify-comment-model.ts",
+        "verify-paper-comments-gui.mjs"
       ]
     },
     {
@@ -4306,7 +4312,8 @@
         "verify-no-retired-agent-layer.ts",
         "verify-cursor-family.ts",
         "verify-cursor-gui.mjs",
-        "verify-cursor-press.mjs"
+        "verify-cursor-press.mjs",
+        "verify-paper-comments-gui.mjs"
       ]
     },
     {
@@ -12418,6 +12425,26 @@
       "isolation": "scratch",
       "timeoutMs": 120000,
       "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-comment-model.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-paper-comments-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
       "coverage": "behavior"
     }
   }

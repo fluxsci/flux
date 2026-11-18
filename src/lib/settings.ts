@@ -72,10 +72,15 @@ export interface Settings {
   paperCleanMargin: boolean; // close all panes whenever focus returns to the editor
   paperLocalCorrections: boolean; // private on-device typo + spacing correction
   paperCorrectionDialect: CorrectionDialect;
+  // Paper — margin comments.
+  paperCommentColor: string; // the highlight under commented text (#rrggbb)
+  paperCommentTags: string[]; // your tags, "name" or "name=#rrggbb" (lib/project/commentTags.ts)
   // App — updates.
   updateCheck: boolean; // check GitHub releases for a newer version (packaged app only)
 }
 
+/** Commented text is underlined in blue unless you choose otherwise (owner, 2026-11-18). */
+export const COMMENT_COLOR_DEFAULT = "#4385be";
 const KEY = "flux.settings";
 const DEFAULTS: Settings = {
   allowAgentView: true,
@@ -124,6 +129,8 @@ const DEFAULTS: Settings = {
   paperCleanMargin: false,
   paperLocalCorrections: true,
   paperCorrectionDialect: "american",
+  paperCommentColor: COMMENT_COLOR_DEFAULT,
+  paperCommentTags: [],
   updateCheck: true,
 };
 
@@ -188,6 +195,7 @@ export function decodeSettings(value: unknown): Settings {
     cursorPressDepth: { ...CURSOR_PRESS_DEPTH_RANGE }, cursorPressReturnMs: { ...CURSOR_PRESS_RETURN_RANGE },
     cursorCentre: { enum: CURSOR_CENTRES }, cursorResizeStyle: { enum: CURSOR_RESIZE_STYLES },
     paperCorrectionDialect: { enum: ["american", "british", "canadian", "australian"] },
+    paperCommentColor: { maxLength: 7 }, paperCommentTags: { strings: true, maxLength: 64 },
   });
 }
 

@@ -10,7 +10,10 @@ choose who handles each item, and see its status. Reader PDF **Highlights** rema
 
 # Point out what needs attention
 
-- **Margin comments** anchor a discussion to document text.
+- **Margin comments** anchor a discussion to document text. In Paper, select the text and
+  click the Flux AI mark in the floating toolbar (**Ctrl+Shift+Alt+M**) to send a comment to
+  the Inbox. The speech bubble beside it (**Ctrl+Alt+M**) leaves a note for yourself, which
+  agents are not shown; the switch on any comment moves it in or out later.
 - **Ctrl+Shift+M** opens **Annotate** in Figure, Paper, Slide, Library, Reader, Present,
   and utility windows. Your current selection becomes a target chip. Type immediately:
   the note keeps keystrokes even while the frozen view is being captured.

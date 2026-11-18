@@ -2,7 +2,7 @@
 // index.ts; WS-6.2).
 
 import * as fs from "node:fs/promises";
-import { appendCommentMessage, mergeCommentThreads, type CommentMessage, type CommentThread, type CommentsFile } from "../src/lib/project/comments";
+import { appendCommentMessage, commentInInbox, mergeCommentThreads, type CommentMessage, type CommentThread, type CommentsFile } from "../src/lib/project/comments";
 export type { CommentMessage, CommentThread, TextQuoteSelector, CommentsFile } from "../src/lib/project/comments";
 import type { SessionRef } from "../src/lib/project/annotations";
 import { CLIENT, stamp, journal } from "./journal";
@@ -52,6 +52,13 @@ export async function listComments(root: string, docRel?: string): Promise<Comme
     if (file) files.push(file);
   }
   return mergeCommentThreads(files);
+}
+
+/** What an AGENT may see and act on: every thread except the notes their author kept out of
+ *  the AI Inbox (`inbox: false`). Listing, resolving and replying go through this; the
+ *  manuscript check, which is the author's own, reads every thread (`listComments`). */
+export async function listAgentComments(root: string, docRel?: string): Promise<DocumentCommentThread[]> {
+  return (await listProjectComments(root, docRel)).filter(commentInInbox);
 }
 
 /** Project-wide review discovery. With no docRel, scan every canonical project
@@ -176,14 +183,15 @@ export async function resolveComment(
     }
     if (files.length === 0) throw new Error(`no comments file: ${commentsRel(m, opts.docRel)}`);
 
+    // A note its author kept out of the AI Inbox is not an agent's to find or resolve.
     let hit = files
-      .flatMap(({ rel, file }) => file.threads.map((thread) => ({ rel, file, thread })))
+      .flatMap(({ rel, file }) => file.threads.filter(commentInInbox).map((thread) => ({ rel, file, thread })))
       .find(({ thread }) => thread.id === idOrQuote);
     if (!hit) {
       const needle = idOrQuote.toLowerCase();
       const hits = files.flatMap(({ rel, file }) =>
         file.threads
-          .filter((thread) => (thread.anchor?.quote ?? "").toLowerCase().includes(needle))
+          .filter((thread) => commentInInbox(thread) && (thread.anchor?.quote ?? "").toLowerCase().includes(needle))
           .map((thread) => ({ rel, file, thread })),
       );
       if (hits.length === 0)
@@ -232,7 +240,7 @@ export async function resolveProjectComment(
   opts: CommentWriteOptions = {},
 ): Promise<ResolveCommentResult> {
   if (opts.docRel) return resolveComment(root, idOrQuote, opts);
-  const open = (await listProjectComments(root)).filter((thread) => !thread.resolved);
+  const open = (await listAgentComments(root)).filter((thread) => !thread.resolved);
   let hits = open.filter((thread) => thread.id === idOrQuote);
   if (hits.length === 0) {
     const needle = idOrQuote.toLowerCase();
@@ -252,7 +260,7 @@ export async function resolveProjectComment(
 /** Append to the owning sidecar under its manuscript operation lease. */
 export async function replyToComment(root: string, id: string, body: string, opts: CommentWriteOptions = {}) {
   return withLock(root, "manuscript", opts.client ?? CLIENT, async () => {
-    const threads = await listProjectComments(root, opts.docRel);
+    const threads = await listAgentComments(root, opts.docRel);
     const hits = threads.filter(t => t.id === id);
     if (hits.length !== 1) throw new Error(`expected one comment ${id}, found ${hits.length}`);
     const hit = hits[0], manifest = await loadManifest(root);

@@ -10,6 +10,7 @@ import type { EditorView } from "@codemirror/view";
 import type { FigureRef } from "../scholar/figures";
 import type { BibEntry } from "../scholar/bib";
 import type { CommentThread } from "../comments/comments";
+import type { CommentTagDef } from "../../../../lib/project/commentTags";
 import type { PaperWordCounts } from "../wordCounts.svelte";
 
 export interface CommentBridge {
@@ -25,7 +26,19 @@ export interface CommentBridge {
   onReopen: (id: string) => void;
   onDelete: (id: string) => void;
   onFocus: (id: string) => void;
-  onStart: () => void;
+  /** Start a comment on the selection: for yourself, or (true) for the AI Inbox. */
+  onStart: (forInbox?: boolean) => void;
+  /** The thread open in the card on the page, if any (the pane does not repeat its composer). */
+  cardId: string | null;
+  /** Your tag list (Settings), for chips, colours and the tag menu. */
+  tagDefs: CommentTagDef[];
+  /** Rewrite one of your own messages. */
+  onEdit: (id: string, index: number, body: string) => void;
+  onTags: (id: string, tags: string[]) => void;
+  /** Send a comment to the AI Inbox, or take it out. */
+  onInbox: (id: string, inbox: boolean) => void;
+  /** Add a tag to your list; returns its stored name ("" when nothing usable is left). */
+  onDefineTag: (name: string) => string;
 }
 
 /** A citation occurrence in the document (a `[@…]` group or a bare `@key`). */

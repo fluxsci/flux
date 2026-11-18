@@ -537,13 +537,19 @@ export const fluxTheme = EditorView.theme(
     },
 
     /* ---- comment highlights (C1) ----------------------------------------- */
+    // Commented text: a tint of the comment's colour with a rule under it. The colour is the
+    // comment's own when it has a coloured tag (--cm-hl, set on the mark), else the one chosen
+    // in Settings (--c-comment-hl, set on the Paper root), else blue. It is NOT --c-comment: that
+    // gold is the agent surfaces' "waiting for you", and passages kept reading as that.
     ".cm-comment-hl": {
-      backgroundColor: "var(--c-comment-tint)",
+      backgroundColor: "color-mix(in srgb, var(--cm-hl, var(--c-comment-hl, #4385be)) 22%, transparent)",
       borderRadius: "2px",
-      boxShadow: "0 1px 0 var(--c-comment)",
-      transition: "background-color var(--dur-quick, 120ms) ease",
+      boxShadow: "0 1.5px 0 color-mix(in srgb, var(--cm-hl, var(--c-comment-hl, #4385be)) 80%, transparent)",
+      cursor: "var(--cursor-cross-hover, pointer)",
+      transition: "background-color 80ms linear",
     },
-    ".cm-comment-hl.active": { backgroundColor: "var(--c-comment-tint-2)" },
+    ".cm-comment-hl:hover": { backgroundColor: "color-mix(in srgb, var(--cm-hl, var(--c-comment-hl, #4385be)) 30%, transparent)" },
+    ".cm-comment-hl.active": { backgroundColor: "color-mix(in srgb, var(--cm-hl, var(--c-comment-hl, #4385be)) 38%, transparent)" },
   },
   // The paper surface is now always the light Flexoki "paper" theme (Redesign
   // v2); declare light so CM's built-in selection/caret defaults match.

@@ -39,6 +39,7 @@ export const CM_CHORD_STRINGS = [
   // Owned by other CM layers (not this keymap, still CM territory):
   "Mod-Enter", // follow-at-caret
   "Mod-Alt-m", // comment on selection
+  "Mod-Shift-Alt-m", // comment on selection, for the AI Inbox
   "Alt-d", // toggle selection in the personal dictionary
   "Alt-Shift-d", // toggle selection in the project dictionary
   "Alt-Shift-w", // word tools / aliases
@@ -55,6 +56,7 @@ const MAC_SHORTCUTS = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test
 
 export const CM_HINTS = {
   commentSelection: "⌘⌥M",
+  commentSelectionAi: "⌘⌥⇧M",
   figWidth: "⌘⌥− / ⌘⌥=",
   foldSection: "⌃⇧[",
   unfoldSection: "⌃⇧]",

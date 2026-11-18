@@ -41,7 +41,7 @@ export interface PaperCmdCtx {
   summonPane(kind: string): void;
   editCitationAtCursor(): void;
   openDoiPrompt(mode: "library" | "cite"): void;
-  startComment(): void;
+  startComment(forInbox?: boolean): void;
   closeActivePane(): void;
   closeAllPanes(): void;
   widerMargin(): void;
@@ -246,9 +246,17 @@ export const PAPER_COMMANDS: PaperCommandRow[] = [
     id: "comment-selection",
     title: () => "Comment on selection",
     hint: CM_HINTS.commentSelection, // real binding: editing keymap layer
-    keywords: "annotate note review remark",
+    keywords: "annotate note review remark private",
     owner: "cm",
     run: (c) => c.startComment(),
+  },
+  {
+    id: "comment-selection-ai",
+    title: () => "Comment on selection for Flux AI",
+    hint: CM_HINTS.commentSelectionAi, // real binding: editing keymap layer
+    keywords: "annotate ask agent inbox ai claude codex review request",
+    owner: "cm",
+    run: (c) => c.startComment(true),
   },
   { id: "margin-stats", title: () => "Statistics", hint: "Margin", keywords: "word count length", owner: "none", run: (c) => c.summonPane("stats") },
   { id: "margin-close-pane", title: () => "Close margin pane", keys: ["Alt+KeyP"], owner: "window", keywords: "dynamic pane close dismiss", run: (c) => c.closeActivePane() },

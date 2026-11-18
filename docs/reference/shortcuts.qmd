@@ -97,7 +97,8 @@ also appears in the global and Paper palettes and Library's **Commands…** menu
 | **Alt+A** | Comments pane |
 | **Alt+C** | Edit the citation at the cursor |
 | **Alt+P** / **Ctrl+Alt+P** | Close the active margin pane / close all panes |
-| **Ctrl+Alt+M** | Comment on the current selection |
+| **Ctrl+Alt+M** | Comment on the current selection, for yourself |
+| **Ctrl+Shift+Alt+M** | Comment on the current selection for Flux AI (it goes to the Inbox) |
 | **Alt+M** | Figure-Meta |
 | **Alt+D** / **Shift+Alt+D** | Toggle the selected word in the personal / project dictionary |
 | **Shift+Alt+W** | Word tools for the selected term — dictionaries and aliases |

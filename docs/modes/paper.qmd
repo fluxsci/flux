@@ -384,13 +384,36 @@ opening it twice.
 
 # Comments and review
 
-Select text and click the comment button in the floating toolbar (or press **Ctrl+Alt+M**) to
-start a thread anchored to that exact passage. Threads live in the Comments pane: reply,
-**Resolve**, reopen, delete. They're stored beside the document — never inside your prose —
-and they're the shared review channel with [agents](../agents/annotations.qmd): an agent
-addressing your comments resolves them with a note, and you watch threads close live in your
-margin. If the underlying text is edited away, a comment is kept as *Detached* rather than
-lost.
+Select text and the floating toolbar offers two ways to comment on it, side by side:
+
+- **Comment** (the speech bubble, **Ctrl+Alt+M**) leaves a note for yourself. It stays with
+  you: agents are not shown it, and it is not in the Inbox.
+- **Comment for Flux AI** (the Flux AI mark, **Ctrl+Shift+Alt+M**) sends the comment to the
+  [Inbox](../agents/annotations.qmd), where an agent can read it, answer it, act on it and
+  resolve it with a note. You watch the thread close live.
+
+Either way a card opens on the selection and you write there: **Ctrl+Enter** sends, **Esc**
+drops it. The switch on the card (**Just for me** / **For Flux AI**) changes who the comment
+is for, before you send it or at any time after, so a note can be handed to an agent later
+and a comment can be taken back.
+
+Commented text is tinted blue. Rest the pointer on it and its thread opens in a card on the
+text, where you can read it, **Reply**, edit what you wrote (the pencil beside your message),
+**Resolve** or **Delete** it, or choose **In margin** to open it in the Comments pane
+(**Alt+A**), which lists every thread in the document. Click the text to keep the card open
+while the pointer is elsewhere; it closes on **Esc**, on a click somewhere else, and as soon
+as you type in the manuscript, so it is never in the way of writing.
+
+**+ tag** on a comment attaches a label such as `#needs-reference`. There are no tags until
+you make one: type a name in the tag menu and press **Enter**, and it joins your list. Each
+tag has a colour, a comment is highlighted in its first tag's colour, and the Comments pane
+offers the tags in use as filters (along with **Flux AI**, once you have comments of both
+kinds): click one to see only those comments, and again to see them all. Your tags, their
+colours and the default highlight colour are under **Settings → Paper → Comments**.
+
+Threads are stored beside the document, never inside your prose. Resolved threads stay in the
+pane, shortened, to reopen or delete. If the text under a comment is edited away, the comment
+is kept as *Detached* rather than lost.
 
 # Find and replace
 

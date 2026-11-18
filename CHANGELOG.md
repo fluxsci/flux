@@ -225,6 +225,23 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 
 ### Paper
 
+- **Comments open on their text.** Rest the pointer on commented text and its thread opens in
+  a card right there: read it, reply, edit what you wrote, resolve or delete it, or open it in
+  the margin's Comments pane. A click keeps the card open; typing in the manuscript sends it
+  away. A new comment is written in the same card, on the selection, instead of in the margin.
+- **A comment is yours unless you send it to Flux AI.** The selection toolbar has two
+  buttons: **Comment** (**Ctrl+Alt+M**) leaves a note that agents are not shown and that stays
+  out of the Inbox, and the Flux AI mark (**Ctrl+Shift+Alt+M**) sends the comment to the
+  Inbox. A switch on every comment moves it either way later. Comments made before this
+  release stay in the Inbox, as they were.
+- **Commented text is blue**, no longer the gold that elsewhere means "an agent is waiting for
+  you". The colour is yours to choose in **Settings → Paper → Comments**.
+- **Comment tags.** Attach labels such as `#needs-reference` to a comment, give each a colour
+  (a comment is highlighted in its first tag's colour), and filter the Comments pane by tag
+  or by **Flux AI**. There are no tags until you make one.
+- Your own messages in a comment thread can be edited; an edited message says so.
+- Resolved threads in the Comments pane are shortened to three lines until you click them, so
+  open comments are not pushed out of sight.
 - **The `@@` and `/figure` pickers are the margin's Figures card.** The same paper card with its
   title in the outline, the same ink, the same controls. Figures are small cells, four to a
   row. Citing panels happens on the card's own stage (scroll to zoom, drag to pan), with the

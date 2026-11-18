@@ -32,6 +32,10 @@ the `.qmd`. The anchor contains `start`, `end`, the exact `quote`, and nearby
 before changing prose. If offsets drifted, use the quote and surrounding text;
 ask when the target is ambiguous. Comments on Context documents count too.
 
+A thread with `inbox: false` is the writer's own note. The inbox and the comment tools
+do not list it and cannot answer or resolve it; never read one from a sidecar and act on
+it. `tags` on a thread are the writer's labels and work with the inbox `--tag` filter.
+
 `comments` / `list_comments` reads all project documents unless narrowed by `--doc`.
 `resolve-comment` resolves only a unique project-wide match when no document is
 given. A promoted main document retains discovery of its document-named threads.

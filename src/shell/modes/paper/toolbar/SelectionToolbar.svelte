@@ -16,6 +16,7 @@
   } from "../editing/commands";
   import { CM_HINTS } from "../editing/keymap";
   import { openLocalWordTools } from "../editing/localWordTools";
+  import FluxAiMark from "../../../agent/FluxAiMark.svelte";
 
   // Dual-paper (2026-08-11): the bubble store is per-PaperMode (created by
   // createSelectionBubble) and arrives as a prop — a module singleton meant
@@ -24,8 +25,15 @@
     view,
     bubble,
     onComment,
-  }: { view: EditorView | undefined; bubble: Writable<BubbleState>; onComment?: () => void } =
-    $props();
+    onCommentAi,
+  }: {
+    view: EditorView | undefined;
+    bubble: Writable<BubbleState>;
+    /** A note on the selection, for yourself. */
+    onComment?: () => void;
+    /** A comment on the selection that goes to the AI Inbox. */
+    onCommentAi?: () => void;
+  } = $props();
 
   const btns: { name: string; title: string; run: Command }[] = [
     { name: "bold", title: "Bold  ⌘B", run: toggleWrap("**") },
@@ -110,13 +118,29 @@
       <span class="bsep"></span>
       <button
         class="bbtn"
-        title="Comment"
+        title={`Comment, just for you  ${CM_HINTS.commentSelection}`}
+        aria-label="Comment"
         onmousedown={(e) => {
           e.preventDefault();
           e.stopPropagation();
           onComment?.();
         }}>
         <Icon name="message" size={15} stroke={1.9} />
+      </button>
+    {/if}
+    {#if onCommentAi}
+      <!-- The same act with a different reader: this one goes to the AI Inbox, so it wears
+           the Flux AI mark (at rest: nothing in a toolbar moves until it is used). -->
+      <button
+        class="bbtn ai"
+        title={`Comment for Flux AI: it goes to the AI Inbox  ${CM_HINTS.commentSelectionAi}`}
+        aria-label="Comment for Flux AI"
+        onmousedown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onCommentAi?.();
+        }}>
+        <FluxAiMark still size={17} tone="live" />
       </button>
     {/if}
   </div>

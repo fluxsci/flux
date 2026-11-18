@@ -17,7 +17,7 @@ import { listKnownProjects } from "../../electron/projectsRegistry.cjs";
 import { configInfo } from "../references";
 import { loadManifest, readFigIndex, readCanvasFiles } from "../model";
 import { listDocuments } from "../manuscript";
-import { listProjectComments } from "../comments";
+import { listAgentComments, listProjectComments } from "../comments";
 import { captionFor, syncFigureAssets } from "../figures";
 import { listDecks } from "../slides";
 import { bridgeAvailable, getAppContext } from "../liveClient";
@@ -461,7 +461,7 @@ export function legacyNotebookSections(text: string): string | null {
 
 async function docFacts(root: string, src: Sources, withText: boolean): Promise<{ docs: DocFact[]; commented: Set<string> }> {
   const rows = await listDocuments(root);
-  const threads = await listProjectComments(root).catch(() => []);
+  const threads = await listAgentComments(root).catch(() => []);
   const commented = new Set(threads.filter((t) => !t.resolved).map((t) => t.doc));
   const docs: DocFact[] = [];
   const skip = new Set(CONTEXT_DOC_RELS);

@@ -24,6 +24,7 @@ import {
   type ThreadMessage,
 } from "./annotations";
 import { describeTarget, formatTarget, targetDeckId, targetFigureId, type TargetRef } from "./targets";
+import { commentInInbox } from "./comments";
 import { createFigureReferenceResolver } from "../figureReferences";
 
 /** A margin-comment thread as flux-core / the GUI read it from a sidecar. */
@@ -33,6 +34,10 @@ export interface InboxComment {
   anchor: { start: number; end: number; quote: string; prefix?: string; suffix?: string };
   resolved: boolean;
   messages: { author: string; body: string; createdAt: string; kind?: "agent" | "human" }[];
+  /** Tags attached from the comment's tag list (typed #tags are read from the messages). */
+  tags?: string[];
+  /** `false` = a note the author kept out of the AI Inbox (comments.ts, CommentThread.inbox). */
+  inbox?: boolean;
 }
 
 export type InboxSurface = "paper" | "figure" | "slide" | "present" | "reader" | "library" | "home" | "unknown";
@@ -165,7 +170,7 @@ function commentItem(t: InboxComment, o: ItemOverlay | undefined, input: InboxBu
     surface: "paper",
     where: `${t.doc} · "${quote}"`,
     text: first?.body ?? "",
-    tags: parseTags([first?.body ?? "", humanText].join("\n")),
+    tags: [...new Set([...(t.tags ?? []), ...parseTags([first?.body ?? "", humanText].join("\n"))])],
     status: statusOf(pseudo),
     chip: statusChip(pseudo, input.liveness),
     route: overlay?.route ?? (overlay?.assignedTo ? { session: overlay.assignedTo } : "none"),
@@ -189,7 +194,9 @@ function emptyView(id: string): ItemOverlay {
 /** Every item, annotations then comments, each in creation order. */
 export function buildInbox(input: InboxBuildInput): InboxItem[] {
   const out = input.state.items.map((a) => annotationItem(a, input.liveness));
-  for (const t of input.comments) out.push(commentItem(t, input.state.overlays.get(t.id), input));
+  // A comment its author kept to themselves is not an inbox item: not in the app's Inbox, not in
+  // an agent's list, not in a connect brief (they all build from here).
+  for (const t of input.comments) if (commentInInbox(t)) out.push(commentItem(t, input.state.overlays.get(t.id), input));
   return out;
 }
 

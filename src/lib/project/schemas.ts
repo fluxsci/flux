@@ -722,6 +722,10 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
             anchor: { type: "object" },
             resolved: { type: "boolean" },
             messages: { type: "array" },
+            // Yours to sort by: lower-case names, no "#".
+            tags: { type: "array", items: { type: "string" } },
+            // false = a private note agents are not shown; absent or true = in the AI Inbox.
+            inbox: { type: "boolean" },
           },
         },
       },

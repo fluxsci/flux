@@ -1332,6 +1332,40 @@ Persistence invariants (all machine-checked — do not weaken):
   the margin's gates use it as the margin's root. A cell's thumbnail window is a percentage
   padding (`height:0; padding-bottom:75%`) with the image laid inside it: `aspect-ratio` on the
   window let a large or unloaded image set the cell's size (cells several hundred px tall).
+  **Paper comments (round 2, 2026-11-18; owner: "hover the comment-highlight, and get a popover
+  card … reply/resolve/edit/delete … right in the popover card", "tags", "have it NOT go to the AI
+  inbox").** ONE thread view, two places: `comments/CommentThreadView.svelte` renders a thread
+  (and the composer of a new one) both in the margin's `CommentsView` and in
+  `comments/CommentCard.svelte`, the card that hangs from the highlighted text (`.mk-host`, the
+  Comments pane's ink, floating-ui `fixed` with `hide()` so it leaves with its text). PaperMode
+  owns the card's state (`commentCard {id, anchor, pinned}`): hover opens it after 240 ms and
+  lets it go 260 ms after the pointer has left both the text and the card; a plain `click`
+  pins it (`click`, not `mousedown`, and only with an empty selection: a drag through commented
+  text is a selection); any key in the manuscript closes a card that is not a draft
+  (`commentTypingObserver`, a `domEventObservers` entry, because the keymap answers most keys
+  before a later `domEventHandlers` entry is asked) and holds hover-open off for 700 ms. A NEW
+  comment is a draft thread written in the card; an unsent draft never outlives its card and
+  is never saved. The thread model gained three optional fields, all in
+  `lib/project/comments.ts` with pure setters the headless core shares: `inbox` (ONLY an
+  explicit `false` keeps a thread out: `commentInInbox`; older and agent-opened threads have
+  no field and stay in), `tags` (stored names, lower case, no `#`), and `editedAt` on a
+  message (`editCommentMessage` refuses an agent's message). `buildInbox` and every agent read
+  (`listAgentComments` in flux-core, used by `list_comments`, `resolve_comment`,
+  `replyToComment` and connect's doc facts) skip private threads; Manuscript Check still reads
+  them all, because it is the writer's own tool. `persistThreadsTo` writes the WHOLE thread
+  minus `draft`: naming the fields there erased anything it did not name on every save. Tag
+  definitions are the user's, not the project's: `paperCommentTags` in settings as
+  `"name"` / `"name=#rrggbb"` strings (`lib/project/commentTags.ts`), empty by default, so a
+  tag a collaborator used still shows, neutrally. The highlight is `--cm-hl` on the mark (the
+  first coloured tag, set through `setCommentColors`) falling back to `--c-comment-hl` on
+  `section.paper` (the Settings colour, blue): NOT `--c-comment`, which is the agent surfaces'
+  gold "waiting for you". The tag menu opens IN the flow under the chips: a floating one was
+  clipped by the card's and the pane's scrollers. A view that takes the keyboard "when it
+  appears" must do it once: the thread object is replaced on every change, and an effect keyed
+  on it pulled focus out of the tag menu on the first tag. `Mod-Shift-Alt-m` is the Flux AI
+  chord; a driver must press the physical key (`KeyM`) with Shift, or CodeMirror sees `m` and
+  matches `Mod-Alt-m` first. Gates: `verify-comment-model.ts`, `verify-paper-comments-gui.mjs`.
+
   **The left sidebar** (rebuilt 2026-11-18; owner: "a more pleasant + tactile mechanism for
   expanding/collapsing directories or the doc outline, better visual delineations").
   `PaperSidebar` switches are on = ink + accent rail; the split is a hairline with a grip
