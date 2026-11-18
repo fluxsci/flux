@@ -470,12 +470,13 @@ alternative analyses, or stats CSVs there (subfolders become sections) and they'
 away from the composed figure — without ever appearing in the plot importer or your figures.
 It works on a slide's plots too.
 
-Inside the viewer: **arrow keys** move around the grid and **Enter** opens a file
-(**Ctrl+scroll** zooms images at the cursor, **Space+drag** pans, **Enter** toggles fit/1:1).
-An open file has a strip of all the plot's files under it: **←** / **→** flip through them,
-**↑** / **↓** step a group at a time. CSV and TSV files open as sortable tables with their
+The viewer opens on the plot's first picture, with a strip of all the plot's files under it:
+**←** / **→** flip through them, **↑** / **↓** step a group at a time (**Ctrl+scroll** zooms
+images at the cursor, **Space+drag** pans, **Enter** toggles fit/1:1). **G** shows every file
+as a grid, where **arrow keys** move and **Enter** opens. CSV and TSV files open as sortable tables with their
 numbers rounded for reading (the file's own text is one click away), p-values marked, and
-test results read out as sentences you can copy. **Esc** steps back out.
+test results read out as sentences you can copy. **Esc** closes the viewer (or returns to
+the grid from a file you opened there).
 [Dissections](../concepts/dissections.qmd) has the details. The window button
 shrinks the viewer to a floating window you can keep beside the canvas; files dropped into
 the folder while it's open appear live. The Inspector's **Dissections** button (with a count)

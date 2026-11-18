@@ -239,13 +239,14 @@ endpoints) · **d** delete nodes · **Ctrl+drag a segment** bends it *(Control o
 **Ctrl+A** selects every node · **Delete** removes the selected ones · **Enter** finishes ·
 **Escape** ladders out.
 
-In the Dissect viewer (**D** on a plot, in Figure or Slide): **arrows** move through the grid ·
-**Enter** or **Space** opens a file · **[** / **]** smaller / bigger tiles · **1–9** jump to a
-section. With a file open: **←** / **→** flip to the previous / next file · **↑** / **↓** step
-a whole group · **Home** / **End** first / last file · **1–9** open a section's first file ·
+In the Dissect viewer (**D** on a plot, in Figure or Slide), which opens on the plot's first
+picture: **←** / **→** flip to the previous / next file · **↑** / **↓** step a whole group ·
+**Home** / **End** first / last file · **1–9** open a section's first file · **G** all files as
+a grid, and back. In the grid: **arrows** move · **Enter** or **Space** opens a file · **[** /
+**]** smaller / bigger tiles · **1–9** jump to a section. On an open picture:
 **Enter** fit ↔ 1:1 · **Ctrl+wheel** zoom at the cursor (**+** / **−** too) · **Space+drag**
 pan (**Shift+wheel** sideways) · **0** reset zoom. **Ctrl+Enter** or **Ctrl+S** in a note saves
-it · **Escape** ladders out (open file → grid → closed).
+it · **Escape** closes the viewer (from a file opened in the grid, it returns to the grid).
 
 While orbiting a [3D model](../modes/figure.qmd#3d-models) (double-click the mesh, or
 **Orbit** in the Inspector): **drag** orbit · **Shift+drag** pan · **Alt+drag** roll ·

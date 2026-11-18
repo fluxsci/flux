@@ -2701,6 +2701,19 @@ Persistence invariants (all machine-checked — do not weaken):
   have its surface mounted wherever the key that sets it works.
   (4) Its key handler runs on `window` in the capture phase and reads `e.target.closest`: a gate
   must press real keys (a synthetic event dispatched on `document` has no `closest`).
+  (5) Round 2 (owner: "make this view the default … get the whole name displayed … make sure the
+  file names don't overlap"). The viewer LANDS in the opened view on the first picture (`landing`
+  is consumed by the first listing; a file named by `target.initial` still wins). Esc pops ONE
+  level: `fromGrid` is true only for a file opened from the grid (Enter, a tile, or G back), so
+  Esc closes from the landing file and returns to the grid otherwise; G toggles grid ↔ file; a
+  click on the empty stage only acts when there is a grid to go back to. Names go through
+  `dissect/names.ts` (pure, `verify-dissect-names`): real analysis folders name every group and
+  file after the plot, so a label is the name without its parent's front (`withoutStem` cuts
+  only at a separator, so "plotter" keeps "plot") and the whole name is the tooltip. In the
+  strip a group's label is an absolutely positioned box as WIDE AS ITS GROUP (a short group is
+  padded out to its label, up to 168 px), which is what stops a long name running over the next
+  group; chips are sized from their text with `monoWidth` (no DOM measuring: the strip is
+  windowed and laid out before it is drawn).
   **The Plots rail's folder navigator (2026-11-18; owner: "the feel … when expanding/collapsing,
   selecting, searching, and I'd also love the option for this to NOT take over the dissection
   pane … Go with whatever you think is best").** It opens BESIDE the rail by default: a panel off

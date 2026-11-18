@@ -82,6 +82,11 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   whole branch. New folders appear by themselves. If you prefer it in the lower pane, the button
   in its header docks it there, as does **Settings → Figure → Plot gallery → Folders open**.
 - **The Dissect viewer (D), rebuilt.**
+  - **It opens on the plot's first picture**, large, with the strip under it; **G** shows all
+    files as a grid and returns. **Esc** closes it from there.
+  - **Names you can read.** Folders and files named after the plot lose that shared front in
+    the strip and the headings (*rem-sorted*, *source_data*); a table says which group it is
+    from; a picture has its name under it; a group's name no longer runs over the next group.
   - **Flip through a plot's files.** An open file has a strip of every file under it, the
     open one marked, each group named where it starts. **←** / **→** flip, **↑** / **↓** step a
     whole group, **Home** / **End** and **1–9** jump, and a click opens: twenty per-subject

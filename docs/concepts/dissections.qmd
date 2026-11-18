@@ -66,20 +66,29 @@ holds the pane on one plot while you work elsewhere.
 
 **Full screen.** In the Figure or Slide editor, select a plot and press **D** (or click **Dissections** in the
 Inspector — it shows a count). The viewer opens full-screen, and the window button at its top right shrinks it
-to a floating window you can keep beside the canvas. It is the rail's pane at full size: tables
-first as Summary previews, then each folder of panels as its own section at the panels' own
-shapes, then the remaining files as a list:
+to a floating window you can keep beside the canvas. It opens on the plot's first picture, large, with a strip
+of every file under it:
 
-- **Arrow keys** move through the files; **[** / **]** (or **Ctrl+scroll**) make the tiles
-  smaller or larger; **1–9** jump to a section; a section's ▾ folds it.
-- **Enter** opens a file. Images zoom at the cursor with **Ctrl+scroll**, pan with
-  **Space+drag** or plain scroll, and toggle fit/1:1 with **Enter**.
-- **An open file has a strip of every file under it**, the open one marked and kept in the
-  middle, each group named where it starts. **←** / **→** flip to the previous / next file,
-  **↑** / **↓** step a whole group, **Home** / **End** go to the first / last, **1–9** open a
-  section's first file, and a click in the strip opens that file: you can go through twenty
-  per-subject panels without returning to the grid. The bar above the file says where you
-  are (section › file, and *8 of 24*), with **All files** to go back.
+- **The strip** shows the open file marked and kept in the middle, each group named where it
+  starts. **←** / **→** flip to the previous / next file, **↑** / **↓** step a whole group,
+  **Home** / **End** go to the first / last, **1–9** open a section's first file, and a click
+  opens a file: you can go through twenty per-subject panels without leaving the view. The bar
+  above the file says where you are (section › file, and *8 of 24*).
+- **Names are shortened to what tells them apart.** Analysis runs usually name every folder
+  and file after the plot (`growth-rem-sorted/growth-rem-sorted--source_data.csv` under the
+  plot `growth`). The strip and the headings drop that shared front, so a group reads
+  *rem-sorted* and its table *source_data*; a table in **Summary** also says which group it
+  comes from, and a picture has its name (or, when it is named after its group, its format)
+  under it. The whole name is the tooltip. A group's name is cut at its own group, never
+  drawn over the next one.
+- Images zoom at the cursor with **Ctrl+scroll**, pan with **Space+drag** or plain scroll, and
+  toggle fit/1:1 with **Enter**.
+- **G** (or **All files**) shows everything as a grid: the rail's pane at full size, tables
+  first as Summary previews, then each folder of panels as its own section at the panels' own
+  shapes, then the remaining files as a list. There, **arrow keys** move through the files;
+  **[** / **]** (or **Ctrl+scroll**) make the tiles smaller or larger; **1–9** jump to a
+  section; a section's ▾ folds it; **Enter** opens a file and **G** returns to the one that
+  was open.
 - **Tables are shown the way you would read them.** A long number is rounded to four
   significant digits (`6.596349872904714` → 6.596), very small and very large ones are written
   as powers of ten (`3.88e-05` → 3.88 × 10⁻⁵), and a number that is already short is left exactly
@@ -92,7 +101,8 @@ shapes, then the remaining files as a list:
   Hedges' g_z = 1.771 [0.922, 2.86], n = 12*. **Copy** puts a sentence (or all of them) on the
   clipboard for your results section. This appears for tables with a p-value column and a test
   name or a test statistic, which is what fluxplot's `_stats` files contain.
-- **Esc** steps back: open file → grid → closed.
+- **Esc** steps back one level: it closes the viewer from the file it opened on (or from the
+  grid), and returns to the grid from a file you opened there.
 
 The viewer is live: files dropped into the folder while it's open simply appear.
 

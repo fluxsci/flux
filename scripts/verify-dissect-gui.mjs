@@ -91,16 +91,30 @@ ok(
 );
 ok(s.inspBtn && s.inspCount === "8", `Inspector shows the Dissections button with its count (${s.inspCount || "none"})`);
 
+// ---- the opened view is where the viewer starts (owner, 2026-11-18: "make this view the default")
+const landed = await page.evaluate(() => ({ detail: !!document.querySelector("[data-dissect-detail]"), img: !!document.querySelector("[data-dissect-detail] img"), open: document.querySelector(".opened .fname")?.textContent ?? "",
+  strip: !!document.querySelector("[data-dissect-strip]"), current: document.querySelector("[data-dissect-strip] .item.current")?.dataset.stripItem ?? "", foot: document.querySelector(".dfoot")?.textContent.replace(/\s+/g, " ").trim() ?? "" }));
+ok(landed.detail && landed.img && landed.open === "overview.svg", "the viewer opens on the plot's first picture, in the opened view", JSON.stringify(landed));
+ok(landed.strip && landed.current === "overview.svg", "…with the strip of all its files under it, that picture marked");
+ok(/G all files/.test(landed.foot) && /Esc close$/.test(landed.foot), "…where Esc closes and G shows all files", landed.foot);
+await page.keyboard.press("g");
+await sleep(200);
+s = await snap();
+ok(s.open && !s.detail && s.cells.some((c) => c.selected && c.name === "overview.svg"), "G shows all files as a grid, the open one selected");
+
 // ---- modality: tool keys must not leak beneath ----------------------------------
 await page.keyboard.down("Alt");await page.keyboard.press("r");await page.keyboard.up("Alt"); // rect tool if it leaked
 s = await snap();
 ok(s.tool === "select", "keyboard is modal — tool keys don't reach the canvas", s.tool);
 
 // ---- grid nav + image detail ----------------------------------------------------
-// Reading order is anova.csv (Summary, selected on open) → overview.svg — ArrowRight lands on the image.
+// Reading order is anova.csv (Summary) → overview.svg (selected: the viewer opened on it).
+await page.keyboard.press("ArrowLeft");
+s = await snap();
+const wentLeft = s.cells.some((c) => c.selected && c.name === "anova.csv");
 await page.keyboard.press("ArrowRight");
 s = await snap();
-ok(s.cells.some((c) => c.selected && c.name === "overview.svg"), "arrows move the grid selection", JSON.stringify(s.cells));
+ok(wentLeft && s.cells.some((c) => c.selected && c.name === "overview.svg"), "arrows move the grid selection", JSON.stringify(s.cells));
 await page.keyboard.press("Enter");
 await sleep(400);
 s = await snap();
@@ -114,7 +128,7 @@ s = await snap();
 ok(s.zoomLabel === "fit", `0 resets to fit (${s.zoomLabel})`);
 await page.keyboard.press("Escape");
 s = await snap();
-ok(s.open && !s.detail, "Esc steps detail → grid (overlay stays open)");
+ok(s.open && !s.detail, "Esc steps a file opened from the grid back to the grid (overlay stays open)");
 
 // ---- the by_subject section + sidecar exclusion ---------------------------------
 await page.keyboard.press("3"); // the third section: by_subject
@@ -271,6 +285,39 @@ await page.keyboard.press("Escape"); // open file → grid
 await page.keyboard.press("Escape");
 s = await snap();
 ok(!s.open, "Esc from the grid closes the overlay");
+
+// ---- names: a real analysis folder names every group and file after the plot ---------------
+// (owner, 2026-11-18: "get the whole name displayed … make sure the file names don't overlap").
+await page.evaluate(async (root) => {
+  const D = `${root}/plots/_dissections/growth-cal`;
+  const svg = (c) => `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="160" viewBox="0 0 120 160"><rect width="120" height="160" fill="${c}"/></svg>`;
+  for (const variant of ["rem-sorted", "anatomy-sorted-by-cortical-depth"]) {
+    const name = `growth-cal-${variant}`;
+    await window.fig.writeText(`${D}/${name}/${name}.svg`, svg("#1b9e77"));
+    await window.fig.writeText(`${D}/${name}/${name}--source_data.csv`, "synapse,rate\ns1,0.2\n");
+  }
+}, ROOT);
+await sleep(300);
+await page.keyboard.press("d");
+await page.waitForFunction(() => document.querySelectorAll("[data-strip-group]").length >= 5, { timeout: 10000 }).catch(() => {});
+await sleep(300);
+const named = await page.evaluate(() => {
+  const groups = [...document.querySelectorAll("[data-strip-group]")].map((g) => { const r = g.getBoundingClientRect(); return { text: g.textContent, title: g.title, left: r.left, right: r.right }; });
+  const chips = [...document.querySelectorAll("[data-dissect-strip] .chip")].map((c) => { const n = c.querySelector(".name"); return { file: c.dataset.stripItem, name: n.textContent, what: c.querySelector(".what").textContent.replace(/\s+/g, " ").trim(), whole: n.scrollHeight <= n.clientHeight + 1 && n.scrollWidth <= n.clientWidth + 1 && c.scrollHeight <= c.clientHeight + 1, tip: c.title, icon: c.querySelector("svg").getBoundingClientRect().width }; });
+  const caps = Object.fromEntries([...document.querySelectorAll("[data-dissect-strip] .item:not(.chip)")].map((i) => [i.dataset.stripItem, i.querySelector(".cap").textContent]));
+  return { groups, chips, caps, landing: document.querySelector(".opened .fname")?.textContent, heads: [...document.querySelectorAll("[data-dissect-grid] .section-head[data-section]")].map((h) => h.textContent.replace(/\s+/g, " ").trim()) };
+});
+ok(named.groups.some((g) => g.text === "rem-sorted" && g.title === "growth-cal-rem-sorted") && named.groups.some((g) => g.text === "anatomy-sorted-by-cortical-depth"), "a group named after the plot is labelled by what tells it apart; its whole name is the tooltip", JSON.stringify(named.groups.map((g) => g.text)));
+ok(named.groups.every((g, i) => i === 0 || g.left >= named.groups[i - 1].right - 0.5), "no group's name runs over the next group", JSON.stringify(named.groups.map((g) => [g.text, Math.round(g.left), Math.round(g.right)])));
+const data = named.chips.filter((c) => /--source_data\.csv$/.test(c.file));
+ok(data.length === 2 && data.every((c) => c.name === "source_data" && c.whole) && /csv.*rem-sorted/i.test(data.find((c) => /rem-sorted/.test(c.file)).what), "a table's chip shows its whole name, and which group it is from", JSON.stringify(data));
+ok(named.chips.every((c) => c.whole && c.icon <= 11 && c.tip.endsWith(c.file)), "no chip cuts its name; the icon is small; the tooltip is the file's path", JSON.stringify(named.chips.map((c) => [c.name, c.whole])));
+ok(named.caps["subj01.svg"] === "subj01" && named.caps["growth-cal-rem-sorted.svg"] === "svg", "a picture has its name under it (its format, when it is named after its group)", JSON.stringify(named.caps));
+ok(named.heads.some((h) => /(^|\s)rem-sorted\b/.test(h)) && !named.heads.some((h) => /growth-cal-rem-sorted/.test(h)), "the grid's headings are labelled the same way", named.heads.join(" | "));
+await shot(page, "dissect-names");
+await page.keyboard.press("Escape");
+s = await snap();
+ok(!s.open, "Esc from the view the viewer opened on closes it");
 
 // ---- empty state + create -------------------------------------------------------
 await page.evaluate(async (root) => {

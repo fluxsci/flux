@@ -33,6 +33,7 @@
   } from "./loader";
   import DissectSections, { zoomDissectRows } from "./DissectSections.svelte";
   import { arrangeDissections } from "../plotsRail/dissectionsModel";
+  import { groupLabel, keyStem } from "./names";
   import DissectDetail from "./DissectDetail.svelte";
   import DissectFilmstrip from "./DissectFilmstrip.svelte";
   import PlotNotes from "./PlotNotes.svelte";
@@ -74,6 +75,11 @@
   type Ref = { group: string; name: string };
   let selectedRef = $state.raw<Ref | null>(null);
   let detailAt = $state.raw<Ref | null>(null);
+  // The opened view is where the viewer starts (owner, 2026-11-18: "make this view the default").
+  // Esc pops ONE level: a file reached from the grid goes back to the grid; the file the viewer
+  // opened on, or one flipped to from it, closes the viewer.
+  let fromGrid = $state(false);
+  let landing = false; // the next listing should open its first picture
   let notesOpen = $state(false);
   let sectionsRef = $state<ReturnType<typeof DissectSections> | null>(null);
   let detailView = $state<{ toggleFit: () => void; zoomBy: (f: number) => void; resetZoom: () => void } | null>(null);
@@ -90,6 +96,9 @@
   const detailFile = $derived(find(detailAt));
   const detailPos = $derived(detailFile ? files.indexOf(detailFile) : 0);
   const detailSection = $derived(detailFile ? sections.findIndex((sec) => sec.files.includes(detailFile)) : -1);
+  const detailSec = $derived(sections[detailSection] ?? null);
+  /** The plot's own name: labels drop it from their front (names.ts). */
+  const stem = $derived(target ? keyStem(target.key) : "");
   const noteCount = $derived(files.filter((f) => /\.txt$/i.test(f.name)).length);
   const mac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
@@ -102,6 +111,12 @@
     try { next = await listDissections(root, t.key); } catch { return; }
     if (epoch !== refreshEpoch || target !== t || dissectRoot() !== root) return; // switched/closed while listing
     listing = next;
+    if (landing) {
+      landing = false;
+      // Start on the plot's first picture (its overview), else on its first file.
+      const all = arrangeDissections(next).flatMap((sec) => sec.files), first = all.find((f) => f.kind === "image") ?? all[0];
+      if (first) { selectedRef = detailAt = refOf(first); fromGrid = false; }
+    }
     // The open file vanished → back to the grid.
     if (detailAt && !find(detailAt)) detailAt = null;
   }
@@ -122,9 +137,11 @@
     lastKey = identity;
     listing = null;
     notesOpen = false;
-    // Opened on a file (the Plots rail): land in its detail view.
+    // Opened on a file (the Plots rail): land in its detail view; else on the first picture.
     selectedRef = t.initial ?? null;
     detailAt = t.initial ?? null;
+    fromGrid = false;
+    landing = !t.initial;
     void refresh();
   });
 
@@ -150,11 +167,13 @@
     closeDissect();
   }
   const refOf = (f: DissectFile & { group: string }): Ref => ({ group: f.group, name: f.name });
-  function openDetail(f: DissectFile & { group: string }) {
+  function openDetail(f: DissectFile & { group: string }, viaGrid?: boolean) {
+    if (viaGrid !== undefined) fromGrid = viaGrid;
     selectedRef = detailAt = refOf(f);
   }
   function backToGrid() {
     detailAt = null;
+    fromGrid = false;
     queueMicrotask(() => { if (selectedFile) sectionsRef?.reveal(selectedFile.abs); });
   }
   function showNotes() {
@@ -180,10 +199,16 @@
     const inDetail = !!detailFile;
     if (e.key === "Escape") {
       e.preventDefault();
-      inDetail ? backToGrid() : close();
+      inDetail && fromGrid ? backToGrid() : close();
       return;
     }
     if (notesOpen) return;
+    // G: all files ↔ the file that was open.
+    if (e.code === "KeyG" && !e.ctrlKey && !e.metaKey && !e.altKey && files.length) {
+      e.preventDefault();
+      if (inDetail) backToGrid(); else if (selectedFile) openDetail(selectedFile, true);
+      return;
+    }
     if (/^[1-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
       // In an open file the digit flips to that section's first file; in the grid it scrolls there.
@@ -210,7 +235,7 @@
     }
     if (!files.length) return;
     if (sectionsRef?.navigate(e)) return;
-    if ((e.key === "Enter" || e.code === "Space") && selectedFile) openDetail(selectedFile);
+    if ((e.key === "Enter" || e.code === "Space") && selectedFile) openDetail(selectedFile, true);
     else if (e.key === "[" || e.key === "]") zoomDissectRows(e.key === "]" ? 1 : -1);
     else return;
     e.preventDefault();
@@ -315,16 +340,17 @@
         <DissectSections
           bind:this={sectionsRef}
           {listing}
+          {stem}
           selected={selectedFile?.abs ?? ""}
           onSelect={(f) => (selectedRef = refOf(f))}
-          onOpen={openDetail}
+          onOpen={(f) => openDetail(f, true)}
           onProbed={(sizes) => (imageSizes = sizes)} />
         {#if detailFile}
           <!-- The open file, and the rolodex under it. -->
           <div class="opened">
             <div class="crumbs">
-              <button class="back" title="Back to all files (Esc)" onclick={backToGrid}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 3.5 5 8l4.5 4.5" /></svg>All files</button>
-              <span class="sec">{sections[detailSection]?.title ?? ""}</span>
+              <button class="back" title="All files, as a grid (G)" onclick={backToGrid}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 2.5h4.5v4.5h-4.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5h-4.5zM9 9h4.5v4.5H9z" /></svg>All files</button>
+              <span class="sec" title={detailSec?.kind === "images" && detailSec.group ? detailSec.group : undefined}>{detailSec ? (detailSec.kind === "images" && detailSec.group ? groupLabel(detailSec.group, stem) : detailSec.title) : ""}</span>
               <span class="sep" aria-hidden="true">›</span>
               <span class="fname" title={detailFile.name}>{detailFile.name}</span>
               <span class="grow"></span>
@@ -343,13 +369,13 @@
                 pos={detailPos}
                 count={files.length}
                 groupName={detailFile.group}
-                onClose={backToGrid}
+                onClose={() => { if (fromGrid) backToGrid(); }}
                 caption={false}
                 roomy
                 noteOwner={{ root: dissectRoot(), key: target.key, group: detailFile.group }}
               />
             </div>
-            {#if files.length > 1}<DissectFilmstrip {sections} sizes={imageSizes} current={detailFile.abs} onPick={openDetail} />{/if}
+            {#if files.length > 1}<DissectFilmstrip {sections} {stem} sizes={imageSizes} current={detailFile.abs} onPick={(f) => openDetail(f)} />{/if}
           </div>
         {/if}
       {/if}
@@ -368,11 +394,13 @@
           <span><kbd>↵</kbd> fit / 1:1</span>
           <span><kbd>0</kbd> reset</span>
         {/if}
+        <span><kbd>G</kbd> all files</span>
         <span class="grow"></span>
-        <span><kbd>Esc</kbd> all files</span>
+        <span><kbd>Esc</kbd> {fromGrid ? "back" : "close"}</span>
       {:else}
         <span><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> move</span>
         <span><kbd>↵</kbd> open</span>
+        <span><kbd>G</kbd> back to the file</span>
         <span><kbd>[</kbd><kbd>]</kbd> size</span>
         {#if sections.length > 1}<span><kbd>1</kbd>–<kbd>{Math.min(9, sections.length)}</kbd> section</span>{/if}
         <span class="grow"></span>

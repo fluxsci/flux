@@ -30,12 +30,13 @@
   import TableCard from "../plotsRail/TableCard.svelte";
   import { tableCardHeight, type TablePreview } from "../plotsRail/tableCard";
   import { arrangeDissections, probeDissectionFiles, type DissectionImageSize } from "../plotsRail/dissectionsModel";
+  import { groupLabel } from "./names";
   import { railPrefs } from "../plotsRail/railPrefs";
   import { project, activeFigureId } from "../store";
   import type { DissectListing, DissectFile } from "./loader";
 
   type File = DissectFile & { group: string };
-  let { listing, selected, onSelect, onOpen, onProbed }: {
+  let { listing, selected, onSelect, onOpen, onProbed, stem = "" }: {
     listing: DissectListing;
     /** The selected file's absolute path. */
     selected: string;
@@ -43,6 +44,8 @@
     onOpen: (file: File) => void;
     /** The images' header sizes, once known (the overlay's filmstrip lays out from them). */
     onProbed?: (sizes: Map<string, DissectionImageSize>) => void;
+    /** The plot's own name: a group's heading drops it from its front (names.ts). */
+    stem?: string;
   } = $props();
 
   const sections = $derived(arrangeDissections(listing));
@@ -60,7 +63,7 @@
   const TEXT_RE = /\.(txt|md)$/i, NOTE_RE = /\.txt$/i;
   const gridSections: GridSection[] = $derived(sections.map((sec) => ({
     key: sec.id,
-    title: sec.title,
+    title: sec.kind === "images" && sec.group ? groupLabel(sec.group, stem) : sec.title,
     meta: `· ${sec.files.length}`,
     depth: 0,
     collapsed: collapsed.has(sec.id),

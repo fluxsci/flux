@@ -477,7 +477,8 @@
       "verify-mode-icons.ts",
       "verify-help-shortcuts.ts",
       "verify-docs-link.ts",
-      "verify-dissect-format.ts"
+      "verify-dissect-format.ts",
+      "verify-dissect-names.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -12402,6 +12403,15 @@
       "coverage": "behavior"
     },
     "verify-dissect-format.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-dissect-names.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
