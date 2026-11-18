@@ -11,7 +11,7 @@
   import { get } from "svelte/store";
   import { fileBridge } from "../lib/project/types";
   import { pushToast, type ToastLevel } from "../lib/toast";
-  import { settings } from "../lib/settings";
+  import { settings, settingsOpen } from "../lib/settings";
   import { aiOpen, startAIMonitor } from "./agent/aiMonitorState";
   import { contextCommands } from "./command/globalCommands";
   import CommandPalette from "./command/CommandPalette.svelte";
@@ -22,6 +22,11 @@
   let AI: typeof import("./agent/AIPanel.svelte").default | null = $state(null);
   const loadAI = () => import("./agent/AIPanel.svelte").then(m => AI = m.default);
   $effect(() => { if ($aiOpen && !AI) void loadAI(); });
+  // Settings is shell-level so the gear works on Home too. It stays outside the eager Home
+  // graph: the module loads when a project opens (ready before the first click there) or on
+  // the first click of the gear, whichever comes first.
+  let SettingsDialog: typeof import("../lib/Settings.svelte").default | null = $state(null);
+  $effect(() => { if (($view === "workspace" || $settingsOpen) && !SettingsDialog) void import("../lib/Settings.svelte").then(m => SettingsDialog = m.default); });
   import { installLifecycle } from "./lifecycle";
   import { warmModes, ALL_MODES } from "./modeRegistry";
   // (bibLoad is dynamic-imported in onCapturePayload — a static edge from the
@@ -198,6 +203,7 @@
   <!-- Keyboard reference: mounted at the Shell so "?" works on Home too, not
        just inside a project (its own listener ignores typing targets). -->
   <Help />
+  {#if SettingsDialog}<SettingsDialog />{/if}
   {#if Inbox && $inboxOpen}<Inbox />{/if}
   {#if Annotation}<Annotation />{/if}
   {#if $aiOpen && AI}<AI />{/if}

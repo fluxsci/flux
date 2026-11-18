@@ -11,6 +11,14 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 
 ### Window
 
+- **Settings, rebuilt.** Every setting is now one kind of row: its name, with what it does in a
+  smaller line under it, and its control at the right edge, so a pane reads as two tidy columns.
+  On/off settings are switches (click anywhere on the row); numbers have **−** and **+**
+  beside the value and show their unit; section titles stay in view while you scroll a long
+  section; the Paper margin backgrounds are tiles with a small drawing each; and the Cursor
+  section is sorted into Press, Arrow (or Colours and Shape) and Handles. Shortcuts shown in
+  Settings use the same key caps as the rest of Flux.
+- **The gear works on the Home screen.** It used to do nothing until a project was open.
 - **Notices are redrawn.** Each has a mark for its kind (done, problem, information), a
   failure's reason wraps over several lines instead of being cut at one, and its buttons look
   like buttons.

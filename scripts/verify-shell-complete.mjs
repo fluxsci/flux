@@ -210,6 +210,59 @@ try {
 } finally {
   await page.setViewport(settingsViewport);
 }
+// One row anatomy (2026-11-18 rebuild): the name on the left, the control ending on one
+// shared right edge whatever its kind, and sitting on the NAME's line however long the
+// description under it runs.
+await page.click("#settings-tab-figure");
+const rowGeometry = await page.$$eval("#settings-pane-figure :is(.chk, .row)", rows => rows.map(row => {
+  const control = row.querySelector("input[type=checkbox], .numf, select"), name = row.querySelector(".nm");
+  if (!control || !name) return null;
+  const c = control.getBoundingClientRect(), n = name.getBoundingClientRect(), line = parseFloat(getComputedStyle(name).lineHeight);
+  const firstLineMid = n.top + parseFloat(getComputedStyle(name).paddingTop) + line / 2;
+  return { right: Math.round(c.right * 2) / 2, offLine: Math.abs((c.top + c.height / 2) - firstLineMid), clear: n.right <= c.left };
+}));
+ok(rowGeometry.length >= 12 && rowGeometry.every(Boolean), `every Figure row has a name and a control (${rowGeometry.length})`);
+ok(new Set(rowGeometry.map(r => r.right)).size === 1, "switches, stepper fields and selects end on one right edge", JSON.stringify([...new Set(rowGeometry.map(r => r.right))]));
+ok(rowGeometry.every(r => r.offLine <= 2.5 && r.clear), "each control sits on its name's line and never over the words", JSON.stringify(rowGeometry.filter(r => r.offLine > 2.5 || !r.clear)));
+// A switch is a real checkbox; the whole row is its hit target, and its knob moves by transform only.
+const switchState = await page.$eval("#settings-pane-figure .chk input[type=checkbox]", el => {
+  const before = el.checked; el.closest("label").querySelector(".nm").click();
+  const knob = getComputedStyle(el, "::before");
+  return { toggled: el.checked !== before, transition: knob.transitionProperty, w: el.getBoundingClientRect().width };
+});
+ok(switchState.toggled && /transform/.test(switchState.transition) && !/left|width|margin/.test(switchState.transition), "clicking a row's name flips its switch; the knob animates transform only", JSON.stringify(switchState));
+await page.$eval("#settings-pane-figure .chk input[type=checkbox]", el => el.click()); // back as it was
+// Stepper field: the buttons step by the field's step and stop at its range; a click on the
+// name lands in the field (never on a stepper), and the steppers add no Tab stops.
+const stepper = await page.$eval('[aria-label="Caption font size"]', input => {
+  const row = input.closest("label"), dec = row.querySelector(".step.dec"), inc = row.querySelector(".step.inc");
+  const read = () => JSON.parse(localStorage.getItem("flux.settings")).captionFontSize;
+  const start = read(); inc.click(); const up = read(); dec.click(); dec.click(); const down = read(); inc.click();
+  row.querySelector(".nm").click();
+  return { start, up, down, back: read(), focused: document.activeElement === input, tabStops: [dec.tabIndex, inc.tabIndex] };
+});
+ok(stepper.up === stepper.start + 1 && stepper.down === stepper.start - 1 && stepper.back === stepper.start, "the stepper buttons change the value by one step each way", JSON.stringify(stepper));
+ok(stepper.focused && stepper.tabStops.every(t => t === -1), "clicking a number row's name focuses its field; steppers are not Tab stops", JSON.stringify(stepper));
+const floor = await page.$eval('[aria-label="Caption font size"]', async input => {
+  const dec = input.closest("label").querySelector(".step.dec"), before = JSON.parse(localStorage.getItem("flux.settings")).captionFontSize;
+  for (let i = 0; i < 40; i++) dec.click();
+  await new Promise(resolve => requestAnimationFrame(() => resolve())); // the greyed state is rendered, not synchronous
+  const low = JSON.parse(localStorage.getItem("flux.settings")).captionFontSize, disabled = dec.disabled;
+  input.value = String(before); input.dispatchEvent(new Event("change", { bubbles: true }));
+  return { low, disabled, restored: JSON.parse(localStorage.getItem("flux.settings")).captionFontSize === before };
+});
+ok(floor.low === 9 && floor.disabled && floor.restored, "a stepper stops at the range's end and greys out", JSON.stringify(floor));
+// Section heads stay pinned while their rows scroll under them.
+await page.click("#settings-tab-general");
+const pinned = await page.$eval("#settings-pane-general", pane => {
+  const head = [...pane.querySelectorAll("h3")].find(h => /Cursor/.test(h.textContent));
+  pane.scrollTop = head.offsetTop + 160;
+  const top = head.getBoundingClientRect().top - pane.getBoundingClientRect().top;
+  pane.scrollTop = 0;
+  return Math.round(top);
+});
+ok(pinned === 0, "a section's head stays pinned to the top of its pane while the section scrolls", String(pinned));
+await page.click("#settings-tab-figure");
 await shot(page, "settings-refined");
 await page.keyboard.press("Escape");
 await sleep(200);
@@ -246,6 +299,20 @@ await sleep(300);
 const rows2 = await page.$$eval(".recent-row", (els) => els.length).catch(() => 0);
 const stored = await page.evaluate(() => localStorage.getItem("flux.recents"));
 ok(rows2 === 0 && stored === "[]", "Clear empties the recents list and persists it", `rows=${rows2} stored=${stored}`);
+
+// --- Settings from a COLD Home ------------------------------------------------
+// Settings used to be mounted inside the workspace, so the gear did nothing until a
+// project opened (and the dialog then popped up on its own). It is shell-level now, and
+// still outside Home's eager graph: the first click loads it.
+await gotoApp(page, { url: "http://127.0.0.1:1420/", settle: 1500 });
+await page.waitForSelector(".wordmark", { timeout: 15000 });
+ok(!(await setOpen()) && await page.$eval(tbGear, (e) => !!e).catch(() => false), "Home shows the gear with Settings closed");
+await page.click(tbGear);
+await waitFor(page, (sel) => !!document.querySelector(sel), setSel, { label: "Settings opens from Home" });
+ok(await page.$eval(`${setSel} #settings-pane-general`, (el) => /FluxConfig folder/.test(el.textContent || "")), "the gear opens Settings on Home, before any project");
+await page.keyboard.press("Escape");
+await waitFor(page, (sel) => !document.querySelector(sel), setSel, { label: "Settings closes on Home" });
+ok(await page.$eval(tbGear, el => document.activeElement === el), "closing it on Home returns focus to the gear");
 
 const errs = realErrors(page);
 ok(errs.length === 0, "no console/page errors during the shell flow", errs.join(" | "));

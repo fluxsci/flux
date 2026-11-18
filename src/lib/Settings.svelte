@@ -2,12 +2,20 @@
   import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
 
   // Shell-global Settings dialog (title-bar gear / the `settingsOpen` store).
-  // A tabbed surface — General · Figure · Paper · Corrections — in the editor
-  // chrome language (2026-09-15 surface redesign): one flat panel, hairline
-  // dividers, square controls, opacity-only open/close. Every pane stays in
-  // the DOM (inactive ones are `hidden`) so the dialog's text and controls are
-  // reachable whichever tab was chosen last — the shell and correction gates
-  // read them without switching tabs.
+  // A tabbed surface — General · Figure · Paper · Corrections — in the house
+  // language of the property menu and Align & Arrange (2026-11-18 rebuild):
+  // serif words, mono eyebrows and values, global key caps, hairlines, tint +
+  // inset rail for what is chosen, opacity-only open/close.
+  //
+  // ONE row anatomy: the name (and what it does, in a smaller line under it) on
+  // the left, the control at the right edge. A switch, a stepper field, a
+  // select and a colour field all end on the same line, so a pane reads as two
+  // columns instead of a ragged list. Section heads stay pinned while their
+  // section scrolls.
+  //
+  // Every pane stays in the DOM (inactive ones are `hidden`) so the dialog's
+  // text and controls are reachable whichever tab was chosen last — the shell
+  // and correction gates read them without switching tabs.
   import { fade } from "svelte/transition";
   import { COLORMAP_COLLECTIONS, PALETTE_COLLECTIONS } from "./color/collections";
   import { PLOT_SEARCH_SCOPES } from "./plot/galleryScope";
@@ -23,6 +31,7 @@
   import { cursorParamsFromSettings } from "./cursor/cursorTheme";
   import { cursorPress } from "./cursor/cursorPress";
   import ColorField from "./ColorField.svelte";
+  import Icon from "../shell/Icon.svelte";
   import { modalFocus } from "./ui/modalFocus";
   import { fileBridge } from "./project/types";
   import {
@@ -94,19 +103,34 @@
       cursorResizeStyle: CURSOR_DEFAULTS.resizeStyle,
     }));
   }
+  // Snap to the step and keep only the step's decimals: 1.25 − 0.05 is 1.2, not
+  // 1.2000000000000002 (which the field would show).
   const num = (v: string, lo: number, hi: number, d: number, step = 1) => {
     const n = parseFloat(v);
     if (!Number.isFinite(n)) return d;
-    return Math.min(hi, Math.max(lo, Math.round(n / step) * step));
+    const decimals = (String(step).split(".")[1] ?? "").length;
+    return +Math.min(hi, Math.max(lo, Math.round(n / step) * step)).toFixed(decimals);
   };
+
+  // --- Rows ------------------------------------------------------------------
+  const put = <K extends keyof Settings>(key: K, value: Settings[K]) => settings.update((v) => ({ ...v, [key]: value }));
+  type NumKey = { [K in keyof Settings]-?: Settings[K] extends number ? K : never }[keyof Settings];
+  /** One stepper row: − value unit +. `parse` owns the clamp, so typing and stepping agree. */
+  type NumRow = { label: string; aria?: string; sub?: string; unit?: string; value: number; min: number; max: number; step: number; parse: (v: string) => number; set: (n: number) => void };
+  const ranged = (key: NumKey, range: { min: number; max: number }, step: number, fallback: number, label: string, aria: string, unit = "", sub = ""): NumRow => ({
+    label, aria, unit, sub, step, min: range.min, max: range.max, value: $settings[key],
+    parse: (v) => num(v, range.min, range.max, fallback, step),
+    set: (n) => put(key, n),
+  });
+  const stepBy = (row: NumRow, direction: 1 | -1) => row.set(row.parse(String(row.value + direction * row.step)));
 
   // --- Tabs ------------------------------------------------------------------
   type TabId = "general" | "figure" | "paper" | "corrections";
-  const TABS: { id: TabId; label: string }[] = [
-    { id: "general", label: "General" },
-    { id: "figure", label: "Figure" },
-    { id: "paper", label: "Paper" },
-    { id: "corrections", label: "Corrections" },
+  const TABS: { id: TabId; label: string; icon: string }[] = [
+    { id: "general", label: "General", icon: "settings" },
+    { id: "figure", label: "Figure", icon: "figure" },
+    { id: "paper", label: "Paper", icon: "paper" },
+    { id: "corrections", label: "Corrections", icon: "" },
   ];
   const TAB_KEY = "flux.ui.settingsTab";
   function loadTab(): TabId {
@@ -227,16 +251,44 @@
   const fadeMs = () =>
     typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 80;
 
-  const marginScenes: { v: Settings["paperMarginScene"]; l: string }[] = [
-    { v: "harmonograph", l: "Harmonograph" },
-    { v: "neurons", l: "Neurons" },
-    { v: "inkwind", l: "Ink wind" },
-    { v: "loom", l: "Loom" },
-    { v: "vines", l: "Vines" },
+  // Each margin scene with a small drawing of its character (24 × 16, stroked).
+  const marginScenes: { v: Settings["paperMarginScene"]; l: string; d: string }[] = [
+    { v: "harmonograph", l: "Harmonograph", d: "M3 8a9 6 0 0 1 18 0a7.5 5 0 0 1-15 0a6 4 0 0 1 12 0a4.5 3 0 0 1-9 0a3 2 0 0 1 6 0a1.5 1 0 0 1-3 0" },
+    { v: "neurons", l: "Neurons", d: "M8.5 9 3 4.5M8.5 9 4 13.5M8.5 9l6-2.5 4.5-3.5M14.5 6.5l5.5 2.5M8.5 9l5 4.5 6.5.5M8.5 7.4a1.6 1.6 0 1 0 .01 0" },
+    { v: "inkwind", l: "Ink wind", d: "M2 4.5c5-3 9 3 14 0 2-1.2 4-1.2 6-.5M2 8.5c5-3 9 3 14 0 1.5-.9 3-1 4-.8M4 12.5c4-2.4 7 2.4 11 0" },
+    { v: "loom", l: "Loom", d: "M6 2v12M12 2v12M18 2v12M2 5.5h20M2 10.5h20" },
+    { v: "vines", l: "Vines", d: "M3 14c4 0 5-4 9-4s5-5 9-6.5M9 11c-1.5-1.5-1.5-3.5 0-5M14.5 9.2c1.5 1.3 3.5 1.3 5 0M6 13.5c0-1.5 1-2.5 2.5-2.5" },
   ];
 </script>
 
 <svelte:window onkeydown={onKey} />
+
+{#snippet toggle(label: string, on: boolean, set: (v: boolean) => void, sub: string = "", aria: string = "")}
+  <label class="chk">
+    <input type="checkbox" checked={on} aria-label={aria || undefined} onchange={(e) => set(e.currentTarget.checked)} />
+    <span class="nm">{label}{#if sub}<small>{sub}</small>{/if}</span>
+  </label>
+{/snippet}
+
+<!-- The field comes first in the DOM so a click on the name lands in it, not on a stepper. -->
+{#snippet numRow(o: NumRow)}
+  <label class="chk num">
+    <span class="nm">{o.label}{#if o.sub}<small>{o.sub}</small>{/if}</span>
+    <span class="numf">
+      <input type="number" min={o.min} max={Number.isFinite(o.max) ? o.max : undefined} step={o.step} value={o.value} aria-label={o.aria ?? o.label} onchange={(e) => o.set(o.parse(e.currentTarget.value))} />
+      <i class="unit">{o.unit ?? ""}</i>
+      <button type="button" class="step dec" tabindex="-1" aria-label={`Decrease ${(o.aria ?? o.label).toLowerCase()}`} disabled={o.value <= o.min} onclick={() => stepBy(o, -1)}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 6h6" /></svg></button>
+      <button type="button" class="step inc" tabindex="-1" aria-label={`Increase ${(o.aria ?? o.label).toLowerCase()}`} disabled={o.value >= o.max} onclick={() => stepBy(o, 1)}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 6h6M6 3v6" /></svg></button>
+    </span>
+  </label>
+{/snippet}
+
+{#snippet colour(label: string, aria: string, value: string, fallback: string, set: (hex: string) => void)}
+  <div class="row cursor-colour">
+    <span class="nm">{label}</span>
+    <ColorField {value} {fallback} label={aria} onchange={set} />
+  </div>
+{/snippet}
 
 {#if $settingsOpen}
   <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
@@ -252,8 +304,11 @@
       use:modalFocus
       onclick={(e) => e.stopPropagation()}>
       <div class="head">
+        <span class="mark" aria-hidden="true"><Icon name="settings" size={14} /></span>
         <span class="title">Settings</span>
-        <button class="x" aria-label="Close" title="Close (Esc)" onclick={() => settingsOpen.set(false)}>×</button>
+        <span class="vsep" aria-hidden="true"></span>
+        <span class="scope">for every project · saved as you change them</span>
+        <button class="x" aria-label="Close" title="Close (Esc)" onclick={() => settingsOpen.set(false)}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7" /></svg></button>
       </div>
 
       <div class="body">
@@ -268,382 +323,276 @@
               aria-controls={`settings-pane-${t.id}`}
               tabindex={tab === t.id ? 0 : -1}
               onclick={() => selectTab(t.id)}
-              onkeydown={onTabKey}>{t.label}</button>
+              onkeydown={onTabKey}><span class="ti" aria-hidden="true">{#if t.icon}<Icon name={t.icon} size={16} />{:else}<svg viewBox="0 0 24 24" width="16" height="16"><path d="M3 18.5c1.5-2 3-2 4.5 0s3 2 4.5 0 3-2 4.5 0 3 2 4.5 0" stroke-width="1.8" /><path d="M6.5 9.5l3.5 3.5L17.5 5" stroke="var(--c-accent)" stroke-width="2.2" /></svg>{/if}</span>{t.label}</button>
           {/each}
         </div>
 
         <div class="content">
           <!-- ---------------------------------------------------------- General -->
           <div class="pane" role="tabpanel" id="settings-pane-general" aria-labelledby="settings-tab-general" hidden={tab !== "general"}>
-            <h3>Setup</h3>
-            <p class="hint">The terminal command, Word export (Quarto), PDF through Quarto, fluxplot and AI agents.</p>
-            <div class="libbtns">
-              <button class="ghost" data-open-setup onclick={() => { settingsOpen.set(false); void import("../shell/setup/setupState").then((m) => m.openSetup()); }}>Set up Flux…</button>
-            </div>
+            <section class="grp">
+              <h3>Setup</h3>
+              <div class="item">
+                <span class="nm">What Flux works with<small>The terminal command, Word export (Quarto), PDF through Quarto, fluxplot and AI agents.</small></span>
+                <button class="ghost" data-open-setup onclick={() => { settingsOpen.set(false); void import("../shell/setup/setupState").then((m) => m.openSetup()); }}>Set up Flux…</button>
+              </div>
+            </section>
 
-            <h3>FluxConfig folder</h3>
-            <div class="libpath" title={cfgPath}>{cfgPath || "—"}</div>
-            <p class="hint">Everything user-level lives here — the reference library ({libPath || "FluxLib"}), and the agent Context folders.</p>
-            <div class="libbtns">
-              <button class="ghost" onclick={revealCfg} disabled={!cfgPath}>Reveal</button>
-              <button class="ghost" onclick={moveCfg} disabled={libBusy}>{libBusy ? "Moving…" : "Move…"}</button>
-            </div>
-            {#if libNotice}<p class="hint">{libNotice}</p>{/if}
+            <section class="grp">
+              <h3>FluxConfig folder</h3>
+              <div class="pathrow">
+                <div class="libpath" title={cfgPath}>{cfgPath || "—"}</div>
+                <button class="ghost" onclick={revealCfg} disabled={!cfgPath}>Reveal</button>
+                <button class="ghost" onclick={moveCfg} disabled={libBusy}>{libBusy ? "Moving…" : "Move…"}</button>
+              </div>
+              <p class="hint">Everything user-level lives here — the reference library ({libPath || "FluxLib"}), and the agent Context folders.</p>
+              {#if libNotice}<p class="hint notice">{libNotice}</p>{/if}
+            </section>
 
-            <h3>Agents</h3>
-            <label class="chk">
-              <input type="checkbox" checked={$settings.allowAgentView} onchange={(e) => settings.update((v) => ({ ...v, allowAgentView: e.currentTarget.checked }))} />
-              Allow agents to view the Flux window
-            </label>
-            {#await import("../shell/agent/RunnerSettings.svelte") then module}<module.default />{/await}
+            <section class="grp">
+              <h3>Agents</h3>
+              {@render toggle("Allow agents to view the Flux window", $settings.allowAgentView, (v) => put("allowAgentView", v), "A paired agent can capture a picture of this project's window when you mean “this”.")}
+              {#await import("../shell/agent/RunnerSettings.svelte") then module}<module.default />{/await}
+            </section>
 
-            <h3>Updates</h3>
-            <label class="chk">
-              <input
-                type="checkbox"
-                checked={$settings.updateCheck}
-                onchange={(e) => settings.update((v) => ({ ...v, updateCheck: e.currentTarget.checked }))}
-              />
-              Check for a newer version on launch (desktop app)
-            </label>
+            <section class="grp">
+              <h3>Updates</h3>
+              {@render toggle("Check for a newer version on launch", $settings.updateCheck, (v) => put("updateCheck", v), "Desktop app only.")}
+            </section>
 
-            <h3>Palette</h3>
-            <label class="chk">
-              <input
-                type="checkbox"
-                checked={$settings.flexokiDefault}
-                onchange={(e) => settings.update((v) => ({ ...v, flexokiDefault: e.currentTarget.checked }))}
-              />
-              Include the Flexoki palette in new projects
-            </label>
-            <h3>Cursor</h3>
-            <div class="cursor-preview" aria-label="Cursor preview">
-              {#each CURSOR_PREVIEW as c (c.state)}
-                <figure class="cursor-cell">
-                  <div class="swatch" title="Hover to see the real cursor">
-                    <span class="half dark cursor-on-dark" style:cursor={cursorFamilyDark[c.state].css}><img src={cursorImg(c.state, "dark")} alt={c.label} width={$settings.cursorSize * 2} height={$settings.cursorSize * 2} draggable="false" /></span>
-                    <span class="half light cursor-on-light" style:cursor={cursorFamily[c.state].css}><img src={cursorImg(c.state, "light")} alt="" width={$settings.cursorSize * 2} height={$settings.cursorSize * 2} draggable="false" /></span>
-                  </div>
-                  <figcaption>{c.label}</figcaption>
-                </figure>
-              {/each}
-            </div>
-            <p class="hint">The pointer of the Figure and Slide editors (Paper, Reader and Library keep the system's). It is one mark that changes form: over a handle or edge it becomes the resize arrows, outside a corner the rotate arc, and it keeps that form for the whole drag. Hover a tile to see the real cursor.</p>
-            <label class="row">
-              <span>Style</span>
-              <select bind:value={$settings.cursorStyle} aria-label="Cursor style">
-                <option value="classic">Classic arrow</option>
-                <option value="crosshair">Crosshair</option>
-              </select>
-            </label>
-            {#if $settings.cursorStyle === "classic"}
-              <label class="chk">
-                <input type="checkbox" bind:checked={$settings.cursorPressEnabled} aria-label="Cursor press animation" />
-                Press on click
+            <section class="grp">
+              <h3>Palette</h3>
+              {@render toggle("Include the Flexoki palette in new projects", $settings.flexokiDefault, (v) => put("flexokiDefault", v))}
+            </section>
+
+            <section class="grp">
+              <h3>Cursor</h3>
+              <div class="cursor-preview" aria-label="Cursor preview">
+                {#each CURSOR_PREVIEW as c (c.state)}
+                  <figure class="cursor-cell">
+                    <div class="swatch" title="Hover to see the real cursor">
+                      <span class="half dark cursor-on-dark" style:cursor={cursorFamilyDark[c.state].css}><img src={cursorImg(c.state, "dark")} alt={c.label} width={$settings.cursorSize * 2} height={$settings.cursorSize * 2} draggable="false" /></span>
+                      <span class="half light cursor-on-light" style:cursor={cursorFamily[c.state].css}><img src={cursorImg(c.state, "light")} alt="" width={$settings.cursorSize * 2} height={$settings.cursorSize * 2} draggable="false" /></span>
+                    </div>
+                    <figcaption>{c.label}</figcaption>
+                  </figure>
+                {/each}
+              </div>
+              <p class="hint">The pointer of the Figure and Slide editors (Paper, Reader and Library keep the system's). It is one mark that changes form: over a handle or edge it becomes the resize arrows, outside a corner the rotate arc, and it keeps that form for the whole drag. Hover a tile to see the real cursor.</p>
+              <label class="row">
+                <span class="nm">Style</span>
+                <select bind:value={$settings.cursorStyle} aria-label="Cursor style">
+                  <option value="classic">Classic arrow</option>
+                  <option value="crosshair">Crosshair</option>
+                </select>
               </label>
-              <p class="hint">A small, tip-led press into the surface, then a quiet return. The tip stays on the point you click.</p>
-              {#if $settings.cursorPressEnabled}
-                <label class="chk num">
-                  Press depth
-                  <input type="number" min={CURSOR_PRESS_DEPTH_RANGE.min} max={CURSOR_PRESS_DEPTH_RANGE.max} step="0.05" value={$settings.cursorPressDepth} aria-label="Cursor press depth"
-                    onchange={(e) => settings.update((v) => ({ ...v, cursorPressDepth: num(e.currentTarget.value, CURSOR_PRESS_DEPTH_RANGE.min, CURSOR_PRESS_DEPTH_RANGE.max, CURSOR_PRESS_DEFAULTS.depth, 0.05) }))} />
-                  ×
-                </label>
-                <label class="chk num">
-                  Return time
-                  <input type="number" min={CURSOR_PRESS_RETURN_RANGE.min} max={CURSOR_PRESS_RETURN_RANGE.max} step="5" value={$settings.cursorPressReturnMs} aria-label="Cursor press return time"
-                    onchange={(e) => settings.update((v) => ({ ...v, cursorPressReturnMs: num(e.currentTarget.value, CURSOR_PRESS_RETURN_RANGE.min, CURSOR_PRESS_RETURN_RANGE.max, CURSOR_PRESS_DEFAULTS.returnMs, 5) }))} />
-                  ms
-                </label>
-                <p class="hint">Lower depth is subtler. A shorter return feels tighter; a longer one feels softer.</p>
+
+              {#if $settings.cursorStyle === "classic"}
+                <h4>Press</h4>
+                {@render toggle("Press on click", $settings.cursorPressEnabled, (v) => put("cursorPressEnabled", v), "A small, tip-led press into the surface, then a quiet return. The tip stays on the point you click.", "Cursor press animation")}
+                {#if $settings.cursorPressEnabled}
+                  {@render numRow(ranged("cursorPressDepth", CURSOR_PRESS_DEPTH_RANGE, 0.05, CURSOR_PRESS_DEFAULTS.depth, "Press depth", "Cursor press depth", "×", "Lower is subtler."))}
+                  {@render numRow(ranged("cursorPressReturnMs", CURSOR_PRESS_RETURN_RANGE, 5, CURSOR_PRESS_DEFAULTS.returnMs, "Return time", "Cursor press return time", "ms", "Shorter feels tighter, longer feels softer."))}
+                {/if}
+                <button type="button" class="cursor-press-trial" style:cursor={cursorFamily.cross.css} use:cursorPress={cursorFamily.cross.css}>Click to try the press</button>
+
+                <h4>Arrow</h4>
+                {@render colour("Fill", "Arrow fill colour", $settings.arrowFill, CURSOR_DEFAULTS.arrowFill, (hex) => put("arrowFill", hex))}
+                {@render colour("Outline", "Arrow outline colour", $settings.arrowOutline, CURSOR_DEFAULTS.arrowOutline, (hex) => put("arrowOutline", hex))}
+                {@render colour("Dot colour", "Dot colour", $settings.cursorDotColor, CURSOR_DEFAULTS.dotColor, (hex) => put("cursorDotColor", hex))}
+                {@render numRow(ranged("arrowSize", ARROW_SIZE_RANGE, 1, CURSOR_DEFAULTS.arrowSize, "Size", "Arrow size", "px"))}
+                {@render numRow(ranged("arrowOutlineWidth", ARROW_OUTLINE_RANGE, 0.1, CURSOR_DEFAULTS.arrowOutlineWidth, "Outline width", "Arrow outline width", "px"))}
+                {@render numRow(ranged("arrowRounding", ARROW_ROUNDING_RANGE, 0.1, CURSOR_DEFAULTS.arrowRounding, "Corner rounding", "Arrow corner rounding", "px"))}
+                {@render numRow(ranged("arrowShadow", ARROW_SHADOW_RANGE, 0.05, CURSOR_DEFAULTS.arrowShadow, "Shadow", "Arrow shadow amount", "", "0 is none, 1 is strong."))}
+                {@render numRow(ranged("arrowTilt", ARROW_TILT_RANGE, 1, CURSOR_DEFAULTS.arrowTilt, "Tilt", "Arrow tilt", "°"))}
+                <p class="hint">A slightly leaning arrow with a contrasting outline and a gentle shadow lift. The resize and rotate arrows use the same fill and outline; the dot colour marks the rotate centre and the duplicate badge.</p>
               {/if}
-              <button type="button" class="cursor-press-trial" style:cursor={cursorFamily.cross.css} use:cursorPress={cursorFamily.cross.css}>Click to try the press</button>
-              <div class="row cursor-colour">
-                <span>Fill</span>
-                <ColorField value={$settings.arrowFill} fallback={CURSOR_DEFAULTS.arrowFill} label="Arrow fill colour" onchange={(hex) => settings.update((v) => ({ ...v, arrowFill: hex }))} />
-              </div>
-              <div class="row cursor-colour">
-                <span>Outline</span>
-                <ColorField value={$settings.arrowOutline} fallback={CURSOR_DEFAULTS.arrowOutline} label="Arrow outline colour" onchange={(hex) => settings.update((v) => ({ ...v, arrowOutline: hex }))} />
-              </div>
-              <label class="chk num">
-                Size
-                <input type="number" min={ARROW_SIZE_RANGE.min} max={ARROW_SIZE_RANGE.max} step="1" value={$settings.arrowSize} aria-label="Arrow size"
-                  onchange={(e) => settings.update((v) => ({ ...v, arrowSize: num(e.currentTarget.value, ARROW_SIZE_RANGE.min, ARROW_SIZE_RANGE.max, CURSOR_DEFAULTS.arrowSize, 1) }))} />
-                px
-              </label>
-              <label class="chk num">
-                Outline width
-                <input type="number" min={ARROW_OUTLINE_RANGE.min} max={ARROW_OUTLINE_RANGE.max} step="0.1" value={$settings.arrowOutlineWidth} aria-label="Arrow outline width"
-                  onchange={(e) => settings.update((v) => ({ ...v, arrowOutlineWidth: num(e.currentTarget.value, ARROW_OUTLINE_RANGE.min, ARROW_OUTLINE_RANGE.max, CURSOR_DEFAULTS.arrowOutlineWidth, 0.1) }))} />
-                px
-              </label>
-              <label class="chk num">
-                Corner rounding
-                <input type="number" min={ARROW_ROUNDING_RANGE.min} max={ARROW_ROUNDING_RANGE.max} step="0.1" value={$settings.arrowRounding} aria-label="Arrow corner rounding"
-                  onchange={(e) => settings.update((v) => ({ ...v, arrowRounding: num(e.currentTarget.value, ARROW_ROUNDING_RANGE.min, ARROW_ROUNDING_RANGE.max, CURSOR_DEFAULTS.arrowRounding, 0.1) }))} />
-                px
-              </label>
-              <label class="chk num">
-                Shadow
-                <input type="number" min={ARROW_SHADOW_RANGE.min} max={ARROW_SHADOW_RANGE.max} step="0.05" value={$settings.arrowShadow} aria-label="Arrow shadow amount"
-                  onchange={(e) => settings.update((v) => ({ ...v, arrowShadow: num(e.currentTarget.value, ARROW_SHADOW_RANGE.min, ARROW_SHADOW_RANGE.max, CURSOR_DEFAULTS.arrowShadow, 0.05) }))} />
-                (0 = none, 1 = strong)
-              </label>
-              <label class="chk num">
-                Tilt
-                <input type="number" min={ARROW_TILT_RANGE.min} max={ARROW_TILT_RANGE.max} step="1" value={$settings.arrowTilt} aria-label="Arrow tilt"
-                  onchange={(e) => settings.update((v) => ({ ...v, arrowTilt: num(e.currentTarget.value, ARROW_TILT_RANGE.min, ARROW_TILT_RANGE.max, CURSOR_DEFAULTS.arrowTilt, 1) }))} />
-                °
-              </label>
-              <div class="row cursor-colour">
-                <span>Dot colour</span>
-                <ColorField value={$settings.cursorDotColor} fallback={CURSOR_DEFAULTS.dotColor} label="Dot colour" onchange={(hex) => settings.update((v) => ({ ...v, cursorDotColor: hex }))} />
-              </div>
-              <p class="hint">A slightly leaning arrow with a contrasting outline and a gentle shadow lift. The resize and rotate arrows use the same fill and outline; the dot colour marks the rotate centre and the duplicate badge.</p>
-            {/if}
-            {#if $settings.cursorStyle === "crosshair"}
-            <label class="row">
-              <span>Colours</span>
-              <select value={cursorPreset} onchange={(e) => applyCursorPreset(e.currentTarget.value)} aria-label="Cursor colour preset">
-                {#each ["adaptive", "outlined", "accent", "custom"] as id (id)}<option value={id} disabled={id === "custom" && cursorPreset !== "custom"}>{PRESET_LABELS[id as CursorPreset]}</option>{/each}
-              </select>
-            </label>
-            <label class="chk">
-              <input type="checkbox" checked={$settings.cursorAdaptive} onchange={(e) => settings.update((v) => ({ ...v, cursorAdaptive: e.currentTarget.checked }))} />
-              Adapt the colour to the surface — one colour over paper and other light surfaces, another over the dark canvas, chrome and dark fills
-            </label>
-            <div class="row cursor-colour">
-              <span>{$settings.cursorAdaptive ? "Crosshair on light surfaces" : "Crosshair colour"}</span>
-              <ColorField value={$settings.cursorCoreColor} fallback={CURSOR_DEFAULTS.coreColor} label="Crosshair colour" onchange={(hex) => settings.update((v) => ({ ...v, cursorCoreColor: hex }))} />
-            </div>
-            {#if $settings.cursorAdaptive}
-              <div class="row cursor-colour">
-                <span>Crosshair on dark surfaces</span>
-                <ColorField value={$settings.cursorCoreColorDark} fallback={CURSOR_DEFAULTS.coreColorDark} label="Crosshair colour on dark surfaces" onchange={(hex) => settings.update((v) => ({ ...v, cursorCoreColorDark: hex }))} />
-              </div>
-            {/if}
-            <div class="row cursor-colour">
-              <span>Halo colour</span>
-              <ColorField value={$settings.cursorHaloColor} fallback={CURSOR_DEFAULTS.haloColor} label="Halo colour" onchange={(hex) => settings.update((v) => ({ ...v, cursorHaloColor: hex }))} />
-            </div>
-            <div class="row cursor-colour">
-              <span>Dot colour</span>
-              <ColorField value={$settings.cursorDotColor} fallback={CURSOR_DEFAULTS.dotColor} label="Dot colour" onchange={(hex) => settings.update((v) => ({ ...v, cursorDotColor: hex }))} />
-            </div>
-            <label class="chk num">
-              Crosshair stroke
-              <input type="number" min={CURSOR_STROKE_RANGE.min} max={CURSOR_STROKE_RANGE.max} step="0.1" value={$settings.cursorStroke} aria-label="Crosshair stroke width"
-                onchange={(e) => settings.update((v) => ({ ...v, cursorStroke: num(e.currentTarget.value, CURSOR_STROKE_RANGE.min, CURSOR_STROKE_RANGE.max, CURSOR_DEFAULTS.stroke, 0.1) }))} />
-              px
-            </label>
-            <label class="chk num">
-              Halo width
-              <input type="number" min={CURSOR_HALO_WIDTH_RANGE.min} max={CURSOR_HALO_WIDTH_RANGE.max} step="0.1" value={$settings.cursorHaloWidth} aria-label="Halo stroke width"
-                onchange={(e) => settings.update((v) => ({ ...v, cursorHaloWidth: num(e.currentTarget.value, CURSOR_HALO_WIDTH_RANGE.min, CURSOR_HALO_WIDTH_RANGE.max, CURSOR_DEFAULTS.haloWidth, 0.1) }))} />
-              px
-            </label>
-            <label class="chk num">
-              Halo opacity
-              <input type="number" min={CURSOR_HALO_OPACITY_RANGE.min} max={CURSOR_HALO_OPACITY_RANGE.max} step="0.05" value={$settings.cursorHaloOpacity} aria-label="Halo opacity"
-                onchange={(e) => settings.update((v) => ({ ...v, cursorHaloOpacity: num(e.currentTarget.value, CURSOR_HALO_OPACITY_RANGE.min, CURSOR_HALO_OPACITY_RANGE.max, CURSOR_DEFAULTS.haloOpacity, 0.05) }))} />
-            </label>
-            <p class="hint">The halo is an outline drawn under the crosshair; it is off by default (width 0) because the adaptive colour already keeps the mark legible — give it a width to bring the outlined look back. The dot is the accent that marks anything you can select, the rotate centre and the duplicate badge.</p>
-            <label class="row">
-              <span>Centre at rest</span>
-              <select bind:value={$settings.cursorCentre} aria-label="Cursor centre mark">
-                <option value="none">Empty gap</option>
-                <option value="dot">Dot</option>
-                <option value="ring">Ring</option>
-              </select>
-            </label>
-            <label class="chk num">
-              Size
-              <input type="number" min={CURSOR_SIZE_RANGE.min} max={CURSOR_SIZE_RANGE.max} step="2" value={$settings.cursorSize} aria-label="Cursor size"
-                onchange={(e) => settings.update((v) => ({ ...v, cursorSize: num(e.currentTarget.value, CURSOR_SIZE_RANGE.min, CURSOR_SIZE_RANGE.max, CURSOR_DEFAULTS.size, 2) }))} />
-              px
-            </label>
-            <label class="chk num">
-              Centre gap
-              <input type="number" min={CURSOR_GAP_RANGE.min} max={CURSOR_GAP_RANGE.max} step="1" value={$settings.cursorGap} aria-label="Cursor centre gap"
-                onchange={(e) => settings.update((v) => ({ ...v, cursorGap: num(e.currentTarget.value, CURSOR_GAP_RANGE.min, CURSOR_GAP_RANGE.max, CURSOR_DEFAULTS.gap) }))} />
-              px
-            </label>
-            <label class="chk">
-              <input type="checkbox" checked={$settings.cursorHoverDot} onchange={(e) => settings.update((v) => ({ ...v, cursorHoverDot: e.currentTarget.checked }))} />
-              Dot over anything you can select
-            </label>
-            <label class="chk">
-              <input type="checkbox" checked={$settings.cursorPressContract} onchange={(e) => settings.update((v) => ({ ...v, cursorPressContract: e.currentTarget.checked }))} />
-              Arms pull in while pressing
-            </label>
-            {/if}
-            <label class="chk">
-              <input type="checkbox" checked={$settings.cursorResizeStyle === "system"} onchange={(e) => settings.update((v) => ({ ...v, cursorResizeStyle: e.currentTarget.checked ? "system" : "crosshair" }))} />
-              Use the system's resize, rotate and move cursors instead
-            </label>
-            <div class="cursor-actions">
-              <button type="button" class="ghost" onclick={resetCursor} disabled={cursorIsDefault}>Reset cursor to defaults</button>
-            </div>
 
+              {#if $settings.cursorStyle === "crosshair"}
+                <h4>Colours</h4>
+                <label class="row">
+                  <span class="nm">Colours</span>
+                  <select value={cursorPreset} onchange={(e) => applyCursorPreset(e.currentTarget.value)} aria-label="Cursor colour preset">
+                    {#each ["adaptive", "outlined", "accent", "custom"] as id (id)}<option value={id} disabled={id === "custom" && cursorPreset !== "custom"}>{PRESET_LABELS[id as CursorPreset]}</option>{/each}
+                  </select>
+                </label>
+                {@render toggle("Adapt the colour to the surface", $settings.cursorAdaptive, (v) => put("cursorAdaptive", v), "One colour over paper and other light surfaces, another over the dark canvas, chrome and dark fills.")}
+                {@render colour($settings.cursorAdaptive ? "Crosshair on light surfaces" : "Crosshair colour", "Crosshair colour", $settings.cursorCoreColor, CURSOR_DEFAULTS.coreColor, (hex) => put("cursorCoreColor", hex))}
+                {#if $settings.cursorAdaptive}
+                  {@render colour("Crosshair on dark surfaces", "Crosshair colour on dark surfaces", $settings.cursorCoreColorDark, CURSOR_DEFAULTS.coreColorDark, (hex) => put("cursorCoreColorDark", hex))}
+                {/if}
+                {@render colour("Halo colour", "Halo colour", $settings.cursorHaloColor, CURSOR_DEFAULTS.haloColor, (hex) => put("cursorHaloColor", hex))}
+                {@render colour("Dot colour", "Dot colour", $settings.cursorDotColor, CURSOR_DEFAULTS.dotColor, (hex) => put("cursorDotColor", hex))}
+                {@render numRow(ranged("cursorStroke", CURSOR_STROKE_RANGE, 0.1, CURSOR_DEFAULTS.stroke, "Crosshair stroke", "Crosshair stroke width", "px"))}
+                {@render numRow(ranged("cursorHaloWidth", CURSOR_HALO_WIDTH_RANGE, 0.1, CURSOR_DEFAULTS.haloWidth, "Halo width", "Halo stroke width", "px"))}
+                {@render numRow(ranged("cursorHaloOpacity", CURSOR_HALO_OPACITY_RANGE, 0.05, CURSOR_DEFAULTS.haloOpacity, "Halo opacity", "Halo opacity"))}
+                <p class="hint">The halo is an outline drawn under the crosshair; it is off by default (width 0) because the adaptive colour already keeps the mark legible — give it a width to bring the outlined look back. The dot is the accent that marks anything you can select, the rotate centre and the duplicate badge.</p>
+
+                <h4>Shape</h4>
+                <label class="row">
+                  <span class="nm">Centre at rest</span>
+                  <select bind:value={$settings.cursorCentre} aria-label="Cursor centre mark">
+                    <option value="none">Empty gap</option>
+                    <option value="dot">Dot</option>
+                    <option value="ring">Ring</option>
+                  </select>
+                </label>
+                {@render numRow(ranged("cursorSize", CURSOR_SIZE_RANGE, 2, CURSOR_DEFAULTS.size, "Size", "Cursor size", "px"))}
+                {@render numRow(ranged("cursorGap", CURSOR_GAP_RANGE, 1, CURSOR_DEFAULTS.gap, "Centre gap", "Cursor centre gap", "px"))}
+                {@render toggle("Dot over anything you can select", $settings.cursorHoverDot, (v) => put("cursorHoverDot", v))}
+                {@render toggle("Arms pull in while pressing", $settings.cursorPressContract, (v) => put("cursorPressContract", v))}
+              {/if}
+
+              <h4>Handles</h4>
+              {@render toggle("Use the system's resize, rotate and move cursors instead", $settings.cursorResizeStyle === "system", (v) => put("cursorResizeStyle", v ? "system" : "crosshair"))}
+              <div class="cursor-actions">
+                <button type="button" class="ghost" onclick={resetCursor} disabled={cursorIsDefault}>Reset cursor to defaults</button>
+              </div>
+            </section>
           </div>
 
           <!-- ----------------------------------------------------------- Figure -->
           <div class="pane" role="tabpanel" id="settings-pane-figure" aria-labelledby="settings-tab-figure" hidden={tab !== "figure"}>
-            <h3>Rulers &amp; grid</h3>
-            <label class="chk">
-              <input type="checkbox" checked={$settings.showRulers} onchange={(e) => settings.update((v) => ({ ...v, showRulers: e.currentTarget.checked }))} />
-              Show rulers (<b>Shift+R</b>) — drag from a ruler to place a guide
-            </label>
-            <label class="chk">
-              <input type="checkbox" checked={$settings.showGrid} onchange={(e) => settings.update((v) => ({ ...v, showGrid: e.currentTarget.checked }))} />
-              Show background grid (<b>Shift+G</b>) — while visible, the pen places nodes on its vertices
-            </label>
-            <label class="chk">
-              <input type="checkbox" checked={$settings.snapGrid} onchange={(e) => settings.update((v) => ({ ...v, snapGrid: e.currentTarget.checked }))} />
-              Snap to grid
-            </label>
-            <label class="chk num">
-              Grid size
-              <input type="number" min="1" step="1" value={$settings.gridSize} onchange={(e) => settings.update((v) => ({ ...v, gridSize: Math.max(1, parseFloat(e.currentTarget.value) || 1) }))} />
-              px
-            </label>
-            <label class="chk">
-              <input type="checkbox" checked={$settings.snapPixel} onchange={(e) => settings.update((v) => ({ ...v, snapPixel: e.currentTarget.checked }))} />
-              Snap to pixel (round coords on commit — crisp export)
-            </label>
-            <label class="chk">
-              <input type="checkbox" checked={$settings.connectorsStick} onchange={(e) => settings.update((v) => ({ ...v, connectorsStick: e.currentTarget.checked }))} />
-              Connectors stick to shapes (a line end released on a shape follows it)
-            </label>
+            <section class="grp">
+              <h3>Rulers &amp; grid</h3>
+              <label class="chk">
+                <input type="checkbox" checked={$settings.showRulers} onchange={(e) => put("showRulers", e.currentTarget.checked)} />
+                <span class="nm">Show rulers <kbd>Shift+R</kbd><small>Drag from a ruler to place a guide.</small></span>
+              </label>
+              <label class="chk">
+                <input type="checkbox" checked={$settings.showGrid} onchange={(e) => put("showGrid", e.currentTarget.checked)} />
+                <span class="nm">Show background grid <kbd>Shift+G</kbd><small>While it is visible, the pen places nodes on its vertices.</small></span>
+              </label>
+              {@render toggle("Snap to grid", $settings.snapGrid, (v) => put("snapGrid", v))}
+              {@render numRow({ label: "Grid size", unit: "px", value: $settings.gridSize, min: 1, max: Infinity, step: 1, parse: (v) => Math.max(1, parseFloat(v) || 1), set: (n) => put("gridSize", n) })}
+              {@render toggle("Snap to pixel", $settings.snapPixel, (v) => put("snapPixel", v), "Rounds coordinates when a change is committed, for a crisp export.")}
+              {@render toggle("Connectors stick to shapes", $settings.connectorsStick, (v) => put("connectorsStick", v), "A line end released on a shape follows it.")}
+            </section>
 
-            <h3>Slides</h3>
-            <label class="chk">
-              <input type="checkbox" checked={$settings.slideBackAnimates !== false} onchange={(e) => settings.update((v) => ({ ...v, slideBackAnimates: e.currentTarget.checked }))} />
-              Back plays the step in reverse
-            </label>
-            <p class="hint">In Present, <b>Back</b> rewinds the step you just saw instead of cutting to the one before. Exported decks always rewind. Pressing Back twice quickly still jumps; slides with video or 3D always cut.</p>
+            <section class="grp">
+              <h3>Slides</h3>
+              <label class="chk">
+                <input type="checkbox" checked={$settings.slideBackAnimates !== false} onchange={(e) => put("slideBackAnimates", e.currentTarget.checked)} />
+                <span class="nm">Back plays the step in reverse<small>In Present, <b>Back</b> rewinds the step you just saw instead of cutting to the one before. Exported decks always rewind. Pressing Back twice quickly still jumps; slides with video or 3D always cut.</small></span>
+              </label>
+            </section>
 
-            <h3>Figure-Meta captions</h3>
-            <label class="chk num">
-              Font size
-              <input
-                type="number"
-                min="9"
-                max="28"
-                step="1"
-                value={$settings.captionFontSize}
-                onchange={(e) => settings.update((v) => ({ ...v, captionFontSize: Math.min(28, Math.max(9, Math.round(parseFloat(e.currentTarget.value) || 16))) }))}
-              />
-              px
-            </label>
-            <p class="hint">The typing size in Figure-Meta (<b>Alt+M</b>). Each field grows to fit its text; scroll the fields column to move between captions.</p>
+            <section class="grp">
+              <h3>Figure-Meta captions</h3>
+              <label class="chk num">
+                <span class="nm">Font size<small>The typing size in Figure-Meta <kbd>Alt+M</kbd>. Each field grows to fit its text; scroll the fields column to move between captions.</small></span>
+                <span class="numf">
+                  <input type="number" min="9" max="28" step="1" value={$settings.captionFontSize} aria-label="Caption font size"
+                    onchange={(e) => put("captionFontSize", Math.min(28, Math.max(9, Math.round(parseFloat(e.currentTarget.value) || 16))))} />
+                  <i class="unit">px</i>
+                  <button type="button" class="step dec" tabindex="-1" aria-label="Decrease caption font size" disabled={$settings.captionFontSize <= 9} onclick={() => put("captionFontSize", Math.max(9, $settings.captionFontSize - 1))}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 6h6" /></svg></button>
+                  <button type="button" class="step inc" tabindex="-1" aria-label="Increase caption font size" disabled={$settings.captionFontSize >= 28} onclick={() => put("captionFontSize", Math.min(28, $settings.captionFontSize + 1))}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 6h6M6 3v6" /></svg></button>
+                </span>
+              </label>
+            </section>
 
-            <h3>Physical sizes</h3>
-            <label class="row">
-              <span>Show sizes in</span>
-              <select bind:value={$settings.physicalUnit} aria-label="Physical size unit" data-physical-unit>
-                <option value="in">Inches</option>
-                <option value="mm">Millimetres</option>
-              </select>
-            </label>
-            <p class="hint">How the Inspector and the Plots rail's Peek give a plot's or figure's printed size. Inches match matplotlib's <code>figsize</code>.</p>
+            <section class="grp">
+              <h3>Physical sizes</h3>
+              <label class="row">
+                <span class="nm">Show sizes in<small>How the Inspector and the Plots rail's Peek give a plot's or figure's printed size. Inches match matplotlib's <code>figsize</code>.</small></span>
+                <select bind:value={$settings.physicalUnit} aria-label="Physical size unit" data-physical-unit>
+                  <option value="in">Inches</option>
+                  <option value="mm">Millimetres</option>
+                </select>
+              </label>
+            </section>
 
-            <h3>Plot gallery</h3>
-            <label class="row">
-              <span>Search reaches</span>
-              <select bind:value={$settings.plotSearchScope} aria-label="Plot gallery search scope">
-                {#each PLOT_SEARCH_SCOPES as o (o.id)}<option value={o.id}>{o.label}</option>{/each}
-              </select>
-            </label>
-            <p class="hint">What typing in the Plot gallery (<b>Shift+Alt+G</b>) searches. <b>Project</b> is this project's <code>plots/</code> folder; <b>Global</b> is your plot library in <code>{plotLibPath || "FluxConfig/plot_library"}</code>, shared by every project. The switch at the top of the gallery picks which one you browse.</p>
-            <label class="chk">
-              <input type="checkbox" checked={$settings.galleryFolderClickExpands} onchange={(e) => settings.update((v) => ({ ...v, galleryFolderClickExpands: e.currentTarget.checked }))} />
-              Clicking a gallery folder expands/collapses it
-            </label>
-            <p class="hint">Off: clicking a folder in the gallery's <b>Folders</b> sidebar only shows what is in it, and the <b>›</b> arrow beside it expands or collapses the subtree. On: the click does both.</p>
+            <section class="grp">
+              <h3>Plot gallery</h3>
+              <label class="row">
+                <span class="nm">Search reaches<small>What typing in the Plot gallery <kbd>Shift+Alt+G</kbd> searches. <b>Project</b> is this project's <code>plots/</code> folder; <b>Global</b> is your plot library in <code>{plotLibPath || "FluxConfig/plot_library"}</code>, shared by every project. The switch at the top of the gallery picks which one you browse.</small></span>
+                <select bind:value={$settings.plotSearchScope} aria-label="Plot gallery search scope">
+                  {#each PLOT_SEARCH_SCOPES as o (o.id)}<option value={o.id}>{o.label}</option>{/each}
+                </select>
+              </label>
+              <label class="chk">
+                <input type="checkbox" checked={$settings.galleryFolderClickExpands} onchange={(e) => put("galleryFolderClickExpands", e.currentTarget.checked)} />
+                <span class="nm">Clicking a gallery folder expands/collapses it<small>Off: clicking a folder in the gallery's <b>Folders</b> sidebar only shows what is in it, and the <b>›</b> arrow beside it expands or collapses the subtree. On: the click does both.</small></span>
+              </label>
+            </section>
 
-            <h3>Colour pickers</h3>
-            <label class="row">
-              <span>Palette collection</span>
-              <select bind:value={$settings.paletteCollection} aria-label="Default palette collection">
-                {#each PALETTE_COLLECTIONS as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
-                <option value="project">Project palette</option>
-              </select>
-            </label>
-            <label class="row">
-              <span>Colormap collection</span>
-              <select bind:value={$settings.colormapCollection} aria-label="Default colormap collection">
-                {#each COLORMAP_COLLECTIONS as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
-              </select>
-            </label>
-            <p class="hint">The collection a picker opens on. Every collection stays a <b>Shift+Tab</b> away inside the picker; <b>Tab</b> switches between palettes and colormaps.</p>
+            <section class="grp">
+              <h3>Colour pickers</h3>
+              <label class="row">
+                <span class="nm">Palette collection</span>
+                <select bind:value={$settings.paletteCollection} aria-label="Default palette collection">
+                  {#each PALETTE_COLLECTIONS as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
+                  <option value="project">Project palette</option>
+                </select>
+              </label>
+              <label class="row">
+                <span class="nm">Colormap collection</span>
+                <select bind:value={$settings.colormapCollection} aria-label="Default colormap collection">
+                  {#each COLORMAP_COLLECTIONS as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
+                </select>
+              </label>
+              <p class="hint">The collection a picker opens on. Every collection stays a <kbd>Shift+Tab</kbd> away inside the picker; <kbd>Tab</kbd> switches between palettes and colormaps.</p>
+            </section>
 
-            <h3>Property menu</h3>
-            <p class="hint">Press F with objects selected. The menu opens beside the selection; every property has a left-hand key, and the mouse wheel adjusts the armed value.</p>
+            <section class="grp">
+              <h3>Property menu</h3>
+              <p class="hint lead">Press <kbd>F</kbd> with objects selected. The menu opens beside the selection; every property has a left-hand key, and the mouse wheel adjusts the armed value.</p>
+            </section>
           </div>
 
           <!-- ------------------------------------------------------------ Paper -->
           <div class="pane" role="tabpanel" id="settings-pane-paper" aria-labelledby="settings-tab-paper" hidden={tab !== "paper"}>
-            <h3>Dynamic margin background</h3>
-            <div class="seg scenes">
-              {#each marginScenes as m}
-                <button class:on={$settings.paperMarginScene === m.v} onclick={() => settings.update((v) => ({ ...v, paperMarginScene: m.v }))}>{m.l}</button>
-              {/each}
-            </div>
+            <section class="grp">
+              <h3>Dynamic margin background</h3>
+              <div class="seg scenes" role="radiogroup" aria-label="Dynamic margin background">
+                {#each marginScenes as m (m.v)}
+                  <button role="radio" aria-checked={$settings.paperMarginScene === m.v} class:on={$settings.paperMarginScene === m.v} onclick={() => put("paperMarginScene", m.v)}>
+                    <svg viewBox="0 0 24 16" aria-hidden="true"><path d={m.d} /></svg>
+                    <span>{m.l}</span>
+                  </button>
+                {/each}
+              </div>
+              <p class="hint">What drifts behind the margin while no pane is open. It changes as you choose.</p>
+            </section>
 
-            <h3>Dynamic panes</h3>
-            <label class="chk num">
-              Max panes open at once
-              <input
-                type="number"
-                min="1"
-                max="6"
-                step="1"
-                value={$settings.paperMaxMarginPanes}
-                onchange={(e) => settings.update((v) => ({ ...v, paperMaxMarginPanes: Math.min(6, Math.max(1, Math.round(parseFloat(e.currentTarget.value) || 4))) }))}
-              />
-            </label>
-            <label class="chk">
-              <input
-                type="checkbox"
-                checked={$settings.paperCleanMargin}
-                onchange={(e) => settings.update((v) => ({ ...v, paperCleanMargin: e.currentTarget.checked }))}
-              />
-              Clean dynamic margin — close all panes when focus returns to the editor
-            </label>
-
+            <section class="grp">
+              <h3>Dynamic panes</h3>
+              {@render numRow({ label: "Max panes open at once", value: $settings.paperMaxMarginPanes, min: 1, max: 6, step: 1, parse: (v) => Math.min(6, Math.max(1, Math.round(parseFloat(v) || 4))), set: (n) => put("paperMaxMarginPanes", n), sub: "Opening one more closes the oldest." })}
+              {@render toggle("Clean dynamic margin", $settings.paperCleanMargin, (v) => put("paperCleanMargin", v), "Close all panes when focus returns to the editor.")}
+            </section>
           </div>
 
           <!-- ------------------------------------------------------ Corrections -->
           <div class="pane" role="tabpanel" id="settings-pane-corrections" aria-labelledby="settings-tab-corrections" hidden={tab !== "corrections"}>
-            <h3>Local corrections</h3>
-            <label class="chk">
-              <input
-                type="checkbox"
-                checked={$settings.paperLocalCorrections}
-                onchange={(e) => settings.update((v) => ({ ...v, paperLocalCorrections: e.currentTarget.checked }))}
-              />
-              Correct clear typing and spacing errors as I write
-            </label>
-            <p class="hint">Runs entirely on this device. A blue pulse marks each correction; click it for details or press Undo to restore the original. Reverting teaches this project what to leave alone. Resetting these lessons keeps explicit dictionaries and aliases.</p>
-            <button class="ghost learning-reset" onclick={resetCorrectionLearning}>
-              {correctionLearningReset ? "Learning reset" : "Reset correction learning"}
-            </button>
+            <section class="grp">
+              <h3>Local corrections</h3>
+              {@render toggle("Correct clear typing and spacing errors as I write", $settings.paperLocalCorrections, (v) => put("paperLocalCorrections", v), "Runs entirely on this device. A blue pulse marks each correction; click it for details or press Undo to restore the original.")}
+              <div class="item">
+                <span class="nm">What Flux has learned<small>Reverting a correction teaches this project what to leave alone. Resetting these lessons keeps explicit dictionaries and aliases.</small></span>
+                <button class="ghost learning-reset" class:did={correctionLearningReset} onclick={resetCorrectionLearning}>
+                  {correctionLearningReset ? "Learning reset" : "Reset correction learning"}
+                </button>
+              </div>
+            </section>
 
-            <h3>English dialect</h3>
-            <select aria-label="Correction dialect" value={$settings.paperCorrectionDialect} onchange={(e) => settings.update((v) => ({ ...v, paperCorrectionDialect: e.currentTarget.value as Settings["paperCorrectionDialect"] }))}>
-              <option value="american">US English</option>
-              <option value="british">British English</option>
-              <option value="canadian">Canadian English</option>
-              <option value="australian">Australian English</option>
-            </select>
-            <p class="hint">Click or hover an underlined word for spelling suggestions, type your own correction, or add it to your personal dictionary. Accepted corrections are remembered across projects. Common neuroscience and biology terms are included in your personal dictionary.</p>
+            <section class="grp">
+              <h3>English dialect</h3>
+              <label class="row">
+                <span class="nm">Spelling follows<small>Click or hover an underlined word for spelling suggestions, type your own correction, or add it to your personal dictionary. Accepted corrections are remembered across projects. Common neuroscience and biology terms are included in your personal dictionary.</small></span>
+                <select aria-label="Correction dialect" value={$settings.paperCorrectionDialect} onchange={(e) => put("paperCorrectionDialect", e.currentTarget.value as Settings["paperCorrectionDialect"])}>
+                  <option value="american">US English</option>
+                  <option value="british">British English</option>
+                  <option value="canadian">Canadian English</option>
+                  <option value="australian">Australian English</option>
+                </select>
+              </label>
+            </section>
           </div>
         </div>
       </div>
 
       <div class="foot">
+        <span class="keys"><kbd>↑</kbd><kbd>↓</kbd> sections <span class="dot">·</span> <kbd>Esc</kbd> close</span>
         <button class="close" onclick={() => settingsOpen.set(false)}>Done</button>
       </div>
     </div>
@@ -662,21 +611,35 @@
     background: rgba(0, 0, 0, 0.35);
   }
   .modal {
+    --ctl: 212px; /* the control column: selects and colour fields share it */
     display: flex;
     flex-direction: column;
-    width: min(780px, calc(100vw - 40px));
-    height: min(600px, calc(100vh - 40px));
+    box-sizing: border-box;
+    width: min(840px, calc(100vw - 40px));
+    height: min(640px, calc(100vh - 40px));
     overflow: hidden;
     background: var(--c-surface);
     border: 1px solid var(--c-line-strong);
     border-radius: var(--r-panel);
-    box-shadow: var(--elev-2);
+    box-shadow: var(--elev-3);
     color: var(--c-tx);
-    font: 12px/1.35 var(--font-ui);
+    font: 13px/1.35 var(--font-serif);
     -webkit-font-smoothing: antialiased;
   }
   .modal:focus {
     outline: none;
+  }
+  .modal *,
+  .modal *::before {
+    box-sizing: border-box;
+  }
+  svg {
+    display: block;
+    flex-shrink: 0;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
 
   /* ---- header · body · footer, hairline-separated -------------------------- */
@@ -684,15 +647,45 @@
     flex: 0 0 36px;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 10px;
     padding: 0 6px 0 12px;
+    background: var(--c-bg-raised);
     border-bottom: 1px solid var(--c-line);
   }
+  .mark {
+    display: inline-flex;
+    color: var(--c-tx-muted);
+  }
   .title {
-    font: 600 13px var(--font-ui);
+    font: 600 14px var(--font-serif);
     color: var(--c-tx-hi);
+    white-space: nowrap;
+  }
+  .vsep {
+    flex: 0 0 1px;
+    height: 14px;
+    background: var(--c-line-strong);
+  }
+  .scope {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--c-tx-muted);
+    font: 11px var(--font-mono);
+  }
+  button {
+    margin: 0;
+    font: inherit;
+    cursor: var(--cursor-cross-hover);
+    transition: background-color 80ms linear, border-color 80ms linear, color 80ms linear;
+  }
+  button:disabled {
+    cursor: var(--cursor-cross);
   }
   .x {
+    flex: 0 0 24px;
     width: 24px;
     height: 24px;
     padding: 0;
@@ -702,8 +695,11 @@
     border: 1px solid transparent;
     border-radius: var(--r-ui);
     color: var(--c-tx-muted);
-    font: 16px/1 var(--font-ui);
-    cursor: var(--cursor-cross-hover);
+  }
+  .x svg {
+    width: 12px;
+    height: 12px;
+    stroke-width: 1.5;
   }
   .x:hover {
     background: var(--c-surface-2);
@@ -715,36 +711,73 @@
     display: flex;
   }
   .foot {
-    flex: 0 0 auto;
+    flex: 0 0 38px;
     display: flex;
-    justify-content: flex-end;
-    padding: 8px 12px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 8px 0 12px;
+    background: var(--c-bg-raised);
     border-top: 1px solid var(--c-line);
+  }
+  .keys {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: var(--c-tx-muted);
+    font: 11px var(--font-ui);
+  }
+  .keys kbd {
+    margin-right: 3px;
+  }
+  .keys .dot {
+    margin: 0 5px;
+    color: var(--c-tx-faint);
   }
 
   /* ---- tab column ---------------------------------------------------------- */
   .tabs {
-    flex: 0 0 170px;
+    flex: 0 0 172px;
     display: flex;
     flex-direction: column;
-    padding: 6px 0;
+    gap: 1px;
+    padding: 8px 6px;
     background: var(--c-bg-raised);
     border-right: 1px solid var(--c-line);
   }
   .tab {
-    height: 26px;
-    padding: 0 12px;
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr);
+    align-items: center;
+    column-gap: 9px;
+    height: 30px;
+    padding: 0 8px 0 9px;
     text-align: left;
     background: transparent;
     border: 0;
-    border-radius: var(--r-0);
+    border-radius: var(--r-ui);
     color: var(--c-tx-2);
-    font: 12px var(--font-ui);
-    cursor: var(--cursor-cross-hover);
+    font: 13px var(--font-serif);
+    white-space: nowrap;
+  }
+  .ti {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    opacity: 0.7;
   }
   .tab:hover {
     background: var(--c-surface-2);
-    color: var(--c-tx);
+    color: var(--c-tx-hi);
+  }
+  .tab:hover .ti,
+  .tab.on .ti {
+    opacity: 1;
+  }
+  .tab:active {
+    background: var(--c-accent-tint);
   }
   .tab.on {
     background: var(--c-accent-tint);
@@ -765,82 +798,373 @@
     flex: 1 1 auto;
     min-width: 0;
     overflow-y: auto;
-    padding: 0 18px 18px;
+    padding: 0 22px 24px;
+    scrollbar-gutter: stable;
   }
   .pane[hidden] {
     display: none;
   }
+  .grp {
+    margin: 0;
+    padding-bottom: 10px;
+  }
+  /* A section's head stays pinned while its rows scroll under it. */
   h3 {
+    position: sticky;
+    top: 0;
+    z-index: 2;
     display: flex;
     align-items: flex-end;
-    height: 28px;
-    margin: 14px 0 8px;
-    padding-bottom: 5px;
+    height: 36px;
+    margin: 0 0 4px;
+    padding-bottom: 6px;
+    background: var(--c-surface);
     border-bottom: 1px solid var(--c-line);
-    font: 600 10.5px var(--font-mono);
+    font: 600 10px var(--font-mono);
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--c-tx-muted);
   }
-  .pane > h3:first-child {
-    margin-top: 8px;
+  h4 {
+    margin: 14px 0 2px;
+    font: 600 10px var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--c-tx-faint);
+  }
+
+  /* ---- one row anatomy: name (and what it does) · control ------------------ */
+  .chk,
+  .row,
+  .item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    /* The control sits on the NAME's line, however long the description under it runs. */
+    align-items: start;
+    column-gap: 20px;
+    min-height: 32px;
+    margin: 0;
+    padding: 4px 0;
+  }
+  .chk {
+    cursor: var(--cursor-cross-hover);
+  }
+  .nm {
+    grid-column: 1;
+    grid-row: 1;
+    min-width: 0;
+    padding-top: 3px;
+    color: var(--c-tx);
+    font: 13px/1.35 var(--font-serif);
+    transition: color 80ms linear;
+  }
+  .chk:hover .nm {
+    color: var(--c-tx-hi);
+  }
+  .nm small {
+    display: block;
+    max-width: 60ch;
+    margin-top: 2px;
+    color: var(--c-tx-muted);
+    font: 11.5px/1.45 var(--font-serif);
+  }
+  .nm > kbd {
+    margin-left: 5px;
+    vertical-align: 1px;
   }
   .hint {
-    margin: 6px 0 0;
-    font: 11px/1.4 var(--font-ui);
+    max-width: 68ch;
+    margin: 4px 0 6px;
+    color: var(--c-tx-muted);
+    font: 11.5px/1.5 var(--font-serif);
+  }
+  .hint.lead {
+    margin-top: 8px;
+  }
+  .hint.notice {
+    color: var(--c-tx);
+  }
+  kbd {
+    color: var(--c-tx-2);
+  }
+  small kbd,
+  .hint kbd {
+    margin: 0 1px;
+    vertical-align: 1px;
+  }
+  b {
+    color: var(--c-tx-2);
+    font-weight: 600;
+  }
+  code {
+    padding: 0 3px;
+    background: var(--c-surface-2);
+    border-radius: var(--r-ui);
+    color: var(--c-tx-2);
+    font: 10.5px var(--font-mono);
+  }
+
+  /* Switch: a square track and a knob that slides. Checkbox semantics, so the
+     whole row is its hit target. */
+  .chk input[type="checkbox"] {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    position: relative;
+    appearance: none;
+    -webkit-appearance: none;
+    width: 30px;
+    height: 16px;
+    margin: 4px 0 0;
+    background: var(--c-bg);
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-ui);
+    cursor: var(--cursor-cross-hover);
+    transition: background-color 90ms linear, border-color 90ms linear;
+  }
+  .chk input[type="checkbox"]::before {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 2px;
+    width: 10px;
+    height: 10px;
+    border-radius: 1px;
+    background: var(--c-tx-muted);
+    transition: transform 90ms var(--ease-standard, ease-out), background-color 90ms linear;
+  }
+  .chk:hover input[type="checkbox"] {
+    border-color: var(--c-tx-muted);
+  }
+  .chk input[type="checkbox"]:checked {
+    background: var(--c-accent-tint);
+    border-color: var(--c-accent);
+  }
+  .chk input[type="checkbox"]:checked::before {
+    transform: translateX(14px);
+    background: var(--c-accent);
+  }
+  .chk:active input[type="checkbox"]::before {
+    transform: translateX(3px);
+  }
+  .chk:active input[type="checkbox"]:checked::before {
+    transform: translateX(11px);
+  }
+
+  /* Stepper field: − value unit +, one box. */
+  .numf {
+    grid-column: 2;
+    grid-row: 1;
+    display: inline-flex;
+    align-items: stretch;
+    height: 24px;
+    background: var(--c-bg);
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-ui);
+    transition: border-color 80ms linear;
+  }
+  .numf:hover {
+    border-color: var(--c-tx-muted);
+  }
+  .numf:focus-within {
+    border-color: var(--c-accent);
+  }
+  .numf input {
+    order: 1;
+    width: 50px;
+    min-width: 0;
+    height: 22px;
+    margin: 0;
+    padding: 0 0 0 6px;
+    background: transparent;
+    border: 0;
+    outline: none;
+    color: var(--c-tx);
+    font: 12px var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+  .numf input::-webkit-inner-spin-button,
+  .numf input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  .numf .unit {
+    order: 2;
+    display: flex;
+    align-items: center;
+    width: 26px;
+    padding-left: 4px;
+    color: var(--c-tx-faint);
+    font: normal 10.5px var(--font-mono);
+  }
+  .numf .step {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
     color: var(--c-tx-muted);
   }
-  /* hotkey glyphs inside labels/hints */
-  b {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 16px;
-    height: 16px;
-    padding: 0 4px;
-    vertical-align: -3px;
+  .numf .step.dec {
+    order: 0;
+    border-right: 1px solid var(--c-line);
+  }
+  .numf .step.inc {
+    order: 3;
+    border-left: 1px solid var(--c-line);
+  }
+  .numf .step svg {
+    width: 12px;
+    height: 12px;
+    stroke-width: 1.5;
+  }
+  .numf .step:hover:not(:disabled) {
+    background: var(--c-surface-2);
+    color: var(--c-tx-hi);
+  }
+  .numf .step:active:not(:disabled) {
     background: var(--c-accent-tint);
-    border-radius: var(--r-ui);
     color: var(--c-accent);
-    font: 600 11px var(--font-mono);
+  }
+  .numf .step:disabled {
+    opacity: 0.3;
+  }
+
+  select {
+    grid-column: 2;
+    grid-row: 1;
+    appearance: none;
+    -webkit-appearance: none;
+    width: var(--ctl);
+    min-width: 0;
+    height: 24px;
+    margin: 0;
+    padding: 0 24px 0 8px;
+    background: var(--c-bg)
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23878580' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5 6 7.5l3-3'/%3E%3C/svg%3E")
+      no-repeat right 7px center / 11px 11px;
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-ui);
+    color: var(--c-tx);
+    font: 12px var(--font-ui);
+    text-overflow: ellipsis;
+    cursor: var(--cursor-cross-hover);
+    transition: border-color 80ms linear;
+  }
+  select:hover {
+    border-color: var(--c-tx-muted);
+  }
+  select:focus {
+    outline: none;
+    border-color: var(--c-accent);
+  }
+  button:focus-visible,
+  input[type="checkbox"]:focus-visible {
+    outline: 1px solid var(--c-accent);
+    outline-offset: 1px;
+  }
+
+  .ghost {
+    height: 24px;
+    padding: 0 10px;
+    background: transparent;
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-ui);
+    color: var(--c-tx);
+    font: 12.5px var(--font-serif);
+    white-space: nowrap;
+  }
+  .ghost:hover:not(:disabled) {
+    background: var(--c-surface-2);
+    border-color: var(--c-tx-muted);
+    color: var(--c-tx-hi);
+  }
+  .ghost:active:not(:disabled) {
+    background: var(--c-accent-tint);
+    border-color: var(--c-accent);
+  }
+  .ghost:disabled {
+    opacity: 0.4;
+  }
+  .ghost.did {
+    border-color: var(--c-accent);
+    color: var(--c-accent);
+  }
+  .close {
+    height: 24px;
+    padding: 0 16px;
+    background: var(--c-accent-tint);
+    border: 1px solid color-mix(in oklab, var(--c-accent) 60%, transparent);
+    border-radius: var(--r-ui);
+    color: var(--c-tx-hi);
+    font: 600 12.5px var(--font-serif);
+  }
+  .close:hover {
+    background: color-mix(in oklab, var(--c-accent) 28%, transparent);
+    border-color: var(--c-accent);
+  }
+  .close:active {
+    background: color-mix(in oklab, var(--c-accent) 38%, transparent);
+  }
+
+  /* ---- General ------------------------------------------------------------- */
+  .pathrow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 6px;
+    align-items: center;
+    padding: 4px 0;
+  }
+  .libpath {
+    overflow: hidden;
+    height: 24px;
+    padding: 0 8px;
+    background: var(--c-bg);
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-ui);
+    color: var(--c-tx-2);
+    font: 11.5px/22px var(--font-mono);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    user-select: text;
   }
 
   /* ---- cursor preview ------------------------------------------------------- */
-  .cursor-press-trial {
-    width: 100%;
-    min-height: 48px;
-    margin: 4px 0 12px;
-    border: 1px solid var(--c-line);
-    border-radius: 3px;
-    background: var(--c-bg);
-    color: var(--c-tx-muted);
-    touch-action: manipulation;
-  }
   .cursor-preview {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin: 6px 0 2px;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px 6px;
+    margin: 8px 0 6px;
   }
   .cursor-cell {
+    min-width: 0;
     margin: 0;
     display: flex;
     flex-direction: column;
-    align-items: center;
+    align-items: stretch;
     gap: 3px;
   }
   .cursor-cell figcaption {
+    text-align: center;
     font: 10px var(--font-mono);
+    letter-spacing: 0.04em;
     color: var(--c-tx-muted);
   }
   /* a dark half and a paper half, each showing (and carrying) the drawing for its surface */
   .cursor-cell .swatch {
     display: flex;
     border-radius: var(--r-ui);
-    border: 1px solid var(--c-line);
+    border: 1px solid var(--c-line-strong);
     overflow: hidden;
   }
   .cursor-cell .half {
+    flex: 1 1 0;
+    min-width: 0;
     display: grid;
     place-items: center;
     padding: 6px 4px;
@@ -853,162 +1177,114 @@
   }
   .cursor-cell img {
     display: block;
+    max-width: 100%;
     image-rendering: auto;
   }
+  .cursor-press-trial {
+    display: block;
+    width: 100%;
+    min-height: 46px;
+    margin: 6px 0 4px;
+    border: 1px dashed var(--c-line-strong);
+    border-radius: var(--r-panel);
+    background: var(--c-bg);
+    color: var(--c-tx-muted);
+    font: italic 12.5px var(--font-serif);
+    touch-action: manipulation;
+  }
+  .cursor-press-trial:hover {
+    border-color: var(--c-tx-muted);
+    color: var(--c-tx-2);
+  }
   .cursor-actions {
+    display: flex;
+    justify-content: flex-end;
     margin: 8px 0 0;
   }
   /* the colour rows: a swatch + hex field in the control column */
-  .cursor-colour {
-    grid-template-columns: minmax(0, 1fr) minmax(130px, 180px);
-  }
   .cursor-colour :global(.wrap) {
-    width: 100%;
+    grid-column: 2;
+    grid-row: 1;
+    width: var(--ctl);
   }
 
-  /* ---- controls ------------------------------------------------------------ */
-  .row {
+  /* ---- Paper: the margin scenes, each a small drawing and its name ----------- */
+  .seg.scenes {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(130px, 180px);
-    gap: 12px;
-    align-items: center;
-    margin: 8px 0;
-  }
-  .ghost {
-    height: 24px;
-    padding: 3px 8px;
-    background: transparent;
-    border: 1px solid var(--c-line-strong);
-    border-radius: var(--r-ui);
-    color: var(--c-tx);
-    font: 12px var(--font-ui);
-    cursor: var(--cursor-cross-hover);
-  }
-  .ghost:hover:not(:disabled) {
-    border-color: var(--c-tx-muted);
-    color: var(--c-tx-hi);
-  }
-  .ghost:disabled {
-    opacity: 0.4;
-    cursor: var(--cursor-cross);
-  }
-  .close {
-    height: 24px;
-    padding: 3px 14px;
-    background: var(--c-accent);
-    border: 1px solid var(--c-accent);
-    border-radius: var(--r-ui);
-    color: var(--c-on-accent);
-    font: 600 12px var(--font-ui);
-    cursor: var(--cursor-cross-hover);
-  }
-  .close:hover {
-    background: var(--c-accent-bright);
-    border-color: var(--c-accent-bright);
-  }
-
-  /* segmented group: joined buttons, shared 1px borders, outer radius only */
-  .seg {
-    display: inline-flex;
-    flex-wrap: wrap;
-    max-width: 100%;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 4px;
+    margin: 8px 0 6px;
   }
   .seg button {
-    position: relative;
-    height: 24px;
-    margin-left: -1px;
-    padding: 3px 10px;
-    background: transparent;
-    border: 1px solid var(--c-line-strong);
-    border-radius: 0;
-    color: var(--c-tx);
-    font: 12px var(--font-ui);
-    cursor: var(--cursor-cross-hover);
-  }
-  .seg button:first-child {
-    margin-left: 0;
-    border-radius: var(--r-ui) 0 0 var(--r-ui);
-  }
-  .seg button:last-child {
-    border-radius: 0 var(--r-ui) var(--r-ui) 0;
-  }
-  .seg button:hover {
-    z-index: 1;
-    border-color: var(--c-tx-muted);
-    color: var(--c-tx-hi);
-  }
-  .seg button.on {
-    z-index: 2;
-    background: var(--c-accent-tint);
-    border-color: var(--c-accent);
-    color: var(--c-tx-hi);
-  }
-
-  .chk {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 8px;
-    min-height: 24px;
-    margin: 2px 0;
-    font: 12px/1.35 var(--font-ui);
-    color: var(--c-tx);
-    cursor: var(--cursor-cross-hover);
-  }
-  .chk input[type="checkbox"] {
-    flex: 0 0 auto;
-    width: 13px;
-    height: 13px;
-    margin: 0;
-    accent-color: var(--c-accent);
-  }
-  .chk.num input[type="number"] {
-    width: 64px;
-  }
-  input[type="number"],
-  select {
+    justify-content: center;
+    gap: 7px;
     min-width: 0;
-    height: 24px;
-    padding: 2px 6px;
+    height: 68px;
+    padding: 0 4px;
     background: var(--c-bg);
-    border: 1px solid var(--c-line-strong);
+    border: 1px solid var(--c-line);
     border-radius: var(--r-ui);
-    color: var(--c-tx);
-    font: 12px var(--font-mono);
-    font-variant-numeric: tabular-nums;
+    color: var(--c-tx-muted);
+    font: 12px var(--font-serif);
   }
-  input:not([type="checkbox"]):focus,
-  select:focus {
-    outline: none;
-    border-color: var(--c-accent);
-  }
-  button:focus-visible,
-  input[type="checkbox"]:focus-visible {
-    outline: 1px solid var(--c-accent);
-    outline-offset: 1px;
-    border-radius: var(--r-ui);
-  }
-
-  /* ---- General ------------------------------------------------------------- */
-  .libpath {
+  .seg button span {
+    max-width: 100%;
     overflow: hidden;
-    padding: 4px 8px;
-    background: var(--c-bg);
-    border: 1px solid var(--c-line-strong);
-    border-radius: var(--r-ui);
-    color: var(--c-tx-2);
-    font: 11px/1.4 var(--font-mono);
     text-overflow: ellipsis;
     white-space: nowrap;
-    user-select: text;
   }
-  .libbtns {
-    display: flex;
-    gap: 6px;
-    margin-top: 8px;
+  .seg button svg {
+    width: 42px;
+    height: 28px;
+    stroke-width: 1.1;
+  }
+  .seg button:hover {
+    background: var(--c-surface-2);
+    border-color: var(--c-line-strong);
+    color: var(--c-tx-hi);
+  }
+  .seg button:active {
+    background: var(--c-accent-tint);
+  }
+  .seg button.on {
+    background: var(--c-accent-tint);
+    border-color: color-mix(in oklab, var(--c-accent) 60%, transparent);
+    box-shadow: inset 0 -2px 0 var(--c-accent);
+    color: var(--c-tx-hi);
+  }
+  .seg button.on svg {
+    color: var(--c-accent);
   }
 
-  /* ---- Corrections --------------------------------------------------------- */
-  .learning-reset {
-    margin-top: 8px;
+  /* Narrow windows: the control column gives way before the names do. */
+  @media (max-width: 700px) {
+    .modal {
+      --ctl: 168px;
+    }
+    .tabs {
+      flex-basis: 132px;
+    }
+    .pane {
+      padding: 0 14px 20px;
+    }
+    .scope {
+      visibility: hidden;
+    }
+    .seg.scenes {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    button,
+    select,
+    .nm,
+    .numf,
+    .chk input[type="checkbox"],
+    .chk input[type="checkbox"]::before {
+      transition: none;
+    }
   }
 </style>

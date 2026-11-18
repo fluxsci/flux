@@ -2610,6 +2610,27 @@ Persistence invariants (all machine-checked — do not weaken):
   `flux.ui.settingsTab`). Each pane owns its scroll position; `modalFocus` contains Tab and
   Shift+Tab, and closing restores the invoking control. The collection defaults share the
   same aligned 24px controls as the other settings.
+  **Settings has ONE row anatomy** (rebuilt 2026-11-18; owner: "looks SO half-baked and basic").
+  A row is `label.chk` (switch), `label.chk.num` (stepper field) or `label.row` (select), or a
+  `div.item` / `div.row.cursor-colour` for a button or colour field: the name in `.nm` (what it
+  does in a `<small>` under it) on the left, the control in grid column 2. Controls of every kind
+  end on one right edge and sit on the NAME's line (`align-items: start`), so a long description
+  never drags its control to the middle of a paragraph. Write new rows with the `toggle`,
+  `numRow` and `colour` snippets; `ranged()` builds a stepper row from a settings key and its
+  range. Three things that are easy to get wrong:
+  (1) in a number row the `<input>` comes FIRST in the DOM and the steppers after it (CSS
+  `order` puts − on the left): a label's click goes to its first labelable descendant, so a
+  stepper first would decrement on every click of the name;
+  (2) a switch is a real checkbox restyled with `appearance: none` (gates click
+  `.chk input`), its knob moves by `transform` only;
+  (3) in the Figure pane `.row` means "a select row": `verify-shell-complete` reads a `select`
+  out of every `#settings-pane-figure .row`, and wants each 24 px tall in 12 px type.
+  Keys are `<kbd>` (the global cap), never a tinted `<b>`; `<b>` is plain emphasis. Section
+  heads are `position: sticky` inside their own `section.grp`. `num()` rounds to the step's
+  decimals (1.25 − 0.05 is 1.2, not 1.2000000000000002). The agent rows
+  (`RunnerSettings.svelte`, also in AI status) repeat the anatomy and read the dialog's `--ctl`
+  control width. The dialog is mounted by `Shell.svelte` (it was inside the workspace, so the
+  gear did nothing on Home and the dialog appeared by itself once a project opened).
   - **Property menu (F) = `FluxFigMenu.svelte` + `interact/propertyMenu.ts`.** One `Field` model
     (`buildMenuFields`: element fields + part fields with `mixed`/`count`) feeds the menu AND
     the Inspector's part section, so a property exists once. The menu is a hotkey surface: a
@@ -4659,8 +4680,8 @@ real exports Word refused):
 
 **Bundle/startup:** a static import from any eager shell module (`Shell.svelte`, stores,
 `src/lib/references/*` used by Shell) into `src/shell/modes/**` drags an entire mode chunk into
-Home. Workspace loads Settings dynamically when a project opens, keeping its color
-collections and correction controls out of Home's eager graph. Dynamic-import at the call site;
+Home. Shell loads Settings dynamically (when a project opens, or on the first click of the
+gear on Home), keeping its color collections and correction controls out of Home's eager graph. Dynamic-import at the call site;
 `verify-startup.mjs` (800KB eager budget, no mode chunks
 at Home) is the gate. Mode warms belong in `requestIdleCallback`. The gate queues idle callbacks
 until its eager snapshot, then releases them, so optional preloading cannot race the measurement;
