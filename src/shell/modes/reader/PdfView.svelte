@@ -63,6 +63,7 @@
     onRegionPop,
     onRegionSnip,
     onOrphans,
+    onOrder,
     onPage,
     onScale,
     initialView = null,
@@ -102,6 +103,9 @@
     /** LR-13: ids whose quote no longer locates on their (rendered) page → the annotations
      *  panel flags them as orphaned instead of silently showing no highlight. */
     onOrphans?: (ids: string[]) => void;
+    /** Where each located highlight starts in its page's text: what puts two highlights on
+     *  one page in reading order. Only pages that have rendered are known. */
+    onOrder?: (starts: Map<string, number>) => void;
     /** LR-6: report the current page + total for the page indicator. */
     onPage?: (page: number, total: number) => void;
     /** Actual render scale (1 = 100%), from the viewer's scalechanging event. */
@@ -110,7 +114,9 @@
     /** LR-6: find-in-document. Parent bumps `nonce` to (re)search or step; `dir` picks first
      *  match on a new query or next/prev on the same one. null clears the search. */
     find?: { query: string; nonce: number; dir: "first" | "next" | "prev" } | null;
-    onFind?: (r: { total: number; index: number; page: number }) => void;
+    /** Where the find controller is: `index` is its selected match in document order (−1 before
+     *  it has one). `settled` is false while a click-to-jump is still stepping toward its row. */
+    onFind?: (r: { total: number; index: number; page: number; settled: boolean }) => void;
     /** Every match with its surrounding text, for the sidebar's result list. */
     onMatchList?: (matches: FindMatch[]) => void;
   } = $props();
@@ -142,16 +148,48 @@
   const pageInfos = new Map<number, PageEntry>();
 
   // --- text ↔ DOM mapping for anchoring (unchanged logic) -----------------------
+  // The page's text, and where each of its text nodes starts in it. A line of a PDF rarely
+  // carries its own trailing space, so two lines used to meet with nothing between them and a
+  // passage across a line end was quoted as "phenomenologicallyconvincing" in the Highlights
+  // list, in exported notes and in what Ask and Annotate send. PDF.js marks each line end with a
+  // <br>: one space stands for it here (it belongs to no node, so every offset still maps), except
+  // after a hyphen, where the word simply continues. Highlights saved before this still locate:
+  // locateQuote falls back to a fuzzy match, and a missing space per line is well inside it.
   function buildPageText(layer: HTMLElement): PageInfo {
     const nodes: { node: Text; start: number }[] = [];
     let text = "";
-    const walker = document.createTreeWalker(layer, NodeFilter.SHOW_TEXT);
+    let lineEnded = false;
+    const walker = document.createTreeWalker(layer, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
     let n: Node | null;
     while ((n = walker.nextNode())) {
+      if (n.nodeType !== Node.TEXT_NODE) {
+        if ((n as Element).tagName === "BR") lineEnded = true;
+        continue;
+      }
+      const piece = n.textContent ?? "";
+      if (lineEnded && piece) {
+        if (text && !/[\s\-\u00ad]$/.test(text) && !/^\s/.test(piece)) text += " ";
+        lineEnded = false;
+      }
       nodes.push({ node: n as Text, start: text.length });
-      text += n.textContent ?? "";
+      text += piece;
     }
     return { text, nodes };
+  }
+  // PDF.js's find highlighter REWRITES a page's text layer on every search update (it wraps
+  // each hit in a span) without firing textlayerrendered, so a map captured when the layer
+  // rendered can point at text nodes that are no longer in the document. Selecting on a line
+  // with a search hit then found no offsets, and the highlight menu did not appear ("sometimes
+  // when you highlight some text, the highlight menu does not appear"; owner, 2026-11-18);
+  // saved highlights on such a page also failed to redraw. Every reader of the map goes through
+  // liveInfo, which rebuilds it when any of its nodes has left the document.
+  const isStale = (info: PageInfo) => info.nodes.some((e) => !e.node.isConnected);
+  function liveInfo(st: PageEntry): PageInfo {
+    if (isStale(st.info)) {
+      st.info = buildPageText(st.textDiv);
+      pageTextCache.set(st.textDiv, { scale: viewer?.currentScale ?? 1, info: st.info });
+    }
+    return st.info;
   }
   function charOffset(info: PageInfo, node: Node, offset: number): number | null {
     if (node.nodeType === Node.TEXT_NODE) {
@@ -197,6 +235,13 @@
   // ALL of them. `null` loc = orphan (quote not found on its rendered page).
   const locCache = new Map<string, { anchor: TextQuoteSelector; loc: { start: number; end: number } | null }>();
   const orphanIds = new Set<string>();
+  const locStarts = new Map<string, number>();
+  let locStartsDirty = false;
+  /** Orphans and reading order, to whoever lists the highlights. */
+  function reportLocated() {
+    onOrphans?.([...orphanIds]);
+    if (locStartsDirty) { locStartsDirty = false; onOrder?.(new Map(locStarts)); }
+  }
   function locOf(info: PageInfo, a: Annotation): { start: number; end: number } | null {
     const hit = locCache.get(a.id);
     if (hit && hit.anchor === a.anchor) return hit.loc;
@@ -208,6 +253,10 @@
     }
     const loc = locateQuote(info.text, a.anchor) ?? null;
     locCache.set(a.id, { anchor: a.anchor, loc });
+    if (loc ? locStarts.get(a.id) !== loc.start : locStarts.has(a.id)) {
+      if (loc) locStarts.set(a.id, loc.start); else locStarts.delete(a.id);
+      locStartsDirty = true;
+    }
     if (loc) orphanIds.delete(a.id);
     else orphanIds.add(a.id);
     return loc;
@@ -234,10 +283,11 @@
     st.hlLayer.replaceChildren();
     const pageRect = st.pageDiv.getBoundingClientRect();
     const entries: HitEntry[] = [];
+    const info = liveInfo(st);
     for (const a of annByPage.get(p) ?? []) {
-      const loc = locOf(st.info, a);
+      const loc = locOf(info, a);
       if (!loc) continue;
-      const r = rangeFor(st.info, loc.start, loc.end);
+      const r = rangeFor(info, loc.start, loc.end);
       if (!r) continue;
       // One box per text line (merged, % of page) — not one per raw client rect.
       const boxes = mergeRectsIntoLines([...r.getClientRects()], pageRect, { bleedY: 1 });
@@ -261,6 +311,7 @@
     const live = new Set(annotations.map((a) => a.id));
     for (const id of [...locCache.keys()]) if (!live.has(id)) locCache.delete(id);
     for (const id of [...orphanIds]) if (!live.has(id)) orphanIds.delete(id);
+    for (const id of [...locStarts.keys()]) if (!live.has(id)) { locStarts.delete(id); locStartsDirty = true; }
     for (const [p, st] of pageInfos) {
       if (!st.hlLayer.isConnected) {
         pageInfos.delete(p);
@@ -269,7 +320,7 @@
       }
       drawHighlights(p);
     }
-    onOrphans?.([...orphanIds]);
+    reportLocated();
   }
   $effect(() => {
     void annotations;
@@ -294,11 +345,11 @@
     pageDiv.appendChild(hlLayer);
     const scale = viewer?.currentScale ?? 1;
     const cached = pageTextCache.get(textDiv);
-    const info = cached && cached.scale === scale ? cached.info : buildPageText(textDiv);
+    const info = cached && cached.scale === scale && !isStale(cached.info) ? cached.info : buildPageText(textDiv);
     pageTextCache.set(textDiv, { scale, info });
     pageInfos.set(p, { pageDiv, textDiv, hlLayer, info });
     drawHighlights(p);
-    onOrphans?.([...orphanIds]);
+    reportLocated();
   }
 
   // Mirror the verify-harness hooks onto pdf.js's page divs (.pdf-page[data-page]).
@@ -351,15 +402,20 @@
   function onMatchesCount(e: { matchesCount?: { current?: number; total?: number } }) {
     const m = e.matchesCount;
     if (!m || !viewer) return;
-    onFind?.({ total: m.total ?? 0, index: (m.current ?? 0) - 1, page: viewer.currentPageNumber });
+    onFind?.({ total: m.total ?? 0, index: (m.current ?? 0) - 1, page: viewer.currentPageNumber, settled: jumpTarget === null });
     onMatchList?.(collectMatches());
   }
-  /** Same reporting, plus the click-to-jump convergence. Stepping must only happen from
-   *  a SETTLED scan: a "find again" dispatched while the controller still has a page
-   *  pending text extraction makes it log "There can only be one pending page." */
-  function onFindState(e: { matchesCount?: { current?: number; total?: number } }) {
+  /** PDF.js's FindState.PENDING: the report it makes the moment a search or a step is ASKED for,
+   *  still carrying the position from before it. */
+  const FIND_PENDING = 3;
+  /** Same reporting, plus the click-to-jump. A step may only follow a SETTLED report: a "find
+   *  again" dispatched while the controller still has a page pending text extraction makes it
+   *  log "There can only be one pending page.", and acting on a PENDING report (the old
+   *  position, re-announced synchronously with every dispatch) sent one step too many: every
+   *  click on a result row selected the hit AFTER it, while the list said otherwise. */
+  function onFindState(e: { state?: number; matchesCount?: { current?: number; total?: number } }) {
     onMatchesCount(e);
-    advanceJump(e.matchesCount?.current ?? 0);
+    if (e.state !== FIND_PENDING) advanceJump(e.matchesCount?.current ?? 0);
   }
 
   /** Every match in document order, with the surrounding text for a result list.
@@ -370,12 +426,15 @@
     return collectFindMatches(findCtl as unknown as import("../../../lib/pdf/findMatches").PdfFindSnapshot | null, lastQuery);
   }
 
-  /** Jump to one match by its position in collectMatches(). Public API only: park the
-   *  viewer on the match's page so a fresh search selects that page's first hit, then
-   *  CONVERGE on the target — the controller reports its current match (1-based, global)
-   *  on every scan update, and `jumpTarget` steps toward it from there. Dispatching the
-   *  steps blind races pdf.js's asynchronous page scan and lands on the wrong hit. */
+  /** Jump to one match of collectMatches(). The controller has no "select match N", but its
+   *  next step starts from `_offset`: pointed just before the wanted match, ONE step forward
+   *  selects it, wherever it is in the document (a list of 682 hits used to be walked a hit at
+   *  a time, and gave up after 200). The controller reports where it landed (1-based, global);
+   *  anything other than the target is aimed again, a few times at most. Should a future PDF.js
+   *  stop exposing `_offset`, the jump falls back to stepping toward the target. */
+  type FindInternals = { _resumePageIdx?: number | null; _offset?: { pageIdx: number | null; matchIdx: number | null; wrapped: boolean } | null; _pageMatches?: number[][] };
   let jumpTarget: number | null = null;
+  let jumpAt: { pageIdx: number; matchIdx: number } | null = null;
   let jumpRestart = false;
   let jumpFrom = -1; // the position the last step was dispatched from
   let jumpBudget = 0;
@@ -391,37 +450,51 @@
       matchDiacritics: false,
     });
   }
+  /** Point the controller just before `at`, so a forward step lands on it. */
+  function aimAt(at: { pageIdx: number; matchIdx: number }): boolean {
+    const fc = findCtl as unknown as FindInternals | null;
+    const offset = fc?._offset, onPage = fc?._pageMatches?.[at.pageIdx];
+    if (!offset || typeof offset !== "object" || !Array.isArray(onPage) || at.matchIdx >= onPage.length) return false;
+    offset.pageIdx = at.pageIdx;
+    offset.matchIdx = at.matchIdx > 0 ? at.matchIdx - 1 : null; // null: "this page's first"
+    offset.wrapped = false;
+    return true;
+  }
   /** Drive a pending jump one step. NOTHING may be dispatched while the controller has a
    *  page pending text extraction — it logs "There can only be one pending page." — so
    *  every step waits for a settled scan and resumes from the next find event. */
   function advanceJump(current = 0): void {
     if (jumpTarget === null) return;
-    const fc = findCtl as unknown as { _resumePageIdx?: number | null } | null;
+    const fc = findCtl as unknown as FindInternals | null;
     if (fc?._resumePageIdx != null) return; // still extracting — resume on the next event
     if (jumpRestart) {
-      jumpRestart = false;
       // A STEP, never a fresh search: type:"" resets the controller and re-extracts every
       // page, and pdf.js's resume guard treats page index 0 as falsy — a jump to a hit on
       // page 1 then trips its own "There can only be one pending page." The query is
       // already scanned (the result list came from that scan), so stepping is all we need.
+      jumpRestart = false;
+      if (jumpAt) aimAt(jumpAt);
       dispatchFind(lastQuery, true, false);
       return;
     }
     if (current <= 0) return;
     if (current === jumpTarget || jumpBudget-- <= 0) {
       jumpTarget = null;
+      jumpAt = null;
       return;
     }
-    // The controller re-reports the same position more than once per step; stepping on
-    // each of those double-advances and wraps past the target (2 → wrap → 1).
+    // One step per reported position, whatever else re-announces it.
     if (current === jumpFrom) return;
     jumpFrom = current;
-    const back = current > jumpTarget;
+    // Not there (the controller restarted its scan from the parked page, say): aim again;
+    // without `_offset`, walk toward it.
+    const aimed = jumpAt ? aimAt(jumpAt) : false;
+    const back = !aimed && current > jumpTarget;
     queueMicrotask(() => {
       if (jumpTarget !== null) dispatchFind(lastQuery, true, back);
     });
   }
-  export function goToMatch(m: { index: number; page: number }, query: string): void {
+  export function goToMatch(m: { index: number; page: number; matchInPage?: number }, query: string): void {
     if (!bus || !viewer || status !== "ready" || !query) return;
     pushNav();
     viewer.currentPageNumber = m.page; // park first — the page is visible before the
@@ -429,7 +502,8 @@
     lastQuery = query;
     lastFindNonce = -1; // the parent's nonce protocol must not fight this jump
     jumpTarget = m.index + 1; // the controller counts from 1
-    jumpBudget = 200; // a long match list still converges; the cap kills any ping-pong
+    jumpAt = m.matchInPage == null ? null : { pageIdx: m.page - 1, matchIdx: m.matchInPage };
+    jumpBudget = jumpAt ? 6 : 200; // aimed, it lands at once; walking, the cap kills any ping-pong
     jumpRestart = true;
     jumpFrom = -1;
     advanceJump();
@@ -629,6 +703,7 @@
   function onOver(e: MouseEvent) {
     const a = (e.target as Element | null)?.closest?.(".annotationLayer a") as HTMLAnchorElement | null;
     if (!a || !onCitePreview) return;
+    if (e.buttons & 1) return; // dragging a selection across a citation link is not hovering it
     clearTimeout(citeTimer);
     const seq = ++citeSeq;
     citeTimer = setTimeout(() => void openCitePreview(a, seq), 200);
@@ -782,39 +857,91 @@
   }
 
   // --- selection → highlight menu ------------------------------------------------
-  function onMouseUp() {
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
-      menu = null;
-      onSelect?.("");
-      return;
-    }
+  /** Half the menu's width and its height, for keeping it on screen (measured once it has drawn). */
+  let menuSize = { half: 118, h: 34 };
+  function clearSelectionMenu() {
+    if (menu) menu = null;
+    onSelect?.("");
+  }
+  /** Close the menu (Esc from the Reader); true when there was one. */
+  export function dismissSelectionMenu(): boolean {
+    if (!menu) return false;
+    menu = null;
+    return true;
+  }
+  /**
+   * The mouse came up somewhere in the window. If text of THIS document is selected, show the
+   * menu by it. Listening on the window (not the page scroller) is what makes a drag that ends
+   * over a sidebar, the toolbar or another page still count.
+   */
+  let pressedInside = false;
+  function onWindowPress(e: MouseEvent) {
+    menu = null;
+    pressedInside = !!container?.contains(e.target as Node);
+    // A press ON text that is already selected is, to the browser, the start of dragging that
+    // text somewhere: no new selection is made, and a text drag ends without a mouseup, so no
+    // menu either ("sometimes when you highlight some text, the highlight menu does not
+    // appear": it was every time the new selection began inside the old one). Dropping the old
+    // selection as the press lands makes every press on the page begin a fresh one.
+    if (!pressedInside || e.button !== 0 || e.shiftKey) return;
+    const sel = container?.ownerDocument.defaultView?.getSelection();
+    if (sel && !sel.isCollapsed && container?.contains(sel.anchorNode)) sel.removeAllRanges();
+  }
+  function onSelectionEnd(e?: MouseEvent) {
+    // A press on the menu itself collapses the selection at mousedown; its buttons act on `menu`.
+    if (e && (e.target as Element | null)?.closest?.(".hl-menu")) return;
+    // Only a press that began on this document's pages, or a release on them, can have selected
+    // its text: a click in a sidebar while a passage is still selected must not bring the menu
+    // back, and neither may a click in the other pane's document.
+    if (e && !pressedInside && !container?.contains(e.target as Node)) return;
+    pressedInside = false;
+    const host = container;
+    const sel = host?.ownerDocument.defaultView?.getSelection();
+    if (!host || !sel || sel.isCollapsed || sel.rangeCount === 0) { clearSelectionMenu(); return; }
     const range = sel.getRangeAt(0);
-    const pageDiv = (range.startContainer.parentElement as HTMLElement | null)?.closest(".pdf-page") as HTMLElement | null;
-    if (!pageDiv) {
-      menu = null;
-      return;
+    if (!host.contains(range.commonAncestorContainer) && ![...pageInfos.values()].some((st) => range.intersectsNode(st.textDiv))) { clearSelectionMenu(); return; }
+    // The page the selection starts on (the first whose text it touches). A selection that runs
+    // on to the next page, or starts in a margin, is taken as its part on that page.
+    let page = 0, st: PageEntry | undefined;
+    const count = viewer?.pagesCount ?? 0;
+    for (let p = 1; p <= count; p++) {
+      const textDiv: HTMLElement | undefined = viewer?.getPageView(p - 1)?.textLayer?.div;
+      if (!textDiv?.isConnected || !range.intersectsNode(textDiv)) continue;
+      if (pageInfos.get(p)?.textDiv !== textDiv) attachPage(p); // rendered, but not attached yet
+      st = pageInfos.get(p); page = p;
+      break;
     }
-    const page = Number(pageDiv.dataset.page);
-    const st = pageInfos.get(page);
-    if (!st) return;
-    const start = charOffset(st.info, range.startContainer, range.startOffset);
-    const end = charOffset(st.info, range.endContainer, range.endOffset);
-    if (start == null || end == null || start === end) {
-      menu = null;
-      return;
-    }
-    const anchor = makeQuoteAnchor(st.info.text, Math.min(start, end), Math.max(start, end));
-    if (!anchor.quote.trim()) {
-      menu = null;
-      return;
-    }
-    const rect = range.getBoundingClientRect();
-    // Clamp within the viewport; flip below the selection when the toolbar is too close.
-    const x = Math.min(Math.max(rect.left + rect.width / 2, 80), window.innerWidth - 80);
-    const below = rect.top < 140;
-    menu = { x, y: below ? rect.bottom + 10 : rect.top - 8, below, page, anchor };
+    if (!st) { clearSelectionMenu(); return; }
+    const info = liveInfo(st);
+    const start = st.textDiv.contains(range.startContainer) ? charOffset(info, range.startContainer, range.startOffset) : 0;
+    const end = st.textDiv.contains(range.endContainer) ? charOffset(info, range.endContainer, range.endOffset) : info.text.length;
+    if (start == null || end == null || start === end) { clearSelectionMenu(); return; }
+    // The passage is the words: white space at either end (a line end's space, a paragraph's
+    // trailing break after a triple-click) is not part of it.
+    let from = Math.min(start, end), to = Math.max(start, end);
+    while (from < to && /\s/.test(info.text[from])) from++;
+    while (to > from && /\s/.test(info.text[to - 1])) to--;
+    if (from === to) { clearSelectionMenu(); return; }
+    const anchor = makeQuoteAnchor(info.text, from, to);
+    if (!anchor.quote.trim()) { clearSelectionMenu(); return; }
+    // Place it by the part of the selection that is on screen, inside the page area.
+    const vis = host.getBoundingClientRect();
+    const rects = [...range.getClientRects()].filter((r) => r.width > 0 && r.height > 0 && r.bottom > vis.top && r.top < vis.bottom);
+    const box = rects.length ? rects : [range.getBoundingClientRect()];
+    const top = Math.max(vis.top, Math.min(...box.map((r) => r.top)));
+    const bottom = Math.min(vis.bottom, Math.max(...box.map((r) => r.bottom)));
+    const firstLine = box.filter((r) => r.top <= Math.min(...box.map((b) => b.top)) + 2);
+    const mid = (Math.min(...firstLine.map((r) => r.left)) + Math.max(...firstLine.map((r) => r.right))) / 2;
+    const x = Math.round(Math.min(Math.max(mid, vis.left + menuSize.half + 6), vis.right - menuSize.half - 6));
+    // Above the selection when there is room for it there; else under it; never off the page area.
+    const below = top - vis.top < menuSize.h + 14;
+    const y = Math.round(below ? Math.min(bottom + 9, vis.bottom - menuSize.h - 6) : top - 9);
+    menu = { x, y, below, page, anchor };
     onSelect?.(anchor.quote, page);
+  }
+  function measureMenu(node: HTMLElement) {
+    const r = node.getBoundingClientRect();
+    if (r.width && r.height) menuSize = { half: Math.ceil(r.width / 2), h: Math.ceil(r.height) };
   }
   async function pick(color: string) {
     if (!menu) return;
@@ -929,7 +1056,8 @@
   });
 </script>
 
-<svelte:window onmousedown={() => (menu = null)} onmousemove={onMarqueeMove} onmouseup={onMarqueeUp} />
+<svelte:window onmousedown={onWindowPress} onmousemove={onMarqueeMove} onmouseup={(e) => { onMarqueeUp(); onSelectionEnd(e); }} />
+<!-- (window mousedown, above: any press closes the menu, and notes whether a selection could be starting here) -->
 
 <div class="pdf-root cursor-on-light" data-testid="pdf-root" data-pages={numPages} data-rendered={rendered} data-hl-blend={HL_BLEND ? "on" : "off"}>
   {#if status === "error"}
@@ -941,7 +1069,6 @@
     bind:this={container}
     tabindex="-1"
     onmousedown={onPointerDown}
-    onmouseup={onMouseUp}
     onmousemove={onPointerMove}
     onmouseover={onOver}
     onmouseout={onOut}
@@ -957,14 +1084,18 @@
     <div class="msg loading">Loading…{loadNote ? ` ${loadNote}` : ""}</div>
   {/if}
 
-  {#if menu && (canHighlight || onAnnotate)}
+  {#if menu && (canHighlight || onAnnotate || onAsk)}
+    <!-- The selection's menu: highlight in a colour, or hand the passage to Flux AI. -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="hl-menu" class:below={menu.below} style:left="{menu.x}px" style:top="{menu.y}px" onmousedown={(e) => e.stopPropagation()}>
-      {#if canHighlight}{#each ANNOTATION_COLORS as c}
-        <button class="dot" style:background={hlSwatch(c)} title="Highlight ({c})" aria-label={`Highlight ${c}`} onclick={() => void pick(c)}></button>
-      {/each}{/if}
-      {#if onAnnotate}<button class="annotate-passage" title="Annotate this passage" aria-label="Annotate this passage" onmousedown={e => e.preventDefault()} onclick={() => { if (menu) onAnnotate?.(menu.anchor.quote, menu.page); }}>✦</button>{/if}
-      {#if onAsk}<button class="ask-passage" title="Ask about this passage" aria-label="Ask about this passage" onmousedown={e => e.preventDefault()} onclick={() => { if (menu) onAsk?.(menu.anchor.quote, menu.page); }}>Ask</button>{/if}
+    <div class="hl-menu" class:below={menu.below} role="toolbar" aria-label="Selected text" tabindex="-1" style:left="{menu.x}px" style:top="{menu.y}px" use:measureMenu onmousedown={(e) => e.stopPropagation()}>
+      {#if canHighlight}
+        <span class="swatches" role="group" aria-label="Highlight colour">{#each ANNOTATION_COLORS as c}
+          <button class="dot" style:--ink={hlSwatch(c)} title="Highlight in {c}" aria-label={`Highlight ${c}`} onclick={() => void pick(c)}></button>
+        {/each}</span>
+      {/if}
+      {#if canHighlight && (onAnnotate || onAsk)}<span class="msep" aria-hidden="true"></span>{/if}
+      {#if onAnnotate}<button class="annotate-passage" title="Annotate this passage: a note for your agents" aria-label="Annotate this passage" onmousedown={e => e.preventDefault()} onclick={() => { if (menu) { const m = menu; menu = null; onAnnotate?.(m.anchor.quote, m.page); } }}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 12.5 3.6 10 10.5 3.1a1.4 1.4 0 0 1 2 0l.4.4a1.4 1.4 0 0 1 0 2L6 12.4 3 12.5ZM9.3 4.3l2.4 2.4" /></svg><span>Annotate</span></button>{/if}
+      {#if onAsk}<button class="ask-passage" title="Ask about this passage" aria-label="Ask about this passage" onmousedown={e => e.preventDefault()} onclick={() => { if (menu) { const m = menu; menu = null; onAsk?.(m.anchor.quote, m.page); } }}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" /></svg><span>Ask</span></button>{/if}
     </div>
   {/if}
 </div>
@@ -1078,33 +1209,63 @@
   .msg.err {
     color: var(--c-danger);
   }
+  /* The selection's menu, in the house vocabulary: a small panel on a hairline, colour swatches
+     that are squares of the highlight's own ink, then cap · word actions. It arrives by opacity
+     and 3 px of rise (transform only), in 90 ms. */
   .hl-menu {
     position: fixed;
-    transform: translate(-50%, -100%);
+    z-index: 50;
     display: flex;
-    gap: 5px;
     align-items: center;
-    padding: 5px 7px;
+    gap: 6px;
+    height: 34px;
+    box-sizing: border-box;
+    padding: 0 6px;
     background: var(--c-surface);
     border: 1px solid var(--c-line-strong);
-    border-radius: var(--r-pill);
-    box-shadow: var(--elev-2, 0 2px 8px rgba(0, 0, 0, 0.25));
-    z-index: 50;
+    border-radius: var(--r-panel);
+    box-shadow: var(--elev-3);
+    color: var(--c-tx);
+    font: 12.5px var(--font-serif);
+    white-space: nowrap;
+    translate: -50% -100%;
+    animation: hl-menu-in 90ms var(--ease-enter, ease-out) both;
   }
-  .hl-menu.below {
-    transform: translate(-50%, 0);
-  }
-  .annotate-passage { width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--r-ui); background: transparent; color: var(--c-accent); font: 18px var(--font-ui); cursor: var(--cursor-cross-hover); }
-  .annotate-passage:hover, .annotate-passage:focus-visible { background: var(--c-accent-tint); outline: 1px solid var(--c-accent); }
+  .hl-menu.below { translate: -50% 0; animation-name: hl-menu-in-below; }
+  @keyframes hl-menu-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+  @keyframes hl-menu-in-below { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .hl-menu, .hl-menu.below { animation-name: flux-arrive; } }
+  .swatches { display: inline-flex; gap: 3px; padding: 0 1px; }
   .dot {
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    border: 1px solid var(--c-line);
-    cursor: var(--cursor-cross-hover);
+    position: relative;
+    width: 20px;
+    height: 20px;
     padding: 0;
+    border: 1px solid color-mix(in oklab, var(--ink) 55%, #000);
+    border-radius: var(--r-ui);
+    background: var(--ink);
+    cursor: var(--cursor-cross-hover);
+    transition: box-shadow 80ms linear;
   }
-  .dot:hover {
-    transform: scale(1.15);
+  .dot:hover, .dot:focus-visible { outline: none; box-shadow: 0 0 0 1px var(--c-surface), 0 0 0 3px var(--ink); }
+  .dot:active { box-shadow: 0 0 0 1px var(--c-surface), 0 0 0 2px var(--ink); }
+  .msep { width: 1px; height: 16px; background: var(--c-line-strong); }
+  .annotate-passage, .ask-passage {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 24px;
+    padding: 0 8px 0 6px;
+    border: 1px solid transparent;
+    border-radius: var(--r-ui);
+    background: transparent;
+    color: var(--c-tx-2);
+    font: inherit;
+    cursor: var(--cursor-cross-hover);
+    transition: background-color 80ms linear, border-color 80ms linear, color 80ms linear;
   }
+  .annotate-passage svg, .ask-passage svg { width: 14px; height: 14px; fill: none; stroke: var(--c-accent-bright); stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+  .annotate-passage:hover, .ask-passage:hover, .annotate-passage:focus-visible, .ask-passage:focus-visible { outline: none; background: var(--c-surface-2); border-color: var(--c-line-strong); color: var(--c-tx-hi); }
+  .annotate-passage:active, .ask-passage:active { background: var(--c-accent-tint); border-color: var(--c-accent); }
+  @media (prefers-reduced-motion: reduce) { .dot, .annotate-passage, .ask-passage { transition: none; } }
 </style>

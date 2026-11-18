@@ -115,6 +115,16 @@ try {
   const stabs = await page.$$eval(`${ACT} .side.refs .stab`, (els) => els.map((e) => e.textContent.trim()));
   ok("the left rail offers References / Cited by / Search / Outline",
     stabs.join("|") === "References|Cited by|Search|Outline", stabs.join("|"));
+  // The four tabs fit the default rail (they used to need ~285 px of its 268 and clipped).
+  const strip = await page.$eval(`${ACT} .side.refs .shead`, (el) => {
+    const box = el.getBoundingClientRect(), tabs = [...el.querySelectorAll(".stab")].map((t) => t.getBoundingClientRect());
+    return { fits: tabs.every((t) => t.left >= box.left && t.right <= box.right), scroll: el.scrollWidth - el.clientWidth, w: Math.round(box.width), last: Math.round(tabs[tabs.length - 1].right - box.left) };
+  });
+  ok("all four tabs fit the default rail, unclipped", strip.fits && strip.scroll <= 0, JSON.stringify(strip));
+  ok("the chosen tab is underlined, not boxed", await page.$eval(`${ACT} .side.refs .stab.on`, (el) => {
+    const cs = getComputedStyle(el), rule = getComputedStyle(el, "::before");
+    return cs.borderTopWidth === "0px" && cs.backgroundColor === "rgba(0, 0, 0, 0)" && rule.height === "2px" && rule.backgroundColor !== "rgba(0, 0, 0, 0)";
+  }));
   await page.click(`${ACT} .side.refs .stab:nth-child(2)`);
   await sleep(500);
   const citerTitles = await page.$$eval(`${ACT} .side.refs .reflist .rtitle2`, (els) => els.map((e) => e.textContent.trim()));
@@ -123,6 +133,15 @@ try {
 
   const pdfBtns = await page.$$eval(`${ACT} .side.refs .reflist .pdfbtn`, (els) => els.length);
   ok("only the in-library-with-PDF row offers Open PDF", pdfBtns === 1, `${pdfBtns} buttons`);
+  // A reference reads title, then who and when, then what you can do with it.
+  const card = await page.$eval(`${ACT} .side.refs .reflist .ref`, (el) => {
+    const kids = [...el.children].map((c) => c.className.split(" ")[0]);
+    const actions = el.querySelector(".ractions"), btn = el.querySelector(".pdfbtn");
+    return { kids, year: el.querySelector(".ryear")?.textContent, cited: el.querySelector(".rcite")?.textContent, row: getComputedStyle(actions).display, btnH: Math.round(btn.getBoundingClientRect().height), serif: /serif|Source Serif|Literata|Georgia/i.test(getComputedStyle(el.querySelector(".rtitle2")).fontFamily) };
+  });
+  ok("a reference leads with its title, then authors and year, then its actions", card.kids.join(">") === "rtitle2>rmeta>ractions", card.kids.join(">"));
+  ok("…with the year and the citation count as their own, unclipped parts", card.year === "2021" && card.cited === "900×", JSON.stringify(card));
+  ok("…and its actions drawn as a row of real buttons", card.row === "flex" && card.btnH === 22, JSON.stringify(card));
   await shot(page, "r8-02-citers");
 
   await page.click(`${ACT} .side.refs .reflist .pdfbtn`);
@@ -161,11 +180,14 @@ try {
   ok("…and the right rail remembers the choice", (await storedLayout()).rightTab === "library");
   const allRows = await page.$$eval(`${ACT} .liblist .libitem`, (els) => els.length);
   ok("the whole library lists by default", allRows === 8, `${allRows} rows`);
+  ok("…and the panel says how many there are", (await page.$eval(`${ACT} .libcount`, (el) => el.textContent.trim())) === "8 references");
 
   await page.type(`${ACT} .libsearch`, "author:Author0");
   await sleep(400);
   const hits = await page.$$eval(`${ACT} .liblist .libitem .ltitle`, (els) => els.map((e) => e.textContent.trim()));
   ok("search-as-you-type filters the library", hits.length === 1, `${hits.length}: ${hits[0] ?? ""}`);
+  ok("…and the count follows the query", (await page.$eval(`${ACT} .libcount`, (el) => el.textContent.trim())) === "1 of 8");
+  ok("a library row leads with its title too", (await page.$eval(`${ACT} .liblist .libitem`, (el) => [...el.children].map((c) => c.className.split(" ")[0]).join(">"))) === "ltitle>lmeta>lactions");
   ok("the seeded entry offers Open PDF", (await page.$$eval(`${ACT} .liblist .lpill`, (e) => e.length)) === 1);
   await shot(page, "r8-03-library-panel");
 
@@ -214,6 +236,23 @@ try {
   ok("the ✦ Ask AI button is gone from the toolbar", !toolbarBtns.some((t) => /ask ai/i.test(t)), toolbarBtns.join(" | "));
   ok("the find magnifier is gone from the toolbar", !toolbarBtns.some((t) => /find in document/i.test(t)));
   ok("the rails are icon toggles now", toolbarBtns.filter((t) => /Toggle the (left|right) sidebar/.test(t)).length === 2);
+  // The toolbar is drawn, not typed: no arrows, dingbats or emoji standing in for icons.
+  const bar = await page.$eval(`${ACT} .rtoolbar`, (el) => ({
+    text: el.textContent.replace(/\s+/g, " ").trim(),
+    heights: [...new Set([...el.querySelectorAll(".zbtn, .zsel, .pgin, .tgl")].map((b) => Math.round(b.getBoundingClientRect().height)))],
+    zoom: [...el.querySelectorAll(".zgrp > .zbtn")].map((b) => (b.getAttribute("aria-label") || b.textContent).trim()),
+    icons: el.querySelectorAll(".zbtn.ic svg").length,
+  }));
+  ok("no glyph or emoji stands in for an icon in the toolbar", !/[←→−⤢⇄⧉▾▴✕＋\u{1F300}-\u{1FAFF}]/u.test(bar.text), bar.text);
+  ok("zoom is one control: out, the value, in", bar.zoom.length === 3 && bar.zoom[0] === "Zoom out" && /^\d+%$/.test(bar.zoom[1]) && bar.zoom[2] === "Zoom in", bar.zoom.join(" | "));
+  ok("every toolbar control is the same height, with a drawn icon", bar.heights.join() === "24" && bar.icons === 4, JSON.stringify(bar));
+  await page.click(`${ACT} [data-testid="pdf-switch"]`);
+  await sleep(200);
+  const menu = await page.$eval(`${ACT} [data-testid="pdf-menu"]`, (el) => ({ text: el.textContent, icons: el.querySelectorAll(".pdfitem svg.pdfic").length, items: el.querySelectorAll(".pdfitem").length, sel: el.querySelectorAll(".pdfitem.sel svg.pdfck").length }));
+  ok("the PDF menu's rows carry drawn icons, and a tick on the open one", menu.icons === menu.items && menu.sel === 1 && !/[\u{1F300}-\u{1FAFF}＋✓]/u.test(menu.text), JSON.stringify(menu));
+  await page.keyboard.press("Escape");
+  await sleep(200);
+  ok("Escape closes the PDF menu", !(await page.$(`${ACT} [data-testid="pdf-menu"]`)));
 
   const chord = async (key, { alt = false, ctrl = false, shift = false } = {}) => {
     if (alt) await page.keyboard.down("Alt");
@@ -256,6 +295,17 @@ try {
   const heads = await page.$$eval(`${ACT} .hithead`, (els) => els.map((e) => e.textContent.replace(/\s+/g, " ").trim()));
   ok("results are grouped with a section/page header", heads.length >= 1 && /p\.\d/.test(heads[0]), heads.join(" | "));
   ok("the hit itself is marked in the snippet", (await page.$$eval(`${ACT} .hitmark`, (e) => e.length)) >= 2);
+  // The marked letters ARE the query (owner, 2026-11-18: "character highlighting not working
+  // properly for the search feature especially in sidebar"; the offsets came from pdf.js's
+  // original text while the snippet was cut from its normalized copy).
+  const marks = await page.$$eval(`${ACT} .hitmark`, (els) => els.map((e) => e.textContent));
+  ok("every marked run in the Search pane is the query's own letters", marks.every((m) => m.toLowerCase() === "vision"), [...new Set(marks)].join(" | "));
+  const rowsRead = await page.$$eval(`${ACT} .hit`, (els) => els.map((e) => e.textContent.replace(/\s+/g, " ").trim()));
+  ok("a row reads as running text around the hit", rowsRead.every((t) => /vision/i.test(t) && t.length > 12), rowsRead[0]);
+  ok("the open hit is a tinted row with a rail, and its words are serif", await page.$eval(`${ACT} .hit.on`, (el) => {
+    const cs = getComputedStyle(el);
+    return cs.backgroundColor !== "rgba(0, 0, 0, 0)" && /inset/.test(cs.boxShadow) && !/mono/i.test(cs.fontFamily);
+  }));
   await shot(page, "r8-05-search");
 
   await page.click(`${ACT} .hitrows li:last-child .hit`);
@@ -263,9 +313,26 @@ try {
   const jumped = await page.$eval(`${ACT} .srchcount`, (el) => el.textContent.trim());
   ok("clicking a result jumps to it (the counter follows)", jumped !== firstCount && /of/.test(jumped), `${firstCount} → ${jumped}`);
   ok("the clicked row is the active one", (await page.$$eval(`${ACT} .hit.on`, (e) => e.length)) === 1);
+  // The hit selected ON THE PAGE is the row's own. (The list used to say "2 of 2" while the
+  // page had stepped one hit too far, back round to the first: every click selected the hit
+  // after the one clicked.)
+  const agree = () => page.evaluate((act) => {
+    const rows = [...document.querySelectorAll(`${act} .hit`)], marks = [...document.querySelectorAll(`${act} .textLayer .highlight`)];
+    return { row: rows.findIndex((r) => r.classList.contains("on")), page: marks.findIndex((m) => m.classList.contains("selected")), marks: marks.length, rows: rows.length,
+      count: document.querySelector(`${act} .srchcount`).textContent.trim() };
+  }, ACT);
+  const afterClick = await agree();
+  ok("the page selects the very hit whose row was clicked", afterClick.rows === afterClick.marks && afterClick.row === afterClick.rows - 1 && afterClick.page === afterClick.row
+    && afterClick.count === `${afterClick.row + 1} of ${afterClick.rows}`, JSON.stringify(afterClick));
   await page.click(`${ACT} .srchnav .cbtn:last-child`); // next wraps back to 1
   await sleep(600);
   ok("› steps through the list", (await page.$eval(`${ACT} .srchcount`, (el) => el.textContent.trim())) !== jumped);
+  const afterNext = await agree();
+  ok("…and the row, the counter and the page still name the same hit", afterNext.row === 0 && afterNext.page === 0 && afterNext.count === `1 of ${afterNext.rows}`, JSON.stringify(afterNext));
+  await page.click(`${ACT} .srchnav .cbtn:first-of-type`); // previous wraps to the last
+  await sleep(600);
+  const afterPrev = await agree();
+  ok("‹ steps back, and all three agree again", afterPrev.row === afterPrev.rows - 1 && afterPrev.page === afterPrev.row, JSON.stringify(afterPrev));
 
   // D13: Alt+T is unclaimed and the retired passage action is hidden.
   const freeChord = await page.evaluate(() => {

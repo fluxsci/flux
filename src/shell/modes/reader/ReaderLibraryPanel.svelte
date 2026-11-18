@@ -33,7 +33,11 @@
   // Search-as-you-type is the instantaneous class (§6): no debounce — the runner
   // refines incrementally and the haystacks are stamped once per library load.
   const runner = createQueryRunner<RefEntry>();
-  const results = $derived(query.trim() ? runner(entries, query).slice(0, 200) : entries.slice(0, 200));
+  const SHOWN = 200;
+  const found = $derived(query.trim() ? runner(entries, query) : entries);
+  /** How many references the query matches (all of them, when there is no query). */
+  const matched = $derived(found.length);
+  const results = $derived(found.slice(0, SHOWN));
 
   let reloadEpoch = 0;
   let reloadError = $state("");
@@ -70,14 +74,22 @@
 </script>
 
 <div class="libpanel" data-testid="reader-library">
-  {#if reloadError}<div role="status">{reloadError} <button onclick={() => reload()}>Retry</button></div>{/if}
-  <input
-    class="libsearch"
-    bind:this={input}
-    bind:value={query}
-    placeholder="Search your library — author:, year:, journal:…"
-    aria-label="Search reference library"
-    spellcheck="false" />
+  {#if reloadError}<div class="lerr" role="status"><span>{reloadError}</span><button onclick={() => reload()}>Retry</button></div>{/if}
+  <label class="libbar">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m20 20-4.2-4.2" /></svg>
+    <input
+      class="libsearch"
+      bind:this={input}
+      bind:value={query}
+      placeholder="Search your library"
+      title="Search your library: words, or author: year: journal: tag:"
+      aria-label="Search reference library"
+      spellcheck="false" />
+    {#if query}<button class="libx" title="Clear" aria-label="Clear search" onclick={() => { query = ""; input?.focus(); }}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7" /></svg></button>{/if}
+  </label>
+  {#if entries.length}
+    <div class="libcount" aria-live="polite">{#if query.trim()}{matched.toLocaleString()} of {entries.length.toLocaleString()}{:else}{entries.length.toLocaleString()} reference{entries.length === 1 ? "" : "s"}{/if}</div>
+  {/if}
   {#if !entries.length}
     <div class="smsg">Your library is empty — add references in the Library.</div>
   {:else if !results.length}
@@ -89,11 +101,11 @@
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
         <li class="libitem" class:expanded={expanded === e.key} class:open={openTabs.has(e.key)}
           onclick={() => (expanded = expanded === e.key ? "" : e.key)}>
+          <div class="ltitle" class:unclamped={expanded === e.key} title={e.title}>{e.title}</div>
           <div class="lmeta">
             <span class="lauth">{authorLine(e)}</span>
             {#if openTabs.has(e.key)}<span class="lopen" title="Already open as a tab">open</span>{/if}
           </div>
-          <div class="ltitle" class:unclamped={expanded === e.key} title={e.title}>{e.title}</div>
           {#if expanded === e.key}
             {#if e.container}<div class="lcontainer">{e.container}</div>{/if}
             <div class="lkey">{e.key}</div>
@@ -112,72 +124,156 @@
           </div>
         </li>
       {/each}
+      {#if matched > results.length}<li class="lmore">The first {results.length} of {matched.toLocaleString()}. Search to narrow them.</li>{/if}
     </ul>
   {/if}
 </div>
 
 <style>
+  /* The library, from inside the Reader: the sidebars' vocabulary (ReaderDoc.svelte): the title
+     first, who and when under it, then what you can do. */
   .libpanel {
     display: flex;
     flex-direction: column;
     min-height: 0;
     flex: 1 1 auto;
   }
-  .libsearch {
+  .libpanel svg {
+    display: block;
+    flex-shrink: 0;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+    stroke-linecap: round;
+  }
+  .libbar {
     flex: 0 0 auto;
-    margin: 8px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    height: 28px;
+    margin: 8px 8px 6px;
+    padding: 0 6px 0 8px;
     background: var(--c-bg);
-    color: var(--c-tx);
     border: 1px solid var(--c-line-strong);
-    border-radius: var(--r-1);
-    padding: 4px 8px;
-    font: inherit;
-    font-size: var(--ts-xs);
+    border-radius: var(--r-ui);
+    color: var(--c-tx-muted);
+    transition: border-color 80ms linear;
   }
-  .libsearch:focus {
-    outline: none;
+  .libbar > svg {
+    width: 13px;
+    height: 13px;
+  }
+  .libbar:hover {
+    border-color: var(--c-tx-muted);
+  }
+  .libbar:focus-within {
     border-color: var(--c-accent);
+    box-shadow: 0 0 0 3px var(--c-accent-tint-2);
   }
-  .smsg {
-    padding: 12px;
-    font-size: var(--ts-xs);
+  .libsearch {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 26px;
+    padding: 0;
+    background: transparent;
+    color: var(--c-tx-hi);
+    border: 0;
+    outline: none;
+    font: 13px var(--font-serif);
+  }
+  .libsearch::placeholder {
     color: var(--c-tx-faint);
     font-style: italic;
-    line-height: 1.5;
+  }
+  .libx {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: none;
+    border-radius: var(--r-ui);
+    background: none;
+    color: var(--c-tx-muted);
+    cursor: var(--cursor-cross-hover);
+  }
+  .libx svg {
+    width: 10px;
+    height: 10px;
+    stroke-width: 1.6;
+  }
+  .libx:hover {
+    background: var(--c-surface-2);
+    color: var(--c-tx-hi);
+  }
+  .libcount {
+    flex: 0 0 auto;
+    padding: 0 12px 7px;
+    border-bottom: 1px solid var(--c-line);
+    color: var(--c-tx-muted);
+    font: 10.5px var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .lerr {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--c-line);
+    background: color-mix(in oklab, var(--c-danger) 10%, transparent);
+    box-shadow: inset 2px 0 0 var(--c-danger);
+    color: var(--c-tx);
+    font: 12px/1.4 var(--font-serif);
+  }
+  .lerr span {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .lerr button {
+    flex: 0 0 auto;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--c-accent-bright);
+    font: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: var(--cursor-cross-hover);
+  }
+  .smsg {
+    padding: 16px 14px;
+    font: italic 12.5px/1.5 var(--font-serif);
+    color: var(--c-tx-muted);
   }
   .liblist {
     list-style: none;
     margin: 0;
-    padding: 0 0 4px;
+    padding: 0 0 6px;
     overflow: auto;
     min-height: 0;
   }
   .libitem {
-    padding: 7px 12px;
+    padding: 9px 12px 9px 14px;
     border-bottom: 1px solid var(--c-line);
     cursor: var(--cursor-cross-hover);
   }
   .libitem:hover {
-    background: var(--c-bg);
+    background: var(--c-surface-2);
   }
+  .libitem.expanded {
+    background: var(--c-accent-tint-2);
+  }
+  /* Already open as a tab: the rail. */
   .libitem.open {
     box-shadow: inset 2px 0 0 var(--c-accent);
   }
-  .lmeta {
-    display: flex;
-    justify-content: space-between;
-    gap: 6px;
-    font-size: var(--ts-xs);
-    color: var(--c-tx-faint);
-  }
-  .lopen {
-    color: var(--c-accent);
-  }
   .ltitle {
-    font-size: var(--ts-sm);
-    color: var(--c-tx-1);
-    margin: 2px 0 5px;
-    line-height: 1.3;
+    font: 13px/1.35 var(--font-serif);
+    color: var(--c-tx-hi);
+    margin: 0 0 4px;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     line-clamp: 2;
@@ -188,51 +284,84 @@
     -webkit-line-clamp: unset;
     line-clamp: unset;
   }
+  .lmeta {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    color: var(--c-tx-muted);
+    font: 11.5px var(--font-serif);
+  }
+  .lauth {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .lopen {
+    flex: 0 0 auto;
+    color: var(--c-accent-bright);
+    font: 9.5px var(--font-mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
   .lcontainer {
-    font-size: var(--ts-xs);
-    font-style: italic;
+    margin-top: 5px;
+    font: italic 11.5px var(--font-serif);
     color: var(--c-tx-2);
-    margin-bottom: 3px;
   }
   .lkey {
-    font-size: var(--ts-xs);
+    margin-top: 3px;
+    font: 10.5px var(--font-mono);
     color: var(--c-tx-faint);
-    font-family: var(--font-mono, monospace);
-    margin-bottom: 3px;
+    overflow-wrap: anywhere;
   }
   .lactions {
     display: flex;
     align-items: center;
     gap: 8px;
+    margin-top: 7px;
   }
   .lpill {
-    border: 1px solid var(--c-accent);
+    height: 22px;
+    padding: 0 9px;
+    border: 1px solid color-mix(in oklab, var(--c-accent) 60%, transparent);
+    border-radius: var(--r-ui);
     background: var(--c-accent-tint);
-    color: var(--c-accent);
-    border-radius: var(--r-1);
-    padding: 1px 8px;
-    font: inherit;
-    font-size: var(--ts-xs);
+    color: var(--c-tx-hi);
+    font: 12px var(--font-serif);
     cursor: var(--cursor-cross-hover);
+    transition: background-color 80ms linear, border-color 80ms linear;
   }
   .lpill:hover {
-    background: var(--c-accent);
-    color: var(--c-on-accent);
+    background: color-mix(in oklab, var(--c-accent) 28%, transparent);
+    border-color: var(--c-accent);
   }
   .lnopdf {
-    font-size: var(--ts-xs);
+    font: 11.5px var(--font-serif);
     color: var(--c-tx-faint);
   }
   .ldoi {
     border: none;
     background: none;
-    color: var(--c-accent);
-    font: inherit;
-    font-size: var(--ts-xs);
+    color: var(--c-accent-bright);
+    font: 11.5px var(--font-serif);
     padding: 0;
     cursor: var(--cursor-cross-hover);
   }
   .ldoi:hover {
     text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .lmore {
+    padding: 10px 14px;
+    color: var(--c-tx-muted);
+    font: italic 11.5px var(--font-serif);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .libbar,
+    .lpill {
+      transition: none;
+    }
   }
 </style>

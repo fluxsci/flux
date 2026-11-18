@@ -137,7 +137,7 @@ assert(!/TerminalPane|terminalPrefill|askAgent|agentPane/.test(rm + rd), "Reader
 assert(!/onAskSelection/.test(pv + hp), "Reader has no retired terminal passage-prefill callback");
 assert(/onAsk=\{askPassage\}/.test(rd) && /requestAsk\(\{ targets: \[\{ kind: "passage"/.test(rd), "F4 Ask reaches the in-app surface with the exact passage target");
 assert(/onAsk=\{\(\) => askPassage\(ann.anchor.quote, ann.page, ann.id\)\}/.test(rd), "F4 saved-highlight Ask retains its quote, page and id");
-assert(/aria-label="Annotate this passage"/.test(pv) && /onAnnotate\?\.\(menu\.anchor\.quote, menu\.page\)/.test(pv), "Reader selection action passes the exact quote/page to Annotate");
+assert(/aria-label="Annotate this passage"/.test(pv) && /onAnnotate\?\.\(m\.anchor\.quote, m\.page\)/.test(pv), "Reader selection action passes the exact quote/page to Annotate");
 assert(/onAnnotate=\{annotatePassage\}/.test(rd) && /requestAnnotation\(\{ targets: \[\{ kind: "passage"/.test(rd), "Reader passage action reaches the unified surface with a passage target");
 assert(/aria-label="Annotate this passage"/.test(hp) && /onAnnotate=\{\(\) => annotatePassage\(ann.anchor.quote, ann.page, ann.id\)\}/.test(rd), "Saved highlight action preserves its quote, page, and highlight id");
 assert(/onSelect=\{handleSelect\}/.test(rd) && /onSelect\?\.\(anchor\.quote, page\)/.test(pv), "selection still publishes the exact passage and page");

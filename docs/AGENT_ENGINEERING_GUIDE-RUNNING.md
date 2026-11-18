@@ -2371,6 +2371,53 @@ Persistence invariants (all machine-checked — do not weaken):
   `search_highlights` / `add_highlight` use the existing pure `Annotation` model and
   `<FluxLib>/items/<key>/annotations.json` storage. `get_reading_context` exposes
   `highlights`, mapped from the unchanged `reader-context.json` field `annotations`.
+- **The Reader holds THREE texts of a page, and they do not share offsets** (2026-11-18; owner: "character
+  highlighting not working properly for the search feature especially in sidebar … sometimes when you
+  highlight some text, the highlight menu does not appear").
+  (1) PDF.js's find controller searches a NORMALIZED copy (`_pageContents`: ligatures expanded, hyphenated line
+  breaks joined, line ends as spaces) but reports matches in the ORIGINAL text layer's offsets (`pageMatches`),
+  because those are what it paints. `_pageDiffs[page] = [starts, shifts]` relates them (original = normalized +
+  shift). The Search pane cut its snippet from the normalized text at original offsets, so the marked letters
+  drifted one place per ligature or joined hyphen ("rns of c" for "cortical"). `lib/pdf/findMatches.ts` maps
+  through the table (`normalizedStart` / `normalizedEnd`); `verify-reader-search.ts` round-trips a hand-built
+  table and r8 requires every `.hitmark` to equal the query.
+  (2) Flux's own page text (`PdfView.buildPageText`: every text node and where it starts) is what selections
+  and highlights are measured in. PDF.js REWRITES a page's text nodes whenever a search updates (it wraps each
+  hit) without firing `textlayerrendered`, so a map captured at render pointed at nodes no longer in the page:
+  a selection on a line with a hit found no offsets and no menu appeared. Every reader of the map goes through
+  `liveInfo`, which rebuilds it when a node has left the document. Never cache DOM nodes of a layer another
+  library owns without checking `isConnected`.
+  (3) A line of a PDF rarely carries its own trailing space, so that text ran lines together and a passage
+  across a line end was quoted "phenomenologicallyconvincing" (list, exported notes, Ask, Annotate). One space
+  now stands for each `<br>` PDF.js emits, except after a hyphen; it belongs to no node, so offsets still map.
+  Highlights saved before this still locate: `locateQuote` falls back to a fuzzy match (a missing space per
+  line is well inside its 25 %). A selection is trimmed of white space at both ends before it becomes an anchor.
+  **The selection menu** hangs off a WINDOW mouseup (a drag that ends over a sidebar or the toolbar is still a
+  selection), accepts a press that began on this document or a release that landed on it, and is placed by the
+  part of the selection on screen, inside the page area. A press ON existing selected text is, to the browser,
+  the start of dragging that text: no new selection and NO mouseup, hence no menu. `onWindowPress` drops the old
+  selection as the press lands (left button, no Shift). r1 drives all of this with a REAL mouse: a synthetic
+  `mouseup` with a programmatic range never met any of the three failures.
+  **PDF.js starts a new search from the page in view**, not from page 1: the result list and the counter follow
+  its reported position (`onFind`, ignored while a click-to-jump is still stepping), and the open row is kept
+  in view (the windowed list by `ensureVisible`, the grouped one by `scrollIntoView({block:"nearest"})` with a
+  scroll margin for the pinned heading).
+  **Jumping to a result is ONE aimed step** (`PdfView.goToMatch`). The controller has no "select match N", but
+  its next step starts from `_offset`: set it just before the wanted match (`matchIdx − 1`, or `null` for a
+  page's first) and dispatch one forward `again`. Two traps this replaced: (a) with
+  `updateMatchesCountOnProgress`, every `find` dispatch synchronously re-announces the OLD position in a
+  `FindState.PENDING` report; stepping on it sent one step too many, so each click selected the hit AFTER the
+  one clicked while the list (which only tracked its own index) said otherwise: never act on a PENDING report,
+  and gate what the PAGE selects (`.textLayer .highlight.selected`), not what the list claims; (b) walking to
+  a far hit one step at a time gave up after its 200-step budget. An `again` whose selected page is neither
+  current nor visible makes PDF.js restart its scan from the parked page (`#shouldDirtyMatch`), which
+  overwrites the aim: the next settled report is simply aimed again.
+  **Sidebars** (rebuilt the same day): underlined serif tabs sized to fit four words in the default 268 px rail
+  (their text is pinned by r8: draw counts with `data-n` + `::after`, never in the label); cards lead with the
+  title; the list of more than 200 hits is windowed in its own scroller (`.hitscroll`) with fixed 66 px rows
+  tagged by page, and its `<ul>` belongs to `VirtualFixedList`, so the one rule that styles it is `:global`.
+  Highlights list in reading order: `PdfView` reports each located highlight's start (`onOrder`), known once
+  its page has rendered. The toolbar and the PDF menu are drawn (stroke icons), not typed.
 - **The reader is multi-document** (reader-tabs, 2026-08-04): `readerStore.readerTabs`
   ({tabs, active}, persisted to localStorage `flux-reader-tabs`) is the open-paper strip;
   `readerKey` is a READ-ONLY derived view meaning "the focused pane's paper" (the

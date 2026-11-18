@@ -18,6 +18,20 @@ const ann = (over: Partial<import("../src/lib/references/annotations").Annotatio
   ...over,
 });
 
+// --- reading order within a page, where the caller knows it ------------------------------
+{
+  const first = ann({ id: "late-but-first", page: 3, createdAt: "2026-03-01T00:00:00Z", anchor: { quote: "opening sentence", prefix: "", suffix: "" } });
+  const second = ann({ id: "early-but-second", page: 3, createdAt: "2026-01-01T00:00:00Z", anchor: { quote: "closing sentence", prefix: "", suffix: "" } });
+  const other = ann({ id: "unplaced", page: 2, createdAt: "2026-02-01T00:00:00Z", anchor: { quote: "page two", prefix: "", suffix: "" } });
+  const byTime = annotationsToMarkdown("k", [first, second, other]);
+  ok(byTime.indexOf("closing sentence") < byTime.indexOf("opening sentence"), "without places, a page's highlights read in the order they were made");
+  const byPlace = annotationsToMarkdown("k", [first, second, other], { order: new Map([["late-but-first", 12], ["early-but-second", 480]]) });
+  ok(byPlace.indexOf("opening sentence") < byPlace.indexOf("closing sentence"), "with places, they read in the page's order");
+  ok(byPlace.indexOf("page two") < byPlace.indexOf("opening sentence"), "…and pages still come first");
+  const partial = annotationsToMarkdown("k", [first, second], { order: new Map([["early-but-second", 480]]) });
+  ok(partial.indexOf("closing sentence") < partial.indexOf("opening sentence"), "a highlight with no known place follows the placed ones on its page");
+}
+
 // --- rich header ------------------------------------------------------------------------
 {
   const md = annotationsToMarkdown(

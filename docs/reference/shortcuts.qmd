@@ -326,9 +326,10 @@ While presenting: **→ / Space / PageDown** next beat (**+Shift**: next slide) 
 | **Ctrl+Enter** in a highlight's note | Save the note |
 | **Enter** / **Escape** after a snip | Save it under the typed name / cancel |
 | **Alt+R** | Search your reference library in the right sidebar |
-| **Escape** | Close the topmost thing (menu → popover) |
+| **Escape** | Close the topmost thing (the selection's menu → the PDF menu → a highlight's note) |
 
-Mouse: select text → highlight colors appear · **Alt+drag** = pop out a figure region ·
+Mouse: select text → a menu by the selection (five highlight colours, **Annotate**, **Ask**) ·
+**Alt+drag** = pop out a figure region ·
 **Ctrl+Alt+drag** = save a [paper snip](../modes/reader.qmd#figures-and-snips) ·
 **Ctrl+wheel** / pinch = zoom at the cursor · drag a tab to reorder it · drag a sidebar edge
 to resize it (double-click resets).

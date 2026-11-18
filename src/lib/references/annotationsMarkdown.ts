@@ -11,6 +11,10 @@ export interface AnnotationMdMeta {
   year?: string;
   doi?: string;
   exportedAt?: string; // caller-supplied (kept out of here so the formatter stays pure/testable)
+  /** Where a highlight starts in its page's text, by id, for those the caller has located (the
+   *  Reader, for pages it has drawn). Two highlights on one page then read in the page's order;
+   *  without it they fall back to the order they were made in. */
+  order?: ReadonlyMap<string, number>;
 }
 
 const COLOR_LABEL: Record<string, string> = {
@@ -28,7 +32,8 @@ const asBlockquote = (s: string): string =>
     .map((l) => `> ${l}`)
     .join("\n");
 
-/** Render one paper's annotations to Markdown. Sorted by page, then time. Empty note +
+/** Render one paper's annotations to Markdown. Sorted by page, then by place on the page where
+ *  known (`meta.order`), then time. Empty note +
  *  empty list are handled gracefully (a header + "No highlights yet."). */
 export function annotationsToMarkdown(citekey: string, annotations: Annotation[], meta: AnnotationMdMeta = {}): string {
   const out: string[] = [];
@@ -41,7 +46,8 @@ export function annotationsToMarkdown(citekey: string, annotations: Annotation[]
   if (meta.doi) links.push(`https://doi.org/${meta.doi}`);
   out.push(links.join(" · "));
 
-  const sorted = [...annotations].sort((a, b) => a.page - b.page || a.createdAt.localeCompare(b.createdAt));
+  const place = (a: Annotation) => meta.order?.get(a.id) ?? Infinity;
+  const sorted = [...annotations].sort((a, b) => a.page - b.page || place(a) - place(b) || a.createdAt.localeCompare(b.createdAt));
   const pages = new Set(sorted.map((a) => a.page));
   const count = sorted.length;
   const summary = `*${count} highlight${count === 1 ? "" : "s"} across ${pages.size} page${pages.size === 1 ? "" : "s"}${meta.exportedAt ? ` · exported ${meta.exportedAt}` : ""}*`;

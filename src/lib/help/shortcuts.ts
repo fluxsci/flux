@@ -624,12 +624,12 @@ export const SECTIONS: ShortcutSection[] = [
       {
         title: "Mark and collect",
         rows: [
-          r("select text", "The highlight colours appear"),
+          r("select text", "A menu by the selection: five highlight colours, Annotate, Ask"),
           r("Mod+Enter", "In a highlight's note: save it"),
           r("Alt+drag", "Pop a region of the page out into a floating panel"),
           r("Mod+Alt+drag", "Snip a region into plots/paper_snips, with its citation"),
           r("Enter / Esc", "After a snip: save it under the typed name / cancel"),
-          r("Esc", "Close the topmost menu or popover"),
+          r("Esc", "Close the topmost thing: the selection's menu, the PDF menu, a highlight's note"),
         ],
       },
     ],

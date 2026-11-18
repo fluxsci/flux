@@ -13,8 +13,8 @@ belong to the paper, not to any one project.
 The toolbar carries the essentials: zoom (**+** / **−**, **0** fits the width, **⤢** fits the
 page height; **Ctrl+scroll** or a pinch zooms at the cursor), a page-layout picker (**1-up**,
 **2-up**, **Grid**, **Row**), and a page-number box to jump anywhere. **PageUp/PageDown** and
-**Home/End** work as you'd expect, and after you follow a link or outline entry, the **←**
-button in the toolbar takes you back to where you were.
+**Home/End** work as you'd expect, and after you follow a link or outline entry, the **Back**
+arrow in the toolbar takes you back to where you were.
 
 The panel icons at each end of the toolbar show and hide the sidebars — **Ctrl+B** for the
 left one, **Ctrl+Shift+B** for the right.
@@ -23,11 +23,12 @@ Two sidebars flank the page, and both are **drag-resizable** — pull the edge b
 one, or double-click it to go back to the default width. The left sidebar has four tabs:
 
 - **References** — the paper's own reference list (once the paper is
-  [enriched](library.qmd#enrich)): each entry expands to its abstract, can be added to your
+  [enriched](library.qmd#enrich)). Each entry leads with its title, then its authors, year
+  and how often it has been cited; click it to expand its abstract. It can be added to your
   library with **+ FluxLib**, or opened by DOI. When an entry is already in your library
   *and* its PDF is on disk, the row offers **Open PDF** — one click and it's a new tab.
 - **Cited by** — the papers that cite *this* one, looked up from OpenAlex. Sort by **Most
-  cited** (influential follow-ups first) or **Newest**, and hit **⟳** to re-query. The list
+  cited** (influential follow-ups first) or **Newest**, and hit the refresh button to re-query. The list
   is cached, so coming back to it is instant and works offline; rows behave exactly like
   reference rows, Open PDF included. (Needs the paper enriched, for its OpenAlex id.)
 - **Search** — find-in-document, below.
@@ -69,17 +70,25 @@ every mode.)
 
 # Highlights and notes
 
-Select a passage or open a saved highlight and click **✦ Annotate this passage** to open the shared Annotate surface
+Select a passage or open a saved highlight and click **Annotate** to open the shared Annotate surface
 with the citekey, page, and selected text already attached as a target. Add your note and
 choose **To:** Inbox, Any watching agent, or a named session. **Ctrl+Shift+M** does the same
 from the current Reader view; **Escape** keeps the draft. PDF highlights remain available
 through the color buttons.
 
-Select any text and a small color menu appears — five highlight colors (yellow, green, blue,
-pink, orange). Click one and the highlight is saved. Click a highlight later to open its
-popover: recolor it, attach a **comment**, copy the text, or delete it. The right sidebar's
-**Highlights** tab (**Alt+A**) lists every highlight with its page; click one to scroll to
-it, and edit or delete from there.
+Select any text and a small menu appears beside it: five highlight colors (yellow, green,
+blue, pink, orange), then **Annotate** and **Ask**. Click a color and the highlight is saved.
+The menu follows the selection wherever the drag ends, including over a sidebar, and stays
+inside the page area; **Escape** closes it and keeps the selection. Click a highlight later to
+open its popover, which is that same strip (the five colors to recolor it, **Annotate**,
+**Ask**) with the passage and a note under it: write a **comment** (**Ctrl+Enter** saves; it
+is also saved when the popover closes), copy the text, or delete the highlight. The right
+sidebar's **Highlights** tab (**Alt+A**) counts your highlights and lists them in reading
+order, each with its page and its note; click one to scroll to it, and edit or delete from
+there.
+
+A passage that runs over a line end is quoted the way you read it, with a space between the
+two lines (a word hyphenated across the break keeps its hyphen).
 
 Highlights are anchored by the quoted text (with a little context on each side), not by pixel
 positions — so they re-attach correctly even if the PDF is re-fetched. If a paper's text
@@ -89,14 +98,20 @@ than lost.
 **Export notes…** (on the Highlights tab, and on the paper's row in the Library) writes all of a
 paper's highlights and comments to a tidy Markdown file — grouped by page, quotes with your
 notes beneath, citation and DOI in the header — ready to drop into your own notes system.
+Exported from the Reader, the highlights on a page you have looked at come in that page's
+reading order, like the list; elsewhere they come in the order you made them.
 
 # Search
 
 **Ctrl+F** opens the **Search** tab in the left sidebar. Every match in the document is
 listed there with the text around it, grouped by the section it falls in (or by page, for
 PDFs without a bookmark outline) — so you can see all your hits at once instead of stepping
-blindly through them. Click any result to jump straight to it, or work through them in order
-with **‹ ›** (or **Enter** / **Shift+Enter** in the query box). Matches stay highlighted
+blindly through them. A new search starts from the page you are reading, so the counter may
+open at *49 of 90* rather than at 1, with that result's row in view. Click any result to jump
+straight to that very hit, however far away it is, or work through them in order with **‹ ›**
+(or **Enter** / **Shift+Enter** in the query box). In each result the letters that matched are
+the ones marked. More than 200 results are listed as compact rows, each tagged with its page.
+Matches stay highlighted
 throughout the document, with the current one picked out. **Escape** clears the query and
 leaves the pane open. (Arriving from a full-text `ft:` search in the Library lands you here
 with the search already run.)
@@ -116,11 +131,11 @@ with the search already run.)
 
 Hover any citation link in the PDF and a card shows what it cites — authors, year, title, and
 how often it's been cited — with one-click **+ FluxLib** to grab it, or a jump to the
-bibliography entry. Follow it, and **←** brings you back.
+bibliography entry. Follow it, and the **Back** arrow brings you back.
 
 # Supplements
 
-The **⧉ PDF** switcher in the toolbar flips between the main paper and its supplementary
+The **PDF** switcher in the toolbar flips between the main paper and its supplementary
 files, and **Add supplement…** attaches new ones. Supplements live beside the paper in your
 library; highlights always anchor to the main text. **Show in folder** in the same menu
 opens your file manager on whichever PDF you're viewing, with the file selected (the

@@ -303,6 +303,32 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 
 ### Reader and Library
 
+- The Reader's sidebars are rebuilt: four tabs that fit the rail and are underlined when chosen;
+  search results in running text with the matched letters marked; reference and library cards
+  that lead with the title, then who and when, then what you can do; a Highlights list that
+  counts its entries, reads in the page's order and shows each note under its passage. Export
+  notes has its own row instead of crowding the tabs.
+- Search in a PDF marks the right letters. The Search pane cut each result at offsets from the
+  PDF's original text while showing its normalized text, so past the first ligature or
+  hyphenated line break the marked letters drifted ("rns of c" for "cortical").
+- The selection menu appears every time. It went missing on a page with search hits (the
+  search rewrites that page's text nodes), when the drag ended outside the page, and when a new
+  selection began inside the old one (the browser took that as dragging the text). It is
+  redrawn too: five square swatches, then **Annotate** and **Ask**, placed by the selection
+  and kept inside the page area. **Escape** closes it.
+- Clicking a search result selects that very hit. The page used to select the hit after it
+  (the list hid the difference), and a result far down a long list was approached one hit at
+  a time and abandoned after 200 steps. The jump is now one step, to any hit. A search begun
+  in the middle of a paper starts there, and the counter and the list say so; the open result
+  stays in view as you step. Long result lists are compact rows tagged with their page, and
+  the query stays in place while they scroll.
+- A highlight's popover is the selection menu with a note: the same swatches, **Annotate** and
+  **Ask**, the passage on a rail of its colour, and Save shown with its key.
+- A highlighted passage that runs over a line end is quoted with the space you read there,
+  in the list, in exported notes and in what Ask and Annotate send. Highlights saved before
+  this keep their place. Notes exported from the Reader follow the page's reading order.
+- The Reader toolbar is drawn rather than typed: stroke icons for back, zoom, fit and the PDF
+  menu, zoom as one out / value / in control, every control the same height.
 - **Show in folder** reveals a paper's PDF or supplement in the file manager.
 
 ### Across the app
