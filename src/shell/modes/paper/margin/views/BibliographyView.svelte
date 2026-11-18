@@ -332,7 +332,6 @@
     grid-template-columns: calc(24px * var(--ts-scale, 1)) minmax(0, 1fr);
     align-items: start;
     padding: calc(7px * var(--ts-scale, 1)) 9px calc(7px * var(--ts-scale, 1)) 6px;
-    cursor: default;
   }
   .ref :global(.mk-dot) {
     justify-self: center;
