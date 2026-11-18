@@ -29,7 +29,7 @@ async function main(){
  await key('Right');await wait(()=>figure().elements.find(e=>e.id==='figure-live').x===21,'actual key autosave');
  await click('.toolbar button[title^="Undo"]');await wait(()=>figure().elements.find(e=>e.id==='figure-live').x===20,'Undo saved bytes');check('edit and Undo persist exact scientific position');
  await click('.toolbar button[title^="Import PNG/SVG"]');await wait(()=>figure().elements.length===4,'native import persisted');
- const imported=figure().elements.find(e=>!e.id.startsWith('figure-'));assert.ok(imported);const importedAsset=json('fig/index.json').assets.find(a=>a.id===imported.assetId);assert.ok(fs.readFileSync(path.resolve(root,'fig',importedAsset.path),'utf8').includes('#d0a215'));check('native file picker imports actual decoded asset and saves source bytes');
+ const imported=figure().elements.find(e=>!e.id.startsWith('figure-'));assert.ok(imported);const importedAsset=await wait(()=>json('fig/index.json').assets.find(a=>a.id===imported.assetId),'imported asset indexed');assert.ok(fs.readFileSync(path.resolve(root,'fig',importedAsset.path),'utf8').includes('#d0a215'));check('native file picker imports actual decoded asset and saves source bytes');
  await click('.toolbar button[title^="Undo"]');await wait(()=>figure().elements.length===3,'import Undo');
  await click('.sidebar .layer[data-layer-key="e:figure-live"] .item');
  // Force simultaneous edits within the autosave debounce: ordinary external
