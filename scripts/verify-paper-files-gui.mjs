@@ -115,6 +115,34 @@ await waitFor(page,async root=>!await window.fig.exists(`${root}/paper/notes.qmd
 h.eq(JSON.parse(await read('project.json')).manuscript.path,'','deleting the last ordinary document clears the default in the GUI');
 await clickLabel('New document in Documents');await prompt('Fresh notes');await active('paper/fresh-notes.qmd');
 h.eq(JSON.parse(await read('project.json')).manuscript.path,'paper/fresh-notes.qmd','new-document action works after every ordinary document was deleted');
+// --- the tree is walkable, and findable (2026-11-18 rebuild) -----------------------------------
+const focusOf=()=>page.evaluate(()=>{const e=document.activeElement;return e?.classList.contains('dp-item')?`doc:${e.title}`:e?.classList.contains('folder-label')?`folder:${e.closest('[data-folder]').dataset.folder}`:e?.getAttribute('aria-label')??null;});
+const navOrder=await page.evaluate(()=>[...document.querySelectorAll('.dp-scroll .folder-label, .dp-scroll .dp-item')].map(e=>e.classList.contains('dp-item')?`doc:${e.title}`:`folder:${e.closest('[data-folder]').dataset.folder}`));
+await page.evaluate(()=>document.querySelector('.dp-scroll .dp-item').focus());
+const at0=navOrder.indexOf(await focusOf());
+await page.keyboard.press('ArrowDown');h.eq(await focusOf(),navOrder[at0+1],'ArrowDown moves to the next row on show');
+await page.keyboard.press('ArrowUp');h.eq(await focusOf(),navOrder[at0],'ArrowUp moves back');
+await page.keyboard.press('End');h.eq(await focusOf(),navOrder.at(-1),'End reaches the last row');
+const FOLDER='.dp-folder:not(.dp-head) .folder-label';
+const aFolder=await page.$eval(FOLDER,e=>{e.focus();return e.closest('[data-folder]').dataset.folder;});
+const expanded=()=>page.$eval(FOLDER,e=>e.getAttribute('aria-expanded'));
+h.eq(await expanded(),'true','a folder says it is open (aria-expanded)');
+await page.keyboard.press('ArrowLeft');h.eq(await expanded(),'false','ArrowLeft closes the folder under the keyboard');
+await page.keyboard.press('ArrowRight');h.eq(await expanded(),'true','ArrowRight opens it again');
+h.eq(await focusOf(),`folder:${aFolder}`,'and the keyboard stays on the folder');
+// Filter by a word taken from a document that is really there (earlier steps moved files about).
+const wanted=await page.$$eval('.dp-scroll .dp-item',els=>els.map(e=>e.title).find(t=>/\/[a-z]{4,}[^/]*\.qmd$/i.test(t)));
+const word=wanted.split('/').pop().replace(/\.qmd$/i,'').slice(0,4).toLowerCase();
+await page.focus('[aria-label="Filter documents"]');await page.keyboard.type(word);
+await waitFor(page,()=>!!document.querySelector('ul[aria-label="Matching documents"] .dp-item'),null,{timeout:4000});
+const found=await page.evaluate(()=>({titles:[...document.querySelectorAll('ul[aria-label="Matching documents"] .dp-item')].map(e=>e.title),names:[...document.querySelectorAll('ul[aria-label="Matching documents"] .dp-title')].map(e=>e.textContent),trees:document.querySelectorAll('ul[aria-label="Documents"], ul[aria-label="Context"]').length,hits:document.querySelector('.dp-hits')?.textContent}));
+h.ok(found.titles.includes(wanted)&&found.titles.every((t,i)=>(t+' '+found.names[i]).toLowerCase().includes(word))&&found.trees===0&&Number(found.hits)===found.titles.length,`the filter "${word}" shows only what matches, with its count (${found.titles.join(', ')})`);
+await page.keyboard.press('Escape');
+h.ok(await page.evaluate(()=>document.querySelector('[aria-label="Filter documents"]').value===''&&document.querySelectorAll('ul[aria-label="Documents"], ul[aria-label="Context"]').length===2),'Escape clears the filter and the trees return');
+const before=await page.$eval('.dp-item.active',e=>e.title);
+await page.keyboard.type(word);await page.keyboard.press('Enter');await active(found.titles[0]);
+h.ok(await page.evaluate(()=>document.querySelector('[aria-label="Filter documents"]').value===''),'Enter opens the first match and clears the filter');
+await page.evaluate(t=>[...document.querySelectorAll('.dp-item')].find(e=>e.title===t).click(),before);await active(before);
 // Large tree: a real scan followed by collapse, expansion and scroll-to-end.
 await page.evaluate(async root=>{
   for(let i=0;i<5000;i++) await window.fig.writeText(`${root}/paper/Bulk/note-${String(i).padStart(4,'0')}.qmd`,`---\ntitle: Note ${String(i).padStart(4,'0')}\n---\n`);
@@ -136,6 +164,11 @@ h.ok(Math.max(...timings)<100,`5000-document collapse/expand paints within 100ms
 await page.evaluate(()=>{const el=document.querySelector('.dp-scroll');el.scrollTop=el.scrollHeight;});
 await waitFor(page,()=>!!document.querySelector('.dp-item[title="paper/Bulk/note-4999.qmd"]'),null,{timeout:5000});
 h.ok(await page.$$eval('.dp-item',els=>els.length)<100,'scrolling reaches the final document while keeping the tree windowed');
+// A filter that matches thousands still mounts a bounded list.
+await page.focus('[aria-label="Filter documents"]');
+const typed=await page.evaluate(async()=>{const i=document.querySelector('[aria-label="Filter documents"]');const t=performance.now();i.value='note';i.dispatchEvent(new Event('input',{bubbles:true}));await new Promise(requestAnimationFrame);await new Promise(requestAnimationFrame);return{ms:performance.now()-t,rows:document.querySelectorAll('ul[aria-label="Matching documents"] .dp-item').length,hits:Number(document.querySelector('.dp-hits')?.textContent.replace(/\D/g,''))};});
+h.ok(typed.hits>=5000&&typed.rows<=200&&typed.ms<100,`a 5,000-match filter mounts ${typed.rows} rows and paints in ${typed.ms.toFixed(1)} ms`);
+await page.keyboard.press('Escape');
 h.ok(realErrors(page).length===0,`clean browser console: ${realErrors(page).join(' | ')}`);
 await h.done(()=>browser.close());
 

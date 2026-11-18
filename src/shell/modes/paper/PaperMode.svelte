@@ -381,13 +381,19 @@
     }
     return ans;
   });
-  const collapsedSet = $derived(new Set($paperLayout.collapsed));
-  function toggleCollapse(path: string) {
+  // Folded outline sections are remembered PER DOCUMENT and by heading (the node's `key`), not
+  // by position: one shared list of "0/1"-style paths folded section 0/1 of EVERY document, and
+  // pointed at a different section as soon as a heading was inserted above it.
+  const collapsePrefix = $derived(`${activeDocPath}\n`);
+  const collapsedSet = $derived(
+    new Set($paperLayout.collapsed.filter((p) => p.startsWith(collapsePrefix)).map((p) => p.slice(collapsePrefix.length))),
+  );
+  function toggleCollapse(key: string) {
+    const entry = collapsePrefix + key;
     paperLayout.update((s) => ({
       ...s,
-      collapsed: s.collapsed.includes(path)
-        ? s.collapsed.filter((p) => p !== path)
-        : [...s.collapsed, path],
+      // Entries without a document prefix are the old positional ones: dropped as we go.
+      collapsed: (s.collapsed.includes(entry) ? s.collapsed.filter((p) => p !== entry) : [...s.collapsed, entry]).filter((p) => p.includes("\n")),
     }));
   }
 

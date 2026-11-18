@@ -1316,6 +1316,29 @@ Persistence invariants (all machine-checked — do not weaken):
   to Library mode's gates (unscoped `document.querySelectorAll`): never reuse those classes
   in a margin pane. `verify-margin-panes.mjs` / `verify-margin-bg.mjs` are ui-extra and now
   ride the pathMap rule for `margin/**`.
+  **The left sidebar** (rebuilt 2026-11-18; owner: "a more pleasant + tactile mechanism for
+  expanding/collapsing directories or the doc outline, better visual delineations").
+  `PaperSidebar` switches are on = ink + accent rail; the split is a hairline with a grip
+  that lights up. Both trees mark "this one" the same way (`.dp-item.active`,
+  `.oitem.active`: accent tint + inset 2 px rail + accent ink; the outline's solid accent
+  block is gone and `verify-paper-sidebar-layout` requires the two to compute identically).
+  Nesting is read from GUIDE LINES: a `repeating-linear-gradient` sized to
+  `--depth × step` on each row, no extra elements. Unfold = the revealed rows get `.unfold`
+  for 260 ms (opacity over `--dur-fade`, a 3 px rise over `--dur-instant`, which reduced
+  motion collapses); layout never animates and the 5,000-document collapse budget
+  (`verify-paper-files-gui`, < 100 ms) still holds. Both trees are walkable: a `keydown` on
+  the scroller / the outline `nav` reads the rows on show from the DOM (`.folder-label,
+  .dp-item` / `.oitem` with `data-depth`, `data-kids`, `data-open`) and moves focus; folders
+  and carets expose `aria-expanded`. Alt+↑/↓ (reorder) and Delete stay on the document row's
+  own handler, which runs first. The document FILTER (`aria-label="Filter documents"`) sits
+  ABOVE `.dp-scroll` (so the virtual window's header offsets are untouched), renders
+  `ul[aria-label="Matching documents"]` in place of the two trees, and mounts at most
+  `MATCH_ROWS` (200) rows however many match. OUTLINE FOLDS are per document and by heading:
+  `OutlineNode.key` is the heading-text chain ("A › B", same-named siblings "#2"), stored as
+  `${docPath}\n${key}` in `paperLayout.collapsed`; positional "0/1" entries (shared by every
+  document, shifted by any heading inserted above) are dropped as the list is next written.
+  HMR note for the native-dev harness: after a template change the running Electron page can
+  keep the OLD markup with the NEW css; reload it before judging.
   **Export is ONE account** (rebuilt 2026-11-18; owner: "I hate the little popups that happen
   in the bottom right, they are ugly and confusing … the vibe of the export process feels
   half-baked"). `ExportDialog.svelte` is a titled sheet (header, choices, a destination strip,

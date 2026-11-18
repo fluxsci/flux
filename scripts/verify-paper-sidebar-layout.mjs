@@ -36,6 +36,43 @@ try {
     await page.mouse.move(start.x,start.y);await page.mouse.down();
     await page.mouse.move(start.x+width-before,start.y,{steps:8});await page.mouse.up();await paints();
   };
+  // --- the outline is a tree you fold, walk and read (2026-11-18 rebuild) --------------------------
+  const outlineState=()=>page.evaluate(()=>{
+    const rows=[...document.querySelectorAll('.outline .orow')];
+    const first=rows.find(r=>r.querySelector('.caret:not(.spacer)')&&Number(r.querySelector('.oitem').dataset.depth)===1);
+    return {count:rows.length,firstText:first?.querySelector('.oitem').textContent.trim(),expanded:first?.querySelector('.caret').getAttribute('aria-expanded'),
+      texts:rows.map(r=>r.querySelector('.oitem').textContent.trim()),focus:document.activeElement?.classList.contains('oitem')?document.activeElement.textContent.trim():null};
+  });
+  let o=await outlineState();
+  h.ok(o.count>=49&&o.expanded==='true'&&/^A1 /.test(o.firstText),'sections start unfolded, and a fold control says so (aria-expanded)');
+  await page.evaluate(()=>[...document.querySelectorAll('.outline .orow')].find(r=>/^A1 /.test(r.querySelector('.oitem').textContent.trim())).querySelector('.caret').click());
+  await paints();o=await outlineState();
+  h.ok(o.count===44&&o.expanded==='false','folding a section hides exactly its five subsections');
+  // A heading typed ABOVE must not move the fold to another section: folds are remembered by heading, not by position.
+  await page.evaluate(()=>{const v=window.__fluxView,at=v.state.doc.toString().indexOf('# Results highlights');v.dispatch({changes:{from:at,insert:'# A new opening section\n\nText.\n\n'}});});
+  await waitFor(page,()=>[...document.querySelectorAll('.outline .oitem')].some(e=>e.textContent.trim()==='A new opening section'),null,{timeout:8000});
+  await paints();
+  const folded=await page.evaluate(()=>[...document.querySelectorAll('.outline .orow')].filter(r=>r.querySelector('.caret:not(.spacer)')?.getAttribute('aria-expanded')==='false').map(r=>r.querySelector('.oitem').textContent.trim()));
+  h.ok(folded.length===1&&/^A1 /.test(folded[0]),`after a heading is inserted above, the SAME section is still the folded one (${folded.join(' | ').slice(0,60)})`);
+  // Walk it: ↓ / ↑ between the rows on show, → unfolds, ← folds or steps out to the parent.
+  await page.evaluate(()=>[...document.querySelectorAll('.outline .oitem')].find(e=>/^A1 /.test(e.textContent.trim())).focus());
+  await page.keyboard.press('ArrowDown');o=await outlineState();h.ok(/^A2 /.test(o.focus??''),`ArrowDown steps past a folded section to the next row (${(o.focus??'').slice(0,12)})`);
+  await page.keyboard.press('ArrowUp');await page.keyboard.press('ArrowRight');await paints();o=await outlineState();
+  h.ok(o.expanded==='true'&&/^A1 /.test(o.focus??''),'ArrowRight unfolds the section and keeps the keyboard on it');
+  await page.keyboard.press('ArrowRight');o=await outlineState();h.ok(/^Analysis 1/.test(o.focus??''),'ArrowRight again steps into it');
+  await page.keyboard.press('ArrowLeft');o=await outlineState();h.ok(/^A1 /.test(o.focus??''),'ArrowLeft on a subsection steps out to its section');
+  await page.keyboard.press('ArrowLeft');await paints();o=await outlineState();h.ok(o.expanded==='false','ArrowLeft on an open section folds it');
+  await page.keyboard.press('ArrowRight');await paints();
+  // One "this one" for both trees: the open document and the caret's section wear the same tint and rail.
+  await page.evaluate(()=>{const v=window.__fluxView,at=v.state.doc.toString().indexOf('### Analysis 2');v.dispatch({selection:{anchor:at+6}});v.focus();});
+  await waitFor(page,()=>!!document.querySelector('.outline .oitem.active'),null,{timeout:5000});
+  await page.mouse.move(10,10);await new Promise(r=>setTimeout(r,220)); // past the 70 ms colour transitions
+  const marks=await page.evaluate(()=>{const css=s=>{const c=getComputedStyle(document.querySelector(s));return{bg:c.backgroundColor,rail:c.boxShadow,ink:c.color};};return{doc:css('.dp-item.active'),section:css('.oitem.active'),page:getComputedStyle(document.querySelector('.paper-sidebar')).backgroundColor};});
+  h.ok(marks.doc.bg===marks.section.bg&&marks.doc.ink===marks.section.ink&&/inset/.test(marks.doc.rail)&&marks.doc.rail===marks.section.rail,`the open document and the current section share one tint, ink and rail (${marks.doc.bg})`);
+  h.ok(marks.doc.bg!==marks.page&&!/^rgb\(32, 94, 166\)$/.test(marks.section.bg),'a tint, never a solid accent block');
+  await page.evaluate(()=>{const v=window.__fluxView,doc=v.state.doc.toString(),at=doc.indexOf('# A new opening section');v.dispatch({changes:{from:at,to:doc.indexOf('# Results highlights')}});});
+  await waitFor(page,()=>![...document.querySelectorAll('.outline .oitem')].some(e=>e.textContent.trim()==='A new opening section'),null,{timeout:8000});
+  await page.mouse.move(10,10);
   let g=await geometry();
   h.ok(Math.abs(g.outline-g.section)<2,'outline fills the default sidebar width');
   h.ok(g.scrolls && !g.overflows,'long nested headings scroll vertically without horizontal overflow');

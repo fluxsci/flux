@@ -131,6 +131,16 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   groups. Figures no longer shows broken-picture boxes while a figure is being drawn.
 - Manuscript Check's pane has its green title and outline (it was drawn in black with no
   outline).
+- **The left sidebar is rebuilt.** Files and Outline are switches with a rail under the ones
+  that are showing. The file tree has section headings, folder icons that open and close,
+  guide lines for nesting, a filter field, and arrow-key navigation (**↑ ↓ ← →**, Home, End).
+  The Outline has the same guide lines and arrow keys and bolder top-level sections. The
+  open document and the section your caret is in share one mark: a blue tint with a rail
+  (the Outline used a solid blue block). Opening a folder or a section unfolds its rows
+  with a short fade.
+- Folded Outline sections are remembered per document and by heading. One shared list of
+  positions used to fold the same position in every document, and moved to a different
+  section when a heading was added above.
 - **Export, redone.** The export dialog is a titled sheet: format tiles, the journal style with
   what it does shown as a list, and a bar at the bottom that says where the file will go and
   what will make it. After you press Export, one **receipt** above the status bar follows the

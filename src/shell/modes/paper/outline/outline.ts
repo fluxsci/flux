@@ -13,7 +13,12 @@ export interface OutlineItem {
  *  unlike `from`, it doesn't shift on every keystroke. */
 export interface OutlineNode {
   item: OutlineItem;
+  /** Position in the tree ("0/2/1"): unique, the keyed-each identity. */
   path: string;
+  /** The chain of heading texts down to this one ("Results › Methods"): what a FOLDED
+   *  section is remembered by. A position would point at a different section the moment a
+   *  heading is inserted above it; same-named siblings get "#2", "#3". */
+  key: string;
   children: OutlineNode[];
 }
 
@@ -22,15 +27,23 @@ export interface OutlineNode {
 export function buildTree(items: OutlineItem[]): OutlineNode[] {
   const roots: OutlineNode[] = [];
   const stack: OutlineNode[] = [];
+  const named = (siblings: OutlineNode[], parentKey: string, text: string): string => {
+    const base = parentKey ? `${parentKey} \u203a ${text}` : text;
+    let key = base;
+    for (let n = 2; siblings.some((sib) => sib.key === key); n++) key = `${base} #${n}`;
+    return key;
+  };
   for (const item of items) {
-    const node: OutlineNode = { item, path: "", children: [] };
+    const node: OutlineNode = { item, path: "", key: "", children: [] };
     while (stack.length && stack[stack.length - 1].item.level >= item.level) stack.pop();
     if (stack.length === 0) {
       node.path = String(roots.length);
+      node.key = named(roots, "", item.text);
       roots.push(node);
     } else {
       const parent = stack[stack.length - 1];
       node.path = `${parent.path}/${parent.children.length}`;
+      node.key = named(parent.children, parent.key, item.text);
       parent.children.push(node);
     }
     stack.push(node);

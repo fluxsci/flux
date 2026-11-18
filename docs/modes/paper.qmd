@@ -32,8 +32,19 @@ text stays honest.
   use that full width. Double-click the edge to restore the default width.
 - **Documents** and **Context** are collapsible folders. Click a folder's arrow to expand or
   collapse it. Use its **+** to create a document inside it, or its folder-plus button to
-  create a subfolder. Nest folders as deeply as you need. The bottom **+ New document** and
-  **New folder** buttons use the most recently selected folder.
+  create a subfolder. Nest folders as deeply as you need; a thin line down the left of
+  nested rows shows how far each folder reaches. The bottom **+ New document** and
+  **New folder** buttons use the most recently selected folder. The open document is marked
+  with a blue tint and a rail at its left edge, the same mark the Outline uses for the
+  section your caret is in.
+- **Walk the files from the keyboard.** With a row focused, **↑** / **↓** move between the
+  rows on show, **→** opens a folder (or steps into it), **←** closes it (or steps out to
+  the folder a document is in), **Home** / **End** jump to the ends, and **Enter** opens.
+- **Filter documents** with the field above the list: type any part of a title or path.
+  **Enter** opens the first match, **↓** moves into the matches, **Esc** clears the filter.
+- **The Outline folds too.** Click the arrow beside a section to fold its subsections, or
+  use the same arrow keys as the files. Folded sections are remembered for each document
+  by their headings, so adding a heading above never moves a fold.
 - **Render output stays out of the browser.** Generated Quarto support and cache folders
   are hidden, along with an unused legacy `sections/` folder. Existing document folders
   and empty folders you create remain visible. Nothing is deleted from disk.
