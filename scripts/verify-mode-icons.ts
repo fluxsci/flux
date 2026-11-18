@@ -111,7 +111,7 @@ for (const file of ["src/shell/TitleBar.svelte", "src/shell/Workspace.svelte"]) 
   h.ok(!/\[\s*(?:"(?:figure|paper|slide|library|reader)"\s*,\s*){3,}/.test(text), `${file} keeps no second ordered list of modes`);
 }
 const listed = MODE_ORDER.map((mode) => MODE_LABEL[mode]).join(", ");
-for (const file of ["src/lib/Help.svelte", "docs/reference/shortcuts.qmd"]) {
+for (const file of ["src/lib/help/shortcuts.ts", "docs/reference/shortcuts.qmd"]) { // the reference's content moved out of Help.svelte, 2026-11-18
   h.ok(read(file).includes(`(${listed})`), `${file} lists the modes in strip order (${listed})`);
 }
 // docs/index.qmd introduces the modes "in the order below": its bullets follow the strip.

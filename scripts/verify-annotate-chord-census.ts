@@ -78,7 +78,7 @@ const chordOwner = 'src/shell/inbox/inboxState.ts';
 for (const file of [...walkFiles('src'), ...walkFiles('electron')]) {
   const source = readFileSync(file, 'utf8');
   if (file !== chordOwner && /["']KeyQ["']|(?:Alt|Option)[+-](?:Shift[+-])?[qQ]["']/.test(source) &&
-      !['src/lib/Help.svelte', 'src/shell/TitleBar.svelte', 'src/shell/command/globalCommands.ts'].includes(file)) errors.push(`${file}: Inbox chord collision; use isInboxChord`);
+      !['src/lib/help/shortcuts.ts', 'src/shell/TitleBar.svelte', 'src/shell/command/globalCommands.ts'].includes(file)) errors.push(`${file}: Inbox chord collision; use isInboxChord`);
   if (/key(?:\.toLowerCase\(\))?\s*={2,3}\s*["'][qQ]["']/.test(source)) errors.push(`${file}: Q key handler needs an explicit Inbox census review`);
 }
 const chord = readFileSync(chordOwner, 'utf8');
@@ -100,8 +100,12 @@ if (inventory.length < 30 || saveBranches !== 5) errors.push(`Census extraction 
 const ask = readFileSync('src/shell/agent/askChord.ts', 'utf8');
 if (!/e\.code === "KeyJ"/.test(ask) || !/e\.shiftKey && !e\.altKey/.test(ask)) errors.push('Ask must use the censused Mod+Shift+J chord');
 if (!keyboard.includes('k === "l" && e.shiftKey')) errors.push('Ask must preserve the Figure lock chord Mod+Shift+L');
+// The keyboard reference NAMES every chord (it is the list a user reads) and binds none: it is
+// exempt from the name scans here and above only while it stays free of handlers.
+const reference = 'src/lib/help/shortcuts.ts';
+if (/addEventListener|onkeydown|KeyboardEvent|\.code\b|\.key\b/.test(readFileSync(reference, 'utf8'))) errors.push(`${reference}: the keyboard reference must stay a list of names, with no key handling`);
 for (const file of walkFiles('src')) {
-  if (file.endsWith('askChord.ts') || file.endsWith('globalCommands.ts')) continue;
+  if (file.endsWith('askChord.ts') || file.endsWith('globalCommands.ts') || file === reference) continue;
   const source = readFileSync(file, 'utf8');
   if (/(?:Mod|Ctrl|Cmd)[+-]Shift[+-](?:Key)?J\b|(?:code|key|k)\s*===?\s*["'](?:KeyJ|j)["']/.test(source)) errors.push(`${file}: review new Ask chord collision`);
 }

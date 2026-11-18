@@ -19,6 +19,16 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   section is sorted into Press, Arrow (or Colours and Shape) and Handles. Shortcuts shown in
   Settings use the same key caps as the rest of Flux.
 - **The gear works on the Home screen.** It used to do nothing until a project was open.
+- **The keyboard reference (press ?) is searchable, complete and easier to read.** The caret
+  starts in a search field: type a word (*crystallize*, *zoom*, *cite*) or a chord as you would
+  press it (*alt+t*) and every mode is searched at once, with the number of matches beside each
+  mode's name. Each chord is drawn key by key and named for your platform (**⌘ ⇧ M** on a Mac,
+  **Ctrl Shift M** elsewhere); mouse gestures are written as words. It now lists some 300
+  shortcuts where it had about 120, including the keys of the X-ray, the Plots view, the
+  animator, presenting, tables and the margin panes, and several rows that were wrong or stale
+  are corrected. **Esc** clears the search before it closes the reference.
+- **Bring to front / send to back with Ctrl+Shift+] and Ctrl+Shift+[ works.** On a US keyboard
+  the chord did nothing.
 - **Notices are redrawn.** Each has a mark for its kind (done, problem, information), a
   failure's reason wraps over several lines instead of being cut at one, and its buttons look
   like buttons.

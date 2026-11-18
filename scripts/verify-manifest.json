@@ -474,7 +474,8 @@
       "verify-figure-detail-proxy.ts",
       "verify-manuscript-check.ts",
       "verify-word-count.ts",
-      "verify-mode-icons.ts"
+      "verify-mode-icons.ts",
+      "verify-help-shortcuts.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -4345,6 +4346,17 @@
       "run": [
         "verify-w1-toast.mjs",
         "verify-paper-export.mjs",
+        "verify-no-retired-agent-layer.ts"
+      ]
+    },
+    {
+      "$why": "2026-11-18 keyboard reference rebuild: Help.svelte draws help/shortcuts.ts. Before this rule a change to either ran only the retired-agent scan (or the whole pure tier), never the gates that open the reference.",
+      "glob": "{src/lib/Help.svelte,src/lib/help/**}",
+      "run": [
+        "verify-help-shortcuts.ts",
+        "verify-shell-complete.mjs",
+        "verify-mode-icons.ts",
+        "verify-annotate-chord-census.ts",
         "verify-no-retired-agent-layer.ts"
       ]
     },
@@ -12359,6 +12371,15 @@
       "timeoutMs": 120000,
       "exclusive": false,
       "coverage": "presence"
+    },
+    "verify-help-shortcuts.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
     }
   }
 }

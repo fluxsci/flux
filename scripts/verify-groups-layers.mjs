@@ -278,6 +278,28 @@ try {
   const gIdx2 = zm.order.map((id, i) => (zm.grouped.includes(id) ? i : -1)).filter((i) => i >= 0);
   ok(gIdx2.length === 2 && gIdx2[1] - gIdx2[0] === 1, `partial-group ⌘] keeps the run contiguous (${zm.order})`);
 
+  // ⌘⇧] / ⌘⇧[ go all the way. With Shift held a US layout reports "}" / "{", which the
+  // handler did not accept, so the chord was dead on the most common keyboard (2026-11-18).
+  const zOrder = () => page.evaluate(() => window.__flux.figures().find((f) => f.id === "growth").elements.map((e) => e.id));
+  await page.evaluate(() => window.__flux.fig.selectOnly("z0"));
+  await sleep(100);
+  await page.keyboard.down("Control");
+  await page.keyboard.down("Shift");
+  await page.keyboard.press("BracketRight");
+  await page.keyboard.up("Shift");
+  await page.keyboard.up("Control");
+  await sleep(200);
+  const raised = await zOrder();
+  ok(raised.at(-1) === "z0", `⌘⇧] brings the selection all the way to the front (${raised})`);
+  await page.keyboard.down("Control");
+  await page.keyboard.down("Shift");
+  await page.keyboard.press("BracketLeft");
+  await page.keyboard.up("Shift");
+  await page.keyboard.up("Control");
+  await sleep(200);
+  const lowered = await zOrder();
+  ok(lowered[0] === "z0", `⌘⇧[ sends it all the way to the back (${lowered})`);
+
   const errs = realErrors(page);
   ok(errs.length === 0, `no console errors (${errs.length})`);
   if (errs.length) console.error(errs.slice(0, 5));

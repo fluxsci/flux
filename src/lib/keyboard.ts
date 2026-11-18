@@ -1054,10 +1054,12 @@ export function handleKey(e: KeyboardEvent) {
     } else if (k === "l" && e.shiftKey) {
       e.preventDefault();
       toggleLockSelected();
-    } else if (e.key === "]") {
+    } else if (e.key === "]" || e.key === "}") {
+      // With Shift a US layout reports "}" / "{", so matching "]" alone left the
+      // all-the-way chord dead there (2026-11-18).
       e.preventDefault();
       e.shiftKey ? raise(true) : bump(true);
-    } else if (e.key === "[") {
+    } else if (e.key === "[" || e.key === "{") {
       e.preventDefault();
       e.shiftKey ? raise(false) : bump(false);
     }

@@ -4,9 +4,17 @@ subtitle: "The complete chord reference, mode by mode"
 ---
 
 Shortcuts are written Linux/Windows-style. **Ctrl** here means **⌘ Cmd** on macOS (macOS
-accepts either), and **Alt** means **⌥ Option**. Press **?** inside the app for the built-in
-quick reference. One rule worth knowing: whatever is mid-flight, **Escape** backs out one
-level at a time — a gesture, a sub-mode, a pane, an overlay.
+accepts either), and **Alt** means **⌥ Option**. A few chords are the Control key itself on
+every platform; they are marked *(Control on macOS too)*. One rule worth knowing: whatever is
+mid-flight, **Escape** backs out one level at a time — a gesture, a sub-mode, a pane, an overlay.
+
+Press **?** inside the app for the built-in reference. It lists everything on this page, with
+each chord drawn key by key and named for your platform (**⌘ ⇧ M** on a Mac, **Ctrl Shift M**
+elsewhere), and it opens on the mode you are in. The caret starts in its search field: type a
+word (*crystallize*, *zoom*, *cite*) or a chord as you would press it (*alt+t*, *shift a*) and
+every mode is searched at once, with the number of matches beside each mode's name. **↑** / **↓**
+move between modes, **Esc** clears the search and then closes the reference, and **?** closes
+it again.
 
 # Everywhere in a project
 
@@ -17,12 +25,13 @@ level at a time — a gesture, a sub-mode, a pane, an overlay.
 | **Ctrl+Shift+M** | Annotate (note + picture for your agents) |
 | **Ctrl+Shift+J** | Ask about this (read-only question to Claude Code or Codex) |
 | **?** | Keyboard shortcut overlay (works on the Home screen too) |
-| **Ctrl+Z** / **Ctrl+Shift+Z** | Undo / redo (in every editor) |
+| **Ctrl+Z** / **Ctrl+Shift+Z** | Undo / redo (in Figure, Slide and Paper) |
 | **Ctrl+1** … **Ctrl+5** | Switch mode (Figure, Slide, Paper, Library, Reader) |
 | **Ctrl+Shift+N** | New window (a second project side by side; also in the taskbar icon's right-click menu) |
 
 Mode switching is by the icons in the top bar (or **Ctrl+1**–**Ctrl+5**); **Alt+click**
-(or **Cmd+click**) a mode icon opens that mode in a split pane. That includes Paper: two
+(on macOS also **⌘+click**) a mode icon opens that mode in a split pane. With the divider
+between two panes focused, **←** / **→** resize them (**Shift**: bigger steps). That includes Paper: two
 manuscript panes show two *different* documents of the project (asking for one that's open
 in the other pane focuses that pane instead). Figure and Slide stay single-pane — they share
 the editing engine.
@@ -39,7 +48,7 @@ the editing engine.
 | **Enter** in Reply | Send a human reply |
 | **Shift+Enter** in Reply | Insert a newline |
 | **?** | Show the filter grammar and keys |
-| **Esc** | Leave image zoom, then close Inbox |
+| **Esc** | Close what is open inside it (the assign picker, the filter help, a zoomed image), then Inbox |
 
 **Pin open** keeps Inbox in a separate window; **Dock** returns it to the main window.
 The Annotate chord also works from the pinned window.
@@ -89,10 +98,20 @@ also appears in the global and Paper palettes and Library's **Commands…** menu
 | **Alt+C** | Edit the citation at the cursor |
 | **Alt+P** / **Ctrl+Alt+P** | Close the active margin pane / close all panes |
 | **Ctrl+Alt+M** | Comment on the current selection |
+| **Alt+M** | Figure-Meta |
 | **Alt+D** / **Shift+Alt+D** | Toggle the selected word in the personal / project dictionary |
 | **Shift+Alt+W** | Word tools for the selected term — dictionaries and aliases |
 | **Ctrl+Enter** | Follow the item under the caret (figure ref → figure; citation → group editor) |
-| **Ctrl+F** / **Ctrl+Alt+F** | Find / find & replace — **Enter** / **Shift+Enter** step matches; the bar shows *3 of 17* |
+| **Ctrl+Z** / **Ctrl+Shift+Z** (or **Ctrl+Y**) | Undo / redo |
+| **Ctrl+F** | Find, with replace in the same bar — **Enter** / **Shift+Enter** step matches; the bar shows *3 of 17* |
+| **F3** / **Shift+F3** (or **Ctrl+G** / **Ctrl+Shift+G**) | Next / previous match |
+| **Ctrl+D** / **Ctrl+Shift+L** | Select the next / every occurrence of the selection |
+| **Ctrl+Alt+G** | Go to a line |
+| **Alt+↑** / **Alt+↓** (in the text) | Move the line up / down (**+Shift**: copy it) |
+| **Ctrl+[** / **Ctrl+]** | Indent less / more (nests a list item) |
+| **Ctrl+Alt+↑** / **Ctrl+Alt+↓** | Add a caret above / below |
+| **Ctrl+/** | Turn the line into a comment and back |
+| **Ctrl+Space** *(Control on macOS too)* | Open the suggestions for what you are typing |
 | **Ctrl+B** / **Ctrl+I** / **Ctrl+E** | Bold / italic / inline code |
 | **Ctrl+.** / **Ctrl+,** | Superscript `^…^` / subscript `~…~` on the selection (again to remove) |
 | **Ctrl+Shift+1…4** / **Ctrl+Shift+0** | Heading level / back to paragraph |
@@ -100,11 +119,22 @@ also appears in the global and Paper palettes and Library's **Commands…** menu
 | **Ctrl+Shift+K** | Insert link |
 | **Ctrl+Alt+−** / **Ctrl+Alt+=** | Figure embed width down / up (caret on the embed line) |
 | **Ctrl+Shift+[** / **Ctrl+Shift+]** | Fold / unfold the current section (macOS: **⌘⌥[** / **⌘⌥]**) |
+| **Ctrl+Alt+[** / **Ctrl+Alt+]** *(Control on macOS too)* | Fold / unfold every section |
 | **Tab** / **Shift+Tab** | In a table: next / previous cell (Tab past the last cell adds a row) |
 | **Enter** | In a table: add a row below (on an empty last row: leave the table) |
 | **Ctrl+Alt+R** / **Ctrl+Alt+Shift+R** | Table: add row below / delete row |
 | **Ctrl+Alt+C** / **Ctrl+Alt+Shift+C** | Table: add column right / delete column |
 | **Ctrl+Alt+A** | Table: cycle the column's alignment (also **Alt+click** a rendered header cell) |
+
+In the left panel: **↑ / ↓ / Home / End** move through the rows · **→ / ←** unfold / fold a
+folder or a heading, or step into / out of it · **Enter** opens the document or jumps to the
+heading · typing in the filter narrows the documents (**Enter** opens the first, **↓** goes into
+the list, **Esc** clears).
+
+In a margin pane: Reference search takes **↑ / ↓** (and **PageUp / PageDown**, **Home / End**),
+**Space** to mark several references, **Enter** to cite the marked ones or the highlighted one,
+**Backspace** to unmark; the citation editor takes **Backspace** to remove a reference; Comments
+takes **Ctrl+Enter** to post. **Esc** returns to the editor.
 
 Mouse: **drag a row in the left rail's Documents list** = reorder the documents (order only —
 the open document doesn't change).
@@ -116,7 +146,8 @@ see the [Paper guide](../modes/paper.qmd#vim-and-how-the-caret-feels).
 # Figure
 
 Tools: **V** select · **K** scale · **H** hand · **T** text · **Alt+R** rectangle ·
-**O** ellipse · **L** line · **Shift+L** arrow · **P** pen.
+**O** ellipse · **L** line · **Shift+L** arrow · **P** pen (**Enter** or a double-click
+finishes, **Escape** drops the draft).
 
 | Shortcut | Action |
 |---|---|
@@ -133,12 +164,17 @@ Tools: **V** select · **K** scale · **H** hand · **T** text · **Alt+R** rect
 | **Alt+drag** *(figure title)* | Duplicate the entire figure in its family |
 | **Shift+Alt+G** | Open the full Plot gallery in its own window (the toolbar's **Gallery** opens it in place) — also from the Plots view's search box |
 | **Shift+Space** *(Plots view)* | Peek at the selected plot (again: close) — hovering a plot for a moment peeks too |
-| **Enter** / *double-click* *(Plots view, a stack)* | Open a variant stack in place (**⋯ → Stack variants**) |
-| **Backspace** *(Plots view, empty search)* | Leave Similar names, climb out of a folder shown alone, then out of a collection |
+| **Space** *(Plots view)* | Quick look at the plot |
+| **Enter** / *double-click* *(Plots view, a stack)* | Open a variant stack in place (**⋯ → Stack variants**); **Ctrl+Enter** places the stack instead |
+| **/**, or typing *(Plots view)* | Go to the search; **↓** or **Enter** there goes into the grid |
+| **arrows**, **Home / End**, **PageUp / PageDown** *(Plots view)* | Move through the plots |
+| **Ctrl+A** · **Ctrl+=** / **Ctrl+-** *(Plots view)* | Select every plot shown · bigger / smaller thumbnails |
+| **Backspace** *(Plots view)* | Leave Similar names, climb out of a folder shown alone, then out of a collection |
+| **Escape** *(Plots view)* | Clear the search, then step out, then leave the view |
 | **Alt+1** / **Alt+2** | In the Plots view or the Plot gallery: this project's plots / your global plot library |
 | **Ctrl+Shift+K** | Import image files |
 | **Ctrl+Shift+I** | Bring selection inside the frame (never resizes) |
-| **R** | X-ray the selected plot(s) or group — several selected plots x-ray together with the parts they share; in the tree **Shift+click** / **Ctrl+click** pick several rows, a press-and-drag sweeps a run (**Ctrl** at the press adds), **Ctrl+A** all, **Alt+A** every search result, **a** the siblings (counterpart parts first, then everything under the parent), **Shift+A** the same part on every plot of the figure, **←** / **→** up to a row's family / down into it, **x** hides the pick, **Enter** or **F** opens their properties, **Ctrl+Z** undoes, **double-click** re-roots |
+| **R** | X-ray the selected plot(s) or group — several selected plots x-ray together with the parts they share; in the tree **Shift+click** / **Ctrl+click** pick several rows, a press-and-drag sweeps a run (**Ctrl** at the press adds), **Ctrl+A** all, **Alt+A** the same (after a search: every result), **s** searches, **a** the siblings (counterpart parts first, then everything under the parent), **Shift+A** the same part on every plot of the figure, **←** / **→** up to a row's family / down into it, **Shift+↑ / ↓** extend the pick, **x** hides or shows the pick, **Enter** or **F** opens their properties, **Ctrl+Z** undoes, **double-click** or **Ctrl+Enter** re-roots, **Backspace** clears the search or returns to the previous root |
 | **Shift+Alt+R** | X-ray the drilled part's **family** (one tick label → all the tick labels), selected on the canvas too |
 | **Alt+M** / **Shift+Alt+M** | Figure-Meta / open it pinned (Figure and Paper) |
 | **Alt+L** | Mark selected text as a panel label |
@@ -153,6 +189,9 @@ Tools: **V** select · **K** scale · **H** hand · **T** text · **Alt+R** rect
 | **Ctrl+G** / **Ctrl+Shift+G** | Group / ungroup |
 | **Ctrl+D** | Duplicate (repeats continue the offset) |
 | **Ctrl+A** / **Ctrl+X** / **Ctrl+C** / **Ctrl+V** | Select all / cut / copy / paste |
+| **Ctrl+Y** | Redo (as **Ctrl+Shift+Z**) |
+| **Ctrl+S** / **Ctrl+O** | Save / open a project |
+| *hold* **Alt** (with a selection) | Measure: the distance to whatever the pointer is over |
 | **Ctrl+Alt+C** / **Ctrl+Alt+V** | Copy style / paste style |
 | **Ctrl+Alt+A** | Select all elements with the same fill (**+Shift**: whole project) |
 | **Alt+A** / **Alt+W** / **Alt+S** / **Alt+D** | Align left / top / bottom / right |
@@ -168,7 +207,10 @@ Tools: **V** select · **K** scale · **H** hand · **T** text · **Alt+R** rect
 | **Ctrl+Shift+L** | Lock / unlock |
 | **Shift+R** / **Shift+G** | Rulers / background grid |
 | **Ctrl+Shift+B** | Hide/show the right rail |
-| **Delete** | Delete selection |
+| **Delete** / **Backspace** | Delete selection |
+
+In the Layers list: **↑ / ↓ / Home / End** move through the layers · **← / →** fold / unfold a
+group · **F2** renames.
 
 Mouse: **drag a figure's sidebar row** = reorder the figures (**Shift+click** picks a run,
 **Ctrl/⌘+click** adds or drops one) · plain click = whole plot/group · **Ctrl+click** = pierce to the part under the cursor
@@ -176,7 +218,7 @@ Mouse: **drag a figure's sidebar row** = reorder the figures (**Shift+click** pi
 sibling part of a picked plot adds too) · **Ctrl+drag** on a plot's empty space = marquee its parts
 (fully inside, data marks first; **+Shift** adds) · drag a picked part = move the whole pick ·
 **double-click** = descend (group → inside; text → edit; plot → part;
-path → node edit) · **Shift+click** = add to selection · **Alt+drag** = duplicate ·
+path → node edit) · **Shift+click** = add to or remove from the selection · **Alt+drag** = duplicate ·
 **Shift+drag** = axis-constrain · **drag inside a selected object's box** = move it (a click
 there keeps it selected; a click on one member of a multi-selection selects just it) · **drag
 an edge** = resize that axis (anywhere along it; edges snap like moves) · **drag a
@@ -187,13 +229,15 @@ middle button = pan · **Ctrl+wheel** = zoom · **Shift+wheel** = horizontal pan
 **drag a rail edge** = resize the sidebar / Inspector (double-click resets).
 
 In path node-edit (Enter or double-click a path): **v** edit · **p** pen (extend/merge at
-endpoints) · **d** delete nodes · **Ctrl+drag a segment** bends it · **Enter** finishes ·
+endpoints) · **d** delete nodes · **Ctrl+drag a segment** bends it *(Control on macOS too)* ·
+**Ctrl+A** selects every node · **Delete** removes the selected ones · **Enter** finishes ·
 **Escape** ladders out.
 
-In the Dissect viewer (**D** on a plot): **arrows** move through the grid · **Enter** expands
-a file (again: fit ↔ 1:1) · **[** / **]** column count · **1–9** switch group tabs ·
-**Ctrl+wheel** zoom at the cursor · **Space+drag** pan · **0** reset zoom · **←** / **→**
-previous/next file · **Escape** ladders out (detail → grid → closed).
+In the Dissect viewer (**D** on a plot): **arrows** move through the grid · **Enter** or
+**Space** opens a file (**Enter** again: fit ↔ 1:1) · **[** / **]** smaller / bigger tiles ·
+**1–9** jump to a group · **Ctrl+wheel** zoom at the cursor (**+** / **−** too) · **Space+drag**
+pan (**Shift+wheel** sideways) · **0** reset zoom · **←** / **→** previous/next file ·
+**Ctrl+Enter** or **Ctrl+S** in a note saves it · **Escape** ladders out (detail → grid → closed).
 
 While orbiting a [3D model](../modes/figure.qmd#3d-models) (double-click the mesh, or
 **Orbit** in the Inspector): **drag** orbit · **Shift+drag** pan · **Alt+drag** roll ·
@@ -207,13 +251,15 @@ Everything in the Figure table works on the stage. Additionally:
 | Shortcut | Action |
 |---|---|
 | **F5** / **Shift+F5** | Present from the start / from the current slide |
-| **↓** / **↑** (nothing selected) | Next / previous slide |
+| **↓** / **↑**, **PageDown** / **PageUp** (nothing selected) | Next / previous slide |
+| **F2** | Rename the slide |
+| **Space** / **Escape** (a preview playing on the stage) | Pause or resume / stop |
 | **Ctrl+B** (nothing text-like selected) | Hide/show the left rail (filmstrip or Plots) |
 | **Alt+G** | Toggle Plots / Slides; a hidden rail opens to Plots with search focused |
 | **Ctrl+Shift+A** | Add appearance for the selection *(animator open)* |
 | **Ctrl+Shift+D** | Add disappearance *(animator open)* |
 | **Ctrl+Shift+C** | Transform ▸ Change: add one, or toggle Before ↔ After *(animator open)* |
-| **B** | Transform ▸ Become: pick the object the selection turns into (opens the animator if needed) |
+| **B** (or **Ctrl+Shift+E** with the animator open) | Transform ▸ Become: pick the object the selection turns into (**B** opens the animator if needed) |
 | **Ctrl+Alt+G** | Transform ▸ Ghost…: copies that transform independently *(animator open)* |
 | **Ctrl+Alt+A** | Appear from…: pick the object the selection appears from *(animator open)* |
 | **Ctrl+Alt+C** | Cascade across selected tracks (falls back to element cascade) |
@@ -224,8 +270,8 @@ Everything in the Figure table works on the stage. Additionally:
 | **drag** *(Become pick)* | Marquee: pick everything fully inside (**Alt+drag** removes) |
 | **double-click** *(Become pick)* | Pick it and confirm at once |
 | **A** *(Become pick)* | Widen the last pick to its siblings |
-| **Backspace** *(Become pick)* | Drop the last pick |
-| **B** / **Enter** *(Become pick)* | Confirm the pick |
+| **K** *(Become pick)* | Keep the source: it stays on the slide |
+| **Backspace** / **Delete** *(Become pick)* | Drop the last pick |
 | **Alt+R**, **O L P T** *(Become pick)* · **Ctrl+P** · placing from the Plots rail | Add mode: draw or insert objects; each one joins the pick (**Enter** returns to picking) |
 | **R** *(Become pick)* | X-ray the hovered plot; its rows join or leave the pick live (**Shift+Alt+R**: with the picks' families) |
 | **B** *(X-ray while Become is armed)* | Become: confirm the whole pick |
@@ -236,7 +282,10 @@ In the animator dock: **←/→** beats · **↑/↓** tracks · **Ctrl+D** dupl
 **Ctrl+G**/**Ctrl+Shift+G** group/ungroup tracks · **Alt+←/→** nudge start ·
 **Alt+Shift+←/→** trim duration · **Alt+A** / **Alt+D** align starts / ends (press again for
 the next lane above; **+Shift** resizes instead of moving) · **Ctrl+Alt-drag** a bar onto another
-lane to inherit that effect's animation (**+Shift** at release also copies its start) · **[** / **]** move track to previous/next beat ·
+lane to inherit that effect's animation (**+Shift** at release also copies its start) ·
+**Alt-drag** a bar copies it to another step or row · **Ctrl-drag** a bar's left edge makes it
+follow another effect's start or end · **Shift+click** / **Ctrl+click** a track adds it to the
+selection · **Ctrl+wheel** zooms the timeline · **[** / **]** move track to previous/next beat ·
 **X** disable · **Delete**/**Backspace** remove · **Enter** jump to the properties fields ·
 **Space** play/pause · **Ctrl+A** select this step’s effects · **Escape** stop preview or clear
 the selection/endpoint edit. **P** focuses Effect/Action, **D** Duration, **T** Start/Offset,
@@ -263,9 +312,11 @@ While presenting: **→ / Space / PageDown** next beat (**+Shift**: next slide) 
 | **+** / **−** / **0** | Zoom in / out / fit width |
 | **PageUp** / **PageDown** | Previous / next page |
 | **Home** / **End** | First / last page |
-| **Ctrl+Tab** / **Ctrl+Shift+Tab** | Next / previous tab (also **Ctrl+PageDown** / **Ctrl+PageUp**) |
-| **Ctrl+W** | Close the active tab (middle-click a tab works too) |
-| **Alt+click** a tab | Open that paper in a split pane beside this one |
+| **Ctrl+Tab** / **Ctrl+Shift+Tab** *(Control on macOS too)* | Next / previous tab (also **Ctrl+PageDown** / **Ctrl+PageUp**) |
+| **Ctrl+W** *(Control on macOS too)* | Close the active tab (middle-click a tab works too) |
+| **Alt+click** a tab (macOS also **⌘+click**) | Open that paper in a split pane beside this one |
+| **Ctrl+Enter** in a highlight's note | Save the note |
+| **Enter** / **Escape** after a snip | Save it under the typed name / cancel |
 | **Alt+R** | Search your reference library in the right sidebar |
 | **Escape** | Close the topmost thing (menu → popover) |
 
@@ -278,13 +329,13 @@ to resize it (double-click resets).
 
 | Shortcut | Action |
 |---|---|
-| **↑** / **↓** | Move the row highlight (↑ from the top returns to search) |
+| **↑** / **↓** | Move the row highlight (↓ from the search enters the list, ↑ from the top returns to search) |
 | **Enter** | Copy the highlighted row's citation key |
 | **Space** | Tick the row's checkbox |
 | **Escape** (or just typing) | Back to the search box |
 | **Alt+F** | Fetch PDFs for the checked rows |
-| **Alt+Delete** | Delete the checked (or highlighted) rows — with Undo |
-| **Ctrl+K** | Jump to the add-by-DOI box |
+| **Alt+Delete** / **Alt+Backspace** | Delete the checked (or highlighted) rows — with Undo |
+| **Ctrl+K** | Jump to the add-by-DOI box (**Enter** there adds the DOI or URL) |
 
 Mouse on a row: click = copy citekey · **Ctrl+click** = details · **Ctrl+Shift+click** = open
 the PDF (fetching it if needed) · **Alt+click** = open the DOI.

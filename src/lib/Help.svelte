@@ -3,304 +3,33 @@
 
   // Shell-global keyboard reference. Mounted once (Shell — so `?` works on Home
   // too); opened with `?` from anywhere or the title-bar help button (the
-  // `helpOpen` store). Tabs cover every mode; opening jumps to the mode you're
-  // focused on.
+  // `helpOpen` store).
+  //
+  // This file is the eager part and is deliberately tiny: the `?` key and a lazy
+  // mount. The dialog and its content (help/HelpDialog.svelte, help/shortcuts.ts,
+  // some 300 rows) load on first use, and are warmed when the app is idle so the
+  // first `?` opens at once; none of it is in Home's eager graph.
+  import { onMount } from "svelte";
   import { helpOpen } from "./settings";
-  import { focusedMode } from "../shell/paneStore";
 
-  type Row = [string, string];
-  type Group = { title: string; items: Row[] };
-  type Section = { id: string; label: string; groups: Group[] };
-
-  const SECTIONS: Section[] = [
-    {
-      id: "global",
-      label: "Global",
-      groups: [
-        {
-          title: "Everywhere",
-          items: [
-            ["?", "Show / hide this reference"],
-            ["Alt+Q", "Inbox: annotations and margin comments"],
-            ["⌃⇧M", "Annotate (note + picture for your agents)"],
-            ["⌃⇧J", "Ask about this (read-only question to Claude Code or Codex)"],
-            ["Alt+A / B / P · Alt+Z", "In Annotate: arrow / box / pen · undo mark"],
-            ["Alt+↑ / ↓", "In Annotate: widen / narrow the hovered target"],
-            ["Enter / Shift+Enter · Tab", "In Annotate: add / new line · change recipient"],
-            ["Esc", "Close menus & overlays"],
-            ["Click a mode icon (top bar)", "Switch mode"],
-            ["⌃1 – ⌃5", "Switch mode (Figure, Slide, Paper, Library, Reader)"],
-            ["Alt / ⌘-click a mode icon", "Open that mode in a split pane"],
-            ["Flux wordmark", "Back to the start screen"],
-            ["⚙", "Settings"],
-          ],
-        },
-      ],
-    },
-    {
-      id: "paper",
-      label: "Paper",
-      groups: [
-        {
-          title: "Editing & view",
-          items: [
-            ["⌘K", "Command palette (everything is here)"],
-            ["⌘⇧E", "Toggle edit / preview"],
-            ["Esc", "Exit preview"],
-            ["⌃⇧[ / ⌃⇧]", "Fold / unfold section"],
-          ],
-        },
-        {
-          title: "Panels",
-          items: [
-            ["Alt+O", "Left panel — outline & documents (drag its edge to resize)"],
-            ["Drag a document row", "Reorder the Documents list (Alt + ↑ / ↓ on a focused row)"],
-            ["× on a document row", "Delete that document (Delete on a focused row; confirms first)"],
-            ["⌃⇧B", "Dynamic margin"],
-            ["Alt+R", "Reference search"],
-            ["Alt+F", "Figures"],
-            ["Alt+A", "Comments"],
-            ["Alt+P / ⌃Alt+P", "Close pane / clear all"],
-          ],
-        },
-        {
-          title: "References & figures",
-          items: [
-            ["Alt+C", "Edit citation at cursor"],
-            ["⌘⌥M", "Comment on selection"],
-            ["⌘⌥− / ⌘⌥=", "Figure width down / up"],
-            ["Alt+D / ⇧Alt+D", "Personal / project dictionary"],
-            ["⇧Alt+W", "Word tools and aliases"],
-            ["⌘K → Export", "PDF · HTML · Word"],
-          ],
-        },
-      ],
-    },
-    {
-      id: "figure",
-      label: "Figure",
-      groups: [
-        {
-          title: "Tools",
-          items: [
-            ["V", "Select"],
-            ["H", "Pan / hand"],
-            ["T", "Text"],
-            ["Alt+R", "Rectangle"],
-            ["O", "Ellipse"],
-            ["L / Shift+L", "Line / Arrow"],
-            ["P", "Pen (Enter or dbl-click to finish)"],
-            ["K", "Scale"],
-          ],
-        },
-        {
-          title: "Canvas",
-          items: [
-            ["Scroll", "Pan"],
-            ["⌘ + Scroll", "Zoom"],
-            ["Space + drag", "Pan"],
-            ["Drag empty", "Marquee select"],
-            ["Shift + click", "Add to selection"],
-            ["Double-click text", "Edit text inline"],
-            ["Double-click group", "Enter group (Esc steps back out)"],
-            ["⌃ + click plot", "Deep-select a part (dbl-click too) · drag moves it, arrows nudge"],
-            ["⌃ + ⇧ + click part", "Add / drop a part in the pick (Shift alone adds a sibling part) · drag a picked part moves them all"],
-            ["⌃ + drag plot space", "Marquee the plot's parts (fully inside, data first) · + ⇧ adds"],
-            ["Drag inside the box", "Move the selection (a click there keeps it selected)"],
-            ["Drag an edge / corner", "Resize that axis / both · Alt = from the centre · Shift = keep aspect"],
-            ["Drag outside a corner", "Rotate (Shift snaps 15°)"],
-            ["⌃ + drag handle", "Crop (content stays pinned; reset in Inspector)"],
-            ["F", "Property menu beside the selection — a letter arms a row, the wheel / Space adjusts and applies"],
-            ["Shift + R", "Toggle rulers"],
-          ],
-        },
-        {
-          title: "Arrange",
-          items: [
-            ["Alt + A / W / S / D", "Align L / T / B / R"],
-            ["Alt + H / V", "Center horizontally / vertically"],
-            ["Shift + H / V", "Flip horizontal / vertical"],
-            ["A", "Flux Align: W/A/S/D edges, H/V centers, ⇧H/⇧V even spacing, X/Y plot spines"],
-            ["Space", "Switch Align / Arrange while the tool is open"],
-            ["Alt + T", "Flux Arrange: pink gap guides and a fixed anchor"],
-            ["R / C / G · + / −", "In Arrange: row · column · grid · more / fewer rows"],
-            ["Shift + A", "Crystallize: snap a loose selection into its row, column or grid (plots on their axes; + Alt: bounding boxes)"],
-            ["⌃⇧I", "Bring selection inside the frame (never resizes)"],
-            ["Arrows", "Nudge (Shift = ×10)"],
-            ["⌃ + [ / ]", "Send back / bring forward"],
-            ["⌃ + Shift + [ / ]", "To back / front"],
-            ["⌃ + G / Shift + G", "Group / ungroup"],
-            ["Shift (resize)", "Lock aspect ratio"],
-            ["Alt (resize)", "Resize about the centre"],
-            ["Alt (move)", "Disable snapping"],
-          ],
-        },
-        {
-          title: "Edit & file",
-          items: [
-            ["⌃ + Z / Shift + Z", "Undo / redo"],
-            ["⌃ + R", "Name figure — family · number · nickname"],
-            ["Alt + ↑ / ↓", "Move the figure up / down the sidebar list (drag a row does the same)"],
-            ["⌃ + D", "Duplicate"],
-            ["⌃ + X / C / V", "Cut / copy / paste"],
-            ["⌃ + B / I / U", "Bold / italic / underline (text or text part)"],
-            ["⌘⌥C / ⌘⌥V", "Copy / paste style"],
-            ["⌘⇧L", "Lock / unlock selection"],
-            ["X", "Hide / show selection (or drilled plot part)"],
-            ["D", "Dissect — view the selected plot's companion material"],
-            ["Delete", "Delete selection"],
-            ["Alt + M / L", "Figure-Meta / mark panel label"],
-            ["Shift + Alt + M / G", "Pin Figure-Meta / Plot gallery"],
-            ["⌃⇧K", "Import PNG/SVG files"],
-            ["Alt + G", "Toggle Plots / Layers (Slide: Plots / Slides); a hidden sidebar opens to Plots"],
-            ["Alt + /", "Plots rail: folder tree / dissections"],
-            ["Alt + Shift + C", "Copy the selected plots' full paths"],
-            ["Ctrl+K → New figure", "Click to place a frame; Esc cancels"],
-            ["Alt + drag figure title", "Duplicate the whole figure in its family"],
-            ["R", "X-ray (⇧/⌃-click or drag picks rows; ← family, a siblings, ⇧A every plot, Alt+A all results, f properties, m animates in Slide)"],
-            ["⇧ + Alt + R", "X-ray the drilled part's family (one tick label → all the tick labels)"],
-            ["Alt + 1 / 2", "In the Plots view or the Plot gallery: project plots / global plot library"],
-            ["⌃ + S", "Save"],
-          ],
-        },
-        {
-          title: "Panels",
-          items: [
-            ["⌃ + B", "Hide / show the left sidebar (bold wins when text is selected)"],
-            ["⌃⇧B", "Hide / show the right rail (Inspector)"],
-            ["Drag a rail edge", "Resize sidebar / Inspector (double-click resets)"],
-          ],
-        },
-      ],
-    },
-    {
-      id: "reader",
-      label: "Reader",
-      groups: [
-        {
-          title: "Navigate",
-          items: [
-            ["PageUp / PageDown", "Previous / next page"],
-            ["Home / End", "First / last page"],
-          ],
-        },
-        {
-          title: "Tabs",
-          items: [
-            ["⌃Tab / ⌃⇧Tab", "Next / previous tab (also ⌃PageDown / ⌃PageUp)"],
-            ["⌃W", "Close the active tab (middle-click a tab works too)"],
-            ["Alt / ⌘-click a tab", "Open that paper in a split pane"],
-            ["Drag a tab", "Reorder the strip"],
-          ],
-        },
-        {
-          title: "Zoom",
-          items: [
-            ["+ / −", "Zoom in / out"],
-            ["0", "Fit width"],
-          ],
-        },
-        {
-          title: "Panels",
-          items: [
-            ["⌃B / ⌃⇧B", "Show/hide the left / right sidebar"],
-            ["⌘F", "Search this PDF (results list in the left sidebar)"],
-            ["Alt+R / Alt+A", "Library search / Highlights (right sidebar)"],
-          ],
-        },
-        {
-          title: "Actions",
-          items: [
-            ["Alt+drag", "Pop a page region out into a floating panel"],
-            ["Ctrl+Alt+drag", "Snip a region → PNG in plots/paper_snips (with citation)"],
-            ["Esc", "Close the topmost menu / popover"],
-          ],
-        },
-      ],
-    },
-    {
-      id: "library",
-      label: "Library",
-      groups: [
-        {
-          title: "Search & navigate",
-          items: [
-            ["⌘K", "Jump to the add box"],
-            ["↑ / ↓", "Move through results"],
-            ["Type", "Jump to search"],
-            ["Enter", "Copy the citekey"],
-            ["Space", "Select / deselect the row"],
-            ["Esc", "Back to search"],
-          ],
-        },
-        {
-          title: "Actions",
-          items: [
-            ["Alt+F", "Fetch PDFs for the checked rows"],
-            ["Alt+Del", "Delete checked (or highlighted) rows"],
-          ],
-        },
-      ],
-    },
-    {
-      id: "slide",
-      label: "Slide",
-      groups: [
-        {
-          title: "Stage",
-          items: [
-            ["F5", "Present from the start"],
-            ["⇧F5", "Present from this slide"],
-            ["⌃ + B", "Hide / show the filmstrip (bold wins when text is selected)"],
-            ["⌃⇧B", "Hide / show the right rail"],
-            ["Drag a rail edge", "Resize filmstrip / right rail"],
-          ],
-        },
-        {
-          title: "Arrange",
-          items: [
-            ["⌘A", "Select all"],
-            ["⌘X / ⌘C / ⌘V", "Cut / copy / paste"],
-            ["⌘D", "Duplicate"],
-            ["⌘G", "Group"],
-            ["A · Shift + A", "Align & Arrange · Crystallize a loose selection (plots on their axes; + Alt: boxes)"],
-            ["Arrows", "Nudge · Delete removes · Esc deselects"],
-          ],
-        },
-        {
-          title: "Animate (animator open)",
-          items: [
-            ["⌘⇧A", "Add appearance for the selection"],
-            ["⌘⇧D", "Add disappearance"],
-            ["⌘⇧T", "Add transform · toggle t₁ ↔ t₂"],
-            ["Esc", "Exit an endpoint (t₁/t₂) edit"],
-            ["⌘G / ⌘⇧G", "Group / ungroup tracks (dock focused)"],
-            ["⌘D", "Duplicate tracks (dock focused)"],
-            ["Alt+← / →", "Nudge start"],
-            ["Alt+Shift+← / →", "Change duration"],
-            ["Alt+A / Alt+D", "Align starts / ends (repeat: next lane above · +Shift resizes)"],
-            ["Ctrl+Alt-drag a bar", "Inherit the animation of the lane you release on"],
-          ],
-        },
-      ],
-    },
-  ];
-
-  let tab = $state("global");
-  let modalEl = $state<HTMLDivElement | null>(null);
-  let prevFocus: HTMLElement | null = null;
-
-  const section = $derived(SECTIONS.find((s) => s.id === tab) ?? SECTIONS[0]);
-
-  // When the overlay opens, jump to the mode you're working in and move focus
-  // into the dialog; restore focus to wherever it was on close.
+  type Dialog = typeof import("./help/HelpDialog.svelte").default;
+  let HelpDialog = $state<Dialog | null>(null);
+  let dialog = $state<{ handleKey(e: KeyboardEvent): boolean } | null>(null);
+  let loading: Promise<unknown> | null = null;
+  const load = () => (loading ??= import("./help/HelpDialog.svelte").then((m) => (HelpDialog = m.default)));
   $effect(() => {
-    if ($helpOpen) {
-      prevFocus = document.activeElement as HTMLElement | null;
-      const fm = $focusedMode;
-      tab = SECTIONS.some((s) => s.id === fm) ? fm : "global";
-      queueMicrotask(() => modalEl?.focus());
-    } else if (prevFocus) {
+    if ($helpOpen) void load();
+  });
+  onMount(() => {
+    const idle = (window.requestIdleCallback ?? ((run: () => void) => window.setTimeout(run, 1200)))(() => void load());
+    return () => (window.cancelIdleCallback ?? window.clearTimeout)(idle as number);
+  });
+
+  // Focus goes back to wherever it was when the reference opened.
+  let prevFocus: HTMLElement | null = null;
+  $effect(() => {
+    if ($helpOpen) prevFocus = document.activeElement as HTMLElement | null;
+    else if (prevFocus) {
       prevFocus.focus?.();
       prevFocus = null;
     }
@@ -316,10 +45,14 @@
 
   function onKey(e: KeyboardEvent) {
     if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
-    if ($helpOpen && e.key === "Escape") {
-      e.preventDefault();
-      helpOpen.set(false);
-      return;
+    if ($helpOpen) {
+      // The open reference owns its keys (search, sections, Esc clears before it closes).
+      if (dialog?.handleKey(e)) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        helpOpen.set(false);
+        return;
+      }
     }
     if (isTyping(e.target)) return; // never hijack "?" typed into an editor/field
     if (e.key === "?" || (e.key === "/" && e.shiftKey)) {
@@ -331,154 +64,4 @@
 
 <svelte:window onkeydown={onKey} />
 
-{#if $helpOpen}
-  <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-  <div class="backdrop" onclick={() => helpOpen.set(false)}>
-    <div
-      class="modal"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Keyboard shortcuts"
-      tabindex="-1"
-      bind:this={modalEl}
-      onclick={(e) => e.stopPropagation()}>
-      <div class="head">
-        <h2>Keyboard shortcuts</h2>
-        <div class="tabs" role="tablist" aria-label="Modes">
-          {#each SECTIONS as s (s.id)}
-            <button
-              class="tab"
-              class:on={tab === s.id}
-              role="tab"
-              aria-selected={tab === s.id}
-              onclick={() => (tab = s.id)}>{s.label}</button>
-          {/each}
-        </div>
-      </div>
-
-      <div class="cols">
-        {#each section.groups as g (g.title)}
-          <div class="grp">
-            <h3>{g.title}</h3>
-            {#each g.items as [k, d]}
-              <div class="row"><kbd>{k}</kbd><span>{d}</span></div>
-            {/each}
-          </div>
-        {/each}
-      </div>
-
-      <div class="foot">
-        <span class="legend">⌘ = Ctrl on Windows/Linux · Alt = Option</span>
-        <button class="close" onclick={() => helpOpen.set(false)}>Close</button>
-      </div>
-    </div>
-  </div>
-{/if}
-
-<style>
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 300;
-  }
-  .modal {
-    background: var(--c-surface);
-    border: 1px solid var(--c-line-strong);
-    border-radius: 10px;
-    padding: 18px 22px 16px;
-    width: min(760px, 92vw);
-    max-height: 86vh;
-    overflow: auto;
-    color: var(--c-tx);
-    box-shadow: var(--elev-3);
-  }
-  .modal:focus {
-    outline: none;
-  }
-  .head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 16px;
-    flex-wrap: wrap;
-    margin-bottom: 14px;
-  }
-  h2 {
-    margin: 0;
-    font-size: 16px;
-  }
-  .tabs {
-    display: flex;
-    gap: 2px;
-    flex-wrap: wrap;
-  }
-  .tab {
-    background: transparent;
-    border: 1px solid transparent;
-    color: var(--c-tx-muted);
-    border-radius: 6px;
-    padding: 4px 10px;
-    cursor: var(--cursor-cross-hover);
-    font-family: inherit;
-    font-size: 12px;
-    transition:
-      background var(--dur-instant) var(--ease-standard),
-      color var(--dur-instant) var(--ease-standard);
-  }
-  .tab:hover {
-    background: var(--c-ui-hover);
-    color: var(--c-tx);
-  }
-  .tab.on {
-    background: var(--c-accent-tint-2);
-    color: var(--c-accent-bright);
-    border-color: var(--c-accent);
-  }
-  .cols {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px 28px;
-  }
-  h3 {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    opacity: 0.6;
-    margin: 0 0 6px;
-  }
-  .row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 4px;
-    font-size: 12px;
-  }
-  kbd { min-width: 104px; height: 20px; padding: 0 8px; font-size: 11px; line-height: 18px; color: var(--c-tx); flex: 0 0 auto; }
-  .row span {
-    opacity: 0.85;
-  }
-  .foot {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    margin-top: 18px;
-  }
-  .legend {
-    font-size: 11px;
-    opacity: 0.5;
-  }
-  .close {
-    background: var(--c-accent);
-    color: var(--c-on-accent);
-    border: none;
-    border-radius: 6px;
-    padding: 7px 14px;
-    cursor: var(--cursor-cross-hover);
-    font-size: 13px;
-  }
-</style>
+{#if $helpOpen && HelpDialog}<HelpDialog bind:this={dialog} />{/if}

@@ -2631,6 +2631,31 @@ Persistence invariants (all machine-checked — do not weaken):
   (`RunnerSettings.svelte`, also in AI status) repeat the anatomy and read the dialog's `--ctl`
   control width. The dialog is mounted by `Shell.svelte` (it was inside the workspace, so the
   gear did nothing on Home and the dialog appeared by itself once a project opened).
+  **The keyboard reference is DATA** (rebuilt 2026-11-18; owner: "more legible, and it should be
+  searchable! Also do a check for that it is complete"). `src/lib/help/shortcuts.ts` holds every
+  row in a small notation (`Mod+Shift+M`, ` / ` alternatives, ` – ` runs, ` · ` separate things;
+  `Mod` is `ctrlKey || metaKey`, `Ctrl` is the Control key on every platform, a `mac` field
+  replaces the chord on macOS); `keyPieces` turns a row into key caps, gesture words and
+  separators for the platform, and `searchShortcuts` searches keys (as drawn on either
+  platform), descriptions and group names. `help/HelpDialog.svelte` only draws it;
+  `Help.svelte` is the eager part and holds just the `?` key and a lazy mount (the dialog is
+  warmed on idle), so the 300-odd rows are not in Home's eager graph. Rules:
+  (1) ADD A ROW when you add or change a binding, in the same commit, and write `Ctrl` (not
+  `Mod`) when the handler tests `ctrlKey` alone: the 2026-11-18 audit found Reader's Ctrl+W and
+  Ctrl+Tab, the path-bend drag and Paper's fold chords are literal Control, and the mode-icon
+  and Reader-tab split is Alt-click everywhere but ⌘-click only on macOS;
+  (2) never write a platform glyph or "Cmd" by hand, and never say "Mod" in a description
+  (`verify-help-shortcuts` fails both);
+  (3) a gesture starts with one of the words in the gesture pattern (click, drag, wheel, type,
+  select, hold, every …); anything else that is not a key name fails the gate rather than being
+  drawn as a mystery cap;
+  (4) the file NAMES chords and binds none: it is exempt from the chord census's string scans
+  only while it contains no key handling (the census checks);
+  (5) do not lay groups out with CSS multi-column inside a scrolling box of fixed height: the
+  overflow goes sideways into columns nobody can reach (the first cut did this); the dialog
+  deals groups into two flex columns, shorter column next.
+  The same audit found Figure's Ctrl+Shift+] / Ctrl+Shift+[ dead on US layouts: with Shift held
+  `e.key` is `}` / `{`, and the handler compared against `]` / `[`. Match both, or use `e.code`.
   - **Property menu (F) = `FluxFigMenu.svelte` + `interact/propertyMenu.ts`.** One `Field` model
     (`buildMenuFields`: element fields + part fields with `mixed`/`count`) feeds the menu AND
     the Inspector's part section, so a property exists once. The menu is a hotkey surface: a

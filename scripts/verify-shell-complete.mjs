@@ -48,6 +48,68 @@ await page.keyboard.press("Escape");
 await sleep(200);
 ok(!(await helpOpen()), "Esc closes the reference");
 
+// --- the reference is searchable, and drawn key by key (2026-11-18 rebuild) -----------------
+await pressQuestion();
+await sleep(250);
+ok(await page.$eval(`${helpSel} input[aria-label="Search shortcuts"]`, (el) => document.activeElement === el).catch(() => false), "the reference opens with the caret in its search field");
+// Every section fits its pane: groups flow down two columns and the pane scrolls vertically
+// (a CSS multi-column box of fixed height sent the overflow sideways, out of sight).
+await page.$$eval(`${helpSel} .tab`, (els) => els.find((e) => e.textContent.trim() === "Figure").click());
+await sleep(150);
+const figureList = await page.$eval(`${helpSel} .cols`, (el) => ({
+  groups: el.querySelectorAll(".grp").length, sideways: el.scrollWidth - el.clientWidth, down: el.scrollHeight - el.clientHeight,
+  hidden: [...el.querySelectorAll(".grp")].filter((g) => g.getBoundingClientRect().right > el.getBoundingClientRect().right + 1).length,
+  columns: new Set([...el.querySelectorAll(".grp")].map((g) => Math.round(g.getBoundingClientRect().left))).size,
+}));
+ok(figureList.groups >= 10 && figureList.sideways <= 0 && figureList.hidden === 0 && figureList.down > 0 && figureList.columns === 2,
+  "the Figure section shows all its groups in two columns and scrolls down, never sideways", JSON.stringify(figureList));
+// A chord is one cap per key, named for this platform; a gesture is words.
+const annotateKeys = await page.evaluate((sel) => {
+  [...document.querySelectorAll(`${sel} .tab`)].find((e) => e.textContent.trim() === "Global").click();
+  return new Promise((resolve) => requestAnimationFrame(() => {
+    const row = [...document.querySelectorAll(`${sel} .row`)].find((r) => /^Annotate:/.test(r.querySelector(".d").textContent));
+    const split = [...document.querySelectorAll(`${sel} .row`)].find((r) => /split pane/.test(r.querySelector(".d").textContent));
+    resolve({ caps: [...row.querySelectorAll("kbd")].map((k) => k.textContent), label: row.querySelector(".keys").getAttribute("aria-label"),
+      gesture: split.querySelector(".keys .g")?.textContent, gestureCaps: [...split.querySelectorAll("kbd")].map((k) => k.textContent) });
+  }));
+}, helpSel);
+ok(JSON.stringify(annotateKeys.caps) === JSON.stringify(["Ctrl", "Shift", "M"]) && annotateKeys.label === "Ctrl+Shift+M", "a chord is drawn one cap per key and read out whole", JSON.stringify(annotateKeys));
+ok(annotateKeys.gesture === "click a mode icon" && JSON.stringify(annotateKeys.gestureCaps) === JSON.stringify(["Alt"]), "a gesture is words beside its key, never a cap", JSON.stringify(annotateKeys));
+// Search reaches every section at once.
+await page.keyboard.type("crystallize");
+await sleep(150);
+const crystal = await page.evaluate((sel) => ({
+  rows: [...document.querySelectorAll(`${sel} .row`)].map((r) => r.textContent.replace(/\s+/g, " ").trim()),
+  marked: [...document.querySelectorAll(`${sel} .row mark`)].map((m) => m.textContent.toLowerCase()),
+  heads: [...document.querySelectorAll(`${sel} .grp h3 .sec`)].map((h) => h.textContent),
+  counts: Object.fromEntries([...document.querySelectorAll(`${sel} .tab`)].map((t) => [t.querySelector(".tl").textContent, t.querySelector(".tn")?.textContent])),
+  n: document.querySelector(`${sel} .find .n`)?.textContent,
+}), helpSel);
+ok(crystal.rows.length >= 2 && crystal.rows.every((r) => /crystallize/i.test(r)) && crystal.marked.length >= 2 && crystal.marked.every((m) => m === "crystallize"),
+  "typing a word lists the matching rows from every section, the word marked", JSON.stringify(crystal.rows));
+ok(crystal.heads.every((h) => h === "Figure") && Number(crystal.counts.Figure) === crystal.rows.length && crystal.counts.Library === "0" && new RegExp(`^${crystal.rows.length} match`).test(crystal.n || ""),
+  "each section shows how many of its rows match", JSON.stringify(crystal.counts));
+// A chord typed as you would say it.
+await page.$eval(`${helpSel} input`, (el) => { el.value = "alt+t"; el.dispatchEvent(new Event("input", { bubbles: true })); });
+await sleep(150);
+ok(await page.$$eval(`${helpSel} .row .keys`, (els) => els.length >= 1 && els.some((k) => k.getAttribute("aria-label") === "Alt+T")), "a chord typed as written (alt+t) finds its row");
+await page.$eval(`${helpSel} input`, (el) => { el.value = "zzzz"; el.dispatchEvent(new Event("input", { bubbles: true })); });
+await sleep(150);
+ok(await page.$eval(`${helpSel} .empty`, (el) => /No shortcut matches/.test(el.textContent)).catch(() => false) && await page.$$eval(`${helpSel} .row`, (els) => els.length === 0), "a search with no match says so");
+// Esc clears the search first, then closes; "?" in the empty search closes too.
+await page.keyboard.press("Escape");
+await sleep(150);
+ok((await helpOpen()) && await page.$eval(`${helpSel} input`, (el) => el.value === "" && document.activeElement === el), "Esc clears a search and keeps the reference open");
+await page.keyboard.press("Escape");
+await sleep(200);
+ok(!(await helpOpen()), "a second Esc closes it");
+await pressQuestion();
+await sleep(250);
+await pressQuestion();
+await sleep(200);
+ok(!(await helpOpen()), "“?” closes the reference again, though the caret is in its search field");
+ok(await page.evaluate(() => !(document.activeElement instanceof HTMLInputElement)), "and focus goes back where it was, not into a field");
+
 // --- typing-guard: "?" in a text field must NOT open Help -------------------
 await clickMode(page, "Library").catch(() => {});
 await sleep(400);

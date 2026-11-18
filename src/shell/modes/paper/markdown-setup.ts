@@ -85,7 +85,7 @@ export function createEditorExtensions(
     // AFTER drawSelection so its measure pass runs after the cursor layer's
     // (it mirrors that geometry).
     caretFeel(),
-    search({ top: true }), // PAP-10: find/replace (Cmd/Ctrl-F, Cmd/Ctrl-Alt-F)
+    search({ top: true }), // PAP-10: find, with replace inside the same panel (Cmd/Ctrl-F; there is no separate replace chord)
     searchPanelTheme,
     // Flux owns spelling diagnostics and suggestions. Suppress Chromium's
     // additional red squiggles so there is one consistent spelling UI.
