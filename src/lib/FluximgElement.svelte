@@ -1,0 +1,161 @@
+<script lang="ts">
+  /**
+   * A placed fluximg at rest: one still (a PNG data URL drawn by the reference renderer in a worker) plus
+   * everything vector (layers, object names, furniture) as inline SVG. No WebGL here: this component is mounted
+   * twice during resize previews, and it must survive being photographed (the zoom proxy) and serialized.
+   *
+   * The still follows the view: any change to what the pixels are (plane, contrast, crop, size tier) asks the
+   * service for a new one and keeps showing the old one until it arrives, so nothing ever flashes. While the
+   * live view streams a gesture over this element the request waits, so decode workers serve the live view first.
+   */
+  import { tick, untrack } from "svelte";
+  import { project } from "./store";
+  import {
+    fluximgBundle, fluximgIdentity, fluximgIssues, fluximgLayerText, fluximgManifests, fluximgService, fluximgStillRevision,
+    needLayerText, needManifest,
+  } from "./fluximg/store";
+  import { fluximgLive, fluximgLiveBusy } from "./fluximg/live/session";
+  import { pixelKey, resolveView } from "./fluximg/viewOps";
+  import { clampCrop, tieredStillSize } from "./fluximg/still";
+  import { layerMarkup, namesMarkup, objectIndex, svgNum } from "./fluximg/layers";
+  import { furnitureSvg } from "./fluximg/furniture";
+  import { PLACEHOLDER_FILL, fluximgIdPrefix, layerSvgPath, unflipTransform } from "./fluximg/static";
+  import type { FluximgElement } from "./types";
+
+  let { element }: { element: FluximgElement } = $props();
+
+  /** Still pixels per canvas pixel at rest: sharp up to 2x zoom (or a 2x display at 1x); beyond that the detail tier. */
+  const BASE_SCALE = 2;
+
+  const asset = $derived($project.assets.find((a) => a.id === element.assetId && a.kind === "fluximg"));
+  const manifest = $derived(asset ? $fluximgManifests[asset.id] : undefined);
+  const issue = $derived(!asset ? "Image file missing" : $fluximgIssues[asset.id]);
+  $effect(() => { if (asset && !manifest && !$fluximgIssues[asset.id]) void needManifest(asset).catch(() => {}); });
+
+  const rv = $derived(manifest ? resolveView(manifest, element.view) : null);
+  const crop = $derived(manifest ? clampCrop(manifest, element.crop) : null);
+  const box = $derived({ width: element.width, height: element.height });
+  const size = $derived(crop ? tieredStillSize(crop, box, BASE_SCALE) : null);
+  const key = $derived(asset && manifest && rv && crop && size ? `${fluximgIdentity(asset)}|${pixelKey(manifest, rv, crop, size.width, size.height)}` : "");
+  const prefix = $derived(fluximgIdPrefix(element.id));
+
+  // --- the still -------------------------------------------------------------------------------
+  let shown = $state<{ href: string; key: string; native: boolean } | null>(null);
+  let failed = $state("");
+  // Each mounted copy asks in its own slot: a resize preview's twin must not cancel this one's request.
+  const slot = `el:${Math.random().toString(36).slice(2)}`;
+  // A live gesture on THIS element is streaming: the live view covers it, so its still can wait for the pause.
+  const deferred = $derived($fluximgLiveBusy && $fluximgLive?.elementId === element.id);
+
+  $effect(() => {
+    const wanted = key;
+    if (!wanted || !asset || !crop || !size || deferred) return;
+    if (untrack(() => shown?.key) === wanted) return;
+    let closed = false;
+    const request = untrack(() => ({
+      bundle: fluximgBundle(asset), view: element.view ? structuredClone(element.view) : null,
+      crop: { ...crop }, outWidth: size.width, outHeight: size.height, slot,
+    }));
+    const native = size.native;
+    fluximgService().still(wanted, request).then(
+      (href) => {
+        if (closed) return;
+        shown = { href, key: wanted, native }; failed = "";
+        // After the new pixels are in the DOM, any cached picture of the scene is out of date.
+        void tick().then(() => { if (!closed) fluximgStillRevision.update((n) => n + 1); });
+      },
+      (error: unknown) => {
+        if (closed) return;
+        const message = error instanceof Error ? error.message : String(error);
+        if (message !== "cancelled") failed = message;
+      },
+    );
+    return () => { closed = true; };
+  });
+
+  // Loading is normally well under a second: show a quiet frame, and words only when it is slow or broken.
+  const preparing = $derived(!shown && !issue && !failed);
+  let slow = $state(false);
+  $effect(() => {
+    if (!preparing) { slow = false; return; }
+    const timer = setTimeout(() => { slow = true; }, 1000);
+    return () => clearTimeout(timer);
+  });
+
+  // --- vectors ---------------------------------------------------------------------------------
+  const objectLayers = $derived.by(() => {
+    if (!rv || !manifest) return [];
+    const byId = new Map(manifest.layers.map((l) => [l.id, l]));
+    return rv.layers.filter((lv) => lv.visible && lv.kind !== "intensity").map((lv) => ({ lv, layer: byId.get(lv.id)!, path: layerSvgPath(byId.get(lv.id)!) })).filter((x) => x.layer && x.path);
+  });
+  $effect(() => { if (asset) for (const l of objectLayers) needLayerText(asset, l.path!); });
+
+  // Markup is rebuilt only when its own inputs change: stepping through planes must not re-place 20,000 outlines.
+  const memo = new Map<string, { sig: string; markup: string }>();
+  function memoized(id: string, sig: string, build: () => string): string {
+    const hit = memo.get(id);
+    if (hit && hit.sig === sig) return hit.markup;
+    const markup = build();
+    memo.set(id, { sig, markup });
+    return markup;
+  }
+  const geometry = $derived(crop ? `${crop.x},${crop.y},${crop.width},${crop.height}|${box.width}x${box.height}` : "");
+  const layersHtml = $derived.by(() => {
+    if (!asset || !crop) return [];
+    const texts = $fluximgLayerText;
+    return objectLayers.map(({ lv, layer, path }) => {
+      const text = texts[`${asset.id}|${path}`];
+      if (text === undefined) return { id: lv.id, markup: "" };
+      const sig = `${geometry}|${JSON.stringify(lv)}|${text.length}`;
+      return { id: lv.id, markup: memoized(`layer:${lv.id}`, sig, () => safe(() => layerMarkup(layer, text, lv, crop, box, prefix))) };
+    });
+  });
+  // A flipped element mirrors its pixels and shapes, never its words: text sits in a group that undoes the flip.
+  const unflip = $derived(unflipTransform(box, element.flipX, element.flipY) || undefined);
+  const namesHtml = $derived.by(() => {
+    if (!asset || !crop || !rv || !rv.furniture.names) return "";
+    const names = rv.furniture.names, texts = $fluximgLayerText;
+    let out = "";
+    for (const { lv, layer, path } of objectLayers) {
+      if (!names.layers.includes(lv.id)) continue;
+      const text = texts[`${asset.id}|${path}`];
+      if (text === undefined) continue;
+      const color = lv.color ?? layer.color ?? "#ffffff";
+      const sig = `${geometry}|${names.fontSize}|${color}|${text.length}|${element.flipX ? 1 : 0}${element.flipY ? 1 : 0}`;
+      out += memoized(`names:${lv.id}`, sig, () => safe(() => namesMarkup(objectIndex(text), null, crop, box, { layerId: lv.id, fontSize: names.fontSize, color, flipX: !!element.flipX, flipY: !!element.flipY }, prefix)));
+    }
+    return out;
+  });
+  const furnitureHtml = $derived(manifest && rv && crop ? safe(() => furnitureSvg(manifest, rv, crop, box, prefix)) : "");
+
+  /** A layer file anyone may have written can be refused by the sanitizer: draw nothing rather than break the figure. */
+  function safe(build: () => string): string {
+    try { return build(); } catch { return ""; }
+  }
+
+  const label = $derived(element.name ?? asset?.name ?? "Image");
+  const reason = $derived(issue || failed || "Preparing image");
+  const w = $derived(svgNum(box.width)), h = $derived(svgNum(box.height));
+  const background = $derived(rv && rv.background !== "transparent" ? rv.background : null);
+</script>
+
+<rect class="fluximg-hit-area" x={element.x} y={element.y} width={element.width} height={element.height} fill="transparent" />
+<svg data-fluximg={element.assetId} data-fluximg-key={shown?.key ?? ""} x={element.x} y={element.y} width={w} height={h} viewBox={`0 0 ${w} ${h}`} overflow="hidden" style="overflow:hidden">
+  {#if shown}
+    {#if background}<rect id={`${prefix}background`} x="0" y="0" width={w} height={h} fill={background} />{/if}
+    <image id={`${prefix}still`} x="0" y="0" width={w} height={h} preserveAspectRatio="none" href={shown.href}
+      style={shown.native && !rv?.smooth ? "image-rendering:pixelated" : undefined} />
+  {:else if preparing && !slow}
+    <rect data-fluximg-placeholder data-fluximg-preparing x="0" y="0" width={w} height={h} fill={PLACEHOLDER_FILL} />
+  {:else}
+    {@const fit = Math.max(6, Math.min(13, Math.min(box.width / 14, box.height / 5)))}
+    <g data-fluximg-placeholder role="img" aria-label={`${label}: ${reason}`}>
+      <title>{reason}</title>
+      <rect x="0" y="0" width={w} height={h} fill={PLACEHOLDER_FILL} />
+      <text x={box.width / 2} y={box.height / 2 - fit * 0.4} text-anchor="middle" font-family="Inter, sans-serif" font-size={fit} fill={preparing ? "#b7b5ac" : "#d0a215"}>{preparing ? label : `⚠ ${label}`}</text>
+      <text x={box.width / 2} y={box.height / 2 + fit * 1.0} text-anchor="middle" font-family="Inter, sans-serif" font-size={fit * 0.8} fill="#878580">{reason.length > 64 ? `${reason.slice(0, 61)}…` : reason}</text>
+    </g>
+  {/if}
+  {#each layersHtml as layer (layer.id)}{@html layer.markup}{/each}
+  {#if unflip}<g transform={unflip}>{@html namesHtml}{@html furnitureHtml}</g>{:else}{@html namesHtml}{@html furnitureHtml}{/if}
+</svg>

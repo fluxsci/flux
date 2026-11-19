@@ -412,6 +412,12 @@ export interface NamesOptions {
   /** Points. */
   fontSize: number;
   color: string;
+  /**
+   * The element is mirrored: its shapes are drawn mirrored by the element's own transform, and the names sit in a
+   * group that undoes the mirror (so the words read normally). Positions are therefore mirrored HERE.
+   */
+  flipX?: boolean;
+  flipY?: boolean;
 }
 
 /**
@@ -428,7 +434,9 @@ export function namesMarkup(index: readonly LayerObject[], table: FluximgTable |
   const { sx, sy, tx, ty } = cropTransform(crop, box);
   const fs = opts.fontSize * PT, gap = Math.max(1, fs * 0.25), edge = 1;
   const texts = inView.map((o) => {
-    const right = (o.x + o.width) * sx + tx, top = o.y * sy + ty;
+    // The object's box on screen; a mirrored element shows it mirrored about the box centre.
+    const l0 = o.x * sx + tx, r0 = (o.x + o.width) * sx + tx, t0 = o.y * sy + ty, b0 = (o.y + o.height) * sy + ty;
+    const right = opts.flipX ? box.width - l0 : r0, top = opts.flipY ? box.height - b0 : t0;
     let x = Math.min(box.width - edge, Math.max(edge, right + gap));
     let anchor = "start";
     if (x + 0.55 * fs * o.key.length > box.width - edge) { anchor = "end"; x = box.width - edge; }

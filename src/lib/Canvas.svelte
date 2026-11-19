@@ -109,6 +109,7 @@
   import { isScaffoldPart, resolvePartId } from "./plot/partStyle";
   import { plotManifests, plotGen, hasPlotDom, ensurePlotDom } from "./plot/store";
   import { model3dPosterRevision } from "./model3d/store";
+  import { fluximgStillRevision } from "./fluximg/store";
   import ElementView from "./Element.svelte";
   import ElementSlot from "./ElementSlot.svelte";
   import type { HitBridgeHolder, CanvasHits } from "./interact/canvasHitBridge";
@@ -539,7 +540,7 @@
     void $assetDisplay; // an image's first display tier arriving completes a figure's readiness (atlasCanvas satisfied)
     void sceneHot; void zoomUnsettled; void proxyActive; void gesture; void guideDrag; void nodeDrag; void paneActive; void atlasPointerHeld;
     atlas.sync({ enabled: atlasActive, activeId: $activeFigureId, scope: `${$projectDir}|${$embeddedProjectRoot}|${$activeCanvasId}`,
-      figures: canvasFigures, visible: visibleFigures, revisions: $figureRev, global: $globalRev, plotGen: $plotGen, poster: $model3dPosterRevision,
+      figures: canvasFigures, visible: visibleFigures, revisions: $figureRev, global: $globalRev, plotGen: $plotGen, poster: $model3dPosterRevision + $fluximgStillRevision,
       zoom: renderZoom, dpr: window.devicePixelRatio || 1, root: $embeddedProjectRoot || $projectDir || '', embedded: !!$embeddedProjectRoot, bridge: fileBridge() ?? null,
       assets: $project.assets, bytes: $assetData, center: { x: (hostW / 2 - $viewport.panX) / $viewport.zoom, y: (hostH / 2 - $viewport.panY) / $viewport.zoom },
       viewBox: { x: -$viewport.panX / $viewport.zoom, y: -$viewport.panY / $viewport.zoom, w: hostW / $viewport.zoom, h: hostH / $viewport.zoom } });
@@ -1246,6 +1247,7 @@
     editingId,
     JSON.stringify($plotGen),
     $model3dPosterRevision,
+    $fluximgStillRevision, // a placed image's still changed (FluximgElement): the scene looks different
     atlasActive ? $atlasRevision : 0,
     frame ? 1 : 0,
     frame ? 0 : $displayRevision, // an image's display tier changed (figure/imageTiers.ts): the scene looks different
@@ -1348,7 +1350,7 @@
       (sharpMeta?.snap === zoomSnap && sharpMeta.contentKey === sceneContentKey && shownWithin(sharpMeta.shown))));
   // Slide mode shows the active slide alone; other slides are not in its scene.
   $: overviewFigures = frame ? canvasFigures.filter((f) => f.id === $activeFigureId) : canvasFigures;
-  $: overviewGlobal = [$globalRev, $activeCanvasId, JSON.stringify(presentation), $model3dPosterRevision, frame ? 1 : 0].join("|");
+  $: overviewGlobal = [$globalRev, $activeCanvasId, JSON.stringify(presentation), $model3dPosterRevision, $fluximgStillRevision, frame ? 1 : 0].join("|");
   function overviewFigureKey(f: Figure): string {
     const plots = f.elements.flatMap((e) => (e.type === "plot" ? [`${e.assetId}:${$plotGen[e.assetId] ?? 0}`] : [])).join(",");
     return [$figureRev[f.id] ?? 0, f.id === $activeFigureId ? `a${gridD}` : "", f.id === $selectedFrameId ? "s" : "", f.id === dropFigId ? "d" : "",

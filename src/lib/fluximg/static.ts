@@ -5,7 +5,7 @@
  * layers, object names, furniture. All of it sits in one nested `<svg>` the size of the element's box with
  * `overflow="hidden"`, which clips identically in Chromium and resvg. Pure string building.
  */
-import type { FluximgManifest } from "./types";
+import type { FluximgLayer, FluximgManifest } from "./types";
 import type { PixelRect, ResolvedView } from "./view";
 import { furnitureSvg } from "./furniture";
 import { escapeXml, layerMarkup, namesMarkup, objectIndex, svgNum } from "./layers";
@@ -22,6 +22,27 @@ export interface FluximgStaticInput {
   /** Layer id → that layer's SVG text (vector layers and label outlines). A missing entry is skipped. */
   layerSvg: Record<string, string>;
   idPrefix: string;
+  /** The element is mirrored (by its own transform, outside this markup): words are un-mirrored here. */
+  flipX?: boolean;
+  flipY?: boolean;
+}
+
+/** The id prefix of everything a placed fluximg draws: unique per element, safe in an XML id. */
+export function fluximgIdPrefix(elementId: string): string {
+  return `fx-${elementId.replace(/[^A-Za-z0-9_-]/g, "_")}-`;
+}
+
+/** The SVG file a layer's shapes come from: a label layer's outlines, a vector layer's own file; none for intensity. */
+export function layerSvgPath(layer: FluximgLayer | undefined): string | null {
+  if (!layer) return null;
+  return layer.kind === "labels" ? layer.outlines : layer.kind === "vector" ? layer.path : null;
+}
+
+/** The transform that undoes an element's mirror about its box centre ("" when it is not mirrored). */
+export function unflipTransform(box: { width: number; height: number }, flipX?: boolean, flipY?: boolean): string {
+  if (!flipX && !flipY) return "";
+  const cx = svgNum(box.width / 2), cy = svgNum(box.height / 2);
+  return `translate(${cx} ${cy}) scale(${flipX ? -1 : 1} ${flipY ? -1 : 1}) translate(${svgNum(-box.width / 2)} ${svgNum(-box.height / 2)})`;
 }
 
 /** Drawn while the still is not available yet. */
@@ -44,16 +65,18 @@ export function fluximgStaticSvg(input: FluximgStaticInput): string {
     out.push(layerMarkup(layer, text, lv, crop, box, idPrefix));
   }
 
+  const words: string[] = [];
   const names = view.furniture.names;
   if (names) {
     for (const id of names.layers) {
       const layer = byId.get(id), lv = view.layers.find((l) => l.id === id), text = layerSvg[id];
       if (!layer || !lv || !lv.visible || text === undefined || layer.kind === "intensity") continue;
-      out.push(namesMarkup(objectIndex(text), null, crop, box, { layerId: id, fontSize: names.fontSize, color: lv.color ?? layer.color ?? "#ffffff" }, idPrefix));
+      words.push(namesMarkup(objectIndex(text), null, crop, box, { layerId: id, fontSize: names.fontSize, color: lv.color ?? layer.color ?? "#ffffff", flipX: input.flipX, flipY: input.flipY }, idPrefix));
     }
   }
-
-  out.push(furnitureSvg(manifest, view, crop, box, idPrefix));
+  words.push(furnitureSvg(manifest, view, crop, box, idPrefix));
+  const unflip = unflipTransform(box, input.flipX, input.flipY), text = words.join("");
+  out.push(unflip && text ? `<g transform="${unflip}">${text}</g>` : text);
   out.push("</svg>");
   return out.join("");
 }

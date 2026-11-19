@@ -83,6 +83,30 @@ export function stillSize(crop: PixelRect, box: { width: number; height: number 
   return { width: Math.max(1, Math.round(w)), height: Math.max(1, Math.round(h)) };
 }
 
+/** Fractions of the crop's own resolution a displayed still is drawn at (coarser steps halve; 3/4 steps between). */
+const TIER_STEPS = [1, 0.75];
+
+/**
+ * The size of a still that is DISPLAYED (and then scaled by the display): the smallest tier that gives at least
+ * one still pixel per needed pixel, so resizing or zooming within a tier draws nothing new. Tiers are fractions
+ * of the crop's own pixels (1, 3/4, 1/2, 3/8, ...); never more than the crop holds, never more than `maxPixels`.
+ * `native` says whether the still is the crop's true pixels (only then may the display magnify it without smoothing).
+ */
+export function tieredStillSize(crop: PixelRect, box: { width: number; height: number }, scale: number, maxPixels = 4_194_304): { width: number; height: number; native: boolean } {
+  const need = Math.max((box.width * scale) / crop.width, (box.height * scale) / crop.height);
+  const cap = Math.sqrt(maxPixels / Math.max(1, crop.width * crop.height));
+  let r = 1;
+  // Walk down while the next tier still covers the need, or while this one is over the pixel cap.
+  for (let k = 0; k < 64; k++) {
+    const half = Math.pow(0.5, Math.floor(k / TIER_STEPS.length)) * TIER_STEPS[k % TIER_STEPS.length];
+    const next = Math.pow(0.5, Math.floor((k + 1) / TIER_STEPS.length)) * TIER_STEPS[(k + 1) % TIER_STEPS.length];
+    r = half;
+    if (r > cap) continue;
+    if (!(next >= need) || crop.width * next < 1 || crop.height * next < 1) break;
+  }
+  return { width: Math.max(1, Math.round(crop.width * r)), height: Math.max(1, Math.round(crop.height * r)), native: r === 1 };
+}
+
 const channelCount = (m: FluximgManifest): number => {
   const ci = m.pixels.dims.indexOf("c");
   return ci >= 0 ? m.pixels.shape[ci] : 1;
