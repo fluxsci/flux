@@ -5,8 +5,9 @@
 // (the verify-electron-no-undef precedent). Concerns:
 //   B1 recipe:run requires per-project workspace trust before spawning a
 //      project-supplied command (arbitrary-code-execution gate);
-//   B2 the proxy-capture window (loads hostile publisher pages) denies
-//      window.open and non-http(s) navigation;
+//   B2 no main-process window loads publisher pages any more (the library
+//      sign-in capture window and its engine were removed 2026-11-18; the
+//      window.open/navigation guards it carried went with it);
 //   B3 the print/export window runs javascript:false and its figure template
 //      carries a script-blocking CSP.
 //   npx tsx scripts/verify-electron-hardening.ts
@@ -18,7 +19,8 @@ import { harness } from "./lib/harness.mjs";
 const h = harness("verify-electron-hardening");
 const root = path.join(import.meta.dirname, "..");
 const main = await fs.readFile(path.join(root, "electron", "main.cjs"), "utf8");
-const proxy = await fs.readFile(path.join(root, "electron", "proxyFetch.cjs"), "utf8");
+const network = await fs.readFile(path.join(root, "electron", "ipc", "network.cjs"), "utf8");
+const exists = (rel: string) => fs.access(path.join(root, rel)).then(() => true, () => false);
 const print = await fs.readFile(path.join(root, "electron", "ipc", "staticPrint.cjs"), "utf8");
 
 /** Slice the recipe:run handler body (from its ipcMain.handle to the matching end). */
@@ -46,11 +48,14 @@ h.ok(/function confirmRecipeTrust/.test(main) && /dialog\.showMessageBox/.test(m
 h.ok(/function isRecipeTrusted/.test(main) && /trustedRecipeRoots/.test(main), "trust is persisted per project (trustedRecipeRoots in prefs)");
 h.ok(/function trustRecipeRoot[\s\S]{0,200}writePrefs\(/.test(main), "trustRecipeRoot writes through the atomic prefs writer");
 
-// --- B2: proxy-capture window containment --------------------------------------
-h.section("B2 — proxy-capture window containment");
-h.ok(/setWindowOpenHandler\(\s*\(\)\s*=>\s*\(\{\s*action:\s*["']deny["']/.test(proxy), "proxy window denies window.open (setWindowOpenHandler → deny)");
-h.ok(/on\("will-navigate"/.test(proxy) && /on\("will-redirect"/.test(proxy), "proxy window guards will-navigate AND will-redirect");
-h.ok(/allowNav\s*=\s*\(u\)\s*=>\s*\/\^\(https\?:\|about:\)/.test(proxy), "navigation is restricted to http(s)/about schemes");
+// --- B2: no publisher-page window ------------------------------------------------
+// The contract B2 used to pin (the capture window's window.open/navigation guards) was
+// superseded by removing that window entirely (owner decision 2026-11-18). What must hold
+// now is that it stays gone: the network family opens no window at all.
+h.section("B2 — no publisher-page window in main");
+h.ok(!(await exists("electron/proxyFetch.cjs")), "the capture engine module is gone");
+h.ok(!/new BrowserWindow\(/.test(network) && !/BrowserWindow/.test(network), "the network family creates no BrowserWindow");
+h.ok(!/fromPartition\(/.test(network), "the network family opens no session partition of its own (pdf:netGet's lives in netFetch.cjs)");
 
 // --- B3: print/export window ---------------------------------------------------
 h.section("B3 — print/export window");

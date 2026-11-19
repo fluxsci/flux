@@ -1,24 +1,22 @@
 #!/usr/bin/env -S npx tsx
 // Library PDF filter — the single "PDF state" axis in the FluxLib header.
 //
-// This replaced a standing "⚠ N failed" pill that sat in the toolbar permanently. That pill
-// was wrong twice over: it counted a strict SUBSET of the "No PDF" chip beside it, and for
-// true paywalls / the accepted anti-bot walls its count never reaches zero — a warning you
-// can't clear is one you learn to ignore. "Failed" is now a step on the PDF filter's own
-// cycle, and the retry lives on a plain button that appears only while that step is showing.
+// History: a standing "⚠ N failed" pill once sat in the toolbar permanently. It counted a
+// strict subset of the "No PDF" chip beside it, and for papers with no open-access copy its
+// count never reached zero — a warning you can't clear is one you learn to ignore. It became
+// a "failed" step on this filter's cycle with a "Retry all" button. On 2026-11-18 (owner
+// decision) the library sign-in that produced those "both routes failed" records was
+// removed, so the step, the button and the records' reader went too: with one route, a paper
+// without an open-access copy is simply missing. That superseded rules 2–4 of the previous
+// version of this gate (skip the empty step, the stranding guard, narrowing by records).
 //
 // What must hold (and what a careless edit would break):
 //   1. The cycle visits every state and returns to "all" — no state is a dead end.
-//   2. The "failed" step is SKIPPED when nothing has failed, so a clean library never
-//      cycles through an empty view. (The old pill hid itself; the step must too.)
-//   3. The filter can never STRAND the user on "failed" after the last failure is retried
-//      or cleared — that would show an empty list with no way to read why.
-//   4. "failed" narrows by the failure records, NOT by PDF presence — a failure record can
-//      outlive the missing PDF (a hand-filed PDF via the inbox doesn't clear the record),
-//      and folding it into hasPdf() would silently drop those rows from the view.
-//   5. The retired affordances stay retired: no showFailedOnly state, and no double-click
-//      gesture on the filter chip (it was the only way to reach "retry all" and nobody
-//      found it).
+//   2. Every step narrows by PDF presence on disk, nothing else.
+//   3. Nothing left in the component counts or reads per-paper failure records, so no
+//      count that can never reach zero can come back by accident.
+//   4. The retired affordances stay retired: no showFailedOnly state, no standing failure
+//      pill, no double-click gesture on the filter chip, no "failed" step, no Retry all.
 //   Run: npx tsx scripts/verify-library-pdffilter.ts
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
@@ -32,122 +30,64 @@ function assert(cond: unknown, msg: string) {
 }
 
 // --- the cycle, modelled exactly as LibraryMode.cyclePdfFilter() -------------------------
-type PdfFilter = "all" | "missing" | "failed" | "have";
-function cycle(cur: PdfFilter, failedCount: number): PdfFilter {
+type PdfFilter = "all" | "missing" | "have";
+function cycle(cur: PdfFilter): PdfFilter {
   if (cur === "all") return "missing";
-  if (cur === "missing") return failedCount > 0 ? "failed" : "have";
-  if (cur === "failed") return "have";
+  if (cur === "missing") return "have";
   return "all";
 }
 
-// (1) With failures present, the cycle is a closed 4-loop back to "all".
-{
-  const seen: PdfFilter[] = [];
-  let s: PdfFilter = "all";
-  for (let i = 0; i < 4; i++) {
-    seen.push(s);
-    s = cycle(s, 8);
-  }
-  assert(seen.join(" → ") === "all → missing → failed → have", `cycle with failures: ${seen.join(" → ")}`);
-  assert(s === "all", "a 4th click returns to 'all' — the filter always clears in-cycle");
-}
-
-// (2) With nothing failed, "failed" is never entered — the loop is a 3-cycle.
+// (1) A closed 3-loop back to "all".
 {
   const seen: PdfFilter[] = [];
   let s: PdfFilter = "all";
   for (let i = 0; i < 3; i++) {
     seen.push(s);
-    s = cycle(s, 0);
+    s = cycle(s);
   }
-  assert(seen.join(" → ") === "all → missing → have", `clean library cycle: ${seen.join(" → ")}`);
-  assert(s === "all", "the clean-library cycle closes in 3 clicks");
-  assert(!seen.includes("failed"), "a library with zero failures never lands on an empty 'failed' view");
+  assert(seen.join(" → ") === "all → missing → have", `cycle: ${seen.join(" → ")}`);
+  assert(s === "all", "a 3rd click returns to 'all' — the filter always clears in-cycle");
 }
 
-// (3) The stranding guard: parked on "failed" when the last failure clears → fall back to "all".
+// (2) Narrowing semantics: disk state only.
 {
-  const guard = (cur: PdfFilter, failedCount: number): PdfFilter => (cur === "failed" && failedCount === 0 ? "all" : cur);
-  assert(guard("failed", 0) === "all", "retrying/clearing the last failure un-parks the filter");
-  assert(guard("failed", 1) === "failed", "the guard does NOT fire while a failure remains");
-  assert(guard("missing", 0) === "missing", "the guard touches no other state");
-  assert(guard("have", 0) === "have", "the guard touches no other state");
-}
-
-// (4) Narrowing semantics. "failed" reads the failure records; the other steps read disk.
-{
-  type Row = { key: string; pdf: boolean; failed: boolean };
+  type Row = { key: string; pdf: boolean };
   const rows: Row[] = [
-    { key: "oa2020", pdf: true, failed: false }, // fetched fine
-    { key: "wall2019", pdf: false, failed: true }, // paywall — the real "failed" case
-    { key: "noid2018", pdf: false, failed: false }, // never attempted (no DOI)
-    { key: "handfiled2021", pdf: true, failed: true }, // failed the fetch, PDF filed by hand later
+    { key: "oa2020", pdf: true },
+    { key: "noOa2019", pdf: false }, // no open-access copy — simply missing
+    { key: "noid2018", pdf: false }, // never attempted (no DOI)
+    { key: "handfiled2021", pdf: true }, // filed by hand / extension
   ];
-  const narrow = (f: PdfFilter) =>
-    f === "failed"
-      ? rows.filter((r) => r.failed)
-      : f === "all"
-        ? rows
-        : rows.filter((r) => r.pdf === (f === "have"));
-
+  const narrow = (f: PdfFilter) => (f === "all" ? rows : rows.filter((r) => r.pdf === (f === "have")));
   assert(narrow("all").length === 4, "'all' narrows nothing");
-  assert(
-    narrow("missing")
-      .map((r) => r.key)
-      .join(",") === "wall2019,noid2018",
-    "'missing' is PDF-presence only — it includes the never-attempted row",
-  );
-  assert(
-    narrow("have")
-      .map((r) => r.key)
-      .join(",") === "oa2020,handfiled2021",
-    "'have' is PDF-presence only",
-  );
-  assert(
-    narrow("failed")
-      .map((r) => r.key)
-      .join(",") === "wall2019,handfiled2021",
-    "'failed' reads the failure records — the hand-filed row is NOT dropped for having a PDF",
-  );
-  // The subset relation that made the old standing pill redundant, stated as a fact:
-  assert(
-    narrow("failed").every((r) => rows.some((x) => x.key === r.key)) && narrow("failed").length < rows.length,
-    "'failed' is a strict subset of the library — it never deserved its own permanent chip",
-  );
+  assert(narrow("missing").map((r) => r.key).join(",") === "noOa2019,noid2018", "'missing' is PDF-presence only");
+  assert(narrow("have").map((r) => r.key).join(",") === "oa2020,handfiled2021", "'have' is PDF-presence only");
 }
 
-// --- (5) the component still matches this model, and the retired bits stay retired -------
+// --- (3)+(4) the component matches this model, and the retired bits stay retired ----------
 {
   const src = readFileSync(path.join(repoRoot, "src", "shell", "modes", "library", "LibraryMode.svelte"), "utf8");
 
-  assert(!/\bshowFailedOnly\b/.test(src), "the separate showFailedOnly state is gone (one axis, not two)");
-  assert(!/⚠\s*\{failedKeys\.size\}\s*failed/.test(src), "the standing '⚠ N failed' toolbar pill is gone");
-  assert(!/ondblclick=\{\(\) => getAllPdfs\(true\)\}/.test(src), "the undiscoverable double-click retry gesture is gone");
-
-  assert(
-    /let pdfFilter = \$state<"all" \| "missing" \| "failed" \| "have">\("all"\)/.test(src),
-    "pdfFilter carries all four states",
-  );
+  assert(/let pdfFilter = \$state<"all" \| "missing" \| "have">\("all"\)/.test(src), "pdfFilter carries exactly three states");
   assert(/function cyclePdfFilter\(\)/.test(src) && /onclick=\{cyclePdfFilter\}/.test(src), "the chip cycles via cyclePdfFilter()");
   assert(
-    /pdfFilter === "missing"\) pdfFilter = failedKeys\.size > 0 \? "failed" : "have"/.test(src),
-    "the component skips the 'failed' step when failedKeys is empty (model rule 2)",
+    /if \(pdfFilter === "all"\) pdfFilter = "missing";\s*else if \(pdfFilter === "missing"\) pdfFilter = "have";\s*else pdfFilter = "all";/.test(src),
+    "the component's cycle is the modelled 3-loop (rule 1)",
   );
   assert(
-    /if \(pdfFilter === "failed" && failedKeys\.size === 0\) pdfFilter = "all"/.test(src),
-    "the component carries the stranding guard (model rule 3)",
+    /if \(pdfFilter !== "all"\) base = base\.filter\(\(r\) => hasPdf\(r\.key\) === \(pdfFilter === "have"\)\);/.test(src),
+    "every step narrows by hasPdf() (rule 2)",
   );
-  assert(
-    /if \(pdfFilter === "failed"\) base = base\.filter\(\(r\) => isFailed\(r\.key\)\);/.test(src),
-    "'failed' narrows by isFailed(), not by hasPdf() (model rule 4)",
-  );
-  // The retry action must exist, be bound to the skip-list-ignoring call, and be scoped to
-  // the failed step — a retry-all button that showed on every step would be the old problem.
-  assert(/\{#if pdfFilter === "failed"\}[\s\S]{0,400}?getAllPdfs\(true\)/.test(src), "'Retry all' renders only while the failed step is active");
-  assert(
-    /class="enrich retryfailed"[\s\S]{0,300}?disabled=\{fetchingAll/.test(src),
-    "'Retry all' is disabled while a bulk fetch is already running",
-  );
+
+  assert(!/\bfailedKeys\b/.test(src) && !/\bisFailed\b/.test(src), "no failed-key set or predicate (rule 3)");
+  assert(!/\blistFailures\b|\blistFailedKeys\b|\breadFetchFailure\b|\bclearFetchFailure\b/.test(src), "no failure-record reads or writes (rule 3)");
+  assert(!/fetch-failure/.test(src), "no mention of the per-paper failure file (rule 3)");
+
+  assert(!/\bshowFailedOnly\b/.test(src), "the separate showFailedOnly state is gone (one axis, not two)");
+  assert(!/⚠\s*\{failedKeys\.size\}\s*failed/.test(src), "the standing '⚠ N failed' toolbar pill is gone");
+  assert(!/ondblclick=\{\(\) => getAllPdfs\(/.test(src), "the undiscoverable double-click retry gesture is gone");
+  assert(!/pdfFilter === "failed"/.test(src) && !/⊘ Failed/.test(src), "the 'failed' step and its ⊘ Failed label are gone");
+  assert(!/\bretryfailed\b/.test(src) && !/Retry all/.test(src), "the 'Retry all' button and its CSS are gone");
 }
 
 console.log("\nLIBRARY PDF FILTER VERIFY: PASS");

@@ -117,10 +117,13 @@ try {
   await throws(() => inventory(sender,root,'invalid'), /Invalid directory inventory mode/, 'SHL-6: actual inventory rejects malformed options');
   has(mainCjs, "fsGuard(recipePath, e.sender.id)", "SHL-6: recipe:run contains recipePath");
   has(mainCjs, "unsafe deckId", "SHL-6: slides:exportDeck sanitizes deckId");
-  // WS-9.4b: keys.json + proxy-cred writes live in the NETWORK family module.
+  // WS-9.4b: keys.json writes live in the NETWORK family module. (The library sign-in's
+  // credential store, the other 0600 secret pinned here, was removed 2026-11-18; the upgrade
+  // cleanup that deletes it is verify-no-library-proxy.ts.)
   const networkCjs = await fs.readFile(path.join(import.meta.dirname, "..", "electron", "ipc", "network.cjs"), "utf8");
   assert(/chmod\(fluxKeysPath\(\), 0o600\)/.test(networkCjs), "SHL-8: keys.json written owner-only");
-  assert(/atomicWriteMain\(proxyCredPath\(\),[^\n]*false, 0o600\)/.test(networkCjs), "SHL-8: proxy credentials request owner-only atomic publication");
+  assert(/atomicWriteMain\(fluxKeysPath\(\),[^\n]*false, 0o600\)/.test(networkCjs), "SHL-8: keys.json requests owner-only atomic publication");
+  assert(!/safeStorage|passwordEnc/.test(networkCjs), "SHL-8: no password store remains in the network family");
   has(mainCjs, 'process.on(sig', "SHL-8: SIGINT/SIGTERM teardown registered");
   has(bridgeCjs, "mode: 0o600", "SHL-8: bridge.json written owner-only");
   has(bridgeCjs, "mode: 0o700", "SHL-8: bridge dir created owner-only");

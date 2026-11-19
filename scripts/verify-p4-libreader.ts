@@ -1,7 +1,7 @@
 #!/usr/bin/env -S npx tsx
 // Phase 4 — Library / Reader / shell bug sweep. The dedup fix (LR-9) is tested for real against
-// flux-core's addToFluxLib on a temp FluxLib; the rest (renderer bridge twin, reader DOM, proxy
-// network path, main-process handlers) are asserted present + covered by svelte-check / build.
+// flux-core's addToFluxLib on a temp FluxLib; the rest (renderer bridge twin, reader DOM,
+// main-process handlers) are asserted present + covered by svelte-check / build.
 //
 //  LR-9  (tested): adding a paper WITHOUT a DOI then the SAME paper WITH a DOI used to fork into
 //        two citekeys (splitting its PDF + annotations). A shared title+year+author signature
@@ -10,8 +10,7 @@
 //  LR-13 (presence): the reader caches each annotation's located range (was a fuzzy full-page
 //        locateQuote per annotation on every redraw) and reports quotes that no longer locate as
 //        orphaned to the annotations panel (a detached highlight is no longer silently invisible).
-//  LR-14 (presence): the proxy PDF grab also accepts a full 200 whose byte length == Content-Length
-//        (rescues valid PDFs whose %%EOF sits beyond the last-8KB window).
+//  (LR-14, the library sign-in capture's whole-download rule, went with that feature 2026-11-18.)
 //  SHL-18(tested): fs:exists distinguishes ENOENT (absent) from EACCES (exists-but-blocked).
 //  LR-10 (presence): an all-batches-failed enrich run throws instead of reporting "Enriched 0".
 //  LR-8  (presence): GUI-fetched PDFs stay searchable via getPaperText's extract-on-demand.
@@ -61,13 +60,12 @@ await fs.rm(lib, { recursive: true, force: true });
 // --- presence of the bridge-twin / DOM / network / main-process fixes ----------------------
 console.log("presence of the bridge/DOM/network/main-process fixes:");
 const read = (p: string) => fs.readFile(path.join(import.meta.dirname, "..", p), "utf8");
-const [bridge, core, addPlan, pdfView, reader, proxy, mainCjs, enrichBridge, fulltext] = await Promise.all([
+const [bridge, core, addPlan, pdfView, reader, mainCjs, enrichBridge, fulltext] = await Promise.all([
   read("src/lib/references/fluxlibBridge.ts"),
   read("flux-core/fluxlib.ts"),
   read("src/lib/references/addPlan.ts"),
   read("src/shell/modes/reader/PdfView.svelte"),
   read("src/shell/modes/reader/ReaderDoc.svelte"),
-  read("electron/proxyFetch.cjs"),
   read("electron/main.cjs"),
   read("src/lib/references/enrichBridge.ts"),
   read("flux-core/fulltext.ts"),
@@ -78,7 +76,6 @@ assert(/planAdds/.test(bridge) && /planAdds/.test(core), "LR-9: both engines add
 assert(/sigToKey/.test(addPlan) && /dupeSignature/.test(addPlan), "LR-9: the shared planner applies the title+year+author signature dedup");
 assert(/const locCache = new Map/.test(pdfView) && /onOrphans\?\.\(/.test(pdfView), "LR-13: PdfView caches located ranges + reports orphans");
 assert(/onOrphans=\{/.test(reader) && /class:orphan=/.test(reader), "LR-13: ReaderDoc surfaces orphaned highlights in the panel");
-assert(/g\.len === g\.contentLength/.test(proxy) && /const whole =/.test(proxy), "LR-14: the proxy grab accepts a whole (length==Content-Length) download");
 // WS-9.4b: fs:exists lives in the FILES family module now.
 const filesCjs = await fs.readFile(new URL("../electron/ipc/files.cjs", import.meta.url), "utf8");
 const require = createRequire(import.meta.url);

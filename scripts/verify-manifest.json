@@ -310,7 +310,6 @@
       "verify-figure-missing-index.ts",
       "verify-render-manifest-confinement.ts",
       "verify-figure-reference-safety.ts",
-      "verify-cellpress-helpers.cjs",
       "verify-v020-native-video-launch.cjs",
       "verify-recovery-entry.ts",
       "verify-eyedropper.ts",
@@ -481,7 +480,8 @@
       "verify-dissect-names.ts",
       "verify-comment-model.ts",
       "verify-flux-ai-mark.ts",
-      "verify-paper-conversations.ts"
+      "verify-paper-conversations.ts",
+      "verify-no-library-proxy.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -774,9 +774,8 @@
     "electron": [
       "verify-w6-flush.cjs",
       "verify-multiwindow.cjs",
-      "verify-cellpress.cjs",
       "verify-netget.cjs",
-      "verify-proxy-capture.cjs",
+      "verify-retired-session-electron.cjs",
       "verify-writer-latency-inp.mjs",
       "verify-source-sync-electron.cjs",
       "verify-figure-polish-electron.cjs",
@@ -831,7 +830,8 @@
       "verify-annotate-chord-census.ts",
       "verify-no-retired-agent-layer.ts",
       "verify-presence-plotroot.ts",
-      "verify-mode-icons.ts"
+      "verify-mode-icons.ts",
+      "verify-no-library-proxy.ts"
     ]
   },
   "groups": {
@@ -3138,15 +3138,6 @@
       ]
     },
     {
-      "glob": "scripts/lib/liveProxyFixture.cjs",
-      "run": [
-        "verify-runner-runtime.mjs",
-        "verify-cellpress-helpers.cjs",
-        "verify-cellpress.cjs",
-        "verify-proxy-capture.cjs"
-      ]
-    },
-    {
       "glob": "{src/lib/slide/{outline,tween,normalMatch,stageOutline,strokeBand}.ts,src/lib/slide/player/**}",
       "run": [
         "verify-draw.ts",
@@ -3757,9 +3748,8 @@
       ]
     },
     {
-      "glob": "{electron/supplementRules.cjs,electron/proxyFetch.cjs,src/lib/references/{supplement,supplementFinder,unzip,pdfFinder,pdfFinderBridge}.ts}",
+      "glob": "{electron/supplementRules.cjs,src/lib/references/{supplement,supplementFinder,unzip,pdfFinder,pdfFinderBridge}.ts}",
       "run": [
-        "verify-cellpress-helpers.cjs",
         "verify-supplement.ts",
         "tier:pure"
       ]
@@ -4128,6 +4118,16 @@
         "tier:presence",
         "verify-live-view.ts",
         "verify-live-view-electron.cjs"
+      ]
+    },
+    {
+      "$why": "Upgrade cleanup for the removed library sign-in (2026-11-18): the shared module both engines call, and its gates.",
+      "glob": "electron/retiredLibraryProxy.{cjs,d.cts}",
+      "run": [
+        "verify-no-library-proxy.ts",
+        "verify-retired-session-electron.cjs",
+        "verify-fluxconfig.ts",
+        "tier:pure"
       ]
     },
     {
@@ -5243,18 +5243,6 @@
       "isolation": "scratch",
       "timeoutMs": 120000,
       "exclusive": false,
-      "coverage": "behavior"
-    },
-    "verify-cellpress.cjs": {
-      "runtime": "electron",
-      "prerequisites": [
-        "display",
-        "institutional-proxy"
-      ],
-      "externalNetwork": true,
-      "isolation": "scratch",
-      "timeoutMs": 120000,
-      "exclusive": true,
       "coverage": "behavior"
     },
     "verify-changed-pathmap.mjs": {
@@ -7438,18 +7426,6 @@
       "isolation": "scratch",
       "timeoutMs": 120000,
       "exclusive": false,
-      "coverage": "behavior"
-    },
-    "verify-proxy-capture.cjs": {
-      "runtime": "electron",
-      "prerequisites": [
-        "display",
-        "institutional-proxy"
-      ],
-      "externalNetwork": true,
-      "isolation": "scratch",
-      "timeoutMs": 1400000,
-      "exclusive": true,
       "coverage": "behavior"
     },
     "verify-quit-policy.ts": {
@@ -9952,15 +9928,6 @@
       "coverage": "behavior"
     },
     "verify-v020-native-video-launch.cjs": {
-      "runtime": "node",
-      "prerequisites": [],
-      "externalNetwork": false,
-      "isolation": "scratch",
-      "timeoutMs": 30000,
-      "exclusive": false,
-      "coverage": "behavior"
-    },
-    "verify-cellpress-helpers.cjs": {
       "runtime": "node",
       "prerequisites": [],
       "externalNetwork": false,
@@ -12551,6 +12518,26 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-no-library-proxy.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-retired-session-electron.cjs": {
+      "runtime": "electron",
+      "prerequisites": [
+        "display"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
       "exclusive": true,
       "coverage": "behavior"
     }

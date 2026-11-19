@@ -1,9 +1,9 @@
 // Pure-logic verification of the main-text-vs-supplement rules + the supplements/ model.
 //
 // This gate exercises the SHIPPED functions from electron/supplementRules.js — the same
-// module electron/proxyFetch.cjs and the write-time check import. An earlier version of this
-// file re-implemented the engine's candidate pipeline and tested the copy; the copy passed
-// while the real engine stored a supplement as paper.pdf for two years' worth of Science
+// module the write-time check imports and the browser extension vendors. An earlier version
+// of this file re-implemented the candidate pipeline and tested the copy; the copy passed
+// while the real code stored a supplement as paper.pdf for two years' worth of Science
 // papers. Never assert against a mirror of the logic under test.
 //
 // Run: npx tsx scripts/verify-supplement.ts
@@ -50,7 +50,7 @@ const MAIN = [
   "https://academic.oup.com/cercor/article-pdf/25/11/4348/pdf",
   "https://academic.oup.com/sleep/article-pdf/42/Supplement_1/A1/x.pdf", // issue supplement, NOT SI
   "https://www.nature.com/articles/nrn2356.pdf?error=cookies_not_supported&code=0c27", // "not_supported"
-  "https://www-science-org.ezproxy.library.wisc.edu/cms/asset/70654da8/pap.pdf",
+  "https://www.science.org/cms/asset/70654da8/pap.pdf",
 ];
 for (const u of MAIN) ok(!isSupplementUrl(u), "main-text PDF NOT flagged", u.slice(0, 78));
 
@@ -83,12 +83,12 @@ ok(supplementDocSignal({ page1Text: "Supplementary Information for the online ve
 ok(supplementDocSignal({ title: "Ultrastructural evidence for synaptic scaling across the wake/sleep cycle", page1Text: "RESEARCH | REPORT\nUltrastructural evidence for synaptic scaling\nLuisa de Vivo, Michele Bellesi\n(see Supplementary Materials for methods and Supplementary Fig. S3)" }) === null, "content: mid-body SI mention is not a supplement");
 ok(supplementDocSignal({ title: "Sleep promotes branch-specific formation of dendritic spines after learning", page1Text: "RE S EAR CH | R E P O R T S New Zealand; INRA and Agence Nationale de la Recherche project" }) === null, "content: ordinary article not flagged");
 
-// --- 4: candidate ranking — the ACTUAL engine function ----------------------------------
+// --- 4: candidate ranking — the ACTUAL shipped function ---------------------------------
 // This is the exact affordance list scraped from science.org for 10.1126/science.aah5982 on
 // 2026-08-04, in the DOM order the page served it. The supplement came SECOND and won,
 // because consumption was first-come. The article must now outrank it.
 {
-  const P = "www-science-org.ezproxy.library.wisc.edu";
+  const P = "www.science.org";
   const doi = "10.1126/science.aah5982";
   const scraped = [
     { url: `https://${P}/doi/reader/${doi}`, kind: "anchor-text" },

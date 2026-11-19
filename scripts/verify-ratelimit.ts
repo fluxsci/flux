@@ -10,7 +10,6 @@ import {
   abortableSleep,
   SESSION_BUDGET,
   GET_COST,
-  CAPTURE_COST,
   RATE_WINDOW_MS,
   getLimiter,
   GET_SESSION_BUDGET,
@@ -237,19 +236,17 @@ ok(pmcidFromUrl(undefined) === undefined, "undefined URL → no PMC id");
   ok(now === 1000, "acquire slept to that time");
 }
 {
-  // Real-scale sanity: captures are budgeted ~7 per window per publisher.
+  // Real-scale sanity: a default limiter (flux-core's process-wide one) admits SESSION_BUDGET
+  // candidate GETs per publisher per window. (The browser-capture budget this block used to
+  // pin went with the library sign-in, owner decision 2026-11-18.)
   let now = 0;
   const lim = new HostLimiter({ now: () => now, sleep: async (ms) => void (now += ms) });
   let n = 0;
-  while (lim.msUntilAllowed("elsevier", CAPTURE_COST) === 0) {
-    lim.record("elsevier", CAPTURE_COST);
+  while (lim.msUntilAllowed("elsevier", GET_COST) === 0) {
+    lim.record("elsevier", GET_COST);
     n++;
   }
-  ok(
-    n === Math.floor(SESSION_BUDGET / CAPTURE_COST),
-    `captures per window = ${Math.floor(SESSION_BUDGET / CAPTURE_COST)}`,
-    `got ${n}`,
-  );
+  ok(n === SESSION_BUDGET, `default limiter: GETs per window = ${SESSION_BUDGET}`, `got ${n}`);
   ok(RATE_WINDOW_MS === 5 * 60_000, "window matches the publisher's 5-minute measurement window");
 }
 
