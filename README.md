@@ -14,7 +14,7 @@ Your projects stay in ordinary files on your own machine.
 > (`curl -fsSL https://fluxsci.github.io/install.sh | bash`), or start from source below.
 > What changed in each release is in [CHANGELOG.md](CHANGELOG.md).
 
-[![Flux Paper mode showing a scientific manuscript with an eight-panel neuroscience figure](https://fluxsci.github.io/assets/media/paper.webp)](https://fluxsci.github.io/#paper)
+[![Flux Paper mode showing a scientific manuscript with an eight-panel neuroscience figure](https://fluxsci.github.io/assets/media/paper.webp)](https://fluxsci.github.io/docs/paper.html)
 
 *Write with your figures, captions, and citations in context.*
 
@@ -32,10 +32,10 @@ Your projects stay in ordinary files on your own machine.
 - **[Reader](docs/modes/reader.qmd)** — read PDFs side by side, highlight passages,
   attach notes, and export highlights.
 
-[![Flux Figure mode showing editable neuroscience plots arranged in an eight-panel figure, with layers and styling controls](https://fluxsci.github.io/assets/media/figure.webp)](https://fluxsci.github.io/#figure)
+[![Flux Figure mode showing editable neuroscience plots arranged in an eight-panel figure, with layers and styling controls](https://fluxsci.github.io/assets/media/figure.webp)](https://fluxsci.github.io/docs/figure.html)
 
 *Assemble publication figures from plots you can still edit. Both screenshots use
-the website's [neural-populations example project](https://fluxsci.github.io/#example-project).*
+public datasets, listed in the website's [visual credits](https://fluxsci.github.io/docs/visual-credits.html).*
 
 ## Your files, your workflow
 
@@ -67,8 +67,9 @@ connecting Claude Code or Codex. Flux updates itself the same way (**Update now*
 
 For plots, add **[fluxplot](https://github.com/fluxsci/fluxplot)** to your analysis
 environment (`uv add fluxplot` or `pip install fluxplot`). From the Home screen, create a
-project or open the [example project from the website](https://fluxsci.github.io/#example-project);
-the [getting-started walkthrough](docs/getting-started.qmd) goes from reading a paper to
+project. The website's [first-project walkthrough](https://fluxsci.github.io/docs/first-project.html)
+builds a small one from a plot to a figure, a paper and a slide, and the
+[getting-started walkthrough](docs/getting-started.qmd) goes from reading a paper to
 exporting a manuscript. The **[installation guide](docs/installation.qmd)** covers updating,
 uninstalling, the companions and troubleshooting.
 
