@@ -1,12 +1,16 @@
-// P5 — Library fetch-outcome pills (LR-7). The failure categorizer `fetchOutcome` is pure, so it
-// gets a real unit test; the LibraryMode wiring (one eager `failures` map → derived failedKeys →
-// per-row pill) is asserted against source, since the pill UI needs a FluxLib populated with
-// fetch-failure records that the headless harness can't stage.
+// P5 — Library: the bulk-fetch summary survives a mode switch (LR-7) and the multiselect
+// add-to-project persists (LR-U2), asserted against source.
+//
+// This gate used to pin LR-7's per-row fetch-outcome pills (no DOI / no OA / failed), read from
+// items/<key>/fetch-failure.json records that the bulk run wrote when the open-access route AND
+// the library sign-in route both failed. The sign-in route was removed (owner decision
+// 2026-11-18); with one route those records are no longer written or read, so the pill contract
+// is superseded. What must hold instead is that none of it comes back half-wired.
 //   Run: npx tsx scripts/verify-p5-library.ts
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { fetchOutcome, type FetchFailure } from "../src/lib/references/items.ts";
+import * as items from "../src/lib/references/items.ts";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 let failures = 0;
@@ -19,42 +23,15 @@ function assert(cond: unknown, msg: string) {
   }
 }
 
-const mk = (over: Partial<FetchFailure>): FetchFailure => ({
-  key: "k",
-  target: "10.1/x",
-  attemptedAt: "2026-01-01T00:00:00Z",
-  attempts: 1,
-  ...over,
-});
-
-console.log("LR-7 — fetchOutcome categorizer (pure):");
-assert(fetchOutcome(mk({ oa: "no-id" })) === "no-id", "oa:'no-id' → no-id (no DOI to even try)");
-assert(fetchOutcome(mk({ oa: "no-oa" })) === "no-oa", "oa:'no-oa' → no-oa (no OA copy, proxy route also failed)");
-assert(fetchOutcome(mk({ oa: "some upstream error" })) === "failed", "an OA error string → failed");
-assert(
-  fetchOutcome(mk({ proxy: { reason: "no-affordances", landedUrl: "https://publisher" } })) === "failed",
-  "a proxy-only failure (no oa field) → failed",
-);
-assert(fetchOutcome(mk({})) === "failed", "a bare record with neither field → failed (a route erred)");
-
-console.log("\nLR-7 — LibraryMode wiring (source):");
+console.log("LR-7 — the outcome pill and its failure records are gone:");
 const lib = readFileSync(join(root, "src/shell/modes/library/LibraryMode.svelte"), "utf8");
-
-// The single eager source of truth + derived set (replacing the old lazy failedKeys/failureInfo pair).
-assert(/import\s*\{[^}]*\blistFailures\b/.test(lib), "imports listFailures (eager failure map)");
-assert(/import\s*\{[^}]*\bfetchOutcome\b/.test(lib), "imports fetchOutcome (the categorizer)");
-assert(/let\s+failures\s*=\s*\$state\.raw<Record<string, FetchFailure>>/.test(lib), "failures is the eager $state.raw map");
-assert(/const\s+failedKeys\s*=\s*\$derived\(new Set\(Object\.keys\(failures\)\)\)/.test(lib), "failedKeys derives from failures");
-assert(!/\blistFailedKeys\b/.test(lib), "old listFailedKeys import/usage is gone");
-assert(!/\bfailureInfo\b/.test(lib), "old lazy failureInfo map is gone");
-assert(!/\breadFetchFailure\b/.test(lib), "old per-row lazy readFetchFailure load is gone");
-
-// The pill itself: categorized label + tone class, wired to expand for the detail banner.
-assert(/const\s+outcomePill\s*=/.test(lib), "outcomePill(key) helper present");
-assert(/OUTCOME_PILL\b/.test(lib) && /"no DOI"/.test(lib) && /"no OA"/.test(lib), "pill labels cover no-DOI / no-OA / failed");
-assert(/class="fpill t-\{pill\.tone\}"/.test(lib), "row renders the categorized .fpill with a tone class");
-assert(/\.fpill\.t-danger/.test(lib) && /\.fpill\.t-muted/.test(lib), "both pill tones are styled");
-assert(/failures\[nfc\(r\.key\)\]/.test(lib), "expand banner reads the eager failures map (NFC-keyed)");
+const itemsBridge = readFileSync(join(root, "src/lib/references/itemsBridge.ts"), "utf8");
+assert(!("fetchOutcome" in items) && !("failurePath" in items), "items.ts no longer exports the failure categorizer or path");
+assert(!/fetch-failure\.json/.test(readFileSync(join(root, "src/lib/references/items.ts"), "utf8")), "items.ts no longer names the failure file");
+assert(!/\b(writeFetchFailure|readFetchFailure|clearFetchFailure|listFailedKeys|listFailures)\b/.test(itemsBridge), "itemsBridge has no failure-record reader or writer");
+assert(!/\boutcomePill\b|\bOUTCOME_PILL\b|class="fpill/.test(lib), "no per-row outcome pill in the Library");
+assert(!/\.fpill\b|\.failbanner\b/.test(lib), "no orphaned pill / banner CSS");
+assert(!/\bfailures\b\s*=\s*\$state/.test(lib), "no eager failure map state");
 
 console.log("\nLR-7 — bulk-fetch summary survives a mode switch (source):");
 const job = readFileSync(join(root, "src/lib/references/pdfFetchJob.svelte.ts"), "utf8");

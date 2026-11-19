@@ -1,9 +1,8 @@
 // Per-publisher rate limiter for PDF acquisition — the guard against publisher IP blocks.
 //
 // Cell Press/Elsevier temporarily block an IP that creates "more than 90 sessions in 5
-// minutes"; every cookie-less GET (Phase A OA candidates) and every proxy capture (Phase B
-// navigation chain) creates one-or-more such sessions. This module gives every fetch path a
-// shared sliding-window "session budget" per PUBLISHER GROUP (one publisher runs many hosts:
+// minutes"; every cookie-less GET of an OA candidate creates one. This module gives every
+// fetch path a shared sliding-window "session budget" per PUBLISHER GROUP (one publisher runs many hosts:
 // cell.com + sciencedirect.com + linkinghub.elsevier.com are all Elsevier), sized well under
 // the observed wall. Metadata APIs built for programmatic access (OpenAlex, Unpaywall,
 // Crossref, NCBI, Europe PMC) are exempt — the existing politeness delays cover them.
@@ -14,11 +13,8 @@
 export const RATE_WINDOW_MS = 5 * 60_000;
 /** Budget of "session units" per group per window — 2× under Cell Press's 90/5min wall. */
 export const SESSION_BUDGET = 45;
-/** One direct GET of a candidate PDF URL (Phase A / OA waterfall). */
+/** One direct GET of a candidate PDF URL (the OA waterfall). */
 export const GET_COST = 1;
-/** One proxy browser capture: DOI nav + interstitial hops + pdf nav + retries ≈ several
- *  sessions. Budgeted conservatively (45/6 → ~7 captures per publisher per 5 min). */
-export const CAPTURE_COST = 6;
 
 /** Metadata/API hosts designed for programmatic access — never rate-limited here. */
 const API_HOSTS = new Set([
@@ -57,8 +53,8 @@ const DOMAIN_GROUPS: Record<string, string> = {
   "physiology.org": "aps",
 };
 
-/** DOI prefix → publisher group, for when we only have a DOI (proxy phase: the landed host
- *  isn't known until after navigation). Unknown prefixes still get a per-prefix bucket —
+/** DOI prefix → publisher group, for when we only have a DOI (a doi.org link, or ordering a
+ *  bulk run before any host is known). Unknown prefixes still get a per-prefix bucket —
  *  the danger case is always MANY papers from ONE publisher. */
 const DOI_PREFIX_GROUPS: Record<string, string> = {
   "10.1016": "elsevier",
@@ -80,10 +76,7 @@ const DOI_PREFIX_GROUPS: Record<string, string> = {
 };
 
 /** Open-repository hosts: mirror/archive services designed to serve full texts in bulk
- *  (PMC, Europe PMC, preprint servers, general-purpose repositories). These are the ONLY
- *  hosts the bulk OA phase is allowed to download PDFs from — publisher sites are never
- *  contacted directly in bulk (they session-count every request and IP-block; paywalled
- *  AND publisher-hosted-OA papers both go through the real-browser proxy route instead). */
+ *  (PMC, Europe PMC, preprint servers, general-purpose repositories). */
 const REPOSITORY_DOMAINS = new Set([
   "nih.gov", // www.ncbi.nlm.nih.gov (PMC), ftp.ncbi.nlm.nih.gov, pmc.ncbi.nlm.nih.gov
   "europepmc.org",
@@ -103,8 +96,8 @@ const REPOSITORY_DOMAINS = new Set([
 // live here. It was deliberately retired — it starved bulk of ~180 Cell Press OA papers
 // the per-row button fetched fine — in favor of throughput CAPS: the cookie-jar netGet
 // (one session per host) + the per-group sliding-window GET budgets below (elsevier
-// ≤45/5min, the observed "90 sessions in 5 minutes" ban threshold halved) + the
-// circuit breaker. Ban-safety is rate, not avoidance.
+// ≤45/5min, the observed "90 sessions in 5 minutes" ban threshold halved). Ban-safety is
+// rate, not avoidance.
 
 const registrableDomain = (host: string): string => host.split(".").slice(-2).join(".");
 // ebi.ac.uk / core.ac.uk / hal.archives-ouvertes.fr need three labels to be meaningful.
@@ -261,11 +254,6 @@ export class HostLimiter {
     this.record(group, cost);
   }
 }
-
-/** The app-session-wide limiter (renderer) for proxy CAPTURES — each capture is a real
- *  multi-navigation browser session, the actual "90 sessions in 5 minutes" ban vector, so
- *  it keeps the strict SESSION_BUDGET. Module-level so windows span bulk runs. */
-export const sharedLimiter = new HostLimiter();
 
 /** Budget for cookie-jar GET fetches (the OA phase's candidate-PDF downloads). The
  *  renderer/harness fetch OA PDFs through Chromium's persistent-partition `ses.fetch`, which

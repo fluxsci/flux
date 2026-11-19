@@ -28,6 +28,7 @@ import { withLockAt, withLock, fluxlibLockDir, getLockClient, assertLockOwned, C
 import { splitBibEntries, lightEntry, lightBibEntries, bibtexKey } from "../src/lib/references/bibtex";
 import { citedKeysIn } from "../src/lib/manuscript/citations";
 import * as fluxPaths from "../electron/fluxPaths.cjs";
+import { withoutRetiredKeys } from "../electron/retiredLibraryProxy.cjs";
 
 const SCHEMA_VERSION = "0.1.0";
 
@@ -411,7 +412,8 @@ export interface FluxKeys {
   [k: string]: unknown;
 }
 
-/** Read `<FluxLib>/keys.json` (`{}` if absent). Plaintext, machine-global. */
+/** Read `<FluxLib>/keys.json` (`{}` if absent). Plaintext, machine-global. Retired keys
+ *  (`withoutRetiredKeys`, shared with Electron's keys:get/keys:set) are never returned. */
 export async function loadKeys(libPath?: string): Promise<FluxKeys> {
   const lib = libPath ? path.resolve(libPath) : await resolveFluxLibPath();
   const p = libKeysPath(lib);
@@ -419,11 +421,12 @@ export async function loadKeys(libPath?: string): Promise<FluxKeys> {
   if (raw == null) return {};
   return parseCanonical(p, raw, value => {
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Expected key object");
-    return value as FluxKeys;
+    return withoutRetiredKeys(value as FluxKeys);
   });
 }
 
-/** Merge-write keys into `<FluxLib>/keys.json` (creates FluxLib if needed). */
+/** Merge-write keys into `<FluxLib>/keys.json` (creates FluxLib if needed). Retired keys are
+ *  dropped from the patch and from the file, so any save clears one left by an older version. */
 export async function saveKeys(patch: FluxKeys, libPath?: string): Promise<FluxKeys> {
   const lib = await ensureFluxLib(libPath);
   return withLockAt(
@@ -431,7 +434,7 @@ export async function saveKeys(patch: FluxKeys, libPath?: string): Promise<FluxK
     "keys",
     getLockClient(),
     async lease => {
-      const next = { ...(await loadKeys(lib)), ...patch };
+      const next = withoutRetiredKeys({ ...(await loadKeys(lib)), ...patch });
       await assertLockOwned(lease);
       await atomicWrite(libKeysPath(lib), JSON.stringify(next, null, 2) + "\n", false, 0o600);
       return next;

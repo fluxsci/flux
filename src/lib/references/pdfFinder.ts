@@ -199,8 +199,8 @@ async function candidatesFor(id: ResolverId, x: PdfInputs, deps: FetchDeps): Pro
 export interface WaterfallOpts {
   /** Bulk mode: tunes resolver ORDER/SET for a polite sweep (e.g. Crossref links are
    *  dropped). There is deliberately NO per-publisher candidate filtering anymore —
-   *  ban-safety comes from the cookie-jar netGet + the per-publisher GET caps + the
-   *  circuit breaker (see the comment inside runWaterfall). */
+   *  ban-safety comes from the cookie-jar netGet + the per-publisher GET caps (see the
+   *  comment inside runWaterfall). */
   bulkMode?: boolean;
 }
 

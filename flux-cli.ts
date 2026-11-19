@@ -556,7 +556,7 @@ async function dispatch(
       process.stderr.write("\n");
       console.error(`✓ Supplements: ${r.files} file(s) for ${r.papers} paper(s), of ${r.total} checked`);
       for (const g of r.results.filter((x) => x.added > 0).slice(0, 25)) console.error(`  + ${g.key}  ${(g.names ?? []).join(", ")}`);
-      if (!r.files) console.error("  (Europe PMC serves supplements for its OPEN-ACCESS subset only — subscription papers need the GUI's “Get via library ⚿”.)");
+      if (!r.files) console.error("  (Europe PMC serves supplements for its OPEN-ACCESS subset only — save other supplements with the browser extension (Add to FluxLib) or attach them by hand.)");
       break;
     }
     case "missing-pdfs": {
@@ -572,7 +572,7 @@ async function dispatch(
         console.error(`✓ ${rows.length} reference(s) with no main text`);
       }
       const by = (st: string) => rows.filter((r) => r.status === st).length;
-      console.error(`  never-tried ${by("never-tried")} · no-oa ${by("no-oa")} · failed ${by("failed")}`);
+      console.error(`  never-tried ${by("never-tried")} · no-oa ${by("no-oa")}`);
       const noDoi = rows.filter((r) => !r.doi).length;
       if (noDoi) console.error(`  ${noDoi} have no DOI at all — nothing to resolve until they're enriched`);
       break;

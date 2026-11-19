@@ -252,6 +252,24 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   the project opens.
 - Exporting a figure, and the live preview in Figure-Meta, no longer copy every plot's data first.
 
+### Library
+
+- **Flux no longer signs in to university libraries.** The library proxy is gone: the EZProxy
+  setting, the saved username and password, **Sign in**, **Get via library ⚿**, the library
+  phase of **Get PDFs**, and supplement capture from publisher pages. Flux now gets a PDF
+  three ways: an **open-access** copy, fetched automatically (**⬇**, **Get PDFs**, and
+  `flux fetch-pdfs` / `fetch_pdfs`); the **browser extension**, which saves a paper you can
+  already open in your own browser; and **a file you already have** (**Add PDF…**, the
+  `pdfs_to_assign` folder, `flux ingest-pdf`).
+- On upgrade, the saved library password and the saved sign-in session are deleted, without
+  asking, the first time the app or the `flux` command starts.
+- When no open-access copy exists, the fetch says so and names the other two routes. The
+  `failed` / `no OA` / `no DOI` row pills, the **⊘ Failed** filter step and **Retry all** are
+  gone with the route that produced them; **⬇ No PDF** still shows every paper without one.
+  Supplements come from Europe PMC (open-access papers) or the extension.
+- `flux missing-pdfs` drops the `proxy_reason`, `landed_host` and `oa_error` columns, and its
+  `status` is now `never-tried` or `no-oa` (no more `failed`).
+
 ## 0.3.0 — 2026-11-08
 
 ### Working with agents

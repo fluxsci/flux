@@ -4,7 +4,7 @@
 
 /** A scraped PDF affordance from a publisher article page. */
 export interface PdfCandidate {
-  /** Absolute URL, already EZProxy host-rewritten. Absent for click-only buttons. */
+  /** Absolute URL. Absent for click-only buttons. */
   url?: string;
   /** CSS selector for a click-only affordance (a button with no href). */
   sel?: string;

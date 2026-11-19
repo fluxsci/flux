@@ -76,15 +76,10 @@ new.
 
 # Why capture from the browser
 
-Flux can already fetch open-access PDFs on its own, and paywalled ones through your
-[library proxy](../modes/library.qmd). But some publishers sit behind anti-bot systems —
-Cloudflare and PerimeterX — that refuse automated browsers outright, no matter how the request
-is dressed up. Those papers are simply unreachable to Flux.
-
-Your browser is not an automated browser. It's you: already signed in, already past the
-paywall, already holding the session. The extension captures the PDF *from inside your own
-session*, which is why it reaches papers Flux cannot fetch by itself. It's the most capable
-acquisition route in the app, and it costs one click.
+Flux fetches open-access PDFs on its own. For everything else, the extension saves a paper you
+can already open in your own browser: the request is made by your browser, with your own
+session, for the paper you clicked on — so if your institution gives you access, the PDF comes
+along. Use it for papers you are entitled to read, one at a time.
 
 # Browser support
 

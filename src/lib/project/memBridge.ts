@@ -643,27 +643,6 @@ export function createMemBridge(): FileBridge & {
         return { error: String((e && (e as Error).message) || e) };
       }
     },
-    async proxyStatus() {
-      return { configured: false, signedIn: false }; // no library proxy in the demo
-    },
-    async proxyLogin() {
-      return { error: "Library proxy is unavailable in the demo fixture (use the desktop app)." };
-    },
-    async fetchViaProxy() {
-      return { error: "Library proxy is unavailable in the demo fixture (use the desktop app)." };
-    },
-    async proxyCancel() {
-      return { ok: true }; // nothing to cancel in the demo (Part B is inert here)
-    },
-    async proxySetCredentials() {
-      return { error: "Credential storage is unavailable in the demo fixture (use the desktop app)." };
-    },
-    async proxyHasCredentials() {
-      return { username: "", hasPassword: false, available: false };
-    },
-    async proxyClearCredentials() {
-      return { ok: true };
-    },
     async keysGet() {
       const p = norm("/home/demo/FluxConfig/FluxLib/keys.json");
       try {

@@ -1,38 +1,33 @@
 "use strict";
-// WS-9.4b: the NETWORK family — API-key store, cite:* metadata fetches,
-// pdf:netGet (cookie-jar acquisition), and the full library-proxy (EZProxy)
-// machinery: credentials (OS-keychain encrypted), login window, status probe,
-// the capture engine + its exclusivity mutex, and per-call cancellation —
-// extracted verbatim from main.cjs. Channel names and behavior unchanged.
+// WS-9.4b: the NETWORK family — API-key store, cite:* metadata fetches and
+// pdf:netGet (cookie-jar acquisition), extracted from main.cjs.
 
 const path = require("node:path");
 const fs = require("node:fs");
-const os = require("node:os");
 const { createNetGet, readBoundedBody } = require("../netFetch.cjs");
 const leases = require("../operationLease.cjs");
 const { publicFetch: fetch } = require("../publicFetch.cjs");
-const { createProxyEngine } = require("../proxyFetch.cjs");
+const { withoutRetiredKeys } = require("../retiredLibraryProxy.cjs");
 
 /**
  * deps:
- *   session, BrowserWindow, safeStorage, net — Electron modules
- *   fluxLibDir      — () => machine-global FluxLib root (keys.json/.proxy.json home)
- *   getMainWindow   — () => BrowserWindow | null (proxy:login parent)
+ *   session         — Electron module (pdf:netGet's persistent cookie-jar partition)
+ *   fluxLibDir      — () => machine-global FluxLib root (keys.json home)
  *   resolveToDoi    — ./resolveDoi.cjs (cite:resolveUrl)
- *   locks           — { lockDirFor, writeLockFile, LOCK_TTL_MS } (keys:set shares
- *                     flux-core's FluxLib "keys" lock — owned by the project family)
- *   files           — { atomicWriteMain, noteWrite } (the FILES family write core)
+ *   locks           — { lockDirFor } (keys:set shares flux-core's FluxLib "keys"
+ *                     lock — owned by the project family)
+ *   files           — { atomicWriteMain } (the FILES family write core)
  */
-function createNetworkFamily({ dialog, session, BrowserWindow, safeStorage, net, fluxLibDir, getMainWindow, resolveToDoi, locks, files }) {
+function createNetworkFamily({ session, fluxLibDir, resolveToDoi, locks, files }) {
   const { lockDirFor } = locks;
-  const { atomicWriteMain, noteWrite } = files;
-  let proxyEngineRef = null; // set during registerHandlers (dispose needs it after)
+  const { atomicWriteMain } = files;
 const fluxKeysPath = () => path.join(fluxLibDir(), "keys.json");
+// Retired keys (withoutRetiredKeys) are never returned and never written back.
 function readKeys() {
   try {
     const data = JSON.parse(fs.readFileSync(fluxKeysPath(), "utf8"));
     if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Expected key object");
-    return data;
+    return withoutRetiredKeys(data);
   } catch (error) {
     if (error.code === "ENOENT") return {};
     throw new Error(`Cannot read canonical keys file ${fluxKeysPath()}: ${error.message}`, {cause: error});
@@ -144,424 +139,9 @@ ipc.handle("cite:s2", async (_e, url) => {
 const netGet = createNetGet({ session, getKey });
 ipc.handle("pdf:netGet", (_e, url, mode = "bytes") => netGet(url, mode));
 
-// --- Library proxy (EZProxy) — user-initiated paywalled access, last resort -----
-// A persistent, isolated session partition ("persist:fluxproxy") holds the user's
-// library SSO cookies across runs. We NEVER store passwords; the login happens in a
-// real window the user drives. Paywalled fetch runs an in-page fetch() inside the
-// proxied publisher page (carries its TLS fingerprint + cf_clearance + cookies —
-// the native-Electron port of ~/fluxfinder/fetch/browser.py). OA is always tried
-// first (the renderer only calls this after the OA waterfall fails).
-const PROXY_PARTITION = "persist:fluxproxy";
-function validateProxyPrefix(prefix) {
-  const url = new URL(prefix);
-  if (url.protocol !== "https:" || url.username || url.password) throw new Error("Library proxy sign-in requires an HTTPS URL without embedded credentials");
-  return url;
-}
-function ezproxyPrefix() {
-  return (getKey("ezproxyPrefix") || "").trim();
-}
-
-// Build a proxied entry URL from the configured "login?url=" prefix by appending the
-// target RAW (exactly like the library's bookmarklet: `...login?url=' + location.href`).
-// CRITICAL: do NOT percent-encode it. EZProxy only accepts the url= value as a real
-// target when it literally begins with "http(s)://"; a %3A%2F%2F-encoded value is
-// rejected and EZProxy falls back to url=menu → its dead-end "Remote Access Menu". An
-// EMPTY target hits the same menu, so always pass a real, unencoded target.
-function proxiedUrl(target) {
-  return ezproxyPrefix() + String(target || "");
-}
-// A resource the university licenses, used only to drive the login/status flow through
-// NetID SSO. Any non-empty proxiable target works; the landing page is irrelevant because
-// the login window auto-closes once it reaches a proxied host, and the status probe only
-// inspects the redirect chain.
-const PROXY_AUTH_TARGET = "https://www.nature.com/";
-// True if `u` is EZProxy's own login/menu plumbing or an identity provider (NetID SSO,
-// Shibboleth, Duo) rather than a proxied resource — i.e. the request bounced to sign-in.
-// This is what distinguishes "signed in" from "session expired".
-function isProxyLoginUrl(u) {
-  try {
-    const h = new URL(u).hostname;
-    if (/^login\./i.test(h)) return true; // EZProxy auth connector + NetID SSO (login.wisc.edu)
-    if (/(^|\.)duosecurity\.com$/i.test(h)) return true; // Duo MFA
-    return /\/(login|connect|idp|saml|sso|shibboleth)\b|[?&]url=menu\b/i.test(u);
-  } catch {
-    return false;
-  }
-}
-// Probe whether the persisted session is ACTUALLY authenticated (not just "a cookie
-// exists"): request a proxied resource with the partition's cookies, follow the redirect
-// chain, and see where it lands. A proxied host ⇒ signed in; the NetID/EZProxy login ⇒
-// session expired. Best-effort — resolves false on any error and never hangs the pill.
-function probeProxySignedIn() {
-  return new Promise((resolve) => {
-    let url, prefixHost;
-    try {
-      prefixHost = new URL(ezproxyPrefix()).hostname;
-      url = proxiedUrl(PROXY_AUTH_TARGET);
-    } catch {
-      return resolve(false);
-    }
-    let settled = false;
-    const decide = (u) => {
-      let h = "";
-      try {
-        h = new URL(u).hostname;
-      } catch {
-        return false;
-      }
-      const onResource = h === prefixHost || h.endsWith("." + prefixHost);
-      return onResource && !isProxyLoginUrl(u);
-    };
-    const finish = (v) => {
-      if (settled) return;
-      settled = true;
-      resolve(v);
-    };
-    try {
-      const req = net.request({ url, session: session.fromPartition(PROXY_PARTITION), redirect: "manual" });
-      let finalUrl = url;
-      let hops = 0;
-      req.on("redirect", (_status, _method, redirectUrl) => {
-        finalUrl = redirectUrl || finalUrl;
-        if (++hops > 8) {
-          try {
-            req.abort();
-          } catch {
-            /* ignore */
-          }
-          return finish(decide(finalUrl));
-        }
-        try {
-          req.followRedirect();
-        } catch {
-          finish(decide(finalUrl));
-        }
-      });
-      req.on("response", (res) => {
-        finish(decide(finalUrl));
-        res.on("data", () => {});
-        res.on("end", () => {});
-        try {
-          req.abort();
-        } catch {
-          /* ignore */
-        }
-      });
-      req.on("error", () => finish(false));
-      req.end();
-      setTimeout(() => finish(false), 8000);
-    } catch {
-      finish(false);
-    }
-  });
-}
-
-// Credentials are stored ENCRYPTED via the OS keychain (Electron safeStorage:
-// macOS Keychain / Windows DPAPI / Linux libsecret) in ~/FluxLib/.proxy.json (0600) —
-// never plaintext. They auto-fill the SSO login form so re-auth is seamless; combined
-// with the persistent session + a trusted-device (Duo "remember me") cookie, the user
-// signs in rarely. We never transmit them anywhere but the university's own login page.
-function proxyCredPath() {
-  return path.join(fluxLibDir(), ".proxy.json");
-}
-function readProxyCred() {
-  try {
-    return JSON.parse(fs.readFileSync(proxyCredPath(), "utf8"));
-  } catch {
-    return {};
-  }
-}
-function proxyPassword() {
-  const c = readProxyCred();
-  if (!c.passwordEnc || !safeStorage.isEncryptionAvailable()) return null;
-  try {
-    return safeStorage.decryptString(Buffer.from(c.passwordEnc, "base64"));
-  } catch {
-    return null;
-  }
-}
-// Fill a detected SSO login form with the stored NetID + password and tick any
-// "remember/trust this device" box (so Duo MFA is skipped on later sessions). Fires on
-// every navigation; a no-op when the page has no password field. Best-effort; the user
-// still approves Duo the first time in the visible window.
-async function autofillCreds(win, submit) {
-  if (win.isDestroyed() || win.webContents.isDestroyed()) return;
-  const origin = new URL(win.webContents.getURL()).origin;
-  if (!origin.startsWith("https://")) return;
-  const cred = readProxyCred();
-  if (!cred.username && !cred.passwordEnc) return;
-  const hasPassword = await win.webContents.executeJavaScript("!!document.querySelector('input[type=password]')").catch(() => false);
-  if (!hasPassword) return;
-  if (!(Array.isArray(cred.allowedOrigins) && cred.allowedOrigins.includes(origin))) {
-    if (!dialog) return;
-    const { response } = await dialog.showMessageBox(win, { type: "question", title: "Use saved library credentials?",
-      message: "Allow this sign-in origin to receive your saved credentials?", detail: origin,
-      buttons: ["Cancel", "Allow this origin"], defaultId: 0, cancelId: 0, noLink: true });
-    if (response !== 1 || win.isDestroyed() || new URL(win.webContents.getURL()).origin !== origin) return;
-    cred.allowedOrigins = [...new Set([...(cred.allowedOrigins || []), origin])];
-    await atomicWriteMain(proxyCredPath(), JSON.stringify(cred), false, 0o600);
-  }
-  const user = String(readProxyCred().username || "").trim();
-  const pass = proxyPassword();
-  if (!user && !pass) return;
-  const js =
-    `(() => { try {
-      if (location.origin !== ${JSON.stringify(origin)}) return false;
-      const p = document.querySelector('input[type=password]');
-      if (!p) return false;
-      const form = p.form || document;
-      const u = form.querySelector('input[type=text],input[type=email],input[name*=user i],input[id*=user i],input[name=j_username]');
-      if (u && ${JSON.stringify(user)}) { u.value = ${JSON.stringify(user)}; u.dispatchEvent(new Event('input',{bubbles:true})); }
-      if (${JSON.stringify(pass || "")}) { p.value = ${JSON.stringify(pass || "")}; p.dispatchEvent(new Event('input',{bubbles:true})); }
-      for (const c of document.querySelectorAll('input[type=checkbox]')) {
-        const t = (c.name||'')+(c.id||'')+((c.closest('label')||{}).textContent||'');
-        if (/remember|trust|stay|keep/i.test(t)) c.checked = true;
-      }
-      ${submit ? "if (u && u.value && p.value) { const b = form.querySelector('button[type=submit],input[type=submit],button'); if (b) b.click(); else if (form.submit) form.submit(); }" : ""}
-      return true;
-    } catch (e) { return false; } })()`;
-  win.webContents.executeJavaScript(js, true).catch(() => {});
-}
-
-// Store / inspect / clear the proxy credentials (OS-keychain encrypted).
-ipc.handle("proxy:setCredentials", async (_e, { username, password } = {}) => {
-  try {
-    if (!safeStorage.isEncryptionAvailable())
-      return { error: "Your OS secure storage (keychain) isn't available, so credentials can't be stored safely." };
-    fs.mkdirSync(fluxLibDir(), { recursive: true });
-    const cur = readProxyCred();
-    const next = { username: username != null ? String(username) : cur.username || "", allowedOrigins: cur.allowedOrigins || [] };
-    if (password) next.passwordEnc = safeStorage.encryptString(String(password)).toString("base64");
-    else if (cur.passwordEnc) next.passwordEnc = cur.passwordEnc;
-    await atomicWriteMain(proxyCredPath(), JSON.stringify(next), false, 0o600);
-    return { ok: true };
-  } catch (err) {
-    return { error: String((err && err.message) || err) };
-  }
-});
-ipc.handle("proxy:hasCredentials", () => {
-  const c = readProxyCred();
-  return { username: c.username || "", hasPassword: !!c.passwordEnc, available: safeStorage.isEncryptionAvailable() };
-});
-ipc.handle("proxy:clearCredentials", () => {
-  try {
-    fs.unlinkSync(proxyCredPath());
-  } catch {
-    /* already gone */
-  }
-  return { ok: true };
-});
-
-// Open a real window to the library's EZProxy login and let the user sign in. We enter
-// through a PROXIED resource (proxiedUrl, not the bare /login origin — that lands on
-// EZProxy's dead-end "Remote Access Menu") so EZProxy routes into NetID SSO. Credentials
-// auto-fill; the user completes Duo and ticks "trust this browser". The window then
-// auto-closes the moment navigation reaches a proxied host = authentication succeeded.
-ipc.handle("proxy:login", async () => {
-  const prefix = ezproxyPrefix();
-  if (!prefix) return { error: "Set your library's EZProxy prefix in ⚙ Keys first." };
-  let loginUrl, prefixHost;
-  try {
-    prefixHost = validateProxyPrefix(prefix).hostname; // validate + capture the proxy host
-    loginUrl = proxiedUrl(PROXY_AUTH_TARGET);
-  } catch {
-    return { error: "Invalid EZProxy prefix: use an HTTPS URL without embedded credentials." };
-  }
-  return await new Promise((resolve) => {
-    const win = new BrowserWindow({
-      width: 920,
-      height: 820,
-      title: "Sign in to your library",
-      autoHideMenuBar: true,
-      parent: getMainWindow() || undefined,
-      webPreferences: { partition: PROXY_PARTITION, sandbox: true, contextIsolation: true, nodeIntegration: false },
-    });
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      resolve({ ok: true });
-      if (!win.isDestroyed()) win.close();
-    };
-    // Auto-fill stored NetID + password on each login page (no auto-submit — the user
-    // reviews credentials, approves Duo, and ticks "trust this browser").
-    win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-    win.webContents.on("did-finish-load", () => { void autofillCreds(win, false).catch(() => {}); });
-    // Past all the login/connect/SSO/Duo hops, navigation lands on the proxied resource
-    // host (a subdomain of the proxy) — the session cookie is now set, so sign-in worked.
-    win.webContents.on("did-navigate", (_e, url) => {
-      try {
-        const h = new URL(url).hostname;
-        if ((h === prefixHost || h.endsWith("." + prefixHost)) && !isProxyLoginUrl(url)) finish();
-      } catch {
-        /* ignore non-URL navigations */
-      }
-    });
-    win.loadURL(loginUrl).catch(() => {});
-    win.on("closed", () => finish());
-  });
-});
-
-// Report whether the proxy is configured + can ACTUALLY reach paywalled content (drives
-// the status pill). We always probe a proxied resource rather than checking cookies:
-// access can come from a signed-in session OR from IP-based autologin (on-campus / VPN),
-// which grants access with no cookie at all — so cookie presence is neither necessary nor
-// sufficient. The probe is the ground truth: does a proxied request reach the resource?
-ipc.handle("proxy:status", async () => {
-  const prefix = ezproxyPrefix();
-  if (!prefix) return { configured: false, signedIn: false };
-  try {
-    validateProxyPrefix(prefix);
-  } catch {
-    return { configured: false, signedIn: false };
-  }
-  // Fast path: the net.request probe. If it says signed-in, trust it. If it says NOT
-  // signed-in, it may be a FALSE negative — net.request can't run the JavaScript that
-  // EZProxy's IP-based-autologin `/connect?session=…&qurl=…` page uses to forward to the
-  // resource, so it stalls on that page and misreads it as a login bounce. Confirm with a
-  // real browser navigation (the same window that actually fetches), serialized via the mutex.
-  let signedIn = await probeProxySignedIn();
-  if (!signedIn) {
-    const cachedFresh = Date.now() - lastProxyOkAt < PROXY_STATUS_TTL_MS;
-    if (cachedFresh) {
-      // A capture/check confirmed the session recently — the probe's false negative loses.
-      signedIn = true;
-    } else if (proxyPending > 0) {
-      // A bulk capture owns the window. NEVER queue a status ping behind a ~30s capture
-      // (the pill used to lag half a minute during exactly the "is my session alive?"
-      // moment) — answer from what we know now; the pill refreshes after the run.
-      signedIn = false;
-    } else {
-      try {
-        const r = await runProxyExclusive(() => proxyEngine.checkSignedIn({ target: PROXY_AUTH_TARGET }));
-        signedIn = !!(r && r.signedIn);
-        if (signedIn) lastProxyOkAt = Date.now();
-      } catch {
-        /* keep the net.request result */
-      }
-    }
-  } else {
-    lastProxyOkAt = Date.now();
-  }
-  return { configured: true, signedIn };
-});
-
-// Last moment the proxy session was POSITIVELY confirmed (a probe/check success or a
-// successful capture). Lets proxy:status answer instantly during bulk runs instead of
-// queueing a real navigation behind every in-flight capture.
-let lastProxyOkAt = 0;
-const PROXY_STATUS_TTL_MS = 5 * 60_000;
-
-// The publisher-agnostic capture engine (electron/proxyFetch.cjs). Instead of scraping a
-// PDF link and fetching it (fragile per-publisher; blocked by anti-bot; broken by viewer
-// pages), it drives the real authenticated browser toward the PDF and captures the bytes
-// off the network however the publisher delivers them (CDP interception + forced download
-// + in-page fetch). Deps are the same proxy primitives defined above.
-const proxyEngine = (proxyEngineRef = createProxyEngine({
-  session,
-  BrowserWindow,
-  ezproxyPrefix,
-  proxiedUrl,
-  isProxyLoginUrl,
-  PROXY_PARTITION,
-  path,
-  fs,
-  os,
-}));
-
-// Only ONE proxy window may exist at a time: the capture net's `will-download` hook lives
-// on the shared persist:fluxproxy session, so overlapping fetches would cross-capture each
-// other's bytes. This promise-chain mutex serializes every proxy call (bulk loop items AND
-// a stray manual "Get via library" click) through a single queue. A cancelled *queued*
-// call is rejected before it ever creates a window.
-let proxyChain = Promise.resolve();
-let proxyPending = 0; // how many exclusive users are queued/running (busy signal for proxy:status)
-function runProxyExclusive(fn) {
-  proxyPending++;
-  const run = proxyChain.then(fn, fn);
-  // Keep the chain alive regardless of this call's outcome (never let a rejection break it).
-  proxyChain = run.then(
-    () => {
-      proxyPending--;
-    },
-    () => {
-      proxyPending--;
-    },
-  );
-  return run;
-}
-// Per-call cancellation registry. The renderer passes an opaque token with each fetch and
-// can abort it (or all in-flight, "*") via proxy:cancel — which fires the AbortController
-// so the engine tears down its window and the fetch returns in ~1s instead of ~50s.
-const proxyCalls = new Map(); // token -> AbortController
-
-// Fetch a paywalled PDF for `target` (a DOI URL or landing page) through the proxy. Thin
-// wrapper: validate config, register a cancel token, then run the capture engine inside the
-// serialization mutex. Return contract is unchanged — { bytesB64, contentType, finalUrl } |
-// { error, reason?, diag? } — so pdfFinderBridge needs no change (the extra reason/diag feed
-// the Part C failure log).
-ipc.handle("pdf:fetchViaProxy", async (_e, target, token, opts) => {
-  const prefix = ezproxyPrefix();
-  if (!prefix) return { error: "No EZProxy prefix configured.", reason: "not-configured" };
-  try {
-    validateProxyPrefix(prefix);
-  } catch {
-    return { error: "Invalid EZProxy prefix: use an HTTPS URL without embedded credentials.", reason: "not-configured" };
-  }
-  if (token != null && (typeof token !== "string" || token.length > 128)) return {error:"Invalid cancellation token",reason:"error"};
-  const ownedToken = `${_e.sender.id}:${token ?? require("node:crypto").randomUUID()}`;
-  const ctrl = new AbortController();
-  const ownerClosed = () => ctrl.abort();
-  _e.sender.once?.("destroyed", ownerClosed);
-  if (token != null) {
-    // A cancel that arrived before this call was dequeued: honor it immediately.
-    if (proxyCalls.get(ownedToken) === "cancelled") {
-      proxyCalls.delete(ownedToken);
-      _e.sender.removeListener?.("destroyed",ownerClosed);
-      return { error: "Cancelled.", reason: "cancelled" };
-    }
-    proxyCalls.set(ownedToken, ctrl);
-  }
-  try {
-    const r = await runProxyExclusive(() => {
-      if (ctrl.signal.aborted) return { error: "Cancelled.", reason: "cancelled" };
-      return proxyEngine.capturePdfViaBrowser({ target, signal: ctrl.signal, withSupplements: !!(opts && opts.withSupplements) });
-    });
-    // A successful capture proves the session is alive — keep the status pill honest
-    // during bulk runs without ever queueing a real status navigation behind them.
-    if (r && r.bytesB64) lastProxyOkAt = Date.now();
-    return r;
-  } catch (e) {
-    if (e && e.name === "AbortError") return { error: "Cancelled.", reason: "cancelled" };
-    return { error: String((e && e.message) || e), reason: "error" };
-  } finally {
-    if (token != null) proxyCalls.delete(ownedToken);
-    _e.sender.removeListener?.("destroyed",ownerClosed);
-  }
-});
-
-// Cancel one in-flight/queued proxy fetch by token, or all of them with "*". Aborting the
-// controller destroys the engine's window (hard-interrupts loadURL/executeJavaScript); a
-// token with no live controller yet (still queued) is tombstoned so it aborts on dequeue.
-ipc.handle("proxy:cancel", (_e, token) => {
-  const prefix = `${_e.sender.id}:`;
-  if (token == null || token === "*") {
-    for (const [key,ctrl] of proxyCalls) if (key.startsWith(prefix) && ctrl?.abort) ctrl.abort();
-    return {ok:true};
-  }
-  if (typeof token !== "string" || token.length > 128) return {error:"Invalid cancellation token"};
-  const key = prefix+token, ctrl = proxyCalls.get(key);
-  if (ctrl?.abort) ctrl.abort();
-  else {
-    if (proxyCalls.size >= 1024) return {error:"Cancellation registry full; retry"};
-    proxyCalls.set(key,"cancelled");
-    const expiry = setTimeout(()=>{if(proxyCalls.get(key)==="cancelled")proxyCalls.delete(key);},120000); expiry.unref?.();
-  }
-  return {ok:true};
-});
-
-// API-key store (machine-global ~/FluxLib/keys.json). keys:get returns the raw map
-// for the settings form (the user's own machine); keys:set merge-writes it.
+// API-key store (machine-global ~/FluxLib/keys.json). keys:get returns the map
+// for the settings form (the user's own machine); keys:set merge-writes it. Both
+// leave out retired keys, so any save also clears one left by an older version.
 ipc.handle("keys:get", () => readKeys());
 ipc.handle("keys:set", async (_e, patch) => {
   try {
@@ -570,8 +150,7 @@ ipc.handle("keys:set", async (_e, patch) => {
       const got = await leases.acquire(dir, "keys", "human");
       if (!got.ok) throw new Error(`keys.json is being written by ${got.heldBy} — retry in a moment`);
       try {
-        const next = { ...readKeys(), ...patch };
-        if (next.ezproxyPrefix) validateProxyPrefix(String(next.ezproxyPrefix));
+        const next = withoutRetiredKeys({ ...readKeys(), ...patch });
         await leases.assertOwned(got.lease);
         await atomicWriteMain(fluxKeysPath(), JSON.stringify(next, null, 2) + "\n", false, 0o600);
         await fs.promises.chmod(fluxKeysPath(), 0o600);
@@ -586,8 +165,6 @@ ipc.handle("keys:set", async (_e, patch) => {
   return {
     registerHandlers,
     getKey,
-    // main's quit path tears down the reusable proxy capture window.
-    disposeProxy: () => proxyEngineRef && proxyEngineRef.dispose(),
   };
 }
 

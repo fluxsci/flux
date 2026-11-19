@@ -92,17 +92,6 @@ contextBridge.exposeInMainWorld("fig", {
   // PDF-acquisition fetch (FluxFinder): host-unrestricted http(s) GET in main, used by
   // the renderer's resolver waterfall. mode ∈ "json" | "text" | "bytes".
   netGet: (url, mode) => ipcRenderer.invoke("pdf:netGet", url, mode),
-  // Library proxy (EZProxy) — user-initiated paywalled access (OA is tried first).
-  proxyLogin: () => ipcRenderer.invoke("proxy:login"),
-  proxyStatus: () => ipcRenderer.invoke("proxy:status"),
-  // `token` is an opaque per-call id the renderer generates so it can cancel this exact
-  // fetch (or all in-flight via proxyCancel("*")) while a background bulk run is going.
-  fetchViaProxy: (target, token, opts) => ipcRenderer.invoke("pdf:fetchViaProxy", target, token, opts),
-  proxyCancel: (token) => ipcRenderer.invoke("proxy:cancel", token),
-  // Proxy credentials, stored ENCRYPTED in the OS keychain (safeStorage) for auto-login.
-  proxySetCredentials: (username, password) => ipcRenderer.invoke("proxy:setCredentials", { username, password }),
-  proxyHasCredentials: () => ipcRenderer.invoke("proxy:hasCredentials"),
-  proxyClearCredentials: () => ipcRenderer.invoke("proxy:clearCredentials"),
   // Machine-global API-key store (~/FluxLib/keys.json), shared across projects.
   keysGet: () => ipcRenderer.invoke("keys:get"),
   keysSet: (patch) => ipcRenderer.invoke("keys:set", patch),

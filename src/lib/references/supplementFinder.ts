@@ -1,9 +1,8 @@
 // Acquiring a paper's SUPPLEMENTARY files from the open-access route.
 //
-// The proxy capture engine picks supplements up off the publisher's article page while it's
-// already there (electron/proxyFetch.cjs). That leaves the papers whose main text arrived via
-// OA, where Flux never visits a publisher page at all. Europe PMC covers those: one request
-// returns a ZIP of every supplementary file it holds.
+// Europe PMC is the one supplement source Flux reaches by itself: one request returns a ZIP of
+// every supplementary file it holds. Supplements that live only on a publisher's page come in
+// through the browser extension (Add to FluxLib), which saves them from the user's own browser.
 //
 // Scope, honestly stated: this works for the Europe PMC OPEN-ACCESS subset only. A paper that
 // is merely `inEPMC` (indexed, but subscription — e.g. most of Science) returns 404, and that

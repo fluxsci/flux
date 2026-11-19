@@ -6,7 +6,7 @@ if(!Number.isFinite(timeoutMs)||timeoutMs<=0)throw new Error("Invalid static pri
 // Render a standalone SVG to a vector PDF via Chromium's print engine.
 // SHL-14: ONE reusable hidden window serves every PDF export (figure + document) —
 // creating+destroying a BrowserWindow per call paid full window setup each export
-// (the proxy engine proved the reuse pattern). Serialized: loadFile/printToPDF on a
+// Serialized: loadFile/printToPDF on a
 // shared window must not interleave. Lazily created, recreated if it ever dies,
 // blanked after each print so the last export's DOM doesn't sit resident.
 let printWin = null, printSession=null, disposed=false, registered=false;

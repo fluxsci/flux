@@ -40,7 +40,7 @@ function createFlushCoordinator({ timeoutMs = 2500 } = {}) {
  * The quit decision (quit-wedge R2, 2026-08-11). The invariant this encodes:
  * **a window the user cannot see must never keep the app alive.** Electron's
  * `window-all-closed` counts every BrowserWindow — including the hidden
- * proxy-capture and print utility windows — so a surviving hidden window used
+ * utility windows (print) — so a surviving hidden window used
  * to leave a windowless main process holding the single-instance lock forever
  * (notes/aug_10_deferred_updates/quit_wedge_and_silent_launch.md). Instead,
  * APP windows register here explicitly (utility windows never do), and the

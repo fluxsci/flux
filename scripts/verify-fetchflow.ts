@@ -1,10 +1,11 @@
-// Behavioral verification of the bulk-fetch protections, driven through the REAL
+// Behavioral verification of the fetch protections, driven through the REAL
 // pdfFinderBridge loops with a stubbed window.fig bridge (no Electron, no network):
-//   1. Phase B circuit breaker — 3 consecutive genuine failures for one publisher stop
-//      that publisher for the run, report reason "publisher-blocked" (an ENV reason —
-//      never written to fetch-failure.json), and leave other publishers untouched.
-//   2. Phase B rate limiting — captures spend CAPTURE_COST per publisher window.
-//   3. flux-core OA-miss ledger round-trip — save/load/corrupt-tolerance on a temp lib.
+//   1. The renderer bridge offers the open-access route and Europe PMC supplements only.
+//      (Its publisher-capture phase, with the circuit breaker and capture budget this gate
+//      used to pin, was removed with the library sign-in, owner decision 2026-11-18.)
+//   2. The supplements sweep asks Europe PMC and nothing else.
+//   3. A TRANSIENT netGet failure is never reported as a definitive no-OA.
+//   4. flux-core OA-miss ledger round-trip — save/load/corrupt-tolerance on a temp lib.
 // Run: npx tsx scripts/verify-fetchflow.ts
 import * as os from "node:os";
 import * as fs from "node:fs/promises";
@@ -17,53 +18,43 @@ function ok(cond: boolean, name: string, detail = "") {
 }
 
 // --- stub the Electron bridge BEFORE importing the bridge module -----------------
-const proxyCalls: string[] = [];
+const netGets: string[] = [];
 (globalThis as any).window = {
   fig: {
-    // every proxy capture "finds the article but no PDF" — a genuine (loggable) failure
-    fetchViaProxy: async (target: string) => {
-      proxyCalls.push(target);
-      return { error: "no pdf", reason: "not-a-pdf", diag: { host: "x" } };
+    netGet: async (url: string) => {
+      netGets.push(url);
+      return { error: "HTTP 404" };
     },
-    netGet: async () => ({ error: "offline" }),
     keysGet: async () => ({}),
   },
 };
 
-const { fetchViaProxyForEntries, fetchPdfForEntry, ENV_REASONS } = await import("../src/lib/references/pdfFinderBridge");
-const { sharedLimiter, CAPTURE_COST } = await import("../src/lib/references/hostLimiter");
-const { safeKey } = await import("../src/lib/references/items");
-void safeKey;
+const bridge = await import("../src/lib/references/pdfFinderBridge");
+const { fetchPdfForEntry, fetchSupplementsForEntries } = bridge;
 
-// --- 1+2: circuit breaker + limiter spend over the real Phase B loop -------------
+// --- 1: the bridge's whole surface ------------------------------------------------
 {
-  // 5 Elsevier papers + 2 Springer papers, interleaved by the loop itself.
-  const entries = [
-    ...Array.from({ length: 5 }, (_, i) => ({ key: `cell${i}`, doi: `10.1016/j.cell.${i}` })),
-    ...Array.from({ length: 2 }, (_, i) => ({ key: `nat${i}`, doi: `10.1038/s${i}` })),
-  ];
-  const t0 = Date.now();
-  const sum = await fetchViaProxyForEntries(
-    entries.map((entry) => ({ entry: entry as any })),
-    { delayMs: 1 }, // keep politeness delays out of the test's runtime
-  );
-  const byKey = new Map(sum.results.map((r) => [r.key, r]));
-  const blocked = sum.results.filter((r) => r.reason === "publisher-blocked");
-  ok(sum.blockedGroups?.join(",") === "elsevier", "elsevier breaker tripped", JSON.stringify(sum.blockedGroups));
-  ok(blocked.length === 2 && blocked.every((r) => r.key.startsWith("cell")), "remaining elsevier papers skipped");
-  ok(proxyCalls.length === 5, "exactly 3 elsevier + 2 springer captures attempted", `calls=${proxyCalls.length}`);
+  const names = Object.keys(bridge).sort().join(",");
   ok(
-    entries.filter((e) => e.key.startsWith("nat")).every((e) => byKey.get(e.key)?.reason === "not-a-pdf"),
-    "springer papers unaffected by elsevier's breaker",
+    names === "fetchPdfForEntry,fetchPdfsForEntries,fetchSupplementsForEntries,fetchSupplementsForEntry",
+    "pdfFinderBridge exports the open-access fetch and Europe PMC supplements, nothing else",
+    names,
   );
-  ok(ENV_REASONS.has("publisher-blocked"), "publisher-blocked classified as environment (never skip-listed)");
-  ok(sum.results.every((r) => r.key.startsWith("cell") === (r.group === "elsevier")), "results carry their group");
-  const spent = sharedLimiter.spent("elsevier");
-  ok(spent === 3 * CAPTURE_COST, "limiter charged CAPTURE_COST per attempted capture", `spent=${spent}`);
-  ok(Date.now() - t0 < 10_000, "breaker-skipped papers consume no time/delay");
 }
 
-// --- 2b: Phase A — a TRANSIENT netGet failure must NOT be recorded as a no-OA miss ---
+// --- 2: supplements come from Europe PMC only -------------------------------------
+{
+  netGets.length = 0;
+  const s = await fetchSupplementsForEntries([
+    { entry: { key: "suppA", doi: "10.1016/j.cell.1" } as any, enrich: { ids: { pmcid: "PMC123" } } as any },
+    { entry: { key: "suppB", doi: "10.1038/s1" } as any, enrich: { ids: { pmcid: "PMC456" } } as any },
+  ]);
+  const hosts = [...new Set(netGets.map((u) => new URL(u).hostname))];
+  ok(s.total === 2 && s.files === 0, "a sweep with nothing in Europe PMC reports zero files", JSON.stringify(s));
+  ok(netGets.length > 0 && hosts.every((h) => h === "www.ebi.ac.uk"), "every supplement request goes to Europe PMC (EBI)", hosts.join(","));
+}
+
+// --- 3: a TRANSIENT netGet failure must NOT be recorded as a no-OA miss ---
 // The OA-miss ledger only records a firm "no-OA" when the fetch was DEFINITIVE (the server
 // answered `HTTP <status>`). A timeout / network / offline error is TRANSIENT — the paper's
 // OA-ness is simply unknown this run, so `fetchPdfForEntry` must flag `transient` so the bulk
@@ -84,7 +75,7 @@ void safeKey;
   ok(rd.status === "no-oa" && !rd.transient, "definitive HTTP failure → no-oa NOT transient (recorded)", JSON.stringify(rd));
 }
 
-// --- 3: flux-core ledger round-trip on a temp FluxLib ----------------------------
+// --- 4: flux-core ledger round-trip on a temp FluxLib ----------------------------
 {
   const lib = await fs.mkdtemp(path.join(os.tmpdir(), "flux-oamiss-"));
   const { loadOaMisses, saveOaMisses } = await import("../flux-core/items");

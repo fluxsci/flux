@@ -125,13 +125,6 @@ const CHANNELS = [
   { channel: "win:projectOpenElsewhere", kind: "invoke", scope: "read" },
   // --- network / citations / acquisition ---------------------------------------
   { channel: "pdf:netGet", kind: "invoke", scope: "read" },
-  { channel: "pdf:fetchViaProxy", kind: "invoke", scope: "read" },
-  { channel: "proxy:login", kind: "invoke", scope: "read" },
-  { channel: "proxy:status", kind: "invoke", scope: "read" },
-  { channel: "proxy:cancel", kind: "invoke", scope: "read" },
-  { channel: "proxy:hasCredentials", kind: "invoke", scope: "read" },
-  { channel: "proxy:setCredentials", kind: "invoke", scope: "write" },
-  { channel: "proxy:clearCredentials", kind: "invoke", scope: "write" },
   { channel: "cite:fetchDoi", kind: "invoke", scope: "read" },
   { channel: "cite:fetchDoiBibtex", kind: "invoke", scope: "read" },
   { channel: "cite:openalex", kind: "invoke", scope: "read" },

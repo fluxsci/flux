@@ -227,6 +227,7 @@ The established shared cores — extend these, don't duplicate them:
 | Word counts — THE counting law (citations 0, a cross-ref the 2 words it prints, code/math/comments/tags/attributes/embed lines/table markup not words; LEGEND / TABLE / HEADING kinds), per-section counts and venue buckets (abstract / main / Methods / legends) | `src/lib/manuscript/wordCount.ts` + `wordBudget.ts` (status bar, outline, popover and Stats via `paper/wordCounts.svelte.ts`; Journal Check, `sections.ts`, `journalManuscript` + `journalSummary`, flux-core `connect/collect.ts`) | `verify-word-count.ts` (hand-counted Nature fixture, every former counter agrees, flux-core parity, `\S+` census), `verify-paper-wordcount-gui.mjs` |
 | Journal submission assembly — title page, citations, reference lists, section structure, legends, render settings, export summary (Nature, Science, Cell, bioRxiv) | `src/lib/style/journalManuscript.ts` (+ `journalCitations`, `journalRefs`, `journalCaptions`, `journalFigures`, `journalSummary`, `journalAssets.journalRenderMeta`), run inside `exportPrep.prepareExport` by both engines | `verify-journal-manuscript.ts`, `verify-journal-refs.ts`, `verify-journal-render.ts` (real Word + PDF), `verify-journal-export-gui.mjs` (GUI ≡ flux-core prepared text) |
 | External-command launch (Quarto, recipes, installed agent CLIs) | `electron/execResolve.cjs` (identity off win32; PATH×PATHEXT + ComSpec wrap on win32) | `verify-win-spawn.ts` |
+| Retired keys.json keys (dropped on every read and write: Electron `keys:get`/`keys:set`, flux-core `loadKeys`/`saveKeys`) and the upgrade cleanup of the removed library sign-in (its saved-credential file in FluxLib, the retired key, its session partition under userData; the module is the one place that names them) | `electron/retiredLibraryProxy.cjs` — FluxLib half from `fluxPaths.ensureFluxConfig` (Electron, CLI and MCP; every start, honours `FLUX_NO_MIGRATE`), partition half first thing in main's `whenReady` | `verify-no-library-proxy.ts` (pure: both engines, temp libraries, the real CLI in a scratch home, source/doc census), `verify-retired-session-electron.cjs` (real app startup) |
 
 ## 3. Data model and persistence invariants
 
@@ -2609,7 +2610,7 @@ Persistence invariants (all machine-checked — do not weaken):
   `win:projectOpenElsewhere` focuses the existing one (two autosavers on one manuscript can
   lose writing). Reader sessions persist per project root (`flux-reader-tabs:<root>`). QUIT is
   decided by `appLifecycle.createAppWindowPolicy`: app windows register, hidden utility windows
-  (proxy-capture, print) never do, and the last app window's close quits on non-mac — *a
+  (print) never do, and the last app window's close quits on non-mac — *a
   window the user cannot see must never keep the app alive* (the quit-wedge fix). Gates:
   `verify-quit-policy.ts` (pure), `verify-multiwindow.cjs` (electron).
 - **The Plots rail (2026-10-22) — the Figure and Slide left rails' second view.** `plotsRail/LeftRail.svelte`
@@ -6109,8 +6110,15 @@ be a few words ("Manuscript Check."), detail after it. The gate reads the BUNDLE
   direct-input policy and needs an explicit release decision; the V0.2 work does not replace
   the parser or call this a pass. Realistically paragraph-separated20k documents use the
   unchanged scale gate. Historical dense-canvas initial mount:160plots → one~90ms task.
-- The proxy-capture engine is owner-tuned and out of scope for refactors; its behavior contract is
-  `verify-proxy-capture.cjs` + `verify-netget.cjs`.
+- **No paywalled acquisition route (owner decision 2026-11-18).** Flux gets PDFs from open
+  access (the shared waterfall, both engines), the browser extension, or a file the user has
+  (Add PDF…, `pdfs_to_assign`, `ingest-pdf`). The university-library sign-in (capture
+  engine, saved credentials, sign-in session, "both routes failed" records and the ⊘ Failed
+  filter) was removed outright; do not add a replacement route, setting or stub. Upgrade
+  cleanup and the retired keys.json key live in ONE module, `electron/retiredLibraryProxy.cjs`
+  (§2 table); `verify-no-library-proxy.ts` censuses current source and docs for the feature's
+  identifiers. The open-access fetch's own contract is `verify-netget.cjs` + `verify-ratelimit.ts`
+  + `verify-fetchflow.ts` + `verify-oaledger.mjs`.
 - **Slide deferrals (slide-migration, owner-scoped §8):** bullets and math are OUT — slide
   text is the figure `text` element. Per-range bold/italic/underline INSIDE that element is no
   longer deferred (owner request, 2026-09-22 — see §4 and `textRuns.ts`); a separate rich-text
@@ -6158,7 +6166,10 @@ be a few words ("Manuscript Check."), detail after it. The gate reads the BUNDLE
   P2 exclusions. No passing adjacent test establishes an untested adverse interleaving.
 - **Signed Firefox distribution:** the checked-in signed0.1.2 XPI includes the hardened
   extension source (re-signed September25). `verify-extension-build.ts` compares source,
-  generated distribution and signed payload bytes and blocks release on mismatch. Future
+  generated distribution and signed payload bytes and blocks release on mismatch. The payload
+  is `extension/{background,page}.js` AND the vendored `electron/{captureRules,supplementRules}.js`,
+  so even a comment edit in any of those four files needs a re-sign (two stale comments wait
+  for the next one; `verify-no-library-proxy.ts` lists them). Future
   source changes still require maintainer re-signing through the existing process;
   unsigned/diagnostic packages do not certify that browser-store artifact.
 - **The demo fixture cannot hand a re-imported asset from Figure to Slide:** the tenancy handoff
@@ -13251,3 +13262,18 @@ carry earlier exchanges.
 - **`npm audit fix` can cross a major version of a package the repo imports but never declared.** `zod` was only a transitive dependency of the MCP SDK, whose range is `^3.25 || ^4.0`; the fix moved it to 4.x and `z.record(x)` stopped type-checking. `zod` is now a declared dependency at `^3.25.76`. Anything `flux-core` imports by name belongs in `package.json`. The remaining high advisory is zod 3 itself; clearing it is a zod 4 migration (tool schemas, the MCP golden), not a lockfile bump.
 - **A write into a project folder is a write through someone else's filesystem.** `mkdir -p` plus `writeFile` follows any link already there. Check the folders with `lstat`, create the file exclusively under a private name (`flag: "wx"`), and `rename` it into place: rename replaces a link, it never writes through one. Remove on teardown only what this instance published.
 - **Run recipe gates through the runner.** A gate that grants trust writes to the machine preferences; `run-verifies.mjs` gives each gate its own config dir, a bare `npx tsx scripts/verify-…` does not.
+
+### 2026-11-18 — The university-library sign-in is removed (Claude Opus 5.5, `remove/library-proxy`)
+**Work:** Owner decision before going public: Flux no longer signs in to a library or downloads through
+EZProxy. Removed the capture engine, the seven IPC channels, the Keys-panel sign-in, Get via library, the
+bulk run's library phase, publisher-page supplements, and the "both routes failed" records with their
+pills, ⊘ Failed step and Retry all. Upgrade cleanup (saved password, retired key, sign-in session) is one
+module both engines call; `flux missing-pdfs` lost its sign-in columns.
+**Learnings:** (promoted to §2 table, §10 deferrals and the signed-extension bullet)
+- Removing a route can orphan a whole UI layer built on its by-products: the outcome pills, the filter
+  step and the skip-list all read records only the removed route wrote. Trace each artifact's WRITER
+  before deciding what stays; a reader of records nobody writes any more is a count that never moves.
+- The extension's signed payload includes the vendored `electron/supplementRules.js` and
+  `captureRules.js`: a comment edit there turns `verify-extension-build` red until re-signed.
+- Cleanup that deletes user files belongs behind the same `FLUX_NO_MIGRATE` escape hatch as migration,
+  or a gate that spawns the real CLI with a real HOME would run it on the developer's machine.

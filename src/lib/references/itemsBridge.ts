@@ -14,7 +14,6 @@ import {
   parsePdfLink,
   fulltextPath,
   sourcePath,
-  failurePath,
   safeKey,
   readerContextPath,
   oaMissesPath,
@@ -27,10 +26,8 @@ import {
   type SupplementRecord,
   PAPER_PDF,
   PAPER_LINK,
-  FETCH_FAILURE_JSON,
   type PdfLink,
   type SourceInfo,
-  type FetchFailure,
   type ReaderContext,
   type OaMissMap,
   type OaMissFile,
@@ -90,7 +87,7 @@ export async function readerPdfIdentity(key: string): Promise<string | null> {
 }
 
 /** File a hand-downloaded PDF (chosen via the OS picker) into items/<key>/ — the manual
- *  fallback for paywalled papers. Validates the %PDF- header. Returns false if the file
+ *  route for papers with no open-access copy. Validates the %PDF- header. Returns false if the file
  *  isn't a PDF or can't be read. */
 export async function ingestPdfFile(key: string, filePath: string): Promise<boolean> {
   const fb = fileBridge();
@@ -147,7 +144,7 @@ export const hasPdfIn = (pdfKeys: Set<string>, key: string): boolean =>
 /** File a fetched PDF into items/<key>/ + write source.json provenance (renderer twin
  *  of flux-core writePdf). Computes a SHA-256 via WebCrypto for parity, and extracts
  *  fulltext.txt best-effort — this is the ONE place every GUI acquisition path funnels
- *  through (bulk fetch, proxy capture, manual ingest, assign), so GUI-acquired papers
+ *  through (bulk fetch, manual ingest, assign), so GUI-acquired papers
  *  are full-text-searchable exactly like Node-acquired ones. */
 export async function writePdfItem(
   key: string,
@@ -159,7 +156,7 @@ export async function writePdfItem(
   if (!fb || !lib) return { ok: false, reason: "no-bridge" };
   // Gate every AUTOMATED acquisition on "is this actually the article?" before it can become
   // paper.pdf. Doing this at the write point rather than inside one fetch route is deliberate:
-  // it covers the OA waterfall, the proxy capture and any future route at once, and it is the
+  // it covers the OA waterfall and any future route at once, and it is the
   // check that catches a supplement whose URL looked innocent on the way in. A supplement
   // isn't discarded — it's filed where it belongs, and the caller is told to keep looking.
   if (isAutomatedSource(info.source)) {
@@ -593,98 +590,6 @@ export async function saveOaMisses(misses: OaMissMap): Promise<void> {
   }
 }
 
-// --- fetch-failure log (Part C) -------------------------------------------------
-// Records WHY a paper couldn't be fetched after exhausting every route, so the bulk run
-// skips it by default (no re-grinding the same DOI) and the user can see/diagnose the
-// backlog. Cleared on any later success. Never written for environment failures.
-
-/** Record (or increment) a paper's fetch failure. Merges with any prior record so
- *  `attempts` accumulates across runs. Best-effort; returns false if it couldn't write. */
-export async function writeFetchFailure(
-  key: string,
-  rec: Omit<FetchFailure, "key" | "attempts" | "attemptedAt"> & { attemptedAt?: string },
-): Promise<boolean> {
-  const fb = fileBridge();
-  const lib = await resolveFluxLibPath();
-  if (!fb || !lib) return false;
-  const prior = await readFetchFailure(key);
-  const full: FetchFailure = {
-    key,
-    target: rec.target,
-    host: rec.host ?? prior?.host,
-    attemptedAt: rec.attemptedAt ?? new Date().toISOString(),
-    attempts: (prior?.attempts ?? 0) + 1,
-    oa: rec.oa ?? prior?.oa,
-    proxy: rec.proxy ?? prior?.proxy,
-    lastError: rec.lastError ?? prior?.lastError,
-  };
-  try {
-    if (fb.mkdir) await fb.mkdir(itemDir(lib, key));
-    await fb.writeText(failurePath(lib, key), JSON.stringify(full, null, 2) + "\n");
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Read a paper's fetch-failure record, or null if it never failed (or later succeeded). */
-export async function readFetchFailure(key: string): Promise<FetchFailure | null> {
-  const fb = fileBridge();
-  const lib = await resolveFluxLibPath();
-  if (!fb || !lib) return null;
-  try {
-    const p = failurePath(lib, key);
-    if (!(await fb.exists(p))) return null;
-    return JSON.parse(await fb.readText(p)) as FetchFailure;
-  } catch {
-    return null;
-  }
-}
-
-/** Delete a paper's fetch-failure record (called on any successful fetch). */
-export async function clearFetchFailure(key: string): Promise<void> {
-  const fb = fileBridge();
-  const lib = await resolveFluxLibPath();
-  if (!fb || !lib) return;
-  try {
-    const p = failurePath(lib, key);
-    if (await fb.exists(p)) await fb.remove?.(p);
-  } catch {
-    /* best-effort */
-  }
-}
-
-/** The set of citekeys (safeKey/NFC form) with a fetch-failure record — one readdir of
- *  items/ + a presence check (mirrors listPdfKeys; scales with attempted papers). Drives
- *  the bulk-run skip-list and the Library "failed N" filter. */
-export async function listFailedKeys(): Promise<Set<string>> {
-  const fb = fileBridge();
-  const lib = await resolveFluxLibPath();
-  const out = new Set<string>();
-  if (!fb || !lib) return out;
-  let entries: { name: string; dir: boolean }[];
-  try {
-    entries = (await fb.readdir?.(itemsBase(lib))) ?? [];
-  } catch {
-    return out;
-  }
-  await Promise.all(
-    entries
-      .filter((e) => e.dir)
-      .map(async ({ name }) => {
-        try {
-          if (await fb.exists(`${itemsBase(lib)}/${name}/${FETCH_FAILURE_JSON}`)) out.add(name.normalize("NFC"));
-        } catch {
-          /* ignore */
-        }
-      }),
-  );
-  return out;
-}
-
-/** LR-7: like listFailedKeys, but reads each failure record so the Library can show a durable
- *  per-row outcome pill (no DOI / no OA / failed) without expanding the row. Keyed NFC. Failures
- *  are the minority (only attempted-and-failed papers have a record), so the extra reads are few. */
 // 2.3 Full-text search over items/*/fulltext.txt. The scan is a Node streaming job
 // (flux-core/fulltextSearch.ts) run in the main process via the bundled CLI, so the
 // renderer stays jank-free even over a 1k-paper library. Mirrors FulltextResult; a
@@ -734,30 +639,4 @@ export async function searchFulltext(
   } catch (e) {
     return { ...EMPTY_FT, error: e instanceof Error ? e.message : String(e) };
   }
-}
-
-export async function listFailures(): Promise<Record<string, FetchFailure>> {
-  const fb = fileBridge();
-  const lib = await resolveFluxLibPath();
-  const out: Record<string, FetchFailure> = {};
-  if (!fb || !lib) return out;
-  let entries: { name: string; dir: boolean }[];
-  try {
-    entries = (await fb.readdir?.(itemsBase(lib))) ?? [];
-  } catch {
-    return out;
-  }
-  await Promise.all(
-    entries
-      .filter((e) => e.dir)
-      .map(async ({ name }) => {
-        try {
-          const p = `${itemsBase(lib)}/${name}/${FETCH_FAILURE_JSON}`;
-          if (await fb.exists(p)) out[name.normalize("NFC")] = JSON.parse(await fb.readText(p)) as FetchFailure;
-        } catch {
-          /* a corrupt/racing record just omits its pill */
-        }
-      }),
-  );
-  return out;
 }
