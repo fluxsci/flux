@@ -26,6 +26,7 @@ import { fluximgIdPrefix, fluximgStaticSvg, insetsOf, layerSvgPath } from "./sta
 import { colormapLut, ensureColormapLuts } from "../color/colormapLuts";
 import { escapeXml, sanitizeLayerSvg } from "./layers";
 import { fluximgPlaceholderSvg } from "./placeholder";
+import { partDomId } from "../plot/parse";
 
 /** The surfaces an export names (model3d's poster surfaces: one vocabulary for every asynchronously drawn kind). */
 export type FluximgExportSurface = PosterSurface;
@@ -225,7 +226,7 @@ export async function prepareFluximgContext(figures: readonly Figure[], assets: 
 
 /** The ids an element's markup uses: `fx-<element id>-…`, namespaced the way Paper namespaces plot parts. */
 export function fluximgExportIdPrefix(elementId: string, namespace?: string): string {
-  return fluximgIdPrefix(namespace ? `${namespace}__${elementId}` : elementId);
+  return fluximgIdPrefix(namespace ? partDomId(namespace, elementId) : elementId);
 }
 
 /**
