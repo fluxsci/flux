@@ -19,15 +19,44 @@
   let panning = false;
   let alive = true;
   const sheetWidth = 640;
-  $: fitScale = Math.max(.001, Math.min((width - 32) / sheetWidth, (height - 32) / sheetHeight));
+  // The device pixel ratio of the window this preview is in, and a value brought DOWN onto its
+  // device-pixel grid. Everything that is fitted is sized on that grid, from below.
+  let dpr = 1;
+  const down = (v: number) => Math.floor(v * dpr + 1e-6) / dpr;
+  const near = (v: number) => Math.round(v * dpr) / dpr;
+  // The fitted scale is the largest that fits AND puts the proof's width on whole device pixels,
+  // so its edges are drawn sharp instead of being smeared across two.
+  $: fitScale = Math.max(.001, down(sheetWidth * Math.min((width - 32) / sheetWidth, (height - 32) / sheetHeight)) / sheetWidth);
   $: scale = fit ? fitScale : manualScale;
+  // Does the page proof, at this scale, need more room than the viewport has? ONLY then may the
+  // viewport scroll (see `.scrolls` below). When it fits, the stage is exactly the viewport.
+  $: scrolls = sheetWidth * scale + 32 > width + .5 || sheetHeight * scale + 32 > height + .5;
   $: stageWidth = Math.max(width, sheetWidth * scale + 32);
   $: stageHeight = Math.max(height, sheetHeight * scale + 32);
   $: percent = Math.round(scale * 100);
   $: if (figureId !== previousFigure) { previousFigure = figureId; fit = true; if (viewport) viewport.scrollTo(0, 0); }
+  // THE VIBRATION (owner, 2026-11-19: "when fit to size or zoomed out it is vibrating very fast
+  // which makes it appear very blurry … Once i zoom in this goes away"). At a fractional device
+  // scale (their display is 1.25) the viewport's real size is a fraction of a CSS pixel:
+  // 585.725 px. `clientWidth` ROUNDS it, here up to 586. The stage was sized to that, so it was a
+  // fraction of a device pixel wider than its own viewport: it overflowed, scrollbars appeared,
+  // the viewport shrank, the fit shrank with it, the scrollbars went, and round again, once per
+  // frame, forever. (Zoomed in, the scrollbars are simply there, which is why that was steady.)
+  // Device-metrics emulation does not reproduce it: layout must really be in device pixels.
+  // Two rules now, either of which alone stops it:
+  //   1. the viewport is measured at its TRUE size and brought down onto the device-pixel grid,
+  //      so a fitted stage can never be larger than the box it sits in;
+  //   2. the viewport can only scroll while the proof is larger than it (`scrolls`): a proof
+  //      that fits has no scrollbar to flip.
   function measure() {
     if (!alive || !viewport || !sheet) return;
-    width = viewport.clientWidth; height = viewport.clientHeight; sheetHeight = sheet.offsetHeight;
+    dpr = viewport.ownerDocument.defaultView?.devicePixelRatio || 1;
+    // The content box, in fractions of a CSS pixel (getBoundingClientRect is the border box; the
+    // scrollbars, when there are any, are the difference between offset and client sizes).
+    const box = viewport.getBoundingClientRect();
+    width = down(box.width - (viewport.offsetWidth - viewport.clientWidth));
+    height = down(box.height - (viewport.offsetHeight - viewport.clientHeight));
+    sheetHeight = sheet.offsetHeight;
   }
   export function reconnect() {
     observer?.disconnect();
@@ -42,13 +71,13 @@
   async function zoom(next: number, x = width / 2, y = height / 2) {
     // Keep the point under the pointer still while changing the rendered scale.
     const old = scale;
-    const px = (viewport.scrollLeft + x - (stageWidth - sheetWidth * old) / 2) / old;
-    const py = (viewport.scrollTop + y - (stageHeight - sheetHeight * old) / 2) / old;
+    const px = (viewport.scrollLeft + x - near((stageWidth - sheetWidth * old) / 2)) / old;
+    const py = (viewport.scrollTop + y - near((stageHeight - sheetHeight * old) / 2)) / old;
     manualScale = Math.max(.05, Math.min(8, next)); fit = false;
     await tick();
     if (!alive) return;
-    viewport.scrollLeft = (stageWidth - sheetWidth * scale) / 2 + px * scale - x;
-    viewport.scrollTop = (stageHeight - sheetHeight * scale) / 2 + py * scale - y;
+    viewport.scrollLeft = near((stageWidth - sheetWidth * scale) / 2) + px * scale - x;
+    viewport.scrollTop = near((stageHeight - sheetHeight * scale) / 2) + py * scale - y;
   }
   function wheel(node: HTMLElement) {
     const handler = (e: WheelEvent) => {
@@ -94,9 +123,9 @@
   </div>
 </div>
 <!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions -->
-<div class="preview-viewport" class:zoomed={!fit} class:panning bind:this={viewport} role="region" aria-label="Figure preview" tabindex="0" use:watch use:wheel on:pointerdown={pan} on:keydown={keys} data-scale={scale} data-fit={fit}>
+<div class="preview-viewport" class:zoomed={!fit} class:panning class:scrolls bind:this={viewport} role="region" aria-label="Figure preview" tabindex="0" use:watch use:wheel on:pointerdown={pan} on:keydown={keys} data-scale={scale} data-fit={fit}>
   <div class="preview-stage" style={`width:${stageWidth}px;height:${stageHeight}px`}>
-    <div class="preview-sheet cursor-on-light" bind:this={sheet} style={`width:${sheetWidth}px;left:${(stageWidth-sheetWidth*scale)/2}px;top:${(stageHeight-sheetHeight*scale)/2}px;transform:scale(${scale})`}>
+    <div class="preview-sheet cursor-on-light" bind:this={sheet} style={`width:${sheetWidth}px;left:${near((stageWidth-sheetWidth*scale)/2)}px;top:${near((stageHeight-sheetHeight*scale)/2)}px;transform:scale(${scale})`}>
       <div class="art" style={`aspect-ratio:${aspect > 0 ? aspect : 1}`}>
         {#if image}<img src={image} alt={title} draggable="false" />{:else}<p>{error || 'Preparing preview…'}</p>{/if}
       </div>
@@ -116,7 +145,10 @@
   select { appearance:none; -webkit-appearance:none; width:86px; padding:0 6px; text-align:center; font-variant-numeric:tabular-nums; }
   button:hover, select:hover { color:var(--c-tx-hi); background:var(--c-surface-2); } button:active { background:var(--c-accent-tint); }
   button.active { color:var(--c-accent-bright); background:var(--c-accent-tint); box-shadow:inset 0 -2px 0 var(--c-accent); } button:focus-visible,select:focus-visible { outline:1px solid var(--c-accent); outline-offset:-1px; }
-  .preview-viewport { min-height:0; flex:1; overflow:auto; outline:none; overscroll-behavior:contain; }
+  /* It scrolls only while the proof is larger than it: a proof that fits must have no scrollbar
+     that could appear, shrink the viewport, change the fit, and disappear again. */
+  .preview-viewport { min-height:0; flex:1; overflow:hidden; outline:none; overscroll-behavior:contain; }
+  .preview-viewport.scrolls { overflow:auto; }
   .preview-viewport:focus-visible { box-shadow:inset 0 0 0 1px var(--c-accent); } .zoomed { cursor:grab; } .panning { cursor:grabbing; }
   .preview-stage { position:relative; }
   .preview-sheet { position:absolute; box-sizing:border-box; padding:26px 28px 24px; transform-origin:0 0; user-select:none; background:var(--flx-paper, #fffcf0); color:#100f0f; box-shadow:0 0 0 1px rgba(0,0,0,.5), 0 10px 28px -10px rgba(0,0,0,.6); }

@@ -101,6 +101,9 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 
 ### Figure and Slide
 
+- **The Figure-Meta preview no longer shimmers.** On a display with a fractional scale (125%,
+  150%) the fitted or zoomed-out preview flickered between two sizes every frame, which read as
+  blur. It is now steady, and a fitted proof sits on whole device pixels, so its edges are sharp.
 - **The folder navigator (Alt+/) opens beside the Plots rail** instead of taking the place of
   Dissections, so you can pick a folder and still see the dissections of the plot you clicked.
   The caret starts in its search: matches are marked in the names, **↑** / **↓** move the

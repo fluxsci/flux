@@ -630,6 +630,7 @@
       "verify-ai-monitor-gui.mjs",
       "verify-inbox-gui.mjs",
       "verify-flux-ai-mark-gui.mjs",
+      "verify-fractional-dpr-rest.mjs",
       "verify-ask-gui.mjs",
       "verify-background-run-gui.mjs",
       "verify-plot-view-gui.mjs",
@@ -1657,6 +1658,16 @@
         "verify-ai-monitor-gui.mjs",
         "verify-background-run-gui.mjs",
         "verify-context-stamp.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "$why": "The Figure-Meta preview vibrated at the owner's 1.25 device scale (a fit sized from a rounded clientWidth, flipping scrollbars each frame). Only a REAL fractional device scale with real scrollbars reproduces it: this gate first, then the Figure-Meta gates.",
+      "glob": "src/lib/figure/FigureMetaPreview.svelte",
+      "run": [
+        "verify-fractional-dpr-rest.mjs",
+        "verify-figure-meta-refinements.mjs",
+        "verify-figure-metadata.mjs",
         "tier:pure"
       ]
     },
@@ -12475,6 +12486,17 @@
       "coverage": "behavior"
     },
     "verify-flux-ai-mark-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-fractional-dpr-rest.mjs": {
       "runtime": "tsx",
       "prerequisites": [
         "server"

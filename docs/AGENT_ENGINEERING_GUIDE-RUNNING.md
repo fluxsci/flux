@@ -2795,6 +2795,23 @@ Persistence invariants (all machine-checked — do not weaken):
   per new set, and never for reserved companion folders, which it leaves out on purpose).
   The gallery gate reads row text and `.count`, so a match is marked with `<mark>` inside
   `.name`, never by changing the name.
+  **A FIT MUST NOT BE SIZED FROM `clientWidth` (2026-11-19; owner, on a 1.25 display: the Figure-Meta
+  preview "is vibrating very fast which makes it appear very blurry … Once i zoom in this goes away").** At
+  a fractional device scale a box's real size is a fraction of a CSS pixel (585.725 px); `clientWidth` and
+  `offsetWidth` ROUND it (586). A stage sized to the rounded-up number is a fraction of a device pixel wider
+  than its own `overflow:auto` viewport: it overflows, scrollbars appear, the viewport shrinks, the fit
+  shrinks with it, the scrollbars go, and it flips once per frame forever (two states, a ResizeObserver
+  delivery every frame). Zoomed in the scrollbars are simply there, which is why that was steady. Rules
+  (`FigureMetaPreview.svelte`): measure the TRUE size (`getBoundingClientRect`, minus the scrollbar gutter)
+  and bring it DOWN onto the device-pixel grid (`floor(v * dpr) / dpr`); let a fitted viewport scroll only
+  while its content really is larger (`.scrolls` toggles `overflow: auto`; a fit has no scrollbar to flip);
+  and place a fitted thing on whole device pixels. This reproduces ONLY with a real device scale and real
+  scrollbars: device-metrics emulation keeps layout in CSS pixels, and puppeteer's default
+  `--hide-scrollbars` removes the scrollbar that drives the loop (both hid it from every gate and from my
+  first 600 samples). `verify-fractional-dpr-rest.mjs` launches Chrome with `--force-device-scale-factor=1.25`
+  and `ignoreDefaultArgs: ["--hide-scrollbars"]`, sweeps the preview across fractional sizes, and watches ten
+  other resting surfaces for a ResizeObserver that keeps firing (the signature of any such loop). To look by
+  hand: Electron with `--force-device-scale-factor=1.25` and NO puppeteer viewport emulation.
   **Figure-Meta (rebuilt 2026-11-18; owner: "sloppy and unpleasant and feels a bit half-baked").**
   Three columns: which figure · how it will print · what you write. The header is one 36 px bar
   (`.title`, then `.ctx` = name · title; the old 62 px banner and the second heading over the
