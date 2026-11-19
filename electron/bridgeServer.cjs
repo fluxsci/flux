@@ -124,27 +124,45 @@ function startBridge({ root, getContext, dispatch, noteWrite, prepareCapture, ca
   server.listen(0, "127.0.0.1", () => {
     const port = server.address().port;
     try {
-      // W12 (SHL-8): bridge.json carries the bearer token in plaintext — write it
-      // owner-only (0600) inside an owner-only dir (0700), matching the proxy creds.
-      // chmod after the write too: writeFileSync's mode only applies on CREATE, so a
-      // pre-existing (looser) file from a prior run would otherwise keep its old perms.
-      fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-      if (noteWrite) noteWrite(file);
-      fs.writeFileSync(
-        file,
-        JSON.stringify(
-          { url: `http://127.0.0.1:${port}`, port, token, root, sessionId: token, pid: process.pid, started: new Date().toISOString() },
-          null,
-          2,
-        ),
-        { mode: 0o600 },
-      );
-      published = true;
-      try {
-        fs.chmodSync(file, 0o600);
-      } catch {
-        /* best-effort on platforms without POSIX perms */
+      // W12 (SHL-8): bridge.json carries the bearer token in plaintext — it is written
+      // owner-only (0600) inside an owner-only dir (0700).
+      //
+      // The path is INSIDE the project, and a project can arrive from someone else with
+      // anything already sitting at .meta, .meta/live or bridge.json. A link there would
+      // send this write (and the token) to whatever it points at, so nothing is followed:
+      // the two folders must be real folders, and the file is created fresh under a
+      // private name and renamed into place, which replaces a link instead of writing
+      // through it. If a folder is a link, the bridge is simply not published for this
+      // project (the app works; live pairing with an agent is unavailable until it is fixed).
+      for (const dir of [path.join(root, ".meta"), path.dirname(file)]) {
+        let st = null;
+        try {
+          st = fs.lstatSync(dir);
+        } catch (e) {
+          if (!e || e.code !== "ENOENT") throw e;
+        }
+        if (st && !st.isDirectory()) throw new Error(`${dir} is a link or a file, not a folder; the live bridge token is not written through it`);
+        if (!st) fs.mkdirSync(dir, { mode: 0o700 });
       }
+      const tmp = `${file}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.tmp`;
+      if (noteWrite) {
+        noteWrite(tmp);
+        noteWrite(file);
+      }
+      const body = JSON.stringify(
+        { url: `http://127.0.0.1:${port}`, port, token, root, sessionId: token, pid: process.pid, started: new Date().toISOString() },
+        null,
+        2,
+      );
+      try {
+        // "wx" = create exclusively: it fails rather than open anything already at that name.
+        fs.writeFileSync(tmp, body, { mode: 0o600, flag: "wx" });
+        fs.renameSync(tmp, file);
+      } catch (e) {
+        fs.rmSync(tmp, { force: true });
+        throw e;
+      }
+      published = true;
     } catch (e) {
       console.warn("[flux] bridge: could not write bridge.json:", e && e.message);
     }
@@ -162,6 +180,7 @@ function startBridge({ root, getContext, dispatch, noteWrite, prepareCapture, ca
   };
 
   const stop = () => {
+    const wasPublished = published; // only ever remove a descriptor this instance wrote
     published = false;
     for (const res of sse) {
       try {
@@ -177,7 +196,7 @@ function startBridge({ root, getContext, dispatch, noteWrite, prepareCapture, ca
       /* ignore */
     }
     try {
-      fs.rmSync(file, { force: true });
+      if (wasPublished) fs.rmSync(file, { force: true });
     } catch {
       /* ignore */
     }

@@ -124,6 +124,45 @@ try {
   }
   assert(refused, "unknown command refused");
 
+  // The descriptor is a real, private file (not written in place through whatever was there).
+  const descriptor = await fs.lstat(path.join(root, ".meta", "live", "bridge.json"));
+  assert(descriptor.isFile() && (process.platform === "win32" || (descriptor.mode & 0o777) === 0o600), "bridge.json is a regular owner-only file");
+
+  // A project can arrive carrying links where the descriptor goes. Nothing is written through them.
+  if (process.platform !== "win32") {
+    const stub = { getContext: () => ({}), dispatch: async () => ({}) };
+    const settle = async (b: { isRunning(): boolean }, want: boolean) => { for (let i = 0; i < 100 && b.isRunning() !== want; i++) await sleep(20); await sleep(60); };
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "flux-bridge-outside-"));
+    try {
+      // (a) bridge.json itself is a link to a file elsewhere: the link is replaced, the target untouched.
+      const linkedFile = await fs.mkdtemp(path.join(os.tmpdir(), "flux-bridge-linkfile-"));
+      await fs.mkdir(path.join(linkedFile, ".meta", "live"), { recursive: true });
+      await fs.writeFile(path.join(outside, "canary.txt"), "untouched", { mode: 0o644 });
+      await fs.symlink(path.join(outside, "canary.txt"), path.join(linkedFile, ".meta", "live", "bridge.json"));
+      const b1 = startBridge({ root: linkedFile, ...stub });
+      await settle(b1, true);
+      const st1 = await fs.lstat(path.join(linkedFile, ".meta", "live", "bridge.json"));
+      const canary = await fs.stat(path.join(outside, "canary.txt"));
+      assert(b1.isRunning() && st1.isFile() && !st1.isSymbolicLink(), "a pre-planted bridge.json link is replaced by a real file");
+      assert((await fs.readFile(path.join(outside, "canary.txt"), "utf8")) === "untouched" && (canary.mode & 0o777) === 0o644, "…and the file it pointed at keeps its contents and its permissions");
+      b1.stop();
+      await fs.rm(linkedFile, { recursive: true, force: true });
+
+      // (b) .meta/live is a link to a folder elsewhere: no token is written there, the bridge stays unpublished.
+      const linkedDir = await fs.mkdtemp(path.join(os.tmpdir(), "flux-bridge-linkdir-"));
+      await fs.mkdir(path.join(linkedDir, ".meta"));
+      await fs.symlink(outside, path.join(linkedDir, ".meta", "live"));
+      const b2 = startBridge({ root: linkedDir, ...stub });
+      await settle(b2, true);
+      assert(!b2.isRunning() && (await fs.readdir(outside)).join() === "canary.txt", "a linked .meta/live gets no token; the bridge is not published");
+      b2.stop();
+      assert((await fs.readdir(outside)).join() === "canary.txt", "stopping an unpublished bridge removes nothing through the link");
+      await fs.rm(linkedDir, { recursive: true, force: true });
+    } finally {
+      await fs.rm(outside, { recursive: true, force: true });
+    }
+  }
+
   console.log("\nALL LIVE-BRIDGE (WS4) TESTS PASSED");
 } finally {
   bridge.stop();
