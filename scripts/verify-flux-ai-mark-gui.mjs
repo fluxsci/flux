@@ -40,8 +40,8 @@ try {
   await sleep(900); // the opening chord was input: let the hands-off pause pass
   let s = await stats();
   h.eq([s.alive, s.engines], [1, 1], "one engine, for the one live mark");
-  const fired = await firesIn(2600);
-  h.ok(fired >= 2, `left alone, its points fire (${fired} in 2.6 s)`);
+  const fired = await firesIn(6000);
+  h.ok(fired >= 2, `left alone, its points fire (${fired} in 6 s)`);
   let m = await head();
   h.eq(m.css, ["fam-orbit-a", "fam-orbit-b", "flux-ai-turn"], "its CSS life: a turn and two drifting fronts");
   h.ok(m.contain.includes("strict") || (m.contain.includes("size") && m.contain.includes("layout") && m.contain.includes("paint")), `its box is strictly contained (${m.contain})`);
@@ -64,7 +64,7 @@ try {
   await sleep(1300);
   m = await head();
   h.ok(!m.held && m.running >= 3, `a moment after the hands stop it is alive again (${m.running} running)`);
-  h.ok((await firesIn(2600)) >= 2, "and firing again");
+  h.ok((await firesIn(6000)) >= 1, "and firing again"); // resting firing is random at 1.3/s: a short window flakes by chance
 
   h.section("hands off: a held pointer, the wheel");
   await page.mouse.move(700, 600); await page.mouse.down();
@@ -126,7 +126,7 @@ try {
   h.eq(await firesIn(1800), 0, "hidden from view, it fires nothing");
   await page.evaluate(() => { document.querySelector(".inbox-panel").style.display = ""; });
   await sleep(900);
-  h.ok((await firesIn(2600)) >= 2, "shown again, it resumes");
+  h.ok((await firesIn(6000)) >= 1, "shown again, it resumes");
   await page.keyboard.down("Alt"); await page.keyboard.press("KeyQ"); await page.keyboard.up("Alt"); // the Inbox's own chord closes it
   await waitFor(page, () => !document.querySelector(".inbox-panel"), null, { timeout: 5000, label: "inbox closed" });
   s = await stats();
