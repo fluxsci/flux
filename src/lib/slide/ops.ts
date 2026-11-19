@@ -22,6 +22,7 @@ import { makePlotPanel, makeImagePanel, makeText, mergePartOverride, type Box, t
 import { FLEXOKI } from "../flexoki";
 import { DEFAULT_THEME_ID, resolveTheme } from "./theme";
 import { cloneContentWithFreshIds, placeContentOnStage } from "./deckProject";
+import { FLUXIMG_NOT_IN_SLIDES, isFluximgElement } from "../fluximg/policy";
 import { resolveTrack, resolveTrackRaw, resolveStart, ANIM_STYLE_FIELDS, INHERITED_STYLE_FIELDS, type ManifestFor } from "./resolve";
 import { patchStagger } from "./stagger";
 import { presetTrackOf } from "./animTemplates";
@@ -525,6 +526,8 @@ export function addFigureContentToSlide(
   figure: { elements: Element[]; groups?: Record<Id, import("../types").GroupDef> },
   opts: { x?: number; y?: number } = {},
 ): Id[] {
+  // Stage 1: a fluximg never enters a deck (ARCHITECTURE decision 8). Refuse the whole copy rather than drop part of it.
+  if (figure.elements.some(isFluximgElement)) throw new Error(FLUXIMG_NOT_IN_SLIDES);
   const s = slideById(deck, slideId);
   if (!s) return [];
   const { elements, groups } = cloneContentWithFreshIds(figure.elements, figure.groups);

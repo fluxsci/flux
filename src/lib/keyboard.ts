@@ -77,6 +77,7 @@ import { openAlignArrange, closeAlignArrange, handleAlignArrangeKey, crystallize
 import { reattachClones } from "./slide/attach";
 import { copySelectedPlotPath } from "./figure/commands";
 import { figurePlacement } from "./figure/placement";
+import { FLUXIMG_NOT_IN_SLIDES, isFluximgElement } from "./fluximg/policy";
 
 let clipboard: Element[] = [];
 // Group defs snapshotted with the copy (chains of the copied elements), so a
@@ -441,11 +442,15 @@ function paste() {
   const fig = activeFig();
   if (!fig) return;
   const assetIds = new Set(get(project).assets.map(a => a.id));
-  if (clipboard.some(e => (e.type === "image" || e.type === "plot" || e.type === "model3d") && !assetIds.has(e.assetId))) {
+  if (clipboard.some(e => (e.type === "image" || e.type === "plot" || e.type === "model3d" || e.type === "fluximg") && !assetIds.has(e.assetId))) {
     pushToast("info", "Import the copied image, plot or 3D model into this project before pasting."); return;
   }
   if (clipboard.some(e => e.type === "model3d") && storeTenant() !== "figure") {
     pushToast("info", "3D models can currently be pasted into figures."); return;
+  }
+  // Stage 1: a fluximg never enters a deck (the one message every deck chokepoint uses).
+  if (clipboard.some(isFluximgElement) && storeTenant() !== "figure") {
+    pushToast("info", FLUXIMG_NOT_IN_SLIDES); return;
   }
   const videos = clipboard.filter(e => e.type === "video");
   if (videos.length && storeTenant() !== "slide") {

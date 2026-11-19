@@ -396,7 +396,7 @@ export function buildElementFields(p: Project, sel: Set<string>, lib: TextStyle[
   // Reset crop: an action for cropped image/plot elements — one commit
   // through ops.setCrop(null): the box returns to the full content at its
   // current scale (content pinned), and this field disappears with the crop.
-  const croppedEl = els.find((e) => (e.type === "image" || e.type === "plot") && e.crop);
+  const croppedEl = els.find((e) => (e.type === "image" || e.type === "plot" || e.type === "fluximg") && e.crop);
   if (croppedEl) {
     const cid = croppedEl.id;
     F.push({

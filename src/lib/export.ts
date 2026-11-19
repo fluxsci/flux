@@ -8,6 +8,7 @@ import { buildRenderTree, effectiveHidden, membersDeep, type RenderNode } from "
 import { lineH, blockLayout, letterSpacing, type LaidOutLine } from "./text";
 import { resolvedRunStyle, scriptMetrics, type TextSegment } from "./textRuns";
 import { model3dStaticSvg, type Model3dSvgContext } from './model3d/static';
+import { fluximgPlaceholderSvg } from './fluximg/placeholder';
 
 // stroke-dasharray attribute (or nothing) — mirrors the canvas dashAttr.
 function dashA(e: { dash?: number[] }): string {
@@ -159,6 +160,9 @@ export function elementToSvg(
   switch (e.type) {
     case "model3d":
       return rot(e, `<g${op(e)}>${model3dStaticSvg(e, assetUrl, model3d)}</g>`);
+    case "fluximg":
+      // fluximg: wave 2 replaces this placeholder (no asset lookup on this path, so it labels with the element name)
+      return rot(e, `<g${op(e)}>${fluximgPlaceholderSvg(e, null)}</g>`);
     case "video":
       return elementToSvg({ ...e, type: "image", assetId: e.posterAssetId }, assetUrl, plotMarkup, assetSize);
     case "plot": {

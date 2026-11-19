@@ -114,7 +114,7 @@ function figOf(p: Project, figId: Id): Figure | null {
 function baseName(path: string | undefined): string | undefined {
   if (!path) return undefined;
   const b = path.split(/[\\/]/).pop() ?? path;
-  const stem = b.replace(/\.(?:svg|glb)$/i, "");
+  const stem = b.replace(/\.(?:svg|glb|fluximg)$/i, "");
   return stem || undefined;
 }
 
@@ -133,6 +133,7 @@ export function elementLabel(
     return baseName(plot.source?.svgPath) ?? root?.label ?? "Plot";
   }
   if (el.type === "model3d") return baseName(el.source?.glbPath) ?? "3D model";
+  if (el.type === "fluximg") return baseName(el.source?.bundlePath) ?? "Image";
   const z = fig.elements.findIndex((e) => e.id === el.id);
   return `${el.type} ${z + 1}`;
 }

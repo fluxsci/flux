@@ -11,6 +11,7 @@
   import { segmentAttrs, haloAttrs } from "./export";
   import PlotElement from "./PlotElement.svelte";
   import Model3dElement from "./Model3dElement.svelte";
+  import { fluximgPlaceholderSvg } from "./fluximg/placeholder";
 
   export let element: Element;
   export let modelPartOpacity: Record<string, number> | undefined = undefined;
@@ -60,6 +61,10 @@
     <PlotElement element={element} />
   {:else if element.type === "model3d"}
     <Model3dElement element={element} partOpacity={modelPartOpacity} />
+  {:else if element.type === "fluximg"}
+    <!-- fluximg: wave 2 replaces this placeholder. The asset lookup reads $project only inside this branch. -->
+    {@const fxAsset = $project.assets.find((a) => a.id === element.assetId)}
+    {@html fluximgPlaceholderSvg(element, fxAsset)}
   {:else if element.type === "video"}
     <!-- Authoring uses the prepared still: selection and direct manipulation
          never start a decoder, playback or audio. The shared player owns that. -->

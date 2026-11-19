@@ -74,7 +74,7 @@
   import ArrangeGapOverlay from "./ArrangeGapOverlay.svelte";
   import CrystallizeOverlay from "./CrystallizeOverlay.svelte";
   import { alignArrange, arrangementPreview, passiveArrangement, crystallizeOffer, crystallizeNotice } from "./interact/alignArrange";
-  import type { Element, Figure, ImageElement, LineElement, PathElement, Project, SemanticPlotElement, VectorNode } from "./types";
+  import type { Element, Figure, FluximgElement, ImageElement, LineElement, PathElement, Project, SemanticPlotElement, VectorNode } from "./types";
   import { get, derived, writable } from "svelte/store";
   import { onMount, tick, onDestroy, flushSync } from "svelte";
   import { resolveTargets } from "./plot/tree";
@@ -239,7 +239,7 @@
         // mapping for the whole gesture; everything stays transient until the
         // single pointer-up commit (ops.setCrop). Esc rides the normal
         // transient-only cancel.
-        crop?: { orig: ImageElement | SemanticPlotElement; disp: { width: number; height: number } };
+        crop?: { orig: ImageElement | SemanticPlotElement | FluximgElement; disp: { width: number; height: number } };
       }
     | {
         // Figma-parity line pivot: drag ONE endpoint, the other stays fixed.
@@ -3485,10 +3485,10 @@
     // only for exactly ONE unlocked image/plot whose asset has a known
     // intrinsic size; anything else (multi-select, Scale tool, unsized asset)
     // falls back to a plain resize so the modifier never dead-ends.
-    let crop: { orig: ImageElement | SemanticPlotElement; disp: { width: number; height: number } } | undefined;
+    let crop: { orig: ImageElement | SemanticPlotElement | FluximgElement; disp: { width: number; height: number } } | undefined;
     if ((e.ctrlKey || e.metaKey) && $activeTool !== "scale" && sel.length === 1) {
       const el = sel[0];
-      if ((el.type === "image" || el.type === "plot") && !el.locked) {
+      if ((el.type === "image" || el.type === "plot" || el.type === "fluximg") && !el.locked) {
         const disp = ops.assetDisplaySize($project, el.assetId);
         if (disp) crop = { orig: structuredClone(el), disp };
       }
@@ -5454,7 +5454,7 @@
   })();
   $: layoutDirectIds = layoutTransforms && layoutTransforms.size > 128
     ? new Set(canvasFigures.find(f => f.id === $arrangementPreview?.figureId)?.elements
-      .filter(el => el.type !== 'plot' && el.type !== 'image' && el.type !== 'model3d')
+      .filter(el => el.type !== 'plot' && el.type !== 'image' && el.type !== 'model3d' && el.type !== 'fluximg')
       .map(el => el.id) ?? []) : null;
   $: sceneTransforms.update(moveIds, moveTransform, rotIds, rotTransform, layoutTransforms ?? resizeTransforms, layoutDirectIds);
   $: if ($arrangementPreview) {

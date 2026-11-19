@@ -22,6 +22,7 @@ import { validEmbedId } from "./embed";
 import { textGlyphNeeds, type GlyphStyle, type BakedGlyphFont } from "../text/glyphOutlines";
 import { fontRequestKey } from "../text/fontRequest.mjs";
 import { glyphTextTracks } from "./glyphTexts";
+import { FLUXIMG_NOT_IN_SLIDES } from "../fluximg/policy";
 export type { ExportPayload } from "./export/runtime";
 export interface SlidePayloadIO {
   readText(path: string): Promise<string>;
@@ -113,6 +114,8 @@ export async function gatherPayload(root: string, deck: Deck, io: SlidePayloadIO
   const collectMedia = async (assetId: string): Promise<boolean> => {
     if (assets[assetId] || videos[assetId] || modelFiles.has(assetId)) return true;
     const da = deckAsset(assetId);
+    // Stage 1: a fluximg is never in a deck, and its bundle DIRECTORY is never read as bytes or base64'd.
+    if (da?.kind === "fluximg" || figAssets.find((x) => x.id === assetId)?.kind === "fluximg") { warnings.push(FLUXIMG_NOT_IN_SLIDES); return false; }
     if (da?.path) {
       try {
         const file = underRoot(root, join("slides", deck.id, da.path));

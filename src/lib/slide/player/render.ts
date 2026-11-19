@@ -737,6 +737,7 @@ export function normalizeAttachedDash(w: Element, el: FigElement): void {
 /** The ONE content dispatch — a plot mounts live inline SVG, everything else
  *  the serialized static markup. renderSlide and the transform driver share
  *  this entry so there is never a second renderer. */
+// fluximg: wave 2 replaces this placeholder (a fluximg reaches export.ts elementToSvg's placeholder through fillStatic; decks refuse the kind in stage 1)
 export function fillContent(w: HTMLElement, el: FigElement, ctx: SlideRenderCtx): void {
   if (el.type === "plot") fillPlot(w, el, ctx);
   else if (el.type === "video") fillVideo(w, el, ctx);

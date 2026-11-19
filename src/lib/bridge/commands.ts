@@ -177,7 +177,7 @@ function validateCommand(c: Command): void {
   if (['set_crop','edit_path'].includes(c.type)) {
     const target = c.id ?? ids(c)[0];
     const element = p.figures.flatMap(f=>f.elements).find(e=>e.id===target);
-    if (!element || (c.type==='edit_path' ? element.type!=='path' : !['image','plot'].includes(element.type))) throw new Error(`${c.type}: element not found (or wrong type): ${String(target)}`);
+    if (!element || (c.type==='edit_path' ? element.type!=='path' : !['image','plot','fluximg'].includes(element.type))) throw new Error(`${c.type}: element not found (or wrong type): ${String(target)}`);
   }
   if (c.type === 'set_crop' && c.crop !== undefined && c.crop !== null) {
     const crop=object(c.crop,'crop');if(['x','y','width','height'].some(key=>typeof crop[key]!=='number'))throw new Error('set_crop: crop needs numeric {x,y,width,height}');

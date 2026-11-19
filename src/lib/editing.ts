@@ -184,7 +184,7 @@ export function cropRemap(
   mods: CropMods,
   disp: { width: number; height: number },
 ): CropRemapResult | null {
-  if (orig.type !== "image" && orig.type !== "plot") return null;
+  if (orig.type !== "image" && orig.type !== "plot" && orig.type !== "fluximg") return null;
   const dispW = disp.width;
   const dispH = disp.height;
   if (!(dispW > 0) || !(dispH > 0) || !(orig.width > 0) || !(orig.height > 0)) return null;
