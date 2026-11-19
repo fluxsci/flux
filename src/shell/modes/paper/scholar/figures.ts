@@ -339,6 +339,8 @@ async function renderFigureInternal(id: string, ns?: string, preparedPlots?: Map
   try {
     preparePaperPosters(fig);
     const models = paperModelContext(fig, ns);
+    const fluximg = await paperFluximg(fig, assetMeta, loadedRoot, ns, () => generation === loadGeneration);
+    if (generation !== loadGeneration) return undefined;
     return figureToSvg(
       fig,
       (aid) => models.urls[aid] ?? assetData[aid],
@@ -346,7 +348,7 @@ async function renderFigureInternal(id: string, ns?: string, preparedPlots?: Map
       // Crop rendering for <image>-backed elements: intrinsic content size in
       // assetDisplaySize units — the crop window's own coordinate space.
       (aid) => assetDisplaySize({ assets: assetMeta } as Project, aid) ?? undefined,
-      { model3d: models.context },
+      { model3d: models.context, fluximg },
     );
   } catch (e) {
     // One broken figure must never take down a whole surface: the FigurePicker
@@ -356,6 +358,17 @@ async function renderFigureInternal(id: string, ns?: string, preparedPlots?: Map
     journalRenderError(id, e);
     return undefined;
   }
+}
+
+/** A figure's fluximg stills for Paper, at 300 dpi (the display render also feeds the in-app PDF), from this window's
+ *  decode workers. Undefined without images or a project on disk (the dev seed): the elements then draw the stand-in. */
+async function paperFluximg(figure: Figure, assets: Asset[], root: string | null, namespace: string | undefined, isCurrent: () => boolean, warnings?: string[]) {
+  if (!root || root === "__seed" || !figure.elements.some(element => element.type === "fluximg")) return undefined;
+  const { prepareWindowFluximg } = await import("../../../../lib/fluximg/exportWindow");
+  return prepareWindowFluximg([figure], assets, "figure", {
+    namespace, root, isCurrent,
+    onIssue: (_element, message) => { if (warnings) warnings.push(message); else console.warn(`paper: ${message}`); },
+  });
 }
 
 /** The DISPLAY render (embeds, hover cards, pickers, margin view, in-app
@@ -821,7 +834,9 @@ export function captureFigureExport(source?: { figures: Record<string, Figure>; 
         warnings.push(...prepared.warnings);
       }
       if (!isCurrent()) return undefined;
-      return figureToSvg(figure, aid => posters[aid] ?? data[aid], el => plots.get(el), aid => assetDisplaySize({ assets } as Project, aid) ?? undefined, { model3d: context });
+      const fluximg = await paperFluximg(figure, assets, root, namespaced ? PAPER_SVG_NS : undefined, isCurrent, warnings);
+      if (!isCurrent()) return undefined;
+      return figureToSvg(figure, aid => posters[aid] ?? data[aid], el => plots.get(el), aid => assetDisplaySize({ assets } as Project, aid) ?? undefined, { model3d: context, fluximg });
     },
   };
 }

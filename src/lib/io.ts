@@ -964,7 +964,7 @@ export function ensureFigurePlots(fig: Figure): void {
 
 /** Serialize a figure to standalone SVG markup with plots inlined (exported
  *  for the lazy-residency gates; every GUI export path funnels through here). */
-interface FigureRenderInputs { data: Record<string, string>; manifests: Record<string, FluxPlotManifest>; assets: Asset[]; models: Record<string, Scene3dManifest>; model3d?: Model3dSvgContext }
+interface FigureRenderInputs { data: Record<string, string>; manifests: Record<string, FluxPlotManifest>; assets: Asset[]; models: Record<string, Scene3dManifest>; model3d?: Model3dSvgContext; fluximg?: import('./fluximg/exportStatic').FluximgSvgContext }
 function captureFigureInputs(): FigureRenderInputs {
   return { data: { ...get(assetData) }, manifests: { ...get(plotManifests) }, assets: structuredClone(get(project).assets), models: structuredClone(get(scene3dManifests)) };
 }
@@ -991,7 +991,7 @@ export function buildFigureSvg(fig: Figure, captured?: FigureRenderInputs): stri
       markup.set(el.id,svg);
     }
   }
-  return figureToSvg(fig, id => data[id], el => markup.get(el.id), id => assetDisplaySize(p,id) ?? undefined, { model3d: models });
+  return figureToSvg(fig, id => data[id], el => markup.get(el.id), id => assetDisplaySize(p,id) ?? undefined, { model3d: models, fluximg: inputs.fluximg });
 }
 
 
@@ -1030,6 +1030,11 @@ async function captureFigureExport(fig: Figure, transparent = false, surface: Po
     const prepared = await ensureModelPosters([figure], inputs.assets, inputs.models, surface, source, { signal });
     Object.assign(inputs.data, prepared.urls); inputs.model3d = prepared.context;
     for (const warning of prepared.warnings) pushToast('info', warning);
+  }
+  if (figure.elements.some(element => element.type === 'fluximg')) {
+    // Each image's still at this output's resolution, from the window's decode workers (the reference renderer).
+    const { prepareWindowFluximg } = await import('./fluximg/exportWindow');
+    inputs.fluximg = await prepareWindowFluximg([figure], inputs.assets, surface, { signal, onIssue: (_element, message) => pushToast('info', message) });
   }
   signal?.throwIfAborted();
   return Object.freeze({ svg: buildFigureSvg(figure, inputs), name: figure.name, width: figure.width, height: figure.height,
