@@ -4,7 +4,8 @@
  * The file side copies the bundle into the immutable asset folder `fig/assets/<id>.fluximg/` and returns its content
  * id; nothing here reads or hashes a bundle. Rules:
  *  - a Slide deck refuses before anything is copied (stage 1, `FLUXIMG_NOT_IN_SLIDES`);
- *  - a project that is not saved yet is saved first (a bundle is copied into a project folder);
+ *  - only a Flux project takes a bundle (its `fig/assets/`): an unsaved or legacy standalone figure is refused up
+ *    front, before any dialog, save or copy (FLUXIMG_NEEDS_PROJECT);
  *  - the same content twice is ONE asset: a fresh copy whose content id the project already holds is discarded and
  *    the existing asset reused;
  *  - any failure discards the copy and rethrows the file side's own words;
@@ -24,29 +25,29 @@ import { findFluximgAsset, fluximgRecipeBeside, fluximgSourceRecord, makeFluximg
 import { fluximgManifests } from "./store";
 import type { FluximgManifest } from "./types";
 
-export const fluximgImportRoot = (): string | null => get(embeddedProjectRoot) ?? get(projectDir);
+export const fluximgImportRoot = (): string | null => get(embeddedProjectRoot);
 
 /** Refuse a Slide deck: before any dialog, copy or save. */
 export function assertFluximgDestination(): void {
   if (storeTenant() === "slide") throw new Error(FLUXIMG_NOT_IN_SLIDES);
 }
 
-/** The project root an import copies into; an unsaved figure project is saved first (as a GLB import does). */
+/** Why a figure outside a Flux project folder cannot take an image bundle. */
+export const FLUXIMG_NEEDS_PROJECT = "Images (fluximg) are added inside a Flux project: open or create one from Home, then add the image.";
+
+/**
+ * The project root an import copies into. The file side publishes a bundle at `fig/assets/<id>.fluximg`, which is
+ * where a Flux project keeps it; a legacy standalone `.flux` folder (or an unsaved one) keeps its assets in
+ * `assets/` and its save and open would look for the bundle there, so it is refused up front (before any dialog,
+ * save or copy) rather than saved and then left unable to find its image. GLB import saves an unsaved standalone
+ * project first; for a bundle that would only lead to a broken save.
+ */
 export async function ensureFluximgImportRoot(): Promise<string> {
   assertFluximgDestination();
   const owner = get(project), figure = get(activeFigureId);
-  let root = fluximgImportRoot();
-  if (root) {
-    if (!get(embeddedProjectRoot)) await (await import("../io")).awaitStandaloneProjectRoot(root);
-    if (fluximgImportRoot() !== root || get(project) !== owner || get(activeFigureId) !== figure || storeTenant() !== "figure") throw new Error("The insertion destination changed");
-    return root;
-  }
-  const { pushToast } = await import("../toast");
-  pushToast("info", "Save this figure project before adding an image");
-  await (await import("../io")).saveProjectAs();
-  root = fluximgImportRoot();
-  if (!root) throw new DOMException("Image import cancelled: no project location was selected", "AbortError");
-  if (get(project) !== owner || get(activeFigureId) !== figure || storeTenant() !== "figure") throw new Error("The insertion destination changed");
+  const root = get(embeddedProjectRoot);
+  if (!root) throw new Error(FLUXIMG_NEEDS_PROJECT);
+  if (get(embeddedProjectRoot) !== root || get(project) !== owner || get(activeFigureId) !== figure || storeTenant() !== "figure") throw new Error("The insertion destination changed");
   return root;
 }
 

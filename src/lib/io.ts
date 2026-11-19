@@ -317,19 +317,11 @@ export async function importAssets() {
     if (paths?.length) {
       if (!canPlace()) throw new Error("The insertion destination changed");
       if (paths.some(isFluximgPath)) {
+        // Only a Flux project takes an image bundle (fluximg/import.ts); refuse before anything is copied.
         const fluximg = await import("./fluximg/import");
         if (!canPlace()) throw new Error("The insertion destination changed");
-        const rootless = !fluximg.fluximgImportRoot();
         await fluximg.ensureFluximgImportRoot();
         if (!sameInsertion()) throw new Error("The insertion destination changed");
-        if (rootless) {
-          // Saving adopts a root and clears the dialog's read approvals: ask again (as for a 3D model).
-          pushToast("info", "Project saved. Choose the files to import.");
-          const savedDestination = importDestination();
-          paths = (await window.fig.openFiles(figureFilters))?.map(pickedBundlePath) ?? null;
-          if (!savedDestination()) throw new Error("The insertion destination changed");
-          if (!paths?.length) return;
-        }
       }
       if (paths.some(path => /\.glb$/i.test(path))) {
         const model = await import('./model3d/import');
@@ -381,8 +373,8 @@ export async function importPlotsFromPaths(absPaths: string[], canPlace: () => b
   read: (path: string) => Promise<Incoming> = readIncomingPlot, opts: { at?: PlaceAt } = {}) {
   if (!window.fig || !absPaths.length) return 0;
   if (absPaths.some(path => isFluximgPath(pickedBundlePath(path)))) {
-    // Stage 1 keeps image bundles out of Slides: refuse before anything is copied, then make sure there is a
-    // project folder to copy into (an unsaved project is saved first, as for a 3D model).
+    // Stage 1 keeps image bundles out of Slides, and only a Flux project folder takes one: refuse before anything
+    // is copied.
     const originalDestination = importDestination(), fluximg = await import("./fluximg/import");
     fluximg.assertFluximgDestination();
     if (!originalDestination() || !canPlace()) throw new Error("The insertion destination changed");

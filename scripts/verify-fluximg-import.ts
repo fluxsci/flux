@@ -225,6 +225,26 @@ try {
   h.eq(importCalls, 0, "…before anything is copied");
   tenancy.setStoreTenant("figure");
 
+  // Outside a Flux project (a legacy standalone or unsaved figure) a bundle has no fig/assets to live in.
+  importCalls = 0;
+  store.embeddedProjectRoot.set(null); store.projectDir.set(null);
+  await rejects(io.importPlotsFromPaths([`${mroot}/plots/stack.fluximg`]), /inside a Flux project/, "an unsaved figure outside a project refuses in plain words");
+  store.projectDir.set("/legacy/standalone.flux");
+  await rejects(fimport.readIncomingFluximg(`${mroot}/plots/stack.fluximg`), /inside a Flux project/, "…and so does a legacy standalone project (its save looks in assets/, not fig/assets/)");
+  h.eq(importCalls, 0, "…before anything is copied");
+  store.projectDir.set(null); store.embeddedProjectRoot.set(mroot);
+  // Progress for slow copies: nothing within the delay, "Importing image…" after it, gone when the copy ends.
+  {
+    const { trackFluximgImport } = await import("../src/lib/fluximg/importProgress");
+    toasts.set([]);
+    const end = trackFluximgImport("big.fluximg", () => true, [], 30);
+    h.ok(!get(toasts).some((x) => /Importing image/.test(x.msg)), "no progress toast before the delay (the 0.1–1 s band needs none)");
+    await new Promise((r) => setTimeout(r, 60)); // past the (shortened) delay
+    h.ok(get(toasts).some((x) => x.msg === "Importing image…" && x.detail === "big.fluximg"), "a slow copy shows Importing image… naming the bundle");
+    end();
+    h.ok(!get(toasts).some((x) => /Importing image/.test(x.msg)), "…and it goes when the copy ends");
+  }
+
   // The Import dialog offers a bundle's own manifest: picking it means the bundle.
   h.eq(io.pickedBundlePath("/x/plots/cells.fluximg/fluximg.json"), "/x/plots/cells.fluximg", "a picked fluximg.json stands for its bundle");
   h.eq(io.pickedBundlePath("/x/plots/notes/fluximg.json"), "/x/plots/notes/fluximg.json", "…only inside a .fluximg folder");
