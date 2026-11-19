@@ -154,7 +154,7 @@
     <div class="rail-status" role="status" aria-live="polite" data-rail-status><span class="st">{status.text}</span>{#if status.cancel}<button onclick={status.cancel}>Cancel</button>{/if}</div>
   {/if}
   {#if plots}
-    <PlotsRail active={paneActive} {hitBridge} {refreshKey} {place} {unit} accept={accept ?? (slide ? "svg,png,glb,mp4,mov" : "svg,png,glb")} />
+    <PlotsRail active={paneActive} {hitBridge} {refreshKey} {place} {unit} accept={accept ?? (slide ? "svg,png,glb,mp4,mov" : "svg,png,glb,fluximg")} />
   {:else if slide}
     {@render slides?.()}
   {:else}

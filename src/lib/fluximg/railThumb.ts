@@ -13,7 +13,7 @@ import { fileBridge } from "../project/types";
 import { fluximgService } from "./store";
 import { describeFluximg, fluximgInfo } from "./place";
 import { noteFluximgRailFact } from "./railFacts";
-import { pngInfo, FLUXIMG_PREVIEW_NAME } from "../plotsRail/rules";
+import { pngInfo, FLUXIMG_PREVIEW_NAME, FLUXIMG_BROKEN } from "../plotsRail/rules";
 
 /** A preview.png larger than this is not worth reading for a tile (the spec caps it at 512 px; a still is cheaper). */
 const PREVIEW_MAX_BYTES = 4 * 1024 * 1024;
@@ -49,7 +49,10 @@ export async function fluximgRailThumb(abs: string, stamp: string, bucket: numbe
   stampOf.set(bundle, stamp);
   if (stampOf.size > 4000) stampOf.delete(stampOf.keys().next().value!);
 
-  const manifest = await svc.manifest(bundle);
+  // A bundle without a manifest is an unfinished or damaged write: say so in the index's words, not the reader's.
+  const manifest = await svc.manifest(bundle).catch((error: unknown) => {
+    throw /fluximg\.json/i.test(error instanceof Error ? error.message : String(error)) ? new Error(FLUXIMG_BROKEN) : error;
+  });
   const info = fluximgInfo(manifest);
   const nd = info.shape.length, W = info.shape[nd - 1], H = info.shape[nd - 2];
   noteFluximgRailFact(abs, { stamp, line: describeFluximg(info), width: W, height: H });

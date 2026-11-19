@@ -26,7 +26,7 @@
   import { project, selection, partSelection, embeddedProjectRoot, projectDir } from "../store";
   import type { HitBridgeHolder } from "../interact/canvasHitBridge";
 
-  let { active = true, hitBridge = null, refreshKey = 0, accept = "svg,png,glb", place = null, unit = "figure" }: {
+  let { active = true, hitBridge = null, refreshKey = 0, accept = "svg,png,glb,fluximg", place = null, unit = "figure" }: {
     active?: boolean;
     hitBridge?: HitBridgeHolder | null;
     refreshKey?: number;
