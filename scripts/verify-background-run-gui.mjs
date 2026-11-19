@@ -18,7 +18,22 @@ try {
   await emit({type:'status',state:'running'});
   await emit({type:'tool',toolId:'t',title:'Bash',input:{command:'uv run plot.py --width 8'},status:'started'});
   await waitFor(page,()=>document.querySelector('[aria-label="Background activity"]')?.textContent.includes('uv run plot.py'),null,{label:'actual tool activity'});
-  h.ok(await page.$eval('[aria-label="Background activity"]',e=>e.textContent.includes('bg · claude · wren')),'activity names the background agent');
+  // 2026-11-19 (owner: "i have no idea what that black box is … only give extra/long context if the user wants (expands) it"):
+  // the agent's work is ONE line in the thread; its steps are behind that line and are not even rendered until asked for.
+  const work=()=>page.$eval('[aria-label="Background activity"]',e=>({state:e.dataset.state,line:e.querySelector('.line').textContent.replace(/\s+/g,' ').trim(),expanded:e.querySelector('.show').getAttribute('aria-expanded'),steps:!!e.querySelector('.steps'),rows:e.querySelectorAll('.tool-line').length,bubbles:e.querySelectorAll('.turn.you').length,cues:[...e.querySelectorAll('.turn.cue')].map(c=>c.textContent.replace(/\s+/g,' ').trim()),foot:e.querySelector('.foot')?.textContent.replace(/\s+/g,' ').trim()??null,dark:getComputedStyle(e).backgroundColor}));
+  let w=await work();
+  h.ok(/^wren Running uv run plot\.py/.test(w.line)&&/Stop$/.test(w.line),'one line says who is working and on what, with Stop: '+w.line);
+  h.eq([w.expanded,w.steps,w.rows],['false',false,0],'the steps are folded away by default, and not rendered at all');
+  h.eq(w.dark,'rgba(0, 0, 0, 0)','it is a line in the thread, not a dark box');
+  await page.click('[aria-label="Background activity"] .show');
+  await waitFor(page,()=>!!document.querySelector('[aria-label="Background activity"] .steps .tool-line'),null,{label:'work opened'});
+  w=await work();
+  h.eq([w.expanded,w.steps,w.rows>=1],['true',true,true],'a click on the line opens the work: every step it took');
+  h.ok(w.foot?.startsWith('bg · claude · wren · running'),'the opened work names the background agent as the command line knows it, and its raw state: '+w.foot);
+  await page.focus('[aria-label="Background activity"] .show');await page.keyboard.press('Enter');
+  await waitFor(page,()=>!document.querySelector('[aria-label="Background activity"] .steps'),null,{label:'work folded'});
+  h.ok(true,'Enter on the line folds it again (the keyboard can do it too)');
+  await page.keyboard.press('Enter');await waitFor(page,()=>!!document.querySelector('[aria-label="Background activity"] .steps'),null,{label:'work reopened'});
   await emit({type:'permission',permissionId:'p1',title:'Bash',detail:JSON.stringify({command:'git push origin main',description:'Publish changes'},null,2),options:[{id:'allow',label:'Allow once'},{id:'deny',label:'Deny'}]});
   await page.waitForSelector('[aria-label="Background agent permission"]');
   h.ok(await page.$eval('[data-permission-input]',e=>e.textContent.includes('git push origin main')),'approval modal shows actual command, not only its description');
@@ -42,7 +57,11 @@ try {
   await emit({type:'status',state:'running'});
   await page.$$eval('.background-run button',bs=>bs.find(b=>b.textContent==='Stop').click());
   await waitFor(page,()=>window.fig._runnerCalls.some(c=>c.method==='cancel'),null,{label:'cancel task'});
-  h.ok(await page.$eval('[aria-label="Background activity"]',e=>e.textContent.includes('cancelled')),'Stop updates the activity strip');
+  await waitFor(page,()=>document.querySelector('[aria-label="Background activity"]')?.dataset.state==='cancelled',null,{label:'run cancelled'});
+  w=await work();
+  h.ok(/^wren Stopped/.test(w.line)&&!/Stop$/.test(w.line)&&w.foot?.includes('· cancelled'),'Stop updates the line (Stopped, no Stop button) and the raw state: '+w.line+' | '+w.foot);
+  h.eq([w.bubbles,w.cues],[0,['↳Please clarify','↳One more point']],'in the work, what you said is a quiet cue where each turn began (the thread already shows your words; no second bubble)');
+  h.ok(w.steps,'the work stays open through the run\'s states once you opened it');
   await page.evaluate(async()=>{const a=await import('/src/shell/agent/annotationStore.ts');await a.addAnnotation('Routed task',{surface:'figure'},{background:'codex'});});
   h.ok(await page.evaluate(()=>window.fig._runnerCalls.filter(c=>c.method==='start').at(-1).options.driver==='codex'),'saving a background-routed annotation starts its selected driver');
   // The user's path: Annotate, "@new …", Enter. The composer must offer and save the route.

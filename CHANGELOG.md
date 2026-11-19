@@ -33,6 +33,12 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 - **It never competes with your hands.** While you type, click, scroll or drag, the mark holds
   completely still, and comes back to life a moment after you stop. Typing next to it measures
   the same as typing with no mark at all.
+- **The Inbox reads as a conversation.** An agent's work no longer sits under its answer as a
+  dark panel of steps. It is one line in the thread: who is working, on what, and for how long,
+  with **Stop**; once the agent has stopped, what it did in a few words ("14 steps · 2 min 05
+  s"). Click the line (or press **Enter** on it) to see everything it thought, read and ran,
+  and again to fold it away. Agents no longer repeat their own name at the start of each
+  message.
 - **Annotate and Ask are "Flux AI".** Their headers read **Flux AI │ Annotate │ where** and
   **Flux AI │ Ask │ where**, with the seed of the Flux logo in the top-left corner, always
   turning. Its colour is the state: blue when what you send goes straight to an agent that is

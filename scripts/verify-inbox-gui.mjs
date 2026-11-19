@@ -228,6 +228,10 @@ try {
   h.eq(await marks(), restingMark, 'and a moment later it settles back to what it showed before the agent came, holding nothing of that agent\'s');
   await detailAction(page, 'Reopen');
   await waitFor(page, id => window.__fluxInbox.items.find(i => i.id === id).status !== 'resolved', f.notes[1].id, { label: 'annotation reopened' });
+  // Agents sign what they write; the thread's byline already names them, so the signature is not shown twice.
+  await event(makeReply(f.notes[1].id, { kind: 'agent', name: 'heron' }, 'heron: one more thing, the caption is fine.', 'codex', { session: f.heron }));
+  await waitFor(page, () => [...document.querySelectorAll('.thread article.agent .agent-prose')].some(e => e.textContent.trim() === 'One more thing, the caption is fine.'), null, { label: 'signed reply shown unsigned' });
+  h.ok(JSON.parse((await read('.meta/feedback.ndjson')).trim().split('\n').at(-1)).text === 'heron: one more thing, the caption is fine.', 'an agent\'s signature is dropped from the thread\'s display only: the byline says who speaks, the ledger keeps the words as written');
   await page.evaluate(() => { window.__inboxAppend = window.fig.feedbackAppend; window.fig.feedbackAppend = async () => false; });
   await page.type('[aria-label="Reply to inbox item"]', 'Retained after failure'); await page.keyboard.press('Enter');
   await waitFor(page, () => document.querySelector('.detail .error')?.textContent.includes('not saved'), null, { label: 'failed reply shown' });

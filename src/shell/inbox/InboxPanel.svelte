@@ -75,6 +75,13 @@
   // one of its points), one green lap when an agent finishes, the bloom's own colours otherwise.
   $: tone = $fluxAiTone;
   $: holder = selected?.claimedBy?.name ?? selected?.assignedTo?.name ?? selected?.lastHolder?.name ?? "";
+  // Agents sign what they write ("heron: moved the legend"). In a thread the byline already
+  // says who is speaking, so the signature is not shown twice (what is stored is untouched).
+  const unsigned = (message: { kind: string; author: string; text: string }): string => {
+    if (message.kind !== "agent" || !message.author) return message.text;
+    const name = message.author.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), rest = message.text.replace(new RegExp(`^\\s*${name}\\s*[:\u2014-]\\s+`, "i"), "");
+    return rest === message.text ? message.text : rest.charAt(0).toUpperCase() + rest.slice(1);
+  };
   $: lastAgentIndex = selected ? selected.thread.map(m => m.kind).lastIndexOf("agent") : -1;
   $: if (!zoom) actual = false;
 
@@ -396,7 +403,7 @@
                 {@const waiting = selected.status === "needs-input" && message.kind === "agent" && i + 1 === lastAgentIndex}
                 <article class:human={message.kind === "human"} class:agent={message.kind === "agent"} class:waiting>
                   <div class="gutter">{#if message.kind === "agent"}<AgentMark size={13} seed={message.author} state={waiting ? "idle" : "done"} />{:else}<span class="you-dot" aria-hidden="true"></span>{/if}</div>
-                  <div class="body"><div class="byline"><b>{message.author}</b><span class="faint mono" title={when(message.ts)}>{message.kind === "human" ? "" : "agent · "}{age(message.ts)}</span>{#if waiting}<span class="wait">Waiting for you</span>{/if}</div><div class="agent-prose compact" class:you={message.kind === "human"} use:markdown={{ text: message.text }}></div></div>
+                  <div class="body"><div class="byline"><b>{message.author}</b><span class="faint mono" title={when(message.ts)}>{message.kind === "human" ? "" : "agent · "}{age(message.ts)}</span>{#if waiting}<span class="wait">Waiting for you</span>{/if}</div><div class="agent-prose compact" class:you={message.kind === "human"} use:markdown={{ text: unsigned(message) }}></div></div>
                 </article>
               {/each}</div>
               <BackgroundRun item={selected} />

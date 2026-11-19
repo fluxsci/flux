@@ -240,9 +240,12 @@ AI status finds an installed, signed-in CLI.
 
 The agent is a session like any other: it appears in **AI status → Sessions** and the
 titlebar agents chip with a name such as **bg · claude · wren**, claims the item, and
-signs its replies with that name. The item's thread shows the run as a live card: what the
-agent is doing right now, how long it has been working, everything it says and does as it
-happens (the same rendering as Ask), and reported usage. **Stop** (on the strip or the session row)
+signs its replies with that name. In the item's thread the run is one line under the
+conversation: who is working, what it is doing right now and for how long, with **Stop**.
+When it has stopped, the line says what it did in a few words (**14 steps · 2 min 05 s**).
+Click the line, or press **Enter** on it, to open the agent's work (everything it thought,
+read and ran, with usage), and again to fold it away; what the agent has to tell you is
+always in the thread itself. **Stop** (on the line or the session row)
 cancels the run and releases its claim; the item returns to Open ("Open (last held by
 bg · claude · wren)"), ready to run again or assign. Replying in the item's thread continues the same session when it can; a
 reply sent while the agent is working waits for that turn to finish. If a run ends

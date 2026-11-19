@@ -3167,6 +3167,18 @@ Persistence invariants (all machine-checked — do not weaken):
     NEVER animate a property the compositor cannot run (`fill`, `background`, `filter`) and never animate an
     SVG child. To change a colour over time, move a coloured layer under a mask. Colours change per FIRING
     (a style write when the point fires), never per frame.
+    **An agent's WORK is one line in the thread (2026-11-19; owner: "I get this black box below it, and i
+    have no idea what that black box is … no clutter please, only give extra/long context if the user wants
+    (expands) it").** `inbox/BackgroundRun.svelte`: `.work[aria-label="Background activity"][data-state]` >
+    `.line` (`.show[role=button][aria-expanded]` holding the caret, `WorkingLine` and, once stopped, `.did` =
+    "N steps · time"; `Stop` beside it while active). The steps (`.steps` > `Transcript dense quietHuman` +
+    `.foot` with the raw `bg · claude · name · state` and usage) are RENDERED only while open (`{#if open}`),
+    never just hidden: a long run is hundreds of rows. Open state is per item in a module-level Set (it
+    survives moving between items; folded is the default). `Transcript`'s `quietHuman` turns your follow-ups
+    into a one-line cue (`.turn.cue`, "↳ …") and drops the per-turn mark: the thread already shows your words
+    and the line already names the agent. This is safe because the thread is always complete: a run that ends
+    without `reply_item`/`resolve_item` has its last message appended (`flux-core/backgroundTask.ts`,
+    `finish`). Thread messages hide an agent's own signature (`unsigned()` in InboxPanel: display only).
     **The Inbox's thread (round 2, same day; owner: "images could render more cleanly, context could be more
     elegantly displayed").** One `.column` (680 px measure) holds the note, the picture (`figure.shot`: a mat, the
     image capped at the snapshot's own CSS width `context.snapshot.rect.w` so it is never enlarged, a caption),

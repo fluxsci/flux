@@ -9,8 +9,12 @@
   import ToolTrail from "./ToolTrail.svelte";
   import { markdown } from "./markdown";
   import { type Transcript, type Turn, type Block } from "../../lib/agent/transcript";
-  let { transcript, agent = "Agent", seed = "", showMeta = true, dense = false, onretry }:
-    { transcript: Transcript; agent?: string; seed?: string; showMeta?: boolean; dense?: boolean; onretry?: () => void } = $props();
+  let { transcript, agent = "Agent", seed = "", showMeta = true, dense = false, onretry, quietHuman = false }:
+    { transcript: Transcript; agent?: string; seed?: string; showMeta?: boolean; dense?: boolean; onretry?: () => void;
+      /** A log of work beside a thread that already shows what you said (the Inbox): your words
+       *  are one quiet line that says where a turn began, not a bubble that repeats the thread. */
+      quietHuman?: boolean } = $props();
+  const cue = (t: Turn) => t.blocks.map(b => b.kind === "text" ? b.text : "").join(" ").replace(/\s+/g, " ").trim();
   const fmtTokens = (n?: number) => n === undefined ? "?" : n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n);
   const seconds = (t: Turn) => t.endedAt ? Math.max(1, Math.round((t.endedAt - t.startedAt) / 1000)) : 0;
   const toolCount = (t: Turn) => t.blocks.reduce((n, b) => n + (b.kind === "tools" ? b.calls.length : 0), 0);
@@ -28,9 +32,11 @@
   }
 </script>
 
-<div class="transcript" class:dense>
+<div class="transcript" class:dense class:log={quietHuman}>
   {#each transcript.turns as turn (turn.id)}
-    {#if turn.role === "human"}
+    {#if turn.role === "human" && quietHuman}
+      <div class="turn cue" title={cue(turn)}><span class="cue-mark" aria-hidden="true">↳</span><span class="cue-text">{cue(turn)}</span></div>
+    {:else if turn.role === "human"}
       <div class="turn you arrive">
         {#each turn.blocks as b (b.id)}{#if b.kind === "text"}<div class="message question agent-prose you" use:markdown={{ text: b.text }}></div>{/if}{/each}
         {#if turn.images?.length}<div class="attachments">{#each turn.images as src, i (i)}<img {src} alt="Attached view" data-flux-image title="The view that was sent with the question" />{/each}</div>{/if}
@@ -64,6 +70,12 @@
   .transcript { display: flex; flex-direction: column; gap: var(--sp-4); }
   .transcript.dense { gap: var(--sp-3); }
   .turn.you { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+  /* A log under a line that already names and marks the agent: no second mark per turn. */
+  .transcript.log .turn.agent { grid-template-columns: minmax(0, 1fr); }
+  .transcript.log .gutter { display: none; }
+  .turn.cue { display: flex; align-items: baseline; gap: 6px; min-width: 0; color: var(--c-tx-muted); font: italic var(--ts-xs)/1.4 var(--font-serif); }
+  .cue-mark { flex: 0 0 auto; color: var(--c-tx-faint); font-style: normal; }
+  .cue-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .question { width: fit-content; max-width: 100%; padding: 6px 11px; background: var(--c-surface-2); border-radius: var(--r-1); border-bottom-right-radius: var(--r-ui); }
   .attachments { display: flex; gap: 6px; }
   .attachments img { max-height: 40px; max-width: 72px; border: 1px solid var(--c-line); border-radius: var(--r-ui); object-fit: cover; opacity: .9; }
