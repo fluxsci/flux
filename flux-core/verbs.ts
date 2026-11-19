@@ -2445,7 +2445,7 @@ export const VERBS: VerbDef[] = [
     cli: "ingest-pdf",
     cliRoot: "flags",
     summary:
-      "Store a PDF you already have on disk into FluxLib for a citekey (items/<citekey>/paper.pdf) and extract its fulltext — the manual fallback when fetch_pdfs can't find an open-access copy (paywalled/proxy-only papers). `key` is the citekey; `filePath` is an absolute path to the .pdf.",
+      "Store a PDF you already have on disk into FluxLib for a citekey (items/<citekey>/paper.pdf) and extract its fulltext — the manual fallback when fetch_pdfs can't find an open-access copy. `key` is the citekey; `filePath` is an absolute path to the .pdf.",
     params: { key: z.string(), filePath: z.string() },
     cliArgs: [
       { kind: "pos", at: 0, into: "filePath", required: true },

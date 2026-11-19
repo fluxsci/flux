@@ -4,8 +4,8 @@
 // (Hindawi/RoyalSociety 403, MDPI HTML interstitial); Chromium's network stack + TLS
 // fingerprint + cookie jar pass, which is why the button works and the CLI doesn't.
 //
-// Runs Phase A (OA) only — repositories + ordinary/gold-OA publishers, skipping the
-// ban-prone ones (Elsevier/Cell Press → left for the app's proxy phase). Isolated userData
+// Open access only — repositories + ordinary/gold-OA publishers, skipping the ban-prone
+// ones (Elsevier/Cell Press). Isolated userData
 // + partition so it never collides with a running Flux instance.
 //
 //   Build: esbuild scripts/oa-bulk-run.ts --bundle --platform=node --format=cjs \

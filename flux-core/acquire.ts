@@ -5,23 +5,23 @@ import { readBoundedBody } from "../electron/netFetch.cjs";
 // flux-core/acquire.ts — the PDF-acquisition engine (Node side: CLI/MCP/agents).
 // Runs the OA resolver waterfall (src/lib/references/pdfFinder.ts) over a FluxLib
 // entry's identifiers (from enrich.json + the .bib), downloads the first magic-byte-
-// valid PDF, and files it into items/<citekey>/ with provenance. Proxy/paywall is a
-// later phase (GUI/Electron-only). The renderer twin lives in pdfFinderBridge.ts.
-import { loadLibrary, loadEnrich, getSecret, resolveFluxLibPath } from "./fluxlib";
+// valid PDF, and files it into items/<citekey>/ with provenance. Open access only, in
+// both engines. The renderer twin lives in pdfFinderBridge.ts.
+import { loadLibrary, loadEnrich, getSecret } from "./fluxlib";
 import { hasPdf, writePdf, writeFulltext, loadOaMisses, saveOaMisses, fileSupplement } from "./items";
 import { fetchEuropePmcSupplements } from "../src/lib/references/supplementFinder";
 import { extractFulltext } from "./fulltext";
 import { runWaterfall, isPdfBytes, bareDoi, resolvePmcid, pmcidFromUrl, type PdfInputs, type FetchDeps } from "../src/lib/references/pdfFinder";
-import { safeKey, oaSig, isFreshOaMiss, failurePath, type OaMissMap, type FetchFailure } from "../src/lib/references/items";
+import { safeKey, oaSig, isFreshOaMiss, type OaMissMap } from "../src/lib/references/items";
 import { HostLimiter, hostGroup, doiGroup, interleaveByGroup, GET_COST } from "../src/lib/references/hostLimiter";
 import { readFile } from "node:fs/promises";
 
 const UA = "Flux/0.1 (PDF acquisition; mailto:flux)";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// Process-wide per-publisher rate limiter (twin of the renderer's sharedLimiter) — candidate
-// PDF GETs at publisher hosts create server-side sessions; unthrottled bulk runs got the IP
-// temporarily blocked (Cell Press: ">90 sessions created in 5 minutes").
+// Process-wide per-publisher rate limiter — candidate PDF GETs at publisher hosts create
+// server-side sessions; unthrottled bulk runs got the IP temporarily blocked (Cell Press:
+// ">90 sessions created in 5 minutes").
 const limiter = new HostLimiter();
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -111,8 +111,8 @@ function inputsFor(key: string, lib: any[], enrich: Record<string, any>): PdfInp
 
 /** Acquire the OA PDF for one citekey (skips if present unless refresh). `preloaded` lets a
  *  bulk caller share one library/enrich load instead of re-reading both files per key.
- *  `bulkMode` tunes the resolver set for a polite sweep (ban-safety = per-publisher caps
- *  + circuit breaker, not candidate filtering); a single-key fetch leaves it off. */
+ *  `bulkMode` tunes the resolver set for a polite sweep (ban-safety = per-publisher caps,
+ *  not candidate filtering); a single-key fetch leaves it off. */
 export async function fetchPdfForKey(
   key: string,
   opts: {
@@ -166,8 +166,8 @@ export async function fetchPdfForKey(
   return { key, status: "no-oa", transient: transient || undefined };
 }
 
-/** Manually ingest a hand-downloaded PDF into items/<key>/ (the fallback for paywalled
- *  papers with no OA copy). Validates the %PDF- header, files it with source "ingest",
+/** Manually ingest a hand-downloaded PDF into items/<key>/ (the route for papers with no
+ *  open-access copy). Validates the %PDF- header, files it with source "ingest",
  *  and extracts fulltext.txt. Throws on a missing/invalid file. */
 export async function ingestPdf(filePath: string, opts: { key: string; libPath?: string }): Promise<FetchOneResult> {
   let bytes: Uint8Array;
@@ -265,8 +265,8 @@ export interface SupplementSummary {
  *
  * Repository-only by design: this touches EBI and nothing else, so it is safe to run over a
  * whole library. Coverage is therefore the Europe PMC OPEN-ACCESS subset — a subscription
- * paper simply reports 0. The publisher route for the rest needs the authenticated browser
- * and so lives in the GUI (per-row "Get via library", which now captures supplements too).
+ * paper simply reports 0, and its supplements come in through the browser extension or by
+ * hand. The renderer twin is pdfFinderBridge.fetchSupplementsForEntries.
  */
 export async function fetchSupplements(
   opts: { keys?: string[]; libPath?: string; onProgress?: (done: number, total: number) => void } = {},
@@ -308,7 +308,7 @@ export interface MissingPdfRow {
   citekey: string;
   title: string;
   doi: string;
-  /** One-word bucket: never-tried | no-oa (the OA ledger wrote it off) | failed (both routes). */
+  /** One-word bucket: never-tried | no-oa (the OA-miss ledger recorded no open-access copy). */
   status: string;
   year: string;
   journal: string;
@@ -318,11 +318,6 @@ export interface MissingPdfRow {
   oa_url: string;
   pmid: string;
   pmcid: string;
-  /** Last recorded OA outcome for this paper ("no-oa", "no-id", or an error string). */
-  oa_error: string;
-  /** Last proxy-capture classification ("no-affordances", "not-a-pdf", "session-expired"…). */
-  proxy_reason: string;
-  landed_host: string;
   attempts: string;
   last_attempt: string;
 }
@@ -337,8 +332,7 @@ export function toCsv(rows: MissingPdfRow[]): string {
     rows[0] ??
       ({
         citekey: "", title: "", doi: "", status: "", year: "", journal: "", publisher_group: "",
-        is_oa: "", oa_url: "", pmid: "", pmcid: "", oa_error: "", proxy_reason: "",
-        landed_host: "", attempts: "", last_attempt: "",
+        is_oa: "", oa_url: "", pmid: "", pmcid: "", attempts: "", last_attempt: "",
       } as MissingPdfRow),
   ) as (keyof MissingPdfRow)[];
   return [cols.join(","), ...rows.map((r) => cols.map((c) => csvCell(r[c])).join(","))].join("\n") + "\n";
@@ -351,32 +345,24 @@ export function toCsv(rows: MissingPdfRow[]): string {
  * counts as present even though Flux never copied the bytes.
  *
  * The diagnostic columns come from artifacts already on disk: enrich.json (is it even OA?
- * does it have a PMCID the PMC route could have used?) and items/<key>/fetch-failure.json
- * (what did the last real attempt actually hit?). Nothing here touches the network.
+ * does it have a PMCID the PMC route could have used?) and the OA-miss ledger (when did the
+ * last open-access attempt come up empty?). Nothing here touches the network.
  */
 export async function missingPdfs(opts: { libPath?: string } = {}): Promise<MissingPdfRow[]> {
   const [lib, enrich, misses] = await Promise.all([loadLibrary(opts.libPath), loadEnrich(opts.libPath), loadOaMisses(opts.libPath)]);
-  const L = opts.libPath ?? (await resolveFluxLibPath());
   const rows: MissingPdfRow[] = [];
   for (const e of lib) {
     if (await hasPdf(e.key, opts.libPath)) continue;
     const en = enrich[e.key];
     const doi = bareDoi(e.doi || en?.doi) ?? "";
-    let fail: FetchFailure | null = null;
-    try {
-      fail = JSON.parse(await readFile(failurePath(L, e.key), "utf8")) as FetchFailure;
-    } catch {
-      /* no failure record — never attempted, or it succeeded and was cleared */
-    }
-    // The OA-miss ledger is the OTHER record of "we tried this" — and in practice the fuller
-    // one: Part C's fetch-failure.json is written only when BOTH routes genuinely failed in a
-    // GUI bulk run, whereas the ledger records every definitive no-open-access-copy.
+    // The OA-miss ledger is the record of "we tried this": every definitive no-open-access
+    // copy. (Older versions also left items/<key>/fetch-failure.json; it is no longer read.)
     const miss = misses[safeKey(e.key).normalize("NFC")];
     rows.push({
       citekey: e.key,
       title: e.title ?? "",
       doi,
-      status: fail ? "failed" : miss ? "no-oa" : "never-tried",
+      status: miss ? "no-oa" : "never-tried",
       year: e.year ?? "",
       journal: e.container ?? "",
       publisher_group: doiGroup(doi) ?? hostGroup(en?.openAccess?.url || e.url) ?? "",
@@ -387,11 +373,8 @@ export async function missingPdfs(opts: { libPath?: string } = {}): Promise<Miss
       // waterfall does — straight out of a PMC open-access URL. Offline and free; it turns
       // "was the PMC route even available?" from a blank column into a real answer.
       pmcid: en?.ids?.pmcid ?? pmcidFromUrl(en?.openAccess?.url) ?? "",
-      oa_error: fail?.oa ?? "",
-      proxy_reason: fail?.proxy?.reason ?? "",
-      landed_host: fail?.host ?? "",
-      attempts: String(fail?.attempts ?? miss?.attempts ?? ""),
-      last_attempt: fail?.attemptedAt ?? miss?.at ?? "",
+      attempts: String(miss?.attempts ?? ""),
+      last_attempt: miss?.at ?? "",
     });
   }
   return rows.sort((a, b) => a.citekey.localeCompare(b.citekey));

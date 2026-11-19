@@ -298,7 +298,7 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
     {
       scope: "machine",
       description:
-        "Download supplementary files (SI PDFs, data, videos) for FluxLib entries into items/<citekey>/supplements/, indexed in manifest.json. Repository-only: it asks Europe PMC, which covers its OPEN-ACCESS subset — a subscription paper returns 0 here and needs the GUI's “Get via library ⚿”, which captures supplements from the publisher's page. `keys` limits to specific citekeys (default: the whole library).",
+        "Download supplementary files (SI PDFs, data, videos) for FluxLib entries into items/<citekey>/supplements/, indexed in manifest.json. Repository-only: it asks Europe PMC, which covers its OPEN-ACCESS subset — a subscription paper returns 0 here; the user can save its supplements with the browser extension (Add to FluxLib) or attach them by hand. `keys` limits to specific citekeys (default: the whole library).",
       inputSchema: { keys: z.array(z.string()).optional() },
     },
     async ({ keys }) => {
