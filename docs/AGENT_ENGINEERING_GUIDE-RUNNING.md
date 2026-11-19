@@ -685,6 +685,17 @@ Persistence invariants (all machine-checked — do not weaken):
   hold a security boundary (`flux-core/render.ts`, where a canvas file is untrusted input)
   filter candidates through `isUnderRoot` rather than dropping `safeJoin`'s guarantee.
   Gated by `verify-plot-source.ts`.
+- **A recipe runs a command, so BOTH engines ask once per project before running one**
+  (2026-11-18). `electron/recipeTrust.cjs` owns the key (the resolved project root, else the
+  recipe's folder) and the list (`trustedRecipeRoots` in the machine preferences); the app's
+  `confirmRecipeTrust` dialog and the headless `assertRecipeTrusted` (`flux-core/recipe.ts`)
+  both go through it, so a grant on either side holds for the other. Headless has no dialog:
+  an untrusted run throws a `ValidationError` that shows the exact command, and `trust: true`
+  (`--trust`) runs it and remembers the project. Any new code path that spawns a recipe goes
+  through `runRecipe` (headless) or `recipe:run` (app), never around them. A gate that runs a
+  recipe passes `trust: true` and must run through `run-verifies.mjs`, whose isolated config
+  dir keeps the grant out of the real preferences. Gated by `verify-f2-recipe.ts` and
+  `verify-electron-hardening.ts`.
 - **Figure ORDER is `p.figures`' array order, per canvas, and it is the user's** (2026-08-19):
   the sidebar's Figures list renders that order, the user drags rows (or presses Alt+↑/↓) to
   change it, and `planFigSave` persists it — canvas files list figures in it and `index.json`
@@ -13233,3 +13244,10 @@ carry earlier exchanges.
   correction one click.
 - A third tab broke a strip that "fit with room to spare": check a rail at its MINIMUM width, not its default.
   Container queries on the strip (drop counts, then the word, then scroll) fixed the old four-tab overlap too.
+
+### 2026-11-18 — Pre-publicity hardening: recipe trust for agents, bridge descriptor, dependencies (Claude Fable 5.2, `harden/pre-publicize`)
+**Work:** Three fixes from the pre-publicity review. The headless recipe runner now asks for the same per-project trust the app's Regenerate dialog asks for (body §3, new bullet). `bridge.json` is created fresh and renamed into place instead of being written through whatever a project carries at `.meta/live`. `npm audit fix` took the tree from 29 advisories to 8 (Electron 43.8.12, markdown-it 14.3.3, MCP SDK 1.32.2, vite, puppeteer-core).
+**Learnings:**
+- **`npm audit fix` can cross a major version of a package the repo imports but never declared.** `zod` was only a transitive dependency of the MCP SDK, whose range is `^3.25 || ^4.0`; the fix moved it to 4.x and `z.record(x)` stopped type-checking. `zod` is now a declared dependency at `^3.25.76`. Anything `flux-core` imports by name belongs in `package.json`. The remaining high advisory is zod 3 itself; clearing it is a zod 4 migration (tool schemas, the MCP golden), not a lockfile bump.
+- **A write into a project folder is a write through someone else's filesystem.** `mkdir -p` plus `writeFile` follows any link already there. Check the folders with `lstat`, create the file exclusively under a private name (`flag: "wx"`), and `rename` it into place: rename replaces a link, it never writes through one. Remove on teardown only what this instance published.
+- **Run recipe gates through the runner.** A gate that grants trust writes to the machine preferences; `run-verifies.mjs` gives each gate its own config dir, a bare `npx tsx scripts/verify-…` does not.

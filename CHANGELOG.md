@@ -9,6 +9,25 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 
 ## Unreleased
 
+### Security
+
+- **Agents and the command line ask before running a project's plot recipe.** Regenerating a
+  plot runs the command its recipe names. The app has always asked once per project before
+  doing that; `flux rerun-plot`, the `rerun_plot` tool and `set-plot-color-scale --regenerate`
+  ran it without asking. They now refuse the first rerun in a project and show the exact
+  command; running again with `--trust` (`trust: true`) runs it and remembers the project.
+  The app and the command line share the answer, so a project trusted in one is trusted in
+  the other.
+- **Opening a project no longer writes through a link inside it.** Flux puts a small private
+  file in the project's `.meta/live` folder so a connected agent can find the open window. A
+  project that arrived with a link in that place could redirect the write to another of your
+  files. Flux now replaces such a link instead of following it, and does not publish the file
+  at all when the folder itself is a link.
+- **Bundled engine and libraries updated.** Electron 43.8.12 (from 43.7.3), markdown-it
+  14.3.3, the MCP SDK 1.32.2 and the build tools: 29 published advisories against the
+  dependency tree drop to 8, none critical. The one left at high severity is in zod 3, which
+  validates tool input from your own agent; it is fixed only in zod 4, a separate migration.
+
 ### Flux AI
 
 - **The Inbox's thread reads cleaner.** The note is set in a reading column. Its picture sits
