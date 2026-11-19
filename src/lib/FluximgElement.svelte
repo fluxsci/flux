@@ -10,16 +10,13 @@
    */
   import { tick, untrack } from "svelte";
   import { project } from "./store";
-  import {
-    fluximgBundle, fluximgIdentity, fluximgIssues, fluximgLayerText, fluximgManifests, fluximgService, fluximgStillRevision,
-    needLayerText, needManifest,
-  } from "./fluximg/store";
+  import { fluximgBundle, fluximgIdentity, fluximgIssues, fluximgManifests, fluximgService, fluximgStillRevision, needManifest } from "./fluximg/store";
+  import FluximgVectors from "./fluximg/FluximgVectors.svelte";
   import { fluximgLive, fluximgLiveBusy } from "./fluximg/live/session";
   import { pixelKey, resolveView } from "./fluximg/viewOps";
   import { clampCrop, tieredStillSize } from "./fluximg/still";
-  import { layerMarkup, namesMarkup, objectIndex, svgNum } from "./fluximg/layers";
-  import { furnitureSvg } from "./fluximg/furniture";
-  import { PLACEHOLDER_FILL, fluximgIdPrefix, layerSvgPath, unflipTransform } from "./fluximg/static";
+  import { svgNum } from "./fluximg/layers";
+  import { PLACEHOLDER_FILL, fluximgIdPrefix } from "./fluximg/static";
   import type { FluximgElement } from "./types";
 
   let { element }: { element: FluximgElement } = $props();
@@ -82,57 +79,6 @@
     return () => clearTimeout(timer);
   });
 
-  // --- vectors ---------------------------------------------------------------------------------
-  const objectLayers = $derived.by(() => {
-    if (!rv || !manifest) return [];
-    const byId = new Map(manifest.layers.map((l) => [l.id, l]));
-    return rv.layers.filter((lv) => lv.visible && lv.kind !== "intensity").map((lv) => ({ lv, layer: byId.get(lv.id)!, path: layerSvgPath(byId.get(lv.id)!) })).filter((x) => x.layer && x.path);
-  });
-  $effect(() => { if (asset) for (const l of objectLayers) needLayerText(asset, l.path!); });
-
-  // Markup is rebuilt only when its own inputs change: stepping through planes must not re-place 20,000 outlines.
-  const memo = new Map<string, { sig: string; markup: string }>();
-  function memoized(id: string, sig: string, build: () => string): string {
-    const hit = memo.get(id);
-    if (hit && hit.sig === sig) return hit.markup;
-    const markup = build();
-    memo.set(id, { sig, markup });
-    return markup;
-  }
-  const geometry = $derived(crop ? `${crop.x},${crop.y},${crop.width},${crop.height}|${box.width}x${box.height}` : "");
-  const layersHtml = $derived.by(() => {
-    if (!asset || !crop) return [];
-    const texts = $fluximgLayerText;
-    return objectLayers.map(({ lv, layer, path }) => {
-      const text = texts[`${asset.id}|${path}`];
-      if (text === undefined) return { id: lv.id, markup: "" };
-      const sig = `${geometry}|${JSON.stringify(lv)}|${text.length}`;
-      return { id: lv.id, markup: memoized(`layer:${lv.id}`, sig, () => safe(() => layerMarkup(layer, text, lv, crop, box, prefix))) };
-    });
-  });
-  // A flipped element mirrors its pixels and shapes, never its words: text sits in a group that undoes the flip.
-  const unflip = $derived(unflipTransform(box, element.flipX, element.flipY) || undefined);
-  const namesHtml = $derived.by(() => {
-    if (!asset || !crop || !rv || !rv.furniture.names) return "";
-    const names = rv.furniture.names, texts = $fluximgLayerText;
-    let out = "";
-    for (const { lv, layer, path } of objectLayers) {
-      if (!names.layers.includes(lv.id)) continue;
-      const text = texts[`${asset.id}|${path}`];
-      if (text === undefined) continue;
-      const color = lv.color ?? layer.color ?? "#ffffff";
-      const sig = `${geometry}|${names.fontSize}|${color}|${text.length}|${element.flipX ? 1 : 0}${element.flipY ? 1 : 0}`;
-      out += memoized(`names:${lv.id}`, sig, () => safe(() => namesMarkup(objectIndex(text), null, crop, box, { layerId: lv.id, fontSize: names.fontSize, color, flipX: !!element.flipX, flipY: !!element.flipY }, prefix)));
-    }
-    return out;
-  });
-  const furnitureHtml = $derived(manifest && rv && crop ? safe(() => furnitureSvg(manifest, rv, crop, box, prefix)) : "");
-
-  /** A layer file anyone may have written can be refused by the sanitizer: draw nothing rather than break the figure. */
-  function safe(build: () => string): string {
-    try { return build(); } catch { return ""; }
-  }
-
   const label = $derived(element.name ?? asset?.name ?? "Image");
   const reason = $derived(issue || failed || "Preparing image");
   const w = $derived(svgNum(box.width)), h = $derived(svgNum(box.height));
@@ -156,6 +102,7 @@
       <text x={box.width / 2} y={box.height / 2 + fit * 1.0} text-anchor="middle" font-family="Inter, sans-serif" font-size={fit * 0.8} fill="#878580">{reason.length > 64 ? `${reason.slice(0, 61)}…` : reason}</text>
     </g>
   {/if}
-  {#each layersHtml as layer (layer.id)}{@html layer.markup}{/each}
-  {#if unflip}<g transform={unflip}>{@html namesHtml}{@html furnitureHtml}</g>{:else}{@html namesHtml}{@html furnitureHtml}{/if}
+  {#if asset && manifest && rv && crop}
+    <FluximgVectors {asset} {manifest} view={rv} {crop} {box} {prefix} flipX={!!element.flipX} flipY={!!element.flipY} />
+  {/if}
 </svg>

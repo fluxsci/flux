@@ -78,6 +78,7 @@ import { reattachClones } from "./slide/attach";
 import { copySelectedPlotPath } from "./figure/commands";
 import { figurePlacement } from "./figure/placement";
 import { FLUXIMG_NOT_IN_SLIDES, isFluximgElement } from "./fluximg/policy";
+import { fluximgLive, fluximgLiveUnavailable, openFluximgLive } from "./fluximg/live/session";
 
 let clipboard: Element[] = [];
 // Group defs snapshotted with the copy (chains of the copied elements), so a
@@ -646,6 +647,22 @@ const TOOL_KEYS: Record<string, Tool> = {
 // Shift+Alt+R opens on the FAMILY: each drilled part widens one level first
 // (one tick label → its tick labels; an axis title → its axis — rowContext
 // partFamily), and that pick is published to the canvas before the X-ray opens.
+/** R on exactly one selected image opens its live view. False when the selection is anything else. */
+function openSelectedFluximgLive(): boolean {
+  const sel = get(selection);
+  if (sel.size !== 1 || get(partSelection)) return false;
+  const id = [...sel][0];
+  for (const f of get(project).figures) {
+    const el = f.elements.find((e) => e.id === id);
+    if (!el) continue;
+    if (el.type !== "fluximg") return false;
+    const reason = fluximgLiveUnavailable(id);
+    if (reason) { pushToast("info", reason); return true; }
+    return openFluximgLive(id);
+  }
+  return false;
+}
+
 function openXray(family = false): boolean {
   if (family) widenPartsToFamily();
   const p = get(project);
@@ -752,6 +769,7 @@ export function handleKey(e: KeyboardEvent) {
     (get(figureCatalog) || get(figureDeletion)) ||
     get(dissectTarget) ||
     get(railQuickLook) ||
+    get(fluximgLive) ||
     get(shellModalOpen)
   )
     return;
@@ -882,7 +900,10 @@ export function handleKey(e: KeyboardEvent) {
   // does not reopen it (the panel's own R closes it).
   if (!mod && e.code === "KeyR" && ((!e.altKey && !e.shiftKey) || (e.altKey && e.shiftKey))) {
     e.preventDefault();
-    if (!e.repeat && !openXray(e.shiftKey)) pushToast("info", "R opens the X-ray of a selected plot or group (Alt+R draws a rectangle)");
+    if (e.repeat) return;
+    // One selected image: R is its live view (X-ray for images). Anything else: the X-ray.
+    if (!e.shiftKey && openSelectedFluximgLive()) return;
+    if (!openXray(e.shiftKey)) pushToast("info", "R opens the X-ray of a selected plot or group, or the live view of a selected image (Alt+R draws a rectangle)");
     return;
   }
   if (e.altKey && !mod && !e.shiftKey && e.code === "KeyR") {

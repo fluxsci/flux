@@ -110,6 +110,8 @@
   import { plotManifests, plotGen, hasPlotDom, ensurePlotDom } from "./plot/store";
   import { model3dPosterRevision } from "./model3d/store";
   import { fluximgStillRevision } from "./fluximg/store";
+  import { fluximgLive, closeFluximgLive } from "./fluximg/live/session";
+  import FluximgLiveOverlay from "./fluximg/live/FluximgLiveOverlay.svelte";
   import ElementView from "./Element.svelte";
   import ElementSlot from "./ElementSlot.svelte";
   import type { HitBridgeHolder, CanvasHits } from "./interact/canvasHitBridge";
@@ -571,6 +573,18 @@
     finishModelOrbit(); clearModelPreviews(); previousModelOwner = modelOwner;
   }
   $: if ($modelOrbit && (!paneActive || $modelOrbit.owner !== modelOwner || $modelOrbitBlocked || !$selection.has($modelOrbit.id) || absentPresentationIds.has($modelOrbit.id) || !["select", "scale"].includes($activeTool))) finishModelOrbit();
+  // The image whose live view is open, with its figure (the overlay needs the figure's origin). Only in the active
+  // pane, only while the element is on screen; anything else closes the view rather than leave chrome adrift.
+  $: fluximgLiveItem = (() => {
+    const live = $fluximgLive;
+    if (!live || !paneActive) return null;
+    for (const fig of canvasFigures) {
+      const el = (visibleByFig.get(fig.id) ?? []).find(e => e.id === live.elementId);
+      if (el && el.type === "fluximg" && !absentPresentationIds.has(el.id)) return { fig, el };
+    }
+    return null;
+  })();
+  $: if ($fluximgLive && paneActive && !["select", "scale"].includes($activeTool)) closeFluximgLive();
   $: modelOverlayItems = paneActive ? canvasFigures.flatMap(fig => (visibleByFig.get(fig.id) ?? []).filter(el => el.type === "model3d" && $modelPreviews[el.id] && !absentPresentationIds.has(el.id)).map(el => ({ fig, el }))) : [];
   onDestroy(() => { finishModelOrbit(); clearModelPreviews(); });
 
@@ -6220,6 +6234,11 @@
         endTypingStyleOnNavigation(e);
       }}
     ></textarea>
+  {/if}
+  {#if fluximgLiveItem}
+    {#key fluximgLiveItem.el.id}
+      <FluximgLiveOverlay element={fluximgLiveItem.el} beginPan={() => { spaceDown = true; }} left={$viewport.panX + (fluximgLiveItem.fig.x + fluximgLiveItem.el.x) * $viewport.zoom} top={$viewport.panY + (fluximgLiveItem.fig.y + fluximgLiveItem.el.y) * $viewport.zoom} zoom={$viewport.zoom} />
+    {/key}
   {/if}
   {#each modelOverlayItems as item (item.el.id)}
     {#if item.el.type === "model3d"}

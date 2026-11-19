@@ -44,6 +44,12 @@ export const fluximgLiveBusy = writable(false);
 export interface LiveHover { layerId: string; key: string; from: "image" | "list" }
 export const fluximgHover = writable<LiveHover | null>(null);
 
+/** Where the pointer is over the live image, in level-0 image pixels; null elsewhere. Read on demand (not a store). */
+export const livePointer: { at: { x: number; y: number } | null } = { at: null };
+
+/** The screen box of the live image together with its rails (client px): the panel keeps clear of it. */
+export const fluximgLiveRect = writable<{ x: number; y: number; w: number; h: number } | null>(null);
+
 let session: ReturnType<typeof editSession> | null = null;
 let gesture = "";
 let idle: ReturnType<typeof setTimeout> | undefined;
@@ -137,6 +143,8 @@ export function closeFluximgLive(): void {
   if (!get(fluximgLive)) return;
   settleLiveEdit();
   fluximgHover.set(null);
+  fluximgLiveRect.set(null);
+  livePointer.at = null;
   fluximgLive.set(null);
 }
 
