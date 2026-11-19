@@ -10,6 +10,7 @@
   import { fileBridge, type RunnerDriver, type RunnerEvent } from "../../lib/project/types";
   import { askPacket } from "../../lib/project/ask";
   import { describeStamp, type ContextStamp } from "../../lib/project/annotations";
+  import { paperRef, threadFromAsk, earlierThreads } from "../../lib/references/conversations";
   import { shortTarget, describeTarget } from "../../lib/project/targets";
   import { modalFocus } from "../../lib/ui/modalFocus";
   import { fullscreenPortal } from "../../lib/ui/portal";
@@ -49,6 +50,31 @@
   const messages = $derived(transcriptMessages(transcript));
   const answered = $derived(messages.some(m => m.role === "agent" && m.text.trim()));
   const phase = $derived(busy ? (transcriptActivity(transcript) || reason || "Working…") : "");
+  // A question asked while reading belongs to the paper, not to the project that is open: once it
+  // is answered it is saved with the paper (FluxLib), on the passage it was about, and every
+  // project that opens the paper shows it. Keep moves it to the Inbox, whose item is mirrored there.
+  const paper = paperRef({ kind: "annotation", targets, context: stamp });
+  const paperThread = `ask${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const saidAt: string[] = [];
+  let kept = false;
+  async function rememberOnPaper() {
+    if (!paper || kept) return;
+    const said = $state.snapshot(messages).filter(m => m.text.trim()), now = new Date().toISOString();
+    while (saidAt.length < said.length) saidAt.push(now);
+    try {
+      const { projectOrigin } = await import("../inbox/paperConversations");
+      const thread = threadFromAsk(paperThread, paper, projectOrigin(req.root), said, driverName, saidAt);
+      if (thread && !kept) await (await import("../../lib/references/conversationsBridge")).saveThreads(paper.citekey, [thread]);
+    } catch (e) { console.warn("[flux] this Ask was not saved with its paper:", e); }
+  }
+  /** What was already asked about these words, in any project: the agent builds on it. */
+  async function earlierOnPaper(): Promise<unknown[] | undefined> {
+    if (!paper?.anchor && !paper?.highlightId) return undefined;
+    try {
+      const { threads } = await (await import("../../lib/references/conversationsBridge")).loadConversations(paper.citekey);
+      return earlierThreads(threads, paper, paperThread);
+    } catch { return undefined; }
+  }
   const shot = req.shot.then(async image => {
     if (!image) return undefined;
     const bitmap = await createImageBitmap(new Blob([new Uint8Array(image.png)], { type: "image/png" }));
@@ -75,6 +101,7 @@
     else if (event.type === "status") {
       if (event.reason) reason = event.reason;
       if (["idle", "done", "failed", "cancelled"].includes(event.state)) { busy = false; reason = event.reason ?? ""; }
+      if ((event.state === "idle" || event.state === "done") && answered) void rememberOnPaper();
     }
     if (!follow) unseen = true;
   }
@@ -107,6 +134,7 @@
     if (!text || busy || keeping || disposed) return;
     const started = generation;
     busy = true; error = ""; reason = "Preparing agent…"; startedAt = Date.now(); lastQuestion = text;
+    const first = transcript.turns.length === 0;
     req.input.value = "";
     transcript = askTurn(transcript, text, { images: transcript.turns.length === 0 && preview ? [preview] : undefined });
     follow = true; unseen = false;
@@ -115,10 +143,10 @@
       if (disposed || started !== generation) return;
       // A Codex pre-warm probes capabilities only; Send starts its process.
       if (!runId && !disposed) await prepare();
-      const png = await shot;
+      const [png, earlier] = await Promise.all([shot, first ? earlierOnPaper() : undefined]);
       if (disposed || started !== generation || !runId) return;
       busy = true; reason = "Reading the captured context…";
-      await fb!.runnerSend!({ runId, text: askPacket(text, stamp), ...(png ? { images: [{ png }] } : {}) });
+      await fb!.runnerSend!({ runId, text: askPacket(text, stamp, earlier), ...(png ? { images: [{ png }] } : {}) });
       fluxAiSignal("sent");
     } catch (e) { if (!disposed && started === generation) { error = (e as Error).message; busy = false; transcript = reduceTranscript(transcript, { type: "error", message: (e as Error).message }); transcript = reduceTranscript(transcript, { type: "status", state: "failed" }); } }
   }
@@ -138,6 +166,9 @@
       if (disposed) return;
       const root = req.root;
       const id = await keepAsk(root, $state.snapshot(messages), stamp, driverName, png);
+      // The Inbox item now carries this exchange (and is mirrored onto the paper): drop the Ask's own copy.
+      kept = true;
+      if (paper) void import("../../lib/references/conversationsBridge").then(m => m.forgetThread(paper.citekey, paperThread, false)).catch(() => {});
       closeAsk();
       pushToast("success", "Kept in Inbox", { detail: "The question and answer are saved as a resolved note.", action: { label: "Open", run: () => requestInbox(id) } });
     } catch (e) { error = (e as Error).message; keeping = false; }

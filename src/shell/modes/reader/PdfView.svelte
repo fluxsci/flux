@@ -53,6 +53,7 @@
     annotations = [],
     canHighlight = true,
     hoverId = null,
+    talkIds = null,
     onCreate,
     onSelect,
     onAnnotate,
@@ -80,12 +81,15 @@
     canHighlight?: boolean;
     /** Externally-hovered annotation id (e.g. a sidebar row) → its on-page boxes glow. */
     hoverId?: string | null;
+    /** Highlights that carry a Flux AI conversation: each is underlined on the page. */
+    talkIds?: ReadonlySet<string> | null;
     /** Return/resolve `false` (or reject) when the create failed to persist — the
      *  selection is then kept alive so the user can retry. */
     onCreate?: (a: { page: number; anchor: TextQuoteSelector; color: string }) => void | boolean | Promise<void | boolean>;
-    onSelect?: (text: string, page?: number) => void;
-    onAsk?: (text: string, page: number) => void;
-    onAnnotate?: (text: string, page: number) => void;
+    onSelect?: (text: string, page?: number, anchor?: TextQuoteSelector) => void;
+    /** `anchor` is the selection itself (its words and the words around them). */
+    onAsk?: (text: string, page: number, anchor?: TextQuoteSelector) => void;
+    onAnnotate?: (text: string, page: number, anchor?: TextQuoteSelector) => void;
     /** Click on a painted highlight (hit-tested — the boxes stay pointer-events:none). */
     onAnnotationClick?: (hit: { id: string; page: number; rect: DOMRect }) => void;
     onAnnotationHover?: (id: string | null) => void;
@@ -145,7 +149,7 @@
 
   // --- per-page state (rebuilt on every textlayerrendered) ----------------------
   type PageInfo = { text: string; nodes: { node: Text; start: number }[] };
-  type PageEntry = { pageDiv: HTMLElement; textDiv: HTMLElement; hlLayer: HTMLDivElement; info: PageInfo };
+  type PageEntry = { pageDiv: HTMLElement; textDiv: HTMLElement; hlLayer: HTMLDivElement; talkLayer?: HTMLDivElement; info: PageInfo };
   const pageInfos = new Map<number, PageEntry>();
 
   // --- text ↔ DOM mapping for anchoring (unchanged logic) -----------------------
@@ -282,6 +286,10 @@
     const st = pageInfos.get(p);
     if (!st || !st.hlLayer.isConnected) return;
     st.hlLayer.replaceChildren();
+    // A highlight with a conversation is underlined in Flux AI's blue. The lines sit in a layer
+    // of their own (made only on a page that needs one): the highlight layer multiplies with the
+    // page, which would turn a blue line on yellow into green.
+    st.talkLayer?.remove(); st.talkLayer = undefined;
     const pageRect = st.pageDiv.getBoundingClientRect();
     const entries: HitEntry[] = [];
     const info = liveInfo(st);
@@ -300,6 +308,16 @@
         d.dataset.id = a.id;
         d.style.cssText = `left:${b.x}%;top:${b.y}%;width:${b.w}%;height:${b.h}%;background:${hlPage(a.color)};`;
         st.hlLayer.appendChild(d);
+      }
+      if (talkIds?.has(a.id)) {
+        if (!st.talkLayer) { st.talkLayer = document.createElement("div"); st.talkLayer.className = "talk-layer"; st.pageDiv.appendChild(st.talkLayer); }
+        for (const b of boxes) {
+          const line = document.createElement("div");
+          line.className = "annot-talk";
+          line.dataset.id = a.id;
+          line.style.cssText = `left:${b.x}%;top:${b.y + b.h}%;width:${b.w}%;`;
+          st.talkLayer.appendChild(line);
+        }
       }
     }
     hitMap.set(p, entries);
@@ -324,7 +342,7 @@
     reportLocated();
   }
   $effect(() => {
-    void annotations;
+    void annotations; void talkIds;
     if (status === "ready") redrawAllLive();
   });
 
@@ -340,7 +358,7 @@
     const pageDiv: HTMLElement | undefined = view?.div;
     const textDiv: HTMLElement | undefined = view?.textLayer?.div;
     if (!pageDiv || !textDiv) return;
-    for (const el of pageDiv.querySelectorAll(":scope > .hl-layer")) el.remove();
+    for (const el of pageDiv.querySelectorAll(":scope > .hl-layer, :scope > .talk-layer")) el.remove();
     const hlLayer = document.createElement("div");
     hlLayer.className = "hl-layer";
     pageDiv.appendChild(hlLayer);
@@ -938,7 +956,7 @@
     const below = top - vis.top < menuSize.h + 14;
     const y = Math.round(below ? Math.min(bottom + 9, vis.bottom - menuSize.h - 6) : top - 9);
     menu = { x, y, below, page, anchor };
-    onSelect?.(anchor.quote, page);
+    onSelect?.(anchor.quote, page, anchor);
   }
   function measureMenu(node: HTMLElement) {
     const r = node.getBoundingClientRect();
@@ -1095,8 +1113,8 @@
         {/each}</span>
       {/if}
       {#if canHighlight && (onAnnotate || onAsk)}<span class="msep" aria-hidden="true"></span>{/if}
-      {#if onAnnotate}<button class="annotate-passage" title="Annotate this passage: a note for your agents" aria-label="Annotate this passage" onmousedown={e => e.preventDefault()} onclick={() => { if (menu) { const m = menu; menu = null; onAnnotate?.(m.anchor.quote, m.page); } }}><FluxAiMark still size={15} tone="live" /><span>Annotate</span></button>{/if}
-      {#if onAsk}<button class="ask-passage" title="Ask about this passage" aria-label="Ask about this passage" onmousedown={e => e.preventDefault()} onclick={() => { if (menu) { const m = menu; menu = null; onAsk?.(m.anchor.quote, m.page); } }}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" /></svg><span>Ask</span></button>{/if}
+      {#if onAnnotate}<button class="annotate-passage" title="Annotate this passage: a note for your agents" aria-label="Annotate this passage" onmousedown={e => e.preventDefault()} onclick={() => { if (menu) { const m = menu; menu = null; onAnnotate?.(m.anchor.quote, m.page, $state.snapshot(m.anchor)); } }}><FluxAiMark still size={15} tone="live" /><span>Annotate</span></button>{/if}
+      {#if onAsk}<button class="ask-passage" title="Ask about this passage" aria-label="Ask about this passage" onmousedown={e => e.preventDefault()} onclick={() => { if (menu) { const m = menu; menu = null; onAsk?.(m.anchor.quote, m.page, $state.snapshot(m.anchor)); } }}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" /></svg><span>Ask</span></button>{/if}
     </div>
   {/if}
 </div>
@@ -1165,6 +1183,20 @@
   }
   :global(.pdf-page .hl-layer .annot-hl.hover) {
     filter: brightness(0.92) saturate(1.3);
+  }
+  /* A highlight that carries a Flux AI conversation: a fine blue rule under each of its lines. */
+  :global(.pdf-page .talk-layer) {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    pointer-events: none;
+  }
+  :global(.pdf-page .talk-layer .annot-talk) {
+    position: absolute;
+    height: 1.5px;
+    margin-top: -1.5px;
+    border-radius: 1px;
+    background: #205ea6;
   }
   /* HL_BLEND escape hatch — merged-line translucent alpha, no blending. */
   :global(.pdf-root[data-hl-blend="off"] .hl-layer) {

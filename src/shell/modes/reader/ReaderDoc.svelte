@@ -16,7 +16,7 @@
   // switching papers mounts a fresh instance, so per-paper state needs no reset path.
   import { onMount, onDestroy, tick } from "svelte";
   import { readerFind } from "./readerStore";
-  import { fluxLibRevision } from "../../../lib/references/revision";
+  import { fluxLibRevision, paperConversationsRevision } from "../../../lib/references/revision";
   import {
     readerPdfBytes,
     readerPdfIdentity,
@@ -32,6 +32,8 @@
   import { pushToast, errMsg } from "../../../lib/toast";
   import { withIpcLock } from "../../../lib/references/libLock";
   import { loadAnnotations, addAnnotation, updateAnnotation, deleteAnnotation, annotationsRev } from "../../../lib/references/annotationsBridge";
+  import { loadConversations, forgetThread, restoreThread, conversationsRev } from "../../../lib/references/conversationsBridge";
+  import { groupThreads, threadQuestion, type PaperThread } from "../../../lib/references/conversations";
   import { saveAnnotationsMarkdown } from "../../../lib/io";
   import { hlSwatch } from "../../../lib/references/annotationColors";
   import { loadFluxLib, resolveFluxLibPath } from "../../../lib/references/fluxlibBridge";
@@ -53,11 +55,14 @@
   import PdfView from "./PdfView.svelte";
   import Icon from "../../Icon.svelte";
   import HighlightPopover from "./HighlightPopover.svelte";
+  import PaperThreads from "./PaperThreads.svelte";
+  import FluxAiMark from "../../agent/FluxAiMark.svelte";
+  import { requestInbox } from "../../inbox/inboxState";
   import CitePreview from "./CitePreview.svelte";
   import FigurePanel from "./FigurePanel.svelte";
   import SnipNamePopover from "./SnipNamePopover.svelte";
   import { get } from "svelte/store";
-  import { currentProject } from "../../shellStore";
+  import { currentProject, projectModel } from "../../shellStore";
   import { createReaderSnipController, type ReaderSnipRequest } from "./readerSnips";
   import {
     SNIP_DIR,
@@ -305,6 +310,8 @@
   // session's get_reading_context).
   let selection = $state("");
   let selPage = $state<number | undefined>(undefined);
+  // The words around the selection: what lets a conversation about it hang on exactly those words.
+  let selAnchor: TextQuoteSelector | null = null;
 
   // Highlight popover (click a highlight on the page, or ✎ on a sidebar row).
   let popover = $state<{ id: string; x: number; y: number; place: "above" | "below" } | null>(null);
@@ -564,6 +571,22 @@
     for (const e of entries.slice(0, entries.length - max)) localStorage.removeItem(e.k);
   }
 
+  // Conversations with Flux AI about this paper. They are kept with the paper (FluxLib), so the
+  // same ones show whichever project is open; see src/lib/references/conversations.ts.
+  let threads = $state.raw<PaperThread[]>([]);
+  let openThread = $state<string | null>(null);
+  let threadsRead = "[]", talkWarned = false;
+  function setThreads(next: PaperThread[]) {
+    // A reload that changed nothing keeps the same array: nothing downstream repaints.
+    const text = JSON.stringify(next);
+    if (text === threadsRead) return;
+    threadsRead = text; threads = next;
+  }
+  const readThreads = () => loadConversations(citekey).then(f => f.threads, error => {
+    if (!talkWarned) { talkWarned = true; pushToast("error", "Couldn't read this paper's conversations", { detail: errMsg(error) }); }
+    return null;
+  });
+
   // Stamp of the on-disk PDF (source.json identity) so an external re-fetch/replace of
   // paper.pdf refreshes the open reader in place; bufferGen remounts PdfView.
   let annotationEpoch = 0;
@@ -572,13 +595,14 @@
   async function refreshReader(initial = false) {
     const annotationAtStart=annotationEpoch;
     await reloadOwner.run(async () => {
-      const [af,lib,identity,sup,man]=await Promise.all([loadAnnotations(citekey),loadFluxLib(),readerPdfIdentity(citekey),listSupplements(citekey),readSupplementManifest(citekey)]);
+      const [af,lib,identity,sup,man,said]=await Promise.all([loadAnnotations(citekey),loadFluxLib(),readerPdfIdentity(citekey),listSupplements(citekey),readSupplementManifest(citekey),readThreads()]);
       const changed=initial||identity!==srcStamp;
       const fresh=changed?await readerPdfBytes(citekey):buffer;
-      return {af,lib,identity,sup,man,changed,fresh};
-    },({af,lib,identity,sup,man,changed,fresh},root)=>{
+      return {af,lib,identity,sup,man,changed,fresh,said};
+    },({af,lib,identity,sup,man,changed,fresh,said},root)=>{
       libraryRoot=root;
       if(annotationAtStart===annotationEpoch)annotations=af.annotations;
+      if(said)setThreads(said);
       entry=lib.find(e=>e.key===citekey)??null;
       libDois=new Set(lib.map(e=>bareDoi(e.doi)).filter((d):d is string=>!!d));
       libKeyByDoi=new Map(lib.flatMap(e=>{const d=bareDoi(e.doi);return d?[[d,e.key] as [string,string]]:[];}));
@@ -636,6 +660,24 @@
         annotations = af.annotations;
       }).catch(error => pushToast("error", "Couldn't reload highlights", { detail: errMsg(error) }));
     });
+  });
+
+  // A conversation saved by this app (an Ask answered, the Inbox mirrored) reaches every open view
+  // of the paper at once (conversationsRev, by citekey). An agent's write, or another window's,
+  // arrives through the watcher as its own event (paperConversationsRevision): only this small
+  // file is re-read, never the library.
+  onMount(() => {
+    const reread = () => void readThreads().then((said) => { if (alive && said) setThreads(said); });
+    let first = true, firstOutside = true;
+    const off = conversationsRev.subscribe((r) => {
+      if (first) { first = false; return; }
+      if (r.key === citekey) reread();
+    });
+    const offOutside = paperConversationsRevision.subscribe(() => {
+      if (firstOutside) { firstOutside = false; return; }
+      reread();
+    });
+    return () => { off(); offOutside(); };
   });
 
   // R6: PDF switcher. Show the main paper (its already-loaded buffer) or a supplement
@@ -738,7 +780,8 @@
     const W = 340; // HighlightPopover's width
     const pad = 12;
     const x = Math.min(Math.max(hit.rect.left + hit.rect.width / 2, W / 2 + pad), window.innerWidth - W / 2 - pad);
-    const below = hit.rect.bottom + 300 < window.innerHeight;
+    // Its height: the strip, the passage, the note and the buttons, plus a line per conversation.
+    const below = hit.rect.bottom + 300 + 26 * Math.min(3, talk.byHighlight.get(hit.id)?.length ?? 0) < window.innerHeight;
     popover = { id: hit.id, x, y: below ? hit.rect.bottom + 8 : hit.rect.top - 8, place: below ? "below" : "above" };
   }
   /** Returns the clipboard promise — the popover shows "Copied ✓" only on resolve. */
@@ -793,6 +836,7 @@
 
   const readingStamp = () => ({ citekey, title: entry?.title, page: popAnn?.page ?? (selection ? selPage : curPage),
     selection: popAnn?.anchor.quote ?? selection, highlightId: popAnn?.id,
+    ...(!popAnn && selection && selAnchor?.quote === selection ? { prefix: selAnchor.prefix, suffix: selAnchor.suffix } : {}),
     source: activePdf.kind === "main" ? "main" as const : { supplement: activePdf.name } });
   onDestroy(registerReaderTargets(() => rootEl ?? null, readingStamp, () => focused && active));
   $effect(() => {
@@ -800,14 +844,72 @@
     const stamp = readingStamp(); readerContext.set(stamp);
     return () => { if (get(readerContext) === stamp) readerContext.set(null); };
   });
-  function askPassage(quote: string, page: number, highlightId?: string) {
-    requestAsk({ targets: [{ kind: "passage", citekey, title: entry?.title, page, quote, highlightId }] });
+  // A passage handed to Flux AI. From a text selection it carries the selection's own anchor, so
+  // the conversation that follows can hang on a highlight of exactly those words.
+  const passage = (quote: string, page: number, on?: string | TextQuoteSelector) => ({ kind: "passage" as const, citekey, title: entry?.title, page, quote,
+    ...(typeof on === "string" ? { highlightId: on } : on && !onSupplement ? { prefix: on.prefix, suffix: on.suffix } : {}) });
+  function askPassage(quote: string, page: number, on?: string | TextQuoteSelector) {
+    requestAsk({ targets: [passage(quote, page, on)] });
   }
-  function annotatePassage(quote: string, page: number, highlightId?: string) {
-    requestAnnotation({ targets: [{ kind: "passage", citekey, title: entry?.title, page, quote, highlightId }] });
+  function annotatePassage(quote: string, page: number, on?: string | TextQuoteSelector) {
+    requestAnnotation({ targets: [passage(quote, page, on)] });
   }
-  function handleSelect(text: string, page?: number) {
+
+  // --- Conversations with Flux AI about this paper (`threads`, loaded with the paper above).
+  const talk = $derived(groupThreads(threads, annotations));
+  /** The highlight each thread hangs on, by thread id. */
+  const threadHighlights = $derived.by(() => {
+    const byId = new Map(annotations.map(a => [a.id, a])), out = new Map<string, Annotation>();
+    for (const [id, list] of talk.byHighlight) { const a = byId.get(id); if (a) for (const t of list) out.set(t.id, a); }
+    return out;
+  });
+  // The same set object while its members are the same: the page redraws its marks only when a
+  // highlight gains or loses its conversation.
+  let talkSet: ReadonlySet<string> = new Set();
+  const talkIds = $derived.by(() => {
+    const ids = [...talk.byHighlight.keys()].sort();
+    if (ids.join("\n") !== [...talkSet].join("\n")) talkSet = new Set(ids);
+    return talkSet;
+  });
+  // In reading order, like the highlights: by page, then by where its highlight starts.
+  const orderedThreads = $derived([...threads].sort((a, b) =>
+    (a.page ?? Infinity) - (b.page ?? Infinity) ||
+    (hlStarts.get(threadHighlights.get(a.id)?.id ?? "") ?? Infinity) - (hlStarts.get(threadHighlights.get(b.id)?.id ?? "") ?? Infinity) ||
+    a.createdAt.localeCompare(b.createdAt)));
+  /** Was this thread made in the project that is open now? (By project id, so it holds on another machine.) */
+  const here = (t: PaperThread) => t.origin.project?.id && $projectModel?.manifest.id
+    ? t.origin.project.id === $projectModel.manifest.id : !!t.origin.root && t.origin.root === $currentProject?.path;
+  function showThread(id: string) {
+    popover = null; showAnnots = true; openThread = id;
+    readerLayout.update((s) => ({ ...s, rightTab: "talk" }));
+    void tick().then(() => rootEl?.querySelector(`.talk[data-thread="${CSS.escape(id)}"]`)?.scrollIntoView({ block: "nearest" }));
+  }
+  /** Opening a conversation takes the page to what it is about, on the PDF it was asked on. */
+  function jumpToThread(t: PaperThread) {
+    const supp = t.source?.supplement;
+    if (supp) { if (!supplements.includes(supp)) return; void showSupplement(supp); }
+    else if (onSupplement) showMain();
+    const a = supp ? undefined : threadHighlights.get(t.id);
+    // PdfView applies a scroll request once its document is ready, so this holds across the switch.
+    if (a) jumpTo(a);
+    else if (t.page) scrollTo = { page: t.page, nonce: ++nonce };
+  }
+  function followUp(t: PaperThread) {
+    const a = threadHighlights.get(t.id);
+    askPassage(a?.anchor.quote ?? t.anchor?.quote ?? "", a?.page ?? t.page ?? curPage, a?.id);
+  }
+  async function removeThread(t: PaperThread) {
+    try {
+      await forgetThread(citekey, t.id, t.origin.kind === "item");
+      if (openThread === t.id) openThread = null;
+      pushToast("info", "Conversation removed from this paper", { action: { label: "Undo", run: () => void restoreThread(citekey, t).catch(e => pushToast("error", "Couldn't put the conversation back", { detail: errMsg(e) })) } });
+    } catch (e) {
+      pushToast("error", "Couldn't remove the conversation", { detail: errMsg(e) });
+    }
+  }
+  function handleSelect(text: string, page?: number, anchor?: TextQuoteSelector) {
     selection = text;
+    selAnchor = text && anchor && !onSupplement ? anchor : null;
     if (page != null) selPage = page;
   }
 
@@ -1195,7 +1297,7 @@
         <div class="pdfwrap">
           <div class="pdfarea">
             {#key bufferGen}
-              <PdfView bind:this={pdfView} buffer={viewBuffer ?? buffer} annotations={onSupplement ? [] : annotations} canHighlight={!onSupplement} {scrollTo} {initialView} hoverId={sideHoverId} find={findProp} onFind={onFindPosition} onMatchList={(m) => (matches = m)} onCreate={handleCreate} onSelect={handleSelect} onAnnotate={annotatePassage} onAsk={askPassage} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onCitePreview={handleCitePreview} onNavDepth={(n) => (navDepth = n)} onRegionPop={(r) => void popRegion(r)} onRegionSnip={(r) => void snipRegion(r)} onOrphans={(ids) => (orphans = new Set(ids))} onOrder={(starts) => (hlStarts = starts)} onScale={(s) => (scalePct = Math.round(s * 100))} onPage={(p, t) => { curPage = p; totalPages = t; if (!viewRestored) { viewRestored = true; if (layout !== "vertical") applyLayout(); } }} />
+              <PdfView bind:this={pdfView} buffer={viewBuffer ?? buffer} annotations={onSupplement ? [] : annotations} canHighlight={!onSupplement} {scrollTo} {initialView} hoverId={sideHoverId} talkIds={onSupplement ? null : talkIds} find={findProp} onFind={onFindPosition} onMatchList={(m) => (matches = m)} onCreate={handleCreate} onSelect={handleSelect} onAnnotate={annotatePassage} onAsk={askPassage} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onCitePreview={handleCitePreview} onNavDepth={(n) => (navDepth = n)} onRegionPop={(r) => void popRegion(r)} onRegionSnip={(r) => void snipRegion(r)} onOrphans={(ids) => (orphans = new Set(ids))} onOrder={(starts) => (hlStarts = starts)} onScale={(s) => (scalePct = Math.round(s * 100))} onPage={(p, t) => { curPage = p; totalPages = t; if (!viewRestored) { viewRestored = true; if (layout !== "vertical") applyLayout(); } }} />
             {/key}
           </div>
         </div>
@@ -1264,6 +1366,8 @@
             onSaveNote={(n) => handleUpdate(ann.id, { note: n || undefined })}
             onRecolor={(c) => void handleUpdate(ann.id, { color: c }).catch(() => {})}
             onCopy={() => copyQuote(ann)}
+            threads={talk.byHighlight.get(ann.id) ?? []}
+            onThread={showThread}
             onAnnotate={() => annotatePassage(ann.anchor.quote, ann.page, ann.id)}
             onAsk={() => askPassage(ann.anchor.quote, ann.page, ann.id)}
             onDelete={() => void handleDelete(ann.id)}
@@ -1283,6 +1387,8 @@
             <div class="shead stabs">
               <button class="stab" class:on={$readerLayout.rightTab === "annots"} title="Highlights (Alt+A)" data-n={annotations.length || undefined}
                 onclick={() => readerLayout.update((s) => ({ ...s, rightTab: "annots" }))}>Highlights</button>
+              <button class="stab talktab" class:on={$readerLayout.rightTab === "talk"} title="Conversations with Flux AI about this paper, from every project" aria-label="Flux AI conversations" data-n={threads.length || undefined}
+                onclick={() => readerLayout.update((s) => ({ ...s, rightTab: "talk" }))}><FluxAiMark still size={13} /><span class="tlabel">Flux AI</span></button>
               <button class="stab" class:on={$readerLayout.rightTab === "library"} title="Search your reference library (Alt+R)"
                 onclick={summonLibrary}>Library</button>
             </div>
@@ -1297,6 +1403,13 @@
             {/if}
             {#if $readerLayout.rightTab === "library"}
               <ReaderLibraryPanel focusReq={librarySearchReq} onOpenPdf={(k) => openReaderTab(k)} />
+            {:else if $readerLayout.rightTab === "talk"}
+              {#if orderedThreads.length === 0}
+                <div class="smsg">Select text in the PDF and choose Ask or Annotate. What Flux AI answers stays with this paper, in every project.</div>
+              {:else}
+                <PaperThreads threads={orderedThreads} highlights={threadHighlights} {here} bind:open={openThread} onJump={jumpToThread}
+                  onInbox={(t) => requestInbox(t.id)} onAsk={followUp} onRemove={(t) => void removeThread(t)} />
+              {/if}
             {:else if orderedAnns.length === 0}
               <div class="smsg">Select text in the PDF and pick a colour to add a highlight.</div>
             {:else}
@@ -1323,6 +1436,13 @@
                     </div>
                     {#if a.note}
                       <div class="anote">{a.note}</div>
+                    {/if}
+                    {#if talk.byHighlight.has(a.id)}
+                      {@const said = talk.byHighlight.get(a.id) ?? []}
+                      {@const last = said[said.length - 1]}
+                      <button class="atalk" title="Read this conversation with Flux AI" onclick={(e) => { e.stopPropagation(); showThread(last.id); }}>
+                        <FluxAiMark still size={12} /><span class="atq">{threadQuestion(last)}</span>{#if said.length > 1}<span class="atn">+{said.length - 1}</span>{/if}
+                      </button>
                     {/if}
                   </li>
                 {/each}
@@ -1715,7 +1835,9 @@
     background: color-mix(in srgb, var(--c-accent) 35%, transparent);
   }
   /* The tab strip. Four words fit the default 268 px rail with room to spare; the chosen one is
-     underlined, like the modes in the title bar. */
+     underlined, like the modes in the title bar. A rail dragged narrower drops the counts, then
+     the Flux AI tab's word (its mark stays); past that the strip scrolls sideways. Words never
+     run into each other. */
   .shead {
     position: sticky;
     top: 0;
@@ -1727,13 +1849,30 @@
     padding: 0 6px;
     background: var(--c-bg-raised);
     border-bottom: 1px solid var(--c-line);
+    container-type: inline-size;
   }
   .stabs {
     gap: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  @container (max-width: 240px) {
+    .stab[data-n]::after {
+      display: none;
+    }
+  }
+  @container (max-width: 205px) {
+    .stab {
+      padding: 0 5px;
+    }
+    .talktab .tlabel {
+      display: none;
+    }
   }
   .stab {
     position: relative;
-    flex: 0 1 auto;
+    flex: 0 0 auto;
     min-width: 0;
     display: inline-flex;
     align-items: center;
@@ -1758,7 +1897,7 @@
     position: absolute;
     left: 5px;
     right: 5px;
-    bottom: -1px;
+    bottom: 0;
     height: 2px;
     background: var(--c-accent);
   }
@@ -2331,6 +2470,34 @@
     color: var(--c-tx-2);
     font: 12px/1.45 var(--font-serif);
     white-space: pre-wrap;
+  }
+  /* A conversation on the highlight: the mark and the question, one line; it opens in Flux AI. */
+  .atalk {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 2px 0;
+    border: none;
+    background: none;
+    color: var(--c-tx-2);
+    font: 12px/1.4 var(--font-serif);
+    text-align: left;
+    cursor: var(--cursor-cross-hover);
+  }
+  .atalk:hover {
+    color: var(--c-tx-hi);
+  }
+  .atq {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .atn {
+    flex: 0 0 auto;
+    color: var(--c-tx-muted);
+    font: 10.5px var(--font-mono);
   }
   .ann.orphan .aquote {
     text-decoration: line-through;

@@ -14,7 +14,7 @@
 import { captureOpen } from "../../shell/agent/annotationVisibility";
 import { get, writable } from "svelte/store";
 import { bumpSlideEmbeds, bumpFigRevision, bumpBibRevision, bumpDeckRevision, bumpDissections } from "../../shell/scholar/revisions";
-import { bumpFluxLib, bumpAssignInbox, bumpZoteroBib } from "../references/revision";
+import { bumpFluxLib, bumpAssignInbox, bumpZoteroBib, bumpPaperConversations } from "../references/revision";
 import { invalidateEnrichCache } from "../references/fluxlibBridge";
 
 export interface FsChange {
@@ -85,7 +85,8 @@ export function startProjectWatch(root: string | null): void {
       // catch it anyway — this makes the refresh immediate, not next-stat).
       if (info.path.endsWith("enrich.json")) invalidateEnrichCache();
       bumpFluxLib(); // W10 (LR-3): agent FluxLib edits
-    } else if (info.subsystem === "assign-inbox") bumpAssignInbox(); // a PDF landed in the drop-inbox
+    } else if (info.subsystem === "conversations") bumpPaperConversations(); // an agent answered about a paper: the open Reader re-reads it
+    else if (info.subsystem === "assign-inbox") bumpAssignInbox(); // a PDF landed in the drop-inbox
     else if (info.subsystem === "capture") {
       // A capture landed in the download folder. Deliberately does NOT file it: intake is the
       // user's call (startup, or the Library's Assign button). All this does is refresh the

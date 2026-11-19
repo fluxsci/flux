@@ -10,11 +10,13 @@ import { loadDeck, compileDeckSlide } from "./slides";
 import { loadLibrary } from "./fluxlib";
 import { readFulltext } from "./items";
 import { loadAnnotations } from "./annotate";
+import { earlierOnPassage } from "./conversations";
 import { readInbox, findInboxItem } from "./annotations";
 import { ValidationError } from "./errors";
 import type { McpContent, McpRender } from "./registry";
 
-export async function inspectTarget(root: string, input: string | TargetRef): Promise<Record<string, unknown>> {
+/** `exceptThread`: the Inbox item being described, so its own copy on the paper is not "earlier". */
+export async function inspectTarget(root: string, input: string | TargetRef, exceptThread?: string): Promise<Record<string, unknown>> {
   let target: TargetRef;
   try {
     const raw = typeof input === "string" ? input.trim().startsWith("{") ? JSON.parse(input) : parseTarget(input) : input;
@@ -84,8 +86,11 @@ export async function inspectTarget(root: string, input: string | TargetRef): Pr
       if (target.kind === "library-item") return { ...result, entry };
       const [fulltext, annotations] = await Promise.all([readFulltext(target.citekey), loadAnnotations(target.citekey)]);
       const highlight = target.highlightId ? annotations.annotations.find(a => a.id === target.highlightId) : undefined;
+      const quote = highlight?.anchor.quote ?? target.quote ?? null;
+      // What was already asked and answered about these words, in any project (the paper keeps it).
+      const earlier = await earlierOnPassage({ citekey: target.citekey, page: target.page, quote: quote ?? undefined, highlightId: target.highlightId }, exceptThread).catch(() => []);
       return { ...result, citekey: target.citekey, title: entry.title, page: target.page,
-        text: fulltext?.split(/\f/)[target.page - 1]?.trim() ?? null, quote: highlight?.anchor.quote ?? target.quote ?? null, highlight };
+        text: fulltext?.split(/\f/)[target.page - 1]?.trim() ?? null, quote, highlight, ...(earlier.length ? { earlierConversations: earlier } : {}) };
     }
     case "region": return { ...result, region: target.rect, surface: target.surface };
   }
@@ -95,7 +100,7 @@ export async function inspectTarget(root: string, input: string | TargetRef): Pr
 export async function inboxPackets(root: string, items: readonly InboxItem[]) {
   return Promise.all(items.map(async item => {
     const targets = await Promise.all(item.targets.map(async target => {
-      try { return await inspectTarget(root, target); }
+      try { return await inspectTarget(root, target, item.id); }
       catch (e) { return { target, error: (e as Error).message }; }
     }));
     return toPacket(item, { targets });

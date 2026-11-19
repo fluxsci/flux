@@ -45,7 +45,7 @@ export function buildContextStamp(opts: { window?: ContextStamp["window"]; targe
   const targets = opts.targets ? [...opts.targets] : currentTargets(surface, opts.document);
   if (!targets.length) {
     if (stamp.doc) targets.push({ kind: "doc", ...stamp.doc });
-    if (stamp.reader?.citekey) targets.push({ kind: "passage", citekey: stamp.reader.citekey, page: stamp.reader.page ?? 1, quote: stamp.reader.selection, highlightId: stamp.reader.highlightId, title: stamp.reader.title });
+    if (stamp.reader?.citekey) targets.push({ kind: "passage", citekey: stamp.reader.citekey, page: stamp.reader.page ?? 1, quote: stamp.reader.selection, highlightId: stamp.reader.highlightId, ...(stamp.reader.prefix !== undefined && stamp.reader.suffix !== undefined ? { prefix: stamp.reader.prefix, suffix: stamp.reader.suffix } : {}), title: stamp.reader.title });
     for (const citekey of stamp.library?.selectedKeys ?? []) targets.push({ kind: "library-item", citekey });
     if (presenting?.slideId) targets.push({ kind: "beat", deckId: presenting.deckId, slideId: presenting.slideId, beat: presenting.beat });
   }

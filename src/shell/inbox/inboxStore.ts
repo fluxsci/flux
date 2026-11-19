@@ -90,6 +90,8 @@ export function refreshInbox(): Promise<void> {
         inboxCount.set(filterInbox(result.items, {}).length);
         inboxNeedsInput.set(result.items.filter(i => i.status === "needs-input" && !i.archived).length);
         reportAgents(result.items, result.sessionIds);
+        // Items made while reading follow their paper (FluxLib), so any project shows them.
+        if (result.items.some(i => i.kind === "annotation" && (i.citekey || i.targets.some(t => t.kind === "passage")))) void import("./paperConversations").then(m => m.mirrorPaperItems(owner, result.items));
         inboxError.set(""); inboxLoaded.set(true);
       } catch (e) { if (owner === root && epoch === generation) inboxError.set((e as Error).message); }
     }

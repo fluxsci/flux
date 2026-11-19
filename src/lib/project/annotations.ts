@@ -39,7 +39,8 @@ export interface ContextStamp {
   doc?: { path: string; from: number; to: number; quote: string; heading?: string } | null;
   slide?: { deckId: string; slideIndex: number; beat: number; slideId?: string } | null;
   present?: { deckId: string; slideIndex: number; beat: number; slideId?: string } | null;
-  reader?: { citekey: string; title?: string; page?: number; selection?: string; highlightId?: string; source?: "main" | { supplement: string } } | null;
+  /** `prefix`/`suffix`: the words around a live text selection (its anchor; see targets.ts "passage"). */
+  reader?: { citekey: string; title?: string; page?: number; selection?: string; highlightId?: string; prefix?: string; suffix?: string; source?: "main" | { supplement: string } } | null;
   library?: { query?: string; selectedKeys?: string[]; collection?: string } | null;
   /** The resolved "this": selection plus every mark's target, most specific first. */
   targets?: TargetRef[];

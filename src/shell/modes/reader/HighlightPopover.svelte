@@ -10,6 +10,7 @@
   import { ANNOTATION_COLORS, type Annotation } from "../../../lib/references/annotations";
   import { hlSwatch } from "../../../lib/references/annotationColors";
   import FluxAiMark from "../../agent/FluxAiMark.svelte";
+  import { threadQuestion, threadState, type PaperThread } from "../../../lib/references/conversations";
 
   let {
     annotation,
@@ -18,6 +19,8 @@
     x,
     y,
     place = "below",
+    threads = [],
+    onThread,
     onSaveNote,
     onRecolor,
     onCopy,
@@ -32,6 +35,10 @@
     x: number;
     y: number;
     place?: "above" | "below";
+    /** The Flux AI conversations that hang on this highlight, oldest first. */
+    threads?: PaperThread[];
+    /** Read one of them (it opens in the rail's Flux AI list). */
+    onThread?: (id: string) => void;
     onSaveNote?: (note: string) => Promise<void>;
     onRecolor?: (color: string) => void;
     /** Returns the clipboard promise — "Copied ✓" shows only when it resolves. */
@@ -158,6 +165,21 @@
   </div>
 
   <div class="pquote" title={annotation.anchor.quote}>{annotation.anchor.quote}</div>
+
+  {#if threads.length}
+    <!-- What Flux AI was asked about these words: a line each (the latest three), read in the rail. -->
+    <div class="pconvs" role="group" aria-label="Conversations with Flux AI">
+      {#each threads.slice(-3) as t (t.id)}
+        {@const state = threadState(t)}
+        <button class="pconv" data-thread={t.id} title="Read this conversation" onclick={() => onThread?.(t.id)}>
+          <FluxAiMark still size={13} tone={t.status === "needs-input" ? "wait" : t.status === "claimed" ? "live" : "ready"} />
+          <span class="pcq">{threadQuestion(t)}</span>
+          {#if state}<span class="pcs" data-status={t.status}>{state}</span>{/if}
+        </button>
+      {/each}
+      {#if threads.length > 3}<button class="pconv more" onclick={() => onThread?.(threads[threads.length - 4].id)}>and {threads.length - 3} earlier</button>{/if}
+    </div>
+  {/if}
 
   <textarea
     class="pnote"
@@ -341,6 +363,58 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
+  /* Conversations on the highlight: one quiet line each. */
+  .pconvs {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin: -2px -4px;
+  }
+  .pconv {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    height: 24px;
+    padding: 0 4px;
+    border: 1px solid transparent;
+    border-radius: var(--r-ui);
+    background: transparent;
+    color: var(--c-tx);
+    font: 12.5px var(--font-serif);
+    text-align: left;
+    cursor: var(--cursor-cross-hover);
+    transition: background-color 80ms linear, color 80ms linear;
+  }
+  .pconv:hover,
+  .pconv:focus-visible {
+    outline: none;
+    background: var(--c-surface-2);
+    color: var(--c-tx-hi);
+  }
+  .pcq {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pcs {
+    flex: 0 0 auto;
+    color: var(--c-tx-muted);
+    font: 10.5px var(--font-mono);
+  }
+  .pcs[data-status="needs-input"] {
+    color: var(--c-warning, #ad8301);
+  }
+  .pcs[data-status="claimed"] {
+    color: var(--c-accent-bright);
+  }
+  .pconv.more {
+    padding-left: 23px;
+    color: var(--c-tx-muted);
+    font: 10.5px var(--font-mono);
+  }
   .pnote {
     width: 100%;
     box-sizing: border-box;
@@ -430,6 +504,7 @@
     }
     .pdot,
     .pact,
+    .pconv,
     .pnote,
     .pbtn {
       transition: none;

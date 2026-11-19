@@ -14,7 +14,9 @@ export type TargetRef =
   | { kind: "slide"; deckId: string; slideId: string; index?: number; name?: string }
   | { kind: "beat"; deckId: string; slideId: string; beat: number; label?: string }
   | { kind: "track"; deckId: string; slideId: string; trackId: string; family?: "appearance" | "transform" | "media" | "camera"; elementId?: string; beat?: number; label?: string }
-  | { kind: "passage"; citekey: string; page: number; quote?: string; highlightId?: string; title?: string }
+  // `prefix`/`suffix` (the words around the quote) are set only for a real text selection: they
+  // let the paper's own conversation hang on a highlight of exactly those words.
+  | { kind: "passage"; citekey: string; page: number; quote?: string; highlightId?: string; title?: string; prefix?: string; suffix?: string }
   | { kind: "library-item"; citekey: string; title?: string }
   | { kind: "region"; surface: string; rect: { x: number; y: number; w: number; h: number } };
 

@@ -231,6 +231,12 @@ the Inbox. **Resume in terminal** copies a command you can paste into your own t
 continue the vendor session. If the agent cannot start, the message offers **AI status…** or
 **Retry**.
 
+An answered Ask about a paper you are reading is kept without **Keep**: it is saved with the
+paper, on the passage it was about, and shows in the Reader from every project. The same
+holds for a note you **Annotate** while reading: the Inbox item stays in its project, and a
+copy of the conversation follows the paper. See
+[Conversations with Flux AI stay with the paper](../modes/reader.qmd#sec-paper-conversations).
+
 ## Run an item in the background {#sec-background}
 
 Open the **Inbox** (**Alt+Q**), select an open item, and choose **Run in background ▾ →

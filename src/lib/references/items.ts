@@ -10,6 +10,7 @@ import { itemName } from "./itemLocator";
 //     source.json          provenance (where/how the PDF was obtained)
 //     fulltext.txt         extracted text (full-text search + agent context)
 //     annotations.json     highlights/notes (anchored to text; see annotations.ts)
+//     conversations.json   Flux AI conversations about the paper (see conversations.ts)
 //
 // No I/O here (imports cleanly in the browser + Node). The Node engine
 // (flux-core/items.ts) and the renderer twin file these under window.fig / fs.
@@ -22,6 +23,7 @@ export const SUPPLEMENTS_DIR = "supplements";
 export const SOURCE_JSON = "source.json";
 export const FULLTEXT_TXT = "fulltext.txt";
 export const ANNOTATIONS_JSON = "annotations.json";
+export const CONVERSATIONS_JSON = "conversations.json";
 export const FETCH_FAILURE_JSON = "fetch-failure.json";
 /** Raw TEI from an OPTIONAL GROBID enrichment pass — kept verbatim so a better projection can be
  *  re-derived later without re-running the service. Absent on every default install. */
@@ -108,6 +110,7 @@ export const fulltextPath = (lib: string, key: string): string => j(itemDir(lib,
 export const grobidTeiPath = (lib: string, key: string): string => j(itemDir(lib, key), GROBID_TEI_XML);
 export const grobidJsonPath = (lib: string, key: string): string => j(itemDir(lib, key), GROBID_JSON);
 export const annotationsPath = (lib: string, key: string): string => j(itemDir(lib, key), ANNOTATIONS_JSON);
+export const conversationsPath = (lib: string, key: string): string => j(itemDir(lib, key), CONVERSATIONS_JSON);
 export const failurePath = (lib: string, key: string): string => j(itemDir(lib, key), FETCH_FAILURE_JSON);
 export const supplementPath = (lib: string, key: string, n: number, ext: string): string =>
   j(itemDir(lib, key), `supplement-${n}.${ext.replace(/^\./, "")}`);

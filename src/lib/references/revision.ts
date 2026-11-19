@@ -16,6 +16,16 @@ export function bumpFluxLib(): void {
   fluxLibRevision.update((n) => n + 1);
 }
 
+// Bumped when a paper's conversations file (items/<key>/conversations.json) is written from
+// outside this window: an agent's reply through flux-core, another window, another machine. Kept
+// apart from fluxLibRevision on purpose: only an open Reader listens, so an answer arriving never
+// reloads the Library or the bibliography.
+export const paperConversationsRevision = writable(0);
+
+export function bumpPaperConversations(): void {
+  paperConversationsRevision.update((n) => n + 1);
+}
+
 // Bumped when a PDF lands in the watched drop-inbox (<FluxLib>/pdfs_to_assign/) —
 // the assign job auto-scans on it and the Library refreshes its inbox count.
 export const assignInboxRevision = writable(0);

@@ -2436,6 +2436,34 @@ Persistence invariants (all machine-checked — do not weaken):
   `search_highlights` / `add_highlight` use the existing pure `Annotation` model and
   `<FluxLib>/items/<key>/annotations.json` storage. `get_reading_context` exposes
   `highlights`, mapped from the unchanged `reader-context.json` field `annotations`.
+- **Paper conversations live WITH the paper** (2026-11-19; owner: "AI conversations about papers should be
+  global … tied to the highlight"). `<FluxLib>/items/<key>/conversations.json` holds a thread per conversation
+  (`src/lib/references/conversations.ts` pure model, `conversationsBridge.ts` renderer, `flux-core/conversations.ts`
+  Node). Two kinds, each with ONE home: `item` is a COPY of a project Inbox item made while reading, keyed by the
+  item id (the ledger stays where agents claim and answer; the copy follows it: the renderer on every Inbox
+  refresh through `src/shell/inbox/paperConversations.ts`, flux-core after claim/reply/resolve/release); `ask` is
+  an answered Ask, which lives only there. The rules that keep it honest:
+  (a) A thread hangs on a highlight (`highlightId`). Only a REAL text selection may MAKE one (a passage target
+  carrying `prefix`/`suffix`: the selection menu, the chord on a live selection), only the renderer makes it, and
+  only when the thread is saved (never when a composer opens: cancelling must leave no trace). A mark-derived
+  "quote" is joined span text; `locateQuote` would fuzzy-match it onto a block, so it never makes a highlight.
+  flux-core only LINKS to an existing highlight.
+  (b) A dead `highlightId` stays dead: deleting a highlight never deletes or re-homes its threads, and no mirror
+  makes the highlight again (`saveThreads` skips a thread that already names one).
+  (c) Remove of an `item` thread writes a tombstone (`removed[id]`), or the next mirror restores it. Undo clears it.
+  (d) The mirror compares a signature that EXCLUDES `updatedAt` (a holder's heartbeat must not rewrite FluxLib,
+  which is watched and synced) and does no IO at all for an unchanged item (gated: four refreshes, zero writes).
+  The Inbox refreshes every 5 s while open: anything per-refresh must be a string compare.
+  (e) Conversations follow a paper, they never create one: no item folder, no file.
+  (f) An agent's write never fails because the paper's file could not be read or locked (the ledger is the
+  record), and an unreadable file is never overwritten.
+  (g) `ReaderDoc` keeps `threads`' identity when a reload changed nothing and `talkIds`' Set while its members are
+  the same, so `PdfView` redraws marks only when a highlight gains or loses a conversation. The underline is in a
+  layer of its own: `.hl-layer` multiplies with the page, which turns a blue rule on yellow into green.
+  (h) There is no way to tell a note about the paper from a note about Flux written while the Reader was open
+  (the owner's own UI feedback has the same shape): everything made while reading follows the paper, and Remove
+  takes it off. Library rows do NOT (a task about the reference). Gates: `verify-paper-conversations.ts`,
+  `verify-paper-conversations-gui.mjs`.
 - **The Reader holds THREE texts of a page, and they do not share offsets** (2026-11-18; owner: "character
   highlighting not working properly for the search feature especially in sidebar … sometimes when you
   highlight some text, the highlight menu does not appear").
@@ -13184,3 +13212,24 @@ glass pill and asked to keep the blue underline. Implemented as a three-track gr
   neighbour, while `1fr auto 1fr` gives way by itself. Keep edge padding inside the side tracks.
 - Centring an even box in an odd space lands on half a pixel (30 px in the bar's 37): look at the measured
   y, not at the screenshot.
+
+### 2026-11-19 — Conversations about a paper are kept with the paper (Claude Fable 5.2, `main`)
+**Work:** Owner inbox item: an AI conversation about a paper should be reachable from any project, tied to the
+highlight. Threads now live in `<FluxLib>/items/<key>/conversations.json`; the project Inbox stays the agents'
+queue and is mirrored onto the paper (renderer + flux-core); answered Asks are saved there directly; the Reader
+shows them on the highlight (underline, popover line) and in a new **Flux AI** rail tab; packets for a passage
+carry earlier exchanges.
+**Learnings:** (promoted to §4, "Paper conversations live WITH the paper")
+- Mirror, do not move. The ledger pipeline (claims, replies, background runs, packets) had no reason to change;
+  a copy keyed by item id, written by both halves of the twin, made the answer global in a day. The cost of a
+  mirror is deletion: design the tombstone and the "dead link stays dead" rule before the happy path.
+- Create a side effect at SEND time, not at OPEN time. Making the highlight when Annotate opened would have left a
+  highlight behind every cancelled composer; carrying the selection's `prefix`/`suffix` through the target let the
+  writer make it exactly when there was something to hang on it.
+- An identity that survives a reload is a performance feature: `threads` and `talkIds` are replaced only when
+  their content changes, so a FluxLib watcher tick repaints nothing.
+- The owner's own feedback is test data: both Reader-made items in their ledger were about Flux, not the paper,
+  and nothing in their shape says so. When a rule cannot tell two intents apart, say so in the docs and make the
+  correction one click.
+- A third tab broke a strip that "fit with room to spare": check a rail at its MINIMUM width, not its default.
+  Container queries on the strip (drop counts, then the word, then scroll) fixed the old four-tab overlap too.

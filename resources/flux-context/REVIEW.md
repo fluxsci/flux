@@ -20,6 +20,13 @@ For another image, use `flux_verb {verb:"get_inbox_image",args:{id:"<item-id>"}}
 Without MCP, read `flux inbox --json` and open the snapshot path with an image viewer.
 A missing image does not erase semantic targets; report the missing view if it matters.
 
+An item made while reading a paper is about that paper wherever it is opened. Its Reader
+passage target may carry `earlierConversations`: what was already asked and answered about
+the same words, in this or another project (each names the project it came from). Build on
+them instead of repeating them. Your claim, replies and resolve note on such an item are
+copied onto the paper itself, where the user reads them beside the passage from every
+project, so write an answer that stands on its own there.
+
 `get_target {target:…}` (in the core toolset through `flux_verb`) / `flux inspect <target>` reads current saved state without
 rendering. Pass the packet's TargetRef, or a shorthand such as
 `part:fig-2/el-9#control` or `doc:paper/notes.qmd@120-180`. Do not guess which object

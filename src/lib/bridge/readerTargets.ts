@@ -7,7 +7,8 @@ export function registerReaderTargets(root: () => Element | null, context: () =>
     revision: () => { const c = context(), scroll = root()?.querySelector('.pdf-scroll'); return [c?.citekey,c?.page,c?.selection,c?.highlightId,root()?.querySelector('.pdf-root'),scroll?.scrollLeft,scroll?.scrollTop]; },
     current() {
       const c = context();
-      return active() && c ? [{ kind: "passage", citekey: c.citekey, page: c.page ?? 1, quote: c.selection, highlightId: c.highlightId, title: c.title }] : [];
+      return active() && c ? [{ kind: "passage", citekey: c.citekey, page: c.page ?? 1, quote: c.selection, highlightId: c.highlightId, title: c.title,
+        ...(c.prefix !== undefined && c.suffix !== undefined ? { prefix: c.prefix, suffix: c.suffix } : {}) }] : [];
     },
     within(rect) {
       const c = context(); if (!c) return [];

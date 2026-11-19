@@ -135,12 +135,12 @@ const pv = read("src/shell/modes/reader/PdfView.svelte");
 const hp = read("src/shell/modes/reader/HighlightPopover.svelte");
 assert(!/TerminalPane|terminalPrefill|askAgent|agentPane/.test(rm + rd), "Reader has no terminal mount or prefill route");
 assert(!/onAskSelection/.test(pv + hp), "Reader has no retired terminal passage-prefill callback");
-assert(/onAsk=\{askPassage\}/.test(rd) && /requestAsk\(\{ targets: \[\{ kind: "passage"/.test(rd), "F4 Ask reaches the in-app surface with the exact passage target");
+assert(/onAsk=\{askPassage\}/.test(rd) && /requestAsk\(\{ targets: \[passage\(quote, page, on\)\] \}\)/.test(rd) && /kind: "passage" as const, citekey, title: entry\?\.title, page, quote/.test(rd), "F4 Ask reaches the in-app surface with the exact passage target");
 assert(/onAsk=\{\(\) => askPassage\(ann.anchor.quote, ann.page, ann.id\)\}/.test(rd), "F4 saved-highlight Ask retains its quote, page and id");
-assert(/aria-label="Annotate this passage"/.test(pv) && /onAnnotate\?\.\(m\.anchor\.quote, m\.page\)/.test(pv), "Reader selection action passes the exact quote/page to Annotate");
-assert(/onAnnotate=\{annotatePassage\}/.test(rd) && /requestAnnotation\(\{ targets: \[\{ kind: "passage"/.test(rd), "Reader passage action reaches the unified surface with a passage target");
+assert(/aria-label="Annotate this passage"/.test(pv) && /onAnnotate\?\.\(m\.anchor\.quote, m\.page, \$state\.snapshot\(m\.anchor\)\)/.test(pv), "Reader selection action passes the exact quote/page to Annotate");
+assert(/onAnnotate=\{annotatePassage\}/.test(rd) && /requestAnnotation\(\{ targets: \[passage\(quote, page, on\)\] \}\)/.test(rd), "Reader passage action reaches the unified surface with a passage target");
 assert(/aria-label="Annotate this passage"/.test(hp) && /onAnnotate=\{\(\) => annotatePassage\(ann.anchor.quote, ann.page, ann.id\)\}/.test(rd), "Saved highlight action preserves its quote, page, and highlight id");
-assert(/onSelect=\{handleSelect\}/.test(rd) && /onSelect\?\.\(anchor\.quote, page\)/.test(pv), "selection still publishes the exact passage and page");
+assert(/onSelect=\{handleSelect\}/.test(rd) && /onSelect\?\.\(anchor\.quote, page, anchor\)/.test(pv), "selection still publishes the exact passage and page");
 assert(/reader-context\.json/.test(read("src/lib/references/items.ts")), "reader still publishes reader-context.json (any session can get_reading_context)");
 for (const file of ["src/shell/terminal/terminalSession.ts", "src/shell/terminal/TerminalPane.svelte", "src/shell/modes/paper/margin/views/TerminalView.svelte", "electron/ipc/terminal.cjs"]) {
   assert(!existsSync(join(root, file)), `retired terminal file is absent: ${file}`);

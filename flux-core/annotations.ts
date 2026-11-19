@@ -17,6 +17,7 @@ import { listDocuments } from "./manuscript";
 import { loadFigModel, loadManifest, safeJoin } from "./model";
 import { journal } from "./journal";
 import { ValidationError } from "./errors";
+import { paperRef } from "../src/lib/references/conversations";
 
 export interface InboxCaller { identity?: AgentIdentity; session?: SessionRef }
 export function inboxSession(caller: InboxCaller = {}): SessionRef {
@@ -157,6 +158,18 @@ function assertWritable(snapshot: InboxSnapshot, item: InboxItem, caller: InboxC
 function assertOpen(item: InboxItem) {
   if (item.status === "withdrawn" || item.status === "resolved") throw new ValidationError(`${item.id} is ${item.status}`);
 }
+/**
+ * An item made while reading follows its paper: the change just written is copied into the paper's
+ * own conversations file in FluxLib (conversations.ts), so the Reader shows it from any project.
+ * The ledger is the record; a paper that cannot be written never fails the agent's write.
+ */
+async function followPaper(root: string, item: InboxItem): Promise<void> {
+  if (item.kind !== "annotation" || !paperRef(item)) return;
+  try {
+    const fresh = (await readInbox(root)).items.find(i => i.id === item.id && i.kind === "annotation");
+    if (fresh) await (await import("./conversations")).followPaperItem(root, fresh);
+  } catch { /* the paper's copy catches up on the item's next change, or when the app next sees it */ }
+}
 export async function claimItem(root: string, id: string, opts: { note?: string; force?: boolean } = {}, caller: InboxCaller = {}) {
   const before = await readInbox(root), item = findInboxItem(before.items, id), o = overlay(before, item.id);
   const session = inboxSession(caller), author = inboxAuthor(caller);
@@ -177,12 +190,14 @@ export async function claimItem(root: string, id: string, opts: { note?: string;
     return { id: item.id, claimed: false, holder };
   }
   if (opts.note) await replyItem(root, item.id, opts.note, { state: "working" }, caller);
+  else await followPaper(root, item);
   return { id: item.id, claimed: true, holder: { ...session, since: result.claim.since } };
 }
 export async function releaseItem(root: string, id: string, caller: InboxCaller = {}) {
   const snapshot = await readInbox(root), item = findInboxItem(snapshot.items, id);
   assertWritable(snapshot, item, caller);
   await appendAnnotationEvent(root, { ...makeRelease(item.id, "agent", inboxAuthor(caller).client, inboxSession(caller)), author: inboxAuthor(caller) });
+  await followPaper(root, item);
   return { id: item.id, released: true };
 }
 export async function replyItem(root: string, id: string, text: string, opts: { needsInput?: boolean; state?: "working" | "info" } = {}, caller: InboxCaller = {}) {
@@ -197,6 +212,7 @@ export async function replyItem(root: string, id: string, text: string, opts: { 
     // State also renews comment-holder activity, whose reply text lives only in the sidecar.
     await appendAnnotationEvent(root, { ...makeState(item.id, state === "needs-input" ? "needs-input" : "working", author.client, session), author });
   } else await appendAnnotationEvent(root, makeReply(item.id, author, text, author.client, { state, session }));
+  await followPaper(root, item);
   return { id: item.id, replied: true };
 }
 export async function resolveItem(root: string, id: string, opts: { note?: string; doc?: string } = {}, caller: InboxCaller = {}) {
@@ -207,6 +223,7 @@ export async function resolveItem(root: string, id: string, opts: { note?: strin
     beforeWrite: async () => { const fresh = await readInbox(root); assertWritable(fresh, findInboxItem(fresh.items, item.id), caller); },
   }) : undefined;
   await appendAnnotationEvent(root, makeResolve(item.id, author.client, { note: opts.note, author, session }));
+  await followPaper(root, item);
   return { ...comment, id: item.id, status: "resolved" as const };
 }
 export async function archiveItem(root: string, id: string, archived: boolean, caller: InboxCaller = {}) {

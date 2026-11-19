@@ -33,6 +33,20 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 - **It never competes with your hands.** While you type, click, scroll or drag, the mark holds
   completely still, and comes back to life a moment after you stop. Typing next to it measures
   the same as typing with no mark at all.
+- **Conversations about a paper stay with the paper.** What you ask Flux AI while reading
+  (**Annotate** or **Ask** on a passage, a highlight, or a page) is now kept beside the paper
+  in your library, so the same paper opened from any project shows it. Asking about selected
+  words makes them a highlight (blue, with a fine rule under its lines) and the conversation
+  hangs on it; several can hang on one highlight. Click the highlight for a line per
+  conversation, or open the Reader's new **Flux AI** tab for all of them in reading order,
+  each named by the project it was asked in. Answers appear on the paper as an agent writes
+  them, even when another project is open. An answered Ask is kept without **Keep**. An agent
+  asked about a passage again is given what was already said about it. **Remove** (with
+  **Undo**) takes a conversation off the paper; deleting a highlight never deletes what was
+  said about it. Your existing Reader notes appear on their papers the next time their
+  project is opened.
+- The Reader's sidebar tabs no longer run into each other on a rail dragged narrow: the
+  counts go first, then the strip scrolls.
 - **Background agents no longer ask for permission.** A background Claude Code agent now runs
   in Claude Code's auto mode, like a terminal session set to auto: it works in the project
   without dialogs, and anything auto mode judges unsafe is refused instead of asked about. It

@@ -84,8 +84,8 @@ open its popover, which is that same strip (the five colors to recolor it, **Ann
 **Ask**) with the passage and a note under it: write a **comment** (**Ctrl+Enter** saves; it
 is also saved when the popover closes), copy the text, or delete the highlight. The right
 sidebar's **Highlights** tab (**Alt+A**) counts your highlights and lists them in reading
-order, each with its page and its note; click one to scroll to it, and edit or delete from
-there.
+order, each with its page, its note and (when Flux AI was asked about it) the question; click
+one to scroll to it, and edit or delete from there.
 
 A passage that runs over a line end is quoted the way you read it, with a space between the
 two lines (a word hyphenated across the break keeps its hyphen).
@@ -94,6 +94,36 @@ Highlights are anchored by the quoted text (with a little context on each side),
 positions — so they re-attach correctly even if the PDF is re-fetched. If a paper's text
 changes so much that a quote can't be found, the note is kept and marked *detached* rather
 than lost.
+
+## Conversations with Flux AI stay with the paper {#sec-paper-conversations}
+
+What you ask Flux AI about a paper belongs to the paper, not to the project you happened to
+have open. Use **Annotate** or **Ask** on selected text and, once it is sent (or answered),
+the passage becomes a highlight in blue (recolor it as you like) with a fine blue rule under
+its lines: the conversation hangs on it. Click the highlight and its popover lists what was
+asked there, one line each. The right sidebar's **Flux AI** tab lists every conversation
+about the paper in reading order: the question, its page, how long ago, and the project it
+was asked in when that is not the one you have open. Open a row to read the answers; the
+page goes to the passage. Nothing longer than a line shows until you open it.
+
+Because the conversations are stored beside the paper in your library, the same paper opened
+from **any** project shows all of them, and an agent's answer appears on the paper as it
+arrives, even if you have moved to another project in the meantime. Several conversations
+can hang on one highlight. A note made while reading with no words selected (a mark on a
+figure, a question about the page) is listed on its page.
+
+- A conversation that is an Inbox item is still answered in its own project: **Open in
+  Inbox** takes you to it. From any other project, **Ask a follow-up** asks about the same
+  passage again, and the agent is given what was already asked and answered there.
+- An answered **Ask** about a paper is kept automatically. (**Keep** additionally files it in
+  the project's Inbox; the paper still shows it once.)
+- **Remove** takes a conversation off the paper, with **Undo**. An Inbox item stays in its
+  project; it is only no longer shown on the paper.
+- Deleting a highlight does not delete what was said about it: its conversations stay in the
+  **Flux AI** list, on their page.
+
+Everything written to Flux AI while a paper is open in the Reader is kept this way, including
+a note that is really about Flux itself; **Remove** takes such a note off the paper.
 
 **Export notes…** (on the Highlights tab, and on the paper's row in the Library) writes all of a
 paper's highlights and comments to a tidy Markdown file — grouped by page, quotes with your

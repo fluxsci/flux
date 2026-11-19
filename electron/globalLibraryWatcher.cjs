@@ -8,6 +8,10 @@ function createGlobalLibraryWatcher({loadChokidar,fluxLibDir,captureDir,readPref
 function fluxLibSubsystemFor(libRoot, abs) {
   const rel = path.relative(libRoot, abs).split(path.sep).join("/");
   if (rel.startsWith("..")) return null;
+  // A paper's Flux AI conversations change with every agent claim and reply. They are a subsystem
+  // of their own, so only an open Reader re-reads them: an answer arriving must never reload the
+  // Library, the bibliography or the resident index.
+  if (/^items\/[^/]+\/conversations\.json$/.test(rel)) return "conversations";
   if (rel === "library.bib" || rel === ".fluxlib/enrich.json" || rel === ".fluxlib/organize.json" || rel === "items" || rel.startsWith("items/")) {
     return "fluxlib";
   }

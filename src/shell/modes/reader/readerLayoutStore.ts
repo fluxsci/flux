@@ -9,10 +9,10 @@ import { writable } from "svelte/store";
 export interface ReaderLayout {
   /** Left rail (references / citers / outline). */
   refsW: number;
-  /** Right rail (annotations / library search). */
+  /** Right rail (highlights / Flux AI conversations / library search). */
   annotsW: number;
   /** Which right-rail tab is showing — sticky, so an Alt+R search panel stays put. */
-  rightTab: "annots" | "library";
+  rightTab: "annots" | "talk" | "library";
 }
 
 const KEY = "flux.reader.layout";
@@ -23,7 +23,7 @@ function load(): ReaderLayout {
   try {
     const raw = localStorage.getItem(KEY);
     // Spread-merge so a field added later gets its default for existing users.
-    return decodePreferences(raw ? JSON.parse(raw) : null, READER_LAYOUT_DEFAULTS, {refsW:{min:180,max:520},annotsW:{min:180,max:560},rightTab:{enum:["annots","library"]}});
+    return decodePreferences(raw ? JSON.parse(raw) : null, READER_LAYOUT_DEFAULTS, {refsW:{min:180,max:520},annotsW:{min:180,max:560},rightTab:{enum:["annots","talk","library"]}});
   } catch {
     return { ...READER_LAYOUT_DEFAULTS };
   }
