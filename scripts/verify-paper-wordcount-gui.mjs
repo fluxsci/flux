@@ -98,7 +98,7 @@ try {
   const sel = await page.evaluate(() => {
     const v = window.__fluxView;
     const src = v.state.doc.toString();
-    const from = src.indexOf("Tau fell by half");
+    const from = src.indexOf("Growth fell by half");
     const to = src.indexOf("\n", from);
     v.dispatch({ selection: { anchor: from, head: to } });
     // Same task: the watcher only arms a timer.

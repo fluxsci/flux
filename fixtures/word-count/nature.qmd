@@ -1,19 +1,19 @@
 ---
-title: "Cortical OFF periods lower synaptic tau"
+title: "Brief dry periods slow mycelial growth"
 author:
   - name: Ada Lovelace
 word-target: 900
 ---
 
-Sleep loss raises risk [@hanse2013; @villette2019]. Here we show OFF periods lower tau.
+Nutrient loss raises risk [@hanse2013; @villette2019]. Here we show dry periods slow growth.
 
-# Synaptic tau falls during sleep {#sec-results}
+# Mycelial growth falls during drought {#sec-results}
 
-Tau fell by half (@fig-tau) while $p < 0.05$ held, using `scipy` code.
+Growth fell by half (@fig-growth) while $p < 0.05$ held, using `scipy` code.
 
-<!-- TODO: add the second cohort here -->
+<!-- TODO: add the second batch here -->
 
-![Tau falls in sleep. **a**, Design. **b**, Western blots.](fig/tau.svg){#fig-tau width=80%}
+![Growth falls in drought. **a**, Design. **b**, Colony images.](fig/growth.svg){#fig-growth width=80%}
 
 ![](fig/dose.svg){#fig-dose}
 
@@ -23,16 +23,16 @@ Higher doses deepened the effect (@fig-dose-b) as reported^1^ before.[^n]
 
 [^n]: A footnote with five words.
 
-| Cohort | Mice | Tau change |
+| Strain | Plates | Growth change |
 |:-------|-----:|-----------:|
-| Young  | 12   | −48%       |
-| Aged   | 9    | −31%       |
+| Wild   | 10   | −40%       |
+| Mutant | 8    | −25%       |
 
-: Tau change by cohort {#tbl-cohort}
+: Growth change by strain {#tbl-strain}
 
 $$
-\Delta \tau = k \cdot s
-$$ {#eq-tau}
+\Delta g = k \cdot s
+$$ {#eq-growth}
 
 ::: {.callout-note}
 Callouts count as prose.
@@ -46,13 +46,13 @@ A div figure caption.
 
 # Discussion
 
-OFF periods may protect synapses, as @bellesi2013 suggested (see @sec-results).
+Dry periods may protect colonies, as @bellesi2013 suggested (see @sec-results).
 
 # Methods
 
 ## Animals
 
-Mice were housed singly [@dueck2009].
+Plates were housed singly [@dueck2009].
 
 ```python
 import numpy as np  # not words
@@ -77,4 +77,4 @@ We thank the lab.
 
 # Extended Data
 
-![Extended tau blots, all cohorts.](fig/ed1.svg){#fig-ed1}
+![Extended colony images, all strains.](fig/ed1.svg){#fig-ed1}

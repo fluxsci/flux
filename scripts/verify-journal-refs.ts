@@ -144,16 +144,16 @@ console.log("Figure-reference grammar (§2.7, §3.7, §4.8):");
 
 console.log("Legends (§2.8, §3.8, §4.9):");
 {
-  const cap = "Sleep raises synaptic APP. Mice were deprived. **a**, Design. **b**, Blots.";
+  const cap = "Stress slows mycelial growth. Plates were deprived. **a**, Design. **b**, Blots.";
   const p = parseComposedCaption(cap);
-  assert(p.lead === "Sleep raises synaptic APP. Mice were deprived." && p.panels.length === 2, "the composed caption splits into lead + panels on its **a**, markers");
-  eq(splitTitleSentence("Effects (e.g. sleep) on APP. More.").title, "Effects (e.g. sleep) on APP.", "the title sentence does not end at 'e.g.'");
+  assert(p.lead === "Stress slows mycelial growth. Plates were deprived." && p.panels.length === 2, "the composed caption splits into lead + panels on its **a**, markers");
+  eq(splitTitleSentence("Effects (e.g. drought) on growth. More.").title, "Effects (e.g. drought) on growth.", "the title sentence does not end at 'e.g.'");
   eq(formatLegend("Fig. 1 |", cap, nature.manuscript!.legend, nature.figures.panels),
-    "**Fig. 1 | Sleep raises synaptic APP.** Mice were deprived. **a**, Design. **b**, Blots.", "Nature: '**Fig. 1 | Title.**' then '**a**, …'");
+    "**Fig. 1 | Stress slows mycelial growth.** Plates were deprived. **a**, Design. **b**, Blots.", "Nature: '**Fig. 1 | Title.**' then '**a**, …'");
   eq(formatLegend("Fig. 1.", cap, science.manuscript!.legend, science.figures.panels),
-    "**Fig. 1. Sleep raises synaptic APP.** Mice were deprived. (**A**) Design. (**B**) Blots.", "Science: '**Fig. 1. Title.**' then '(**A**) …'");
+    "**Fig. 1. Stress slows mycelial growth.** Plates were deprived. (**A**) Design. (**B**) Blots.", "Science: '**Fig. 1. Title.**' then '(**A**) …'");
   eq(formatLegend("Figure 1.", cap, cell.manuscript!.legend, cell.figures.panels),
-    "**Figure 1. Sleep raises synaptic APP**\\\nMice were deprived.\\\n(A) Design.\\\n(B) Blots.", "Cell: the title WITHOUT a full stop, then each panel on its own line");
+    "**Figure 1. Stress slows mycelial growth**\\\nPlates were deprived.\\\n(A) Design.\\\n(B) Blots.", "Cell: the title WITHOUT a full stop, then each panel on its own line");
 }
 
 console.log("\nJOURNAL-REFS VERIFY: PASS");

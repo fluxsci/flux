@@ -31,7 +31,7 @@ const src = readFileSync(`${dir}/manuscript.qmd`, "utf8");
 const Cite = await getCite();
 const records: Record<string, any> = {};
 for (const r of new Cite(readFileSync(`${dir}/library.bib`, "utf8")).data) records[r.id] = r;
-const CAPTION = "Sleep raises synaptic APP. Mice were sleep deprived. **a**, Design. **b**, APP blots [@villette2019]. **c**, Quantification.";
+const CAPTION = "Stress slows mycelial growth. Plates were nutrient deprived. **a**, Design. **b**, Colony images [@villette2019]. **c**, Quantification.";
 
 function ctxFor(style: ReturnType<typeof resolveJournalStyle>) {
   return {
@@ -66,13 +66,13 @@ console.log("Authors from Quarto's schema:");
 console.log("Nature — initial submission:");
 {
   const { text, report } = await assemble("nature");
-  assert(text.includes('::: {custom-style="Title"}\nSleep-like OFF periods lower synaptic APP and tau\n:::'), "the title page is set from the front matter");
+  assert(text.includes('::: {custom-style="Title"}\nBrief dry periods slow mycelial growth and branching\n:::'), "the title page is set from the front matter");
   assert(text.includes("Ada Lovelace^1,†^, Grace Hopper^1,2,†^, Rosalind Franklin^1,\\*^"), "superscript affiliation numbers; † equal contribution; * corresponding");
   assert(text.includes("\\*e-mail: rfranklin\\@example.org") && text.includes("†These authors contributed equally to this work."), "correspondence + equal-contribution lines (e-mail escaped so pandoc reads no citation)");
-  assert(text.includes("**Sleep loss raises the risk of neurodegeneration^1^. Here we show"), "the summary paragraph: unheaded, BOLD, and it cites (required ≥1 reference)");
+  assert(text.includes("**Nutrient loss raises the risk of colony collapse^1^. Here we show"), "the summary paragraph: unheaded, BOLD, and it cites (required ≥1 reference)");
   assert(!/^# (Introduction|Results)\b/m.test(text), "no Introduction or Results heading (0/61 papers print one)");
-  assert(/^# Sleep raises APP$/m.test(text), "…the Results subheading is promoted to a main-text subheading");
-  assert(text.includes('::: {custom-style="Figure"}\n![](fig-a.svg){width=60%}\n:::') && text.includes("**Fig. 1 | Sleep raises synaptic APP.** Mice were sleep deprived. **a**, Design. **b**, APP blots^2^."),
+  assert(/^# Stress slows growth$/m.test(text), "…the Results subheading is promoted to a main-text subheading");
+  assert(text.includes('::: {custom-style="Figure"}\n![](fig-a.svg){width=60%}\n:::') && text.includes("**Fig. 1 | Stress slows mycelial growth.** Plates were nutrient deprived. **a**, Design. **b**, Colony images^2^."),
     "initial stage: the figure, then its legend directly below ('**Fig. 1 | Title.**', '**a**, …')");
   assert(text.includes("Panels (Fig. 1b,c) and a range (Fig. 1a–c)") && text.includes("(Supplementary Fig. 1)"), "figure references in Nature's grammar");
   assert(before(text, "# Discussion", "# Limitations of the study") && before(text, "# Limitations of the study", "# References") && before(text, "# References", "# Methods"), "order: main text → References → Methods");
@@ -102,14 +102,14 @@ console.log("Science — initial submission:");
   const { text, report } = await assemble("science");
   assert(text.includes('::: {custom-style="Head"}') && text.includes('::: {custom-style="AbstractSummary"}'), "blocks carry the Science template's own style names");
   assert(text.includes("Ada Lovelace^1^†, Grace Hopper^1,2^†, Rosalind Franklin^1^\\*"), "superscript numbers, NON-superscript symbols");
-  assert(text.includes("Department of Psychiatry, University of Wisconsin-Madison; Madison, USA."), "affiliation: institution; city, country — ending with a period");
+  assert(text.includes("Department of Biology, Example University; Springfield, USA."), "affiliation: institution; city, country — ending with a period");
   assert(text.includes("\\*Corresponding author. Email: rfranklin\\@example.org"), "'*Corresponding author. Email: …'");
-  assert(text.includes("**Abstract:** Sleep loss raises the risk of neurodegeneration (*1*)."), "'Abstract:' key word (metadata extraction)");
-  assert(text.includes("**One-Sentence Summary:** Sleep-like OFF periods"), "'One-Sentence Summary:' from the front matter");
+  assert(text.includes("**Abstract:** Nutrient loss raises the risk of colony collapse (*1*)."), "'Abstract:' key word (metadata extraction)");
+  assert(text.includes("**One-Sentence Summary:** Brief dry periods"), "'One-Sentence Summary:' from the front matter");
   assert(text.includes("**Main Text:**") && !/^# Introduction/m.test(text), "'Main Text:' and no heading before the first paragraph");
   assert(text.includes("Two studies agree (*1*, *2*)") && text.includes("(Fig. 1, B and C)") && text.includes("(Fig. 1, A to C)") && text.includes("(fig. S1)"), "italic numbered citations; 'Fig. 1, B and C', 'Fig. 1, A to C', 'fig. S1'");
   assert(before(text, "# Limitations of the study", "# Materials and Methods") && before(text, "# Materials and Methods", "# References and Notes"), "Materials and Methods run after the main text (extended format), before References and Notes");
-  assert(/^\d+\.`<w:r>[^\n]*Measured in synaptosomes \(\*\d+\*\)\./m.test(text), "the footnote became a numbered note in References and Notes");
+  assert(/^\d+\.`<w:r>[^\n]*Measured in hyphal tips \(\*\d+\*\)\./m.test(text), "the footnote became a numbered note in References and Notes");
   assert(text.includes("**Acknowledgments:** We thank the lab.") && text.includes("**Funding:** NIH grant R01") && text.includes("**Data, code, and materials availability:** Data are on figshare."),
     "run-in Acknowledgments with the 2026 data heading (owner ruling)");
   assert(before(text, "References and Notes", "**Acknowledgments:**") && before(text, "**Acknowledgments:**", "# Supplementary Materials"), "Acknowledgments directly after the reference list, then the SM list");
@@ -131,8 +131,8 @@ console.log("Cell — revision files:");
   assert(/# ACKNOWLEDGMENTS\n\nWe thank the lab\.\n\nNIH grant R01/.test(text) && !/^# FUNDING/m.test(text), "Funding folds into ACKNOWLEDGMENTS");
   assert(/^# DECLARATION OF INTERESTS$/m.test(text) && text.includes("Document S1. Figure S1"), "DECLARATION OF INTERESTS; SUPPLEMENTAL INFORMATION index");
   assert(before(text, "# MAIN FIGURE TITLES AND LEGENDS", "# REFERENCES") && before(text, "# REFERENCES", "# STAR METHODS"), "legends → REFERENCES → STAR METHODS");
-  assert(text.includes("**Figure 1. Sleep raises synaptic APP**\\\nMice were sleep deprived.\\\n(A) Design.\\\n(B) APP blots.^2^"), "Cell legend: title without stop, panels on their own lines");
-  assert(/## EXPERIMENTAL MODEL AND STUDY PARTICIPANT DETAILS[\s\S]*Mice were housed[\s\S]*## QUANTIFICATION AND STATISTICAL ANALYSIS[\s\S]*ANOVA/.test(text), "STAR Methods subsections by their titles");
+  assert(text.includes("**Figure 1. Stress slows mycelial growth**\\\nPlates were nutrient deprived.\\\n(A) Design.\\\n(B) Colony images.^2^"), "Cell legend: title without stop, panels on their own lines");
+  assert(/## EXPERIMENTAL MODEL AND STUDY PARTICIPANT DETAILS[\s\S]*Plates were housed[\s\S]*## QUANTIFICATION AND STATISTICAL ANALYSIS[\s\S]*ANOVA/.test(text), "STAR Methods subsections by their titles");
   assert(/Hanse, E\., Seth, H\., and Riebe, I\. \(2013\)\./.test(text), "Cell reference entries");
 }
 
@@ -142,16 +142,16 @@ console.log("bioRxiv — preprint:");
   assert(text.includes("[@hanse2013]") && /^bibliography: library\.bib$/m.test(text) && text.includes("::: {#refs}"), "citations stay with the document's own CSL (bioRxiv has no style); the list lands at References");
   assert(/^# Abstract \{\.unnumbered\}/m.test(text) && /^# Introduction$/m.test(text), "an 'Abstract' heading; the author's headings and order are kept");
   assert(before(text, "# Discussion", "# Limitations of the study") && before(text, "# Methods", "# Data availability"), "no reordering");
-  assert(text.includes("**Figure 1. Sleep raises synaptic APP.**") && text.includes("fig-a.svg"), "figures inline beside 'Figure 1.' legends");
+  assert(text.includes("**Figure 1. Stress slows mycelial growth.**") && text.includes("fig-a.svg"), "figures inline beside 'Figure 1.' legends");
   assert(text.includes("Rosalind Franklin^1,\\*^") && text.includes("\\*Corresponding author: rfranklin\\@example.org"), "a title page bioRxiv can extract metadata from");
   assert(report.citations.cited === 0, "no literal citation pass for a citeproc venue");
 }
 
 console.log("Hand-written title blocks are kept, not duplicated:");
 {
-  const manual = src.replace("# Introduction", "**Sleep-like OFF periods lower synaptic APP and tau**\n\nAda Lovelace^1^\n\n# Introduction");
+  const manual = src.replace("# Introduction", "**Brief dry periods slow mycelial growth and branching**\n\nAda Lovelace^1^\n\n# Introduction");
   const { text, report } = await assemble("nature", "initial", manual);
-  assert(!text.includes('custom-style="Title"') && text.includes("**Sleep-like OFF periods lower synaptic APP and tau**"), "the author's own block stays; Flux adds no second one");
+  assert(!text.includes('custom-style="Title"') && text.includes("**Brief dry periods slow mycelial growth and branching**"), "the author's own block stays; Flux adds no second one");
   assert(report.actions.some((a) => /own title block/.test(a)), "…and says so");
 }
 
