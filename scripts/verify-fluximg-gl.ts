@@ -266,6 +266,8 @@ function pageRun(list: Case[], TIE: number, ROUND: number): unknown {
   };
   const canvas = document.createElement("canvas");
   const live = new FX.FluximgLiveRenderer(canvas);
+  const PRESENT = "layers over a transparent background";
+  let presentCase: { frame: unknown; ref: Uint8ClampedArray; width: number; height: number } | null = null;
   const gl = live.gl as WebGL2RenderingContext;
   const results: unknown[] = [];
   for (let ci = 0; ci < list.length; ci++) {
@@ -352,8 +354,35 @@ function pageRun(list: Case[], TIE: number, ROUND: number): unknown {
       }
     }
     results.push({ name: c.name, pixels: ref.length / 4, max, over, bad, ties, tieMax, tieDist, roundTies, roundMax, roundDist, glError });
+    if (c.name === PRESENT) presentCase = { frame, ref, width: out[0], height: out[1] };
   }
   const rendererName = live.rendererName();
+
+  // Presentation: readPixels returns the buffer's bytes whatever the canvas's alpha semantics, so it cannot see
+  // whether the browser will DISPLAY them right. Drawing the canvas into a 2D canvas goes through the browser's
+  // own compositing path: with the straight-alpha buffer declared straight (premultipliedAlpha: false), the
+  // round trip only loses the 8-bit premultiply precision, at most ceil(255 / alpha) steps.
+  let presentation: unknown = null;
+  if (presentCase) {
+    live.draw(presentCase.frame);
+    const c2 = document.createElement("canvas");
+    c2.width = presentCase.width; c2.height = presentCase.height;
+    const ctx = c2.getContext("2d")!;
+    ctx.drawImage(canvas, 0, 0);
+    const shown = ctx.getImageData(0, 0, c2.width, c2.height).data, ref = presentCase.ref;
+    let worst = 0, translucent = 0, first: unknown = null;
+    for (let p = 0; p < ref.length; p += 4) {
+      const a = ref[p + 3];
+      if (a < 32) continue;
+      if (a < 255) translucent++;
+      const allow = Math.ceil(255 / a) + 1;
+      for (let k = 0; k < 4; k++) {
+        const excess = Math.abs(shown[p + k] - ref[p + k]) - allow;
+        if (excess > worst) { worst = excess; first = { x: (p / 4) % c2.width, y: Math.floor(p / 4 / c2.width), shown: Array.from(shown.subarray(p, p + 4)), ref: Array.from(ref.subarray(p, p + 4)) }; }
+      }
+    }
+    presentation = { worst, translucent, first };
+  }
 
   // Timing: a 1024 x 1024 two-channel uint16 frame.
   const N = 1024, r = rng(99);
@@ -410,7 +439,7 @@ function pageRun(list: Case[], TIE: number, ROUND: number): unknown {
   for (let i = 0; i < bigRef.length; i++) bigMax = Math.max(bigMax, Math.abs(bigRef[i] - bigGot[i]));
   const median = (v: number[]) => v.slice().sort((x, y) => x - y)[v.length >> 1];
   live.dispose();
-  return { rendererName, results, timing: { uploadMs: median(uploads), uploads, drawMs: median(draws), draws, batchMs, dragMs, fenceMs: median(fences), refMs, bigMax } };
+  return { rendererName, results, presentation, timing: { uploadMs: median(uploads), uploads, drawMs: median(draws), draws, batchMs, dragMs, fenceMs: median(fences), refMs, bigMax } };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -450,6 +479,7 @@ try {
   await page.addScriptTag({ url: `${origin}fx.js` });
   const run = await page.evaluate(pageRun as (list: Case[], tie: number, round: number) => any, cases, TIE, ROUND) as {
     rendererName: string;
+    presentation: { worst: number; translucent: number; first: unknown } | null;
     results: Array<{ name: string; pixels: number; max: number[]; over: number; bad: unknown[]; ties: number; tieMax: number; tieDist: number; roundTies: number; roundMax: number; roundDist: number; glError: number; lengthMismatch?: number[] }>;
     timing: { uploadMs: number; uploads: number[]; drawMs: number; draws: number[]; batchMs: number; dragMs: number; fenceMs: number; refMs: number; bigMax: number };
   };
@@ -477,6 +507,9 @@ try {
   });
   h.ok(worst <= 1, `every pixel that is not a tie within 1 step: worst ${worst}`);
   console.log(`  ties that went the other way (slot edges under float32 mean / bilinear, 8-bit rounding in layers): ${tiePixels} px in ${tieCases} case(s)`);
+
+  const pr = run.presentation;
+  h.ok(pr !== null && pr.translucent > 100 && pr.worst <= 0, `the canvas as the browser shows it (drawImage into 2D) matches the reference within the premultiply round trip on ${pr?.translucent} translucent px${pr && pr.worst > 0 ? `; off by ${pr.worst} more, e.g. ${JSON.stringify(pr.first)}` : ""}`);
 
   h.section("timing (1024 x 1024, two uint16 channels)");
   const t = run.timing;
