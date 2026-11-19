@@ -1,5 +1,5 @@
 ---
-title: Sleep-like OFF periods lower synaptic APP and tau
+title: Brief dry periods slow mycelial growth and branching
 author:
   - name: Ada Lovelace
     affiliations: [lab]
@@ -14,33 +14,33 @@ author:
     email: rfranklin@example.org
 affiliations:
   - id: lab
-    department: Department of Psychiatry
-    name: University of Wisconsin-Madison
-    city: Madison
+    department: Department of Biology
+    name: Example University
+    city: Springfield
     country: USA
   - id: inst
-    name: Wisconsin Institute for Sleep
-    city: Madison
+    name: Example Institute for Mycology
+    city: Springfield
     country: USA
 abstract: |
-  Sleep loss raises the risk of neurodegeneration [@hanse2013]. Here we show that sleep-like cortical OFF periods lower synaptic APP and tau.
+  Nutrient loss raises the risk of colony collapse [@hanse2013]. Here we show that brief dry periods slow mycelial growth and branching.
 highlights:
-  - Synaptic APP and tau rise with sleep deprivation
-  - Cortical OFF periods during waking lower them
-  - A tonic drop in firing does not
-etoc: Lovelace, Hopper and colleagues show that cortical OFF periods lower synaptic APP and tau.
-keywords: [sleep, tau, synapse]
-one-sentence-summary: Sleep-like OFF periods lower synaptic APP and tau.
+  - Growth and branching fall with nutrient deprivation
+  - Brief dry periods during feeding slow them
+  - A steady drop in humidity does not
+etoc: Lovelace, Hopper and colleagues show that brief dry periods slow mycelial growth and branching.
+keywords: [fungi, growth, stress]
+one-sentence-summary: Brief dry periods slow mycelial growth and branching.
 bibliography: library.bib
 ---
 
 # Introduction
 
-Synaptic dysfunction is an early feature of disease [@hanse2013]. Two studies agree [@villette2019; @hanse2013], and a run of them too [@hanse2013; @villette2019; @bellesi2013; @pnas2018]. As shown by @bellesi2013, the effect is local^[Measured in synaptosomes [@guo2020].]. Missing [@nosuchkey].
+Slow growth is an early feature of disease [@hanse2013]. Two studies agree [@villette2019; @hanse2013], and a run of them too [@hanse2013; @villette2019; @bellesi2013; @pnas2018]. As shown by @bellesi2013, the effect is local^[Measured in hyphal tips [@guo2020].]. Missing [@nosuchkey].
 
 # Results
 
-## Sleep raises APP
+## Stress slows growth
 
 Panels (@fig-a-b,c) and a range (@fig-a-a-c) and one panel (@fig-a-b).
 
@@ -60,7 +60,7 @@ Sample sizes were small.
 
 ## Animals
 
-Mice were housed singly [@dueck2009].
+Plates were housed singly [@dueck2009].
 
 ## Statistical analysis
 

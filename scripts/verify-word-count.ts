@@ -48,9 +48,9 @@ const { buildExportSummary, summaryMarkdown } = await import("../src/lib/style/j
 
 const FIXTURE = readFileSync(path.join(ROOT, "fixtures/word-count/nature.qmd"), "utf8");
 const CAPTIONS: Record<string, string> = {
-  "fig-tau": "Tau falls in sleep. **a**, Design. **b**, Western blots.",
-  "fig-dose": "Dose response across three cohorts.",
-  "fig-ed1": "Extended tau blots, all cohorts.",
+  "fig-growth": "Growth falls in drought. **a**, Design. **b**, Colony images.",
+  "fig-dose": "Dose response across three strains.",
+  "fig-ed1": "Extended colony images, all strains.",
 };
 const legendFor = (label: string) => CAPTIONS[label];
 
@@ -118,11 +118,11 @@ try {
     { abstract: 11, from: "preamble", main: 50, methods: 8, legends: 27, mainLegends: 14, tables: 10, other: 10, total: 105 },
     "fixture budget (house = Nature): summary paragraph 11, main 50 incl. it, Methods 8, legends 27",
   );
-  h.eq(b.longestLegend, { label: "fig-tau", words: 9 }, "the longest figure legend is itemised");
+  h.eq(b.longestLegend, { label: "fig-growth", words: 9 }, "the longest figure legend is itemised");
   h.eq(
     b.sections.map((s) => [s.heading, s.role, s.top, s.words, s.own, s.legends, s.tables]),
     [
-      ["Synaptic tau falls during sleep {#sec-results}", "body", true, 29, 10, 22, 10],
+      ["Mycelial growth falls during drought {#sec-results}", "body", true, 29, 10, 22, 10],
       ["Dose matters", "body", false, 19, 19, 8, 10],
       ["Discussion", "discussion", true, 10, 10, 0, 0],
       ["Methods", "methods", true, 8, 0, 0, 0],
@@ -155,7 +155,7 @@ try {
 
   // ---------------------------------------------------------------- (C)
   {
-    const lineStart = FIXTURE.indexOf("Tau fell by half");
+    const lineStart = FIXTURE.indexOf("Growth fell by half");
     const lineEnd = FIXTURE.indexOf("\n", lineStart);
     h.eq(countRange(a, lineStart, lineEnd), 10, "a selected sentence: cross-ref 2, math and code 0");
     const fell = FIXTURE.indexOf("fell", lineStart);
@@ -164,8 +164,8 @@ try {
     const head = FIXTURE.indexOf("# Discussion");
     h.eq(countRange(a, head, FIXTURE.indexOf("\n# Methods")), 11, "a selected heading counts its words (1 + 10)");
     h.eq(countRange(a, 0, FIXTURE.length), a.n, "select-all counts every word of every kind");
-    const tbl = FIXTURE.indexOf("| Cohort");
-    h.eq(countRange(a, tbl, FIXTURE.indexOf(": Tau change")), 10, "a selected table counts its cells");
+    const tbl = FIXTURE.indexOf("| Strain");
+    h.eq(countRange(a, tbl, FIXTURE.indexOf(": Growth change")), 10, "a selected table counts its cells");
   }
 
   // ---------------------------------------------------------------- (D)
@@ -190,7 +190,7 @@ try {
       const ctx = {
         captions: new Map(Object.entries(CAPTIONS)),
         figures: new Map([
-          ["fig-tau", { family: styledFamilyById(style, "figure"), number: 1, panels: ["a", "b"] }],
+          ["fig-growth", { family: styledFamilyById(style, "figure"), number: 1, panels: ["a", "b"] }],
           ["fig-dose", { family: styledFamilyById(style, "figure"), number: 2, panels: ["a", "b"] }],
           ["fig-ed1", { family: styledFamilyById(style, "extended-data") ?? styledFamilyById(style, "supplementary"), number: 1, panels: [] }],
         ]),
