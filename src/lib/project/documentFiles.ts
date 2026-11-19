@@ -6,6 +6,9 @@ import { commentsMainPath, commentsSidecarRel, sortDocuments, documentRemovalBlo
 import { CONTEXT_DOC_RELS } from './contextTemplates';
 import { frontMatterField } from '../../shell/modes/paper/frontmatter';
 import { parser } from '@lezer/markdown';
+import { documentRoot, documentRoots, parentDir } from '../../../electron/documentRoots.js';
+
+export { documentRoot, parentDir };
 
 export interface DocumentIO {
   exists(rel: string): Promise<boolean>;
@@ -62,9 +65,7 @@ export async function deleteDocumentFile(m: ProjectManifest, io: DocumentIO, rel
   Object.assign(m, next);
   return { removed, recovery };
 }
-export const parentDir = (rel: string) => rel.slice(0, Math.max(0, rel.lastIndexOf('/')));
 export const fileName = (rel: string) => rel.slice(rel.lastIndexOf('/') + 1);
-export const documentRoot = (m: ProjectManifest) => m.documentRoot ?? (m.manuscript.config ? parentDir(m.manuscript.config) : parentDir(m.manuscript.path));
 // Keep intentional empty folders recognizable without a second tree in the
 // manifest. Older, unmarked ordinary folders are still discovered from disk.
 const USER_FOLDER_MARKER = '.flux-folder';
@@ -84,14 +85,14 @@ export function validDocumentFolder(m: ProjectManifest, rel: string): void {
   const root = documentRoot(m);
   if (rel === "" && root === "") return;
   if (!rel || rel.split('/').some(p => !p || p === '.' || p === '..' || p.startsWith('.') || /[\\\x00-\x1f:*?"<>|]/.test(p)) ||
-      !([root, 'paper', 'manuscript', 'Context'].some(r => rel === r || (!!r && rel.startsWith(r + '/'))))) throw new Error('Choose a folder within Documents or Context.');
+      !([...documentRoots(m), 'Context'].some(r => rel === r || (!!r && rel.startsWith(r + '/'))))) throw new Error('Choose a folder within Documents or Context.');
 }
 
 export async function discoverDocuments(m: ProjectManifest, io: DocumentIO): Promise<{ docs: DocRow[]; folders: string[] }> {
   const rels = new Set<string>();
   const folders = new Set<string>();
   const visited = new Set<string>();
-  const roots = new Set([documentRoot(m), 'paper', 'manuscript']);
+  const roots = new Set(documentRoots(m));
   const scan = async (dir: string) => {
     if (visited.has(dir)) return;
     visited.add(dir);
@@ -156,7 +157,7 @@ export async function createDocumentFolder(m: ProjectManifest, io: DocumentIO, p
     // An invisible, unused legacy scaffold can become an intentional folder.
     // Otherwise the picker would report a collision with a folder it hides.
     let unusedScaffold = false;
-    if (name.trim() === 'sections' && [documentRoot(m), 'paper', 'manuscript'].includes(parent)) {
+    if (name.trim() === 'sections' && documentRoots(m).includes(parent)) {
       const entries = await io.entries(rel);
       unusedScaffold = entries.every(e => !e.dir && e.name.startsWith('.') && e.name !== USER_FOLDER_MARKER);
     }

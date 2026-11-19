@@ -20,12 +20,12 @@ export function registerCommentOwner(root: string, doc: string, owner: Owner): (
 export async function commentFiles(root: string, manifest: ProjectManifest, doc: string) {
   const fb = fileBridge();
   if (!fb) throw new Error("The project is no longer available");
-  const files: { rel: string; file: CommentsFile }[] = [];
+  const files: { rel: string; file: CommentsFile; text?: string }[] = [];
   for (const rel of commentsSidecarRels(manifest, doc)) {
     const path = joinPath(root, rel);
     if (!await fb.exists(path)) continue;
-    const data = JSON.parse(await fb.readText(path));
-    files.push({ rel, file: { ...data, version: 1, threads: Array.isArray(data.threads) ? data.threads : [] } });
+    const text = await fb.readText(path), data = JSON.parse(text);
+    files.push({ rel, text, file: { ...data, version: 1, threads: Array.isArray(data.threads) ? data.threads : [] } });
   }
   return files;
 }

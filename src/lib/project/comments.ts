@@ -91,3 +91,94 @@ export function editCommentMessage<T extends CommentsFile>(sidecar: T, id: strin
     return { ...thread, messages: thread.messages.map((m, i) => i === index ? { ...m, body, editedAt: at } : m) };
   });
 }
+
+// ---- Merging a live editor's threads with the sidecar on disk -----------------------------
+// The open Paper editor keeps its threads in memory and saves them on a debounce. Anything an
+// agent wrote to the sidecar meanwhile (a reply, a resolve, a new thread) must survive that
+// save: before 2026-11-19 the save replaced the file with the in-memory list and erased every
+// agent reply it had not seen. This is a three-way merge against `base`, the sidecar as the
+// editor last read or wrote it: a side that changed something since `base` keeps its change.
+
+const canonical = (value: unknown): string => JSON.stringify(value, (_key, v) =>
+  v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.keys(v).sort().map(k => [k, v[k]])) : v);
+const same = (a: unknown, b: unknown) => canonical(a) === canonical(b);
+/** A message's identity. Messages are append-only and carry no id; an edit keeps its author
+ *  and time (it only changes the body and adds `editedAt`). */
+const messageKey = (m: CommentMessage) => `${m.createdAt}\u0000${m.author}`;
+
+function rebaseMessages(base: readonly CommentMessage[], mine: readonly CommentMessage[], theirs: readonly CommentMessage[]): CommentMessage[] {
+  const baseBy = new Map(base.map(m => [messageKey(m), m]));
+  const theirsBy = new Map(theirs.map(m => [messageKey(m), m]));
+  const mineKeys = new Set(mine.map(messageKey));
+  // Never drop a message: Paper has no message deletion, so one missing from a side is one
+  // that side has not seen yet. A message both sides hold takes the side that edited it.
+  const kept = mine.map(m => {
+    const key = messageKey(m), b = baseBy.get(key), t = theirsBy.get(key);
+    return t && b && same(m, b) && !same(t, b) ? t : m;
+  });
+  const added = theirs.filter(m => !mineKeys.has(messageKey(m)));
+  if (!added.length) return kept;
+  // Chronological, stable: an agent's reply lands between the messages it was written among.
+  return [...kept, ...added].map((m, i) => ({ m, i }))
+    .sort((a, b) => (a.m.createdAt < b.m.createdAt ? -1 : a.m.createdAt > b.m.createdAt ? 1 : a.i - b.i))
+    .map(({ m }) => m);
+}
+
+function rebaseThread<T extends CommentThread>(base: CommentThread | undefined, mine: T, theirs: CommentThread): T {
+  const out = { ...mine } as unknown as Record<string, unknown>;
+  const keys = new Set([...Object.keys(mine), ...Object.keys(theirs), ...Object.keys(base ?? {})]);
+  for (const key of keys) {
+    if (key === "id" || key === "messages") continue;
+    const m = (mine as unknown as Record<string, unknown>)[key], b = (base as unknown as Record<string, unknown> | undefined)?.[key];
+    // The editor changed this field (or there is no base to tell): its value stands. Otherwise
+    // the disk's does, including a field the disk removed.
+    if (!base || !same(m, b)) continue;
+    const t = (theirs as unknown as Record<string, unknown>)[key];
+    if (t === undefined) delete out[key]; else out[key] = t;
+  }
+  out.messages = rebaseMessages(base?.messages ?? [], mine.messages, theirs.messages);
+  return out as unknown as T;
+}
+
+/**
+ * Merge an editor's in-memory threads (`mine`) with the sidecar's current threads (`theirs`),
+ * given `base`, the threads the editor last read from or wrote to disk (null when unknown,
+ * which merges as a union and drops nothing).
+ *
+ * - A thread on both sides merges field by field (the side that changed a field since `base`
+ *   wins; the editor wins a true conflict) and keeps every message from both.
+ * - A thread only the disk has is kept, unless the editor deleted it since `base` and the disk
+ *   has added nothing to it since (a delete never silently swallows an unseen reply).
+ * - A thread only the editor has is kept, unless the disk deleted it since `base` and the
+ *   editor has not changed it since.
+ *
+ * Order: the editor's threads in its order, then the disk's new ones in theirs. Threads that
+ * come through unchanged keep their object identity, so a caller can tell nothing moved.
+ */
+export function rebaseCommentThreads<T extends CommentThread>(
+  base: readonly CommentThread[] | null,
+  mine: readonly T[],
+  theirs: readonly CommentThread[],
+): (T | CommentThread)[] {
+  const baseBy = new Map((base ?? []).map(t => [t.id, t]));
+  const theirsBy = new Map(theirs.map(t => [t.id, t]));
+  const mineIds = new Set(mine.map(t => t.id));
+  const out: (T | CommentThread)[] = [];
+  for (const m of mine) {
+    const t = theirsBy.get(m.id), b = baseBy.get(m.id);
+    if (!t) {
+      if (b && same(m, b)) continue; // deleted on disk, untouched here
+      out.push(m);
+    } else out.push(same(m, t) ? m : rebaseThread(b, m, t));
+  }
+  for (const t of theirs) {
+    if (mineIds.has(t.id)) continue;
+    const b = baseBy.get(t.id);
+    if (b) {
+      const baseKeys = new Set(b.messages.map(messageKey));
+      if (!t.messages.some(msg => !baseKeys.has(messageKey(msg)))) continue; // deleted here
+    }
+    out.push(t);
+  }
+  return out;
+}

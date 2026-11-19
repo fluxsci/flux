@@ -209,6 +209,7 @@
       "verify-extension.ts",
       "verify-dissections.ts",
       "verify-plots-folders.ts",
+      "verify-project-watch-rules.ts",
       "verify-plot-source.ts",
       "verify-plot-style-scope.ts",
       "verify-plot-style-bake.ts",
@@ -778,6 +779,7 @@
       "verify-retired-session-electron.cjs",
       "verify-writer-latency-inp.mjs",
       "verify-source-sync-electron.cjs",
+      "verify-paper-comment-watch-electron.cjs",
       "verify-figure-polish-electron.cjs",
       "verify-plot-gallery-electron.cjs",
       "verify-slide-embed-electron.cjs",
@@ -831,7 +833,8 @@
       "verify-no-retired-agent-layer.ts",
       "verify-presence-plotroot.ts",
       "verify-mode-icons.ts",
-      "verify-no-library-proxy.ts"
+      "verify-no-library-proxy.ts",
+      "verify-project-watch-rules.ts"
     ]
   },
   "groups": {
@@ -2963,7 +2966,8 @@
         "verify-comment-model.ts",
         "verify-paper-comments-gui.mjs",
         "verify-paper-conversations.ts",
-        "verify-paper-conversations-gui.mjs"
+        "verify-paper-conversations-gui.mjs",
+        "verify-paper-comment-watch-electron.cjs"
       ]
     },
     {
@@ -3430,7 +3434,8 @@
       "glob": "src/lib/project/documentFiles.ts",
       "run": [
         "verify-paper-files.ts",
-        "group:paper-gate"
+        "group:paper-gate",
+        "verify-project-watch-rules.ts"
       ]
     },
     {
@@ -3714,6 +3719,18 @@
       ]
     },
     {
+      "$why": "The project watcher's route table and the shared document folders: Paper discovery and the watcher must agree (2026-11-19, paper/ was routed but not watched).",
+      "glob": "{electron/documentRoots.{js,d.ts},electron/projectWatchRules.js,scripts/lib/paperCommentWatchProbe.cjs}",
+      "run": [
+        "verify-project-watch-rules.ts",
+        "verify-paper-comment-watch-electron.cjs",
+        "verify-paper-files.ts",
+        "group:paper-gate",
+        "tier:presence",
+        "tier:pure"
+      ]
+    },
+    {
       "glob": "{electron/dissectRules.js,src/lib/dissect/**}",
       "run": [
         "verify-dissections.ts",
@@ -3858,6 +3875,16 @@
         "verify-embed-chip.mjs",
         "group:paper-gate",
         "group:inline-slides",
+        "tier:pure"
+      ]
+    },
+    {
+      "$why": "The live Paper comment owner saves by merging with the sidecar on disk; keep the end-to-end agent/GUI race and the pure merge with the paper suite.",
+      "glob": "src/shell/modes/paper/comments/**",
+      "run": [
+        "verify-comment-model.ts",
+        "verify-paper-comment-watch-electron.cjs",
+        "group:paper-gate",
         "tier:pure"
       ]
     },
@@ -4117,7 +4144,9 @@
         "verify-source-watch.ts",
         "tier:presence",
         "verify-live-view.ts",
-        "verify-live-view-electron.cjs"
+        "verify-live-view-electron.cjs",
+        "verify-project-watch-rules.ts",
+        "verify-paper-comment-watch-electron.cjs"
       ]
     },
     {
@@ -12538,6 +12567,26 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-project-watch-rules.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-paper-comment-watch-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "build"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
       "exclusive": true,
       "coverage": "behavior"
     }

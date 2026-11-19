@@ -8,7 +8,8 @@ import search from "approx-string-match";
 import { fileBridge, joinPath, type LoadedProject } from "../../../../lib/project/types";
 import { commentsSidecarRel, commentsMainPath } from "../../../../lib/project/docOrder";
 
-import { mergeCommentThreads, type CommentThread, type TextQuoteSelector } from "../../../../lib/project/comments";
+import { mergeCommentThreads, rebaseCommentThreads, type CommentsFile, type CommentThread, type TextQuoteSelector } from "../../../../lib/project/comments";
+import { withIpcLock } from "../../../../lib/references/libLock";
 import { commentFiles, bumpComments } from "../../../../lib/project/commentBridge";
 export type { CommentMessage, CommentThread, TextQuoteSelector } from "../../../../lib/project/comments";
 
@@ -83,22 +84,39 @@ export async function readComments(p: LoadedProject, docRel?: string): Promise<C
   } catch { return []; }
 }
 
+/**
+ * Save an open document's threads, merged with whatever is on disk now (`rebaseCommentThreads`
+ * against `base`, the threads this editor last read or wrote), under the same `manuscript`
+ * operation lease flux-core's reply/resolve/comment writers hold. So an agent's reply that
+ * landed after the editor last loaded — even inside the watcher's settle window, before the
+ * editor could hear of it — is kept, not overwritten. Returns the threads as written.
+ */
 export async function writeComments(
   p: LoadedProject,
   threads: CommentThread[],
-  docRel?: string,
-): Promise<void> {
+  docRel: string | undefined,
+  base: readonly CommentThread[] | null,
+): Promise<CommentThread[]> {
   const fb = fileBridge();
-  if (!fb) return;
-  const files = await commentFiles(p.root, p.manifest, docRel ?? p.manifest.manuscript.path);
-  const known = new Set(files.flatMap(f => f.file.threads.map(t => t.id)));
-  if (!files.length) files.push({ rel: commentsSidecarRel(commentsMainPath(p.manifest), docRel ?? p.manifest.manuscript.path), file: { version: 1, threads: [] } });
-  for (const [i, { rel, file }] of files.entries()) {
-    const owned = new Set(file.threads.map(t => t.id));
-    const next = { ...file, threads: threads.filter(t => owned.has(t.id) || (i === 0 && !known.has(t.id))) };
-    await fb.writeText(joinPath(p.root, rel), JSON.stringify(next, null, 2) + "\n");
-  }
+  if (!fb) return threads;
+  const doc = docRel ?? p.manifest.manuscript.path;
+  const written = await withIpcLock("project", "manuscript", async lease => {
+    const files: { rel: string; file: CommentsFile; text?: string }[] = await commentFiles(p.root, p.manifest, doc);
+    const merged = rebaseCommentThreads(base, threads, mergeCommentThreads(files.map(f => f.file)));
+    const known = new Set(files.flatMap(f => f.file.threads.map(t => t.id)));
+    if (!files.length) files.push({ rel: commentsSidecarRel(commentsMainPath(p.manifest), doc), file: { version: 1, threads: [] } });
+    for (const [i, { rel, file, text }] of files.entries()) {
+      const owned = new Set(file.threads.map(t => t.id));
+      const next = { ...file, threads: merged.filter(t => owned.has(t.id) || (i === 0 && !known.has(t.id))) };
+      const out = JSON.stringify(next, null, 2) + "\n";
+      if (out === text) continue; // byte-identical rewrites are skipped
+      await lease.assertOwned?.();
+      await fb.writeText(joinPath(p.root, rel), out);
+    }
+    return merged;
+  }, { root: p.root, retries: 40 });
   bumpComments();
+  return written;
 }
 
 export function newId(): string {

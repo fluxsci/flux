@@ -1175,9 +1175,11 @@ sourceWatchCore.registerHandlers(ipcMain);
 
 // ---------------------------------------------------------------------------
 // File-watch live reload (F1): the renderer registers the open project root; we
-// watch plots/, fig/, manuscript/**, references/, slides/ and emit debounced
-// fs:changed events ({ subsystem, path }), skipping the app's own writes so
-// agent/script edits "pop into" the open window non-destructively.
+// watch the folders in projectWatchRules.js (plots/, fig/, the document folders —
+// paper/, legacy manuscript/ and project.json's documentRoot — references/, slides/,
+// Context/ and the feedback ledger) and emit debounced fs:changed events
+// ({ subsystem, path }), skipping the app's own writes so agent/script edits
+// "pop into" the open window non-destructively.
 // ---------------------------------------------------------------------------
 // Dissection material (per-plot companion folders under plots/) gets its OWN subsystem: a
 // script dropping 20 per-subject panels must live-refresh an open Dissect viewer, not trigger
@@ -1190,24 +1192,19 @@ sourceWatchCore.registerHandlers(ipcMain);
 // still never be mistaken for a plot re-sync.
 let plotFolderRules = null;
 let dissectRules = null;
-function subsystemFor(root, abs) {
+let watchRules = null;
+// `routes` comes from projectWatchRules.projectWatchRoutes — the same table the watch
+// targets are built from, so nothing is classified that isn't watched (or vice versa).
+function subsystemFor(root, abs, routes) {
   if (isDerivedFigureRenderPath(root, abs)) return null;
   const rel = path.relative(root, abs).split(path.sep).join("/");
-  if (rel.startsWith("..")) return null;
-  if (rel.startsWith("plots/")) {
+  if (rel.startsWith("..") || path.isAbsolute(rel)) return null;
+  const subsystem = watchRules.routeProjectRel(routes, rel);
+  if (subsystem === "plots") {
     if (plotFolderRules && plotFolderRules.isLighttableProjectRel(rel)) return null;
     return dissectRules && dissectRules.isDissectionProjectRel(rel) ? "dissections" : "plots";
   }
-  if (rel.startsWith("fig/")) return "fig";
-  if (rel.startsWith("paper/") || rel.startsWith("manuscript/")) return "manuscript";
-  if (rel.startsWith("references/")) return "references";
-  if (rel.startsWith("slides/")) return "slides"; // W10 (SLD-1)
-  // Context docs (+ their comments sidecars) live-reload through the same chain
-  // as manuscript docs; the renderer suffix-matches the active document.
-  if (rel.startsWith("Context/")) return "context";
-  if (rel.startsWith(".meta/live/sessions/")) return "presence";
-  if (rel === ".meta/feedback.ndjson") return "feedback";
-  return null;
+  return subsystem;
 }
 
 const captureFamily = require("./ipc/capture.cjs").createCaptureFamily({ app, shell, readPrefs, fluxLibDir, appRoot: path.resolve(__dirname, "..") });
@@ -1281,16 +1278,15 @@ ipcMain.handle("watch:setRoot", async (e, root) => {
   }
   if (!dissectRules) dissectRules = await import("./dissectRules.js").catch(() => null);
   if (!plotFolderRules) plotFolderRules = await import("./plotsFolders.js").catch(() => null);
-  if (gen !== s.watchGen) return false; // superseded by a newer registration
+  if (!watchRules) watchRules = await import("./projectWatchRules.js");
   const projectRoot = s.root;
-  const targets = [
-    ...["plots", "fig", "manuscript", "references", "slides", "Context"].map((d) =>
-      path.join(projectRoot, d),
-    ),
-    // The feedback ledger: agent resolutions live-refresh the open app.
-    path.join(projectRoot, ".meta", "feedback.ndjson"),
-    path.join(projectRoot, ".meta", "live", "sessions"),
-  ];
+  // The document folders come from project.json (documentRoot); an unreadable manifest
+  // still watches the standard paper/ + manuscript/ folders.
+  const manifest = await fs.promises.readFile(path.join(projectRoot, "project.json"), "utf8")
+    .then(text => JSON.parse(text)).catch(() => null);
+  if (gen !== s.watchGen) return false; // superseded by a newer registration
+  const routes = watchRules.projectWatchRoutes(manifest);
+  const targets = watchRules.watchTargetRels(routes).map(rel => path.join(projectRoot, ...rel.split("/")));
   let presenceTimer = null;
   let presencePath = "";
   const pending = new Map(); // subsystem -> latest changed path
@@ -1335,7 +1331,7 @@ ipcMain.handle("watch:setRoot", async (e, root) => {
   });
   watcher.on("all", (_evt, abs) => {
     if (isSelfWrite(abs)) return;
-    const subsystem = subsystemFor(projectRoot, abs);
+    const subsystem = subsystemFor(projectRoot, abs, routes);
     if (!subsystem) return;
     if (subsystem === "presence") {
       presencePath = abs;

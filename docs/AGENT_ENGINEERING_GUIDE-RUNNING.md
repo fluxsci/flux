@@ -171,12 +171,13 @@ The established shared cores — extend these, don't duplicate them:
 | Pandoc superscript `^…^` / subscript `~…~` (what a span is; markdown-it rule; spelling ranges; the editor's Lezer extension list) | `src/shell/modes/paper/science/supSubGrammar.ts` + `markdownExtensions.ts` | `verify-paper-supsub.ts` (Lezer ≡ grammar ≡ markdown-it ≡ Pandoc's own HTML for a corpus; mdInline nodes; spelling; Ctrl+./Ctrl+, commands), `verify-paper-markup-gui.mjs` §B–E, `verify-v020-docx-publication.ts` (real Pandoc DOCX vertAlign runs) |
 | Citation-style (CSL) choice: shipped-style info, project copy path, document-relative `csl:` value | `src/lib/references/cslCatalog.ts` (+ `frontmatterEdit.planSetScalarKeyWith`; the export reads it through `zoteroFields.resolveCslIdentity`) | `verify-csl-picker.ts`, `verify-paper-markup-gui.mjs` §F |
 | Document discovery, nested folders, creation/moves and relative-link preservation; order and removal policy | `src/lib/project/documentFiles.ts` + `docOrder.ts` | `verify-paper-files.ts`, `verify-doc-order.ts`, `verify-doc-delete.ts`, `verify-paper-files-gui.mjs` |
+| Which folders hold documents (project.json `documentRoot`, legacy fallback, the standard `paper/` + `manuscript/`) and which project paths the Electron watcher watches and routes to which `fs:changed` subsystem — the watch list and the classifier both derive from ONE route table | `electron/documentRoots.js` (dependency-free ESM: discovery imports it, main loads it) + `electron/projectWatchRules.js` (main's `watch:setRoot` / `subsystemFor`) | `verify-project-watch-rules.ts` (every routed path is watched; every document and sidecar the shipped discovery finds is watched; main.cjs source shape), `verify-paper-comment-watch-electron.cjs` (real app + real CLI) |
 | Per-range text formatting (normalize, toggle, remap across edits, segment) | `src/lib/textRuns.ts` | `verify-text-runs.ts`, `verify-text-runs-gui.mjs` |
 | Annotation ledger, claims, routes and exact targets | `src/lib/project/annotations.ts` + `targets.ts` | `verify-annotation-core.ts` (also covers presence and inbox model primitives) |
 | Inbox filtering, packets, recipient order and session work | `src/lib/project/inbox.ts` + `agentRouting.ts` + `presence.ts` | `verify-inbox.ts`, `verify-inbox-wait.ts`, `verify-presence.ts`, `verify-agent-routing.ts` |
 | Agent identity (MCP clientInfo, environment, bylines) | `flux-core/agentIdentity.ts` | `verify-agent-identity.ts` |
 | Agent setup and health (CLI and Electron callers) | `electron/agentSetup.cjs` | `verify-agent-setup.ts`, `verify-connect-doctor.ts`, `verify-ai-monitor.ts` |
-| Immutable margin-comment message append | `src/lib/project/comments.ts` | `verify-inbox.ts` (sidecar byte/model parity; GUI replies use the live Paper comment owner or the cold manuscript lease) |
+| Immutable margin-comment message append, and the open editor's save as a three-way merge with the sidecar on disk (`rebaseCommentThreads`: base = what the editor last read or wrote; messages are never dropped; a side's change since base wins) | `src/lib/project/comments.ts` | `verify-inbox.ts` (sidecar byte/model parity; GUI replies use the live Paper comment owner or the cold manuscript lease), `verify-comment-model.ts` (merge laws), `verify-paper-comment-watch-electron.cjs` (an agent reply racing a GUI reply keeps both) |
 | The agent transcript (runner events → turns and blocks, tool summaries and groups, kept-thread messages) and the inert Markdown renderer for agent prose | `src/lib/agent/transcript.ts` + `markdownDom.ts` (pure; `shell/agent/markdown.ts` is the rAF-coalescing action, `Transcript.svelte` / `ToolTrail.svelte` / `WorkingLine.svelte` / `AgentMark.svelte` the one set of surface components) | `verify-transcript.ts` (reducer on a fake clock, tool labels, images, Markdown → linkedom DOM incl. the hostile-input corpus), `verify-ask-gui.mjs`, `verify-inbox-gui.mjs`, `verify-background-run-gui.mjs` |
 | Captions/panels | `src/lib/captions.ts` | `verify-w9-roundtrip.ts` |
 | Deck ⇄ figure-Project projection (slides-are-figures) | `src/lib/slide/deckProject.ts` | `verify-deckproject-roundtrip.ts` (identity) |
@@ -5835,6 +5836,14 @@ outside this PNG packaging change.
 - **A fresh-mount oracle shared with the thing under test is blind to shared state**: relayout's per-model binding
   template held the FIRST clone's colour-key tick anchors, so a second placement of a colour-keyed asset drew the
   first clone's key — invisible to a same-process fuzz, found by hashing fresh mounts across checkouts.
+- **A path the watcher classifies but does not watch fails silently** (2026-11-19): `subsystemFor` routed `paper/`
+  from 2026-09-06 while the watch list named only `manuscript/`, so for two months no agent edit to a new-layout
+  project reached the open app — and the stale Paper comment owner's next save erased agent replies. No gate saw it:
+  every UI gate drives the memBridge (no watcher) and the Electron watcher gate wrote under `plots/`. Watch list and
+  classifier now come from one table (`electron/projectWatchRules.js`), and a GUI writer of a file agents also
+  write must merge with disk under the shared lease, not replace it from memory — the watcher's 250 ms settle
+  window and its own-write echo filter (which drops an external change our next write overtakes) mean "the app
+  will have heard of it" is never a safe assumption.
 - **The project watcher coalesces `fs:changed` per subsystem and carried only the LATEST path**: an own-write echo
   filter must judge the full `paths` list, and an event is our echo only if every path matches.
 - **Lazy asset bytes need every "becomes placed later" route covered** (the live bridge's `add_plot`/`add_image`,
@@ -13277,3 +13286,15 @@ module both engines call; `flux missing-pdfs` lost its sign-in columns.
   `captureRules.js`: a comment edit there turns `verify-extension-build` red until re-signed.
 - Cleanup that deletes user files belongs behind the same `FLUX_NO_MIGRATE` escape hatch as migration,
   or a gate that spawns the real CLI with a real HOME would run it on the developer's machine.
+
+### 2026-11-19 — paper/ was never watched; GUI comment saves erased agent replies (Claude Opus 5.5, `main`)
+**Work:** The project watcher's hand-written target list lacked `paper/` (routed since b6a741b8, never watched), so
+agent writes to new-layout documents and sidecars never reached the open app, and the next GUI reply saved its stale
+thread list over the agent's reply. Watch targets and `subsystemFor` now derive from one route table fed by
+project.json's `documentRoot`; the live comment owner saves through a three-way merge under the `manuscript` lease.
+New gates: `verify-project-watch-rules.ts` (pure) and `verify-paper-comment-watch-electron.cjs` (electron tier,
+window-free: headless ozone with `DISPLAY`/`WAYLAND_DISPLAY` removed), which fails on the old `main.cjs` (no event)
+and on the old renderer (the GUI reply is erased).
+**Learnings:** (promoted: §2 rows for the route table and the comment merge; §9 trap on routed-but-unwatched paths)
+- A full-app Electron gate needs no display on Linux: pass `--ozone-platform=headless` on argv and delete `DISPLAY`
+  and `WAYLAND_DISPLAY` from the child env; `webContents.sendInputEvent` and `insertText` drive real input there.

@@ -163,7 +163,7 @@
     setCommentActive,
   } from "./comments/commentField";
   import CommentCard from "./comments/CommentCard.svelte";
-  import { commentInInbox, editCommentMessage, setCommentInbox, setCommentTags, normalizeTag } from "../../../lib/project/comments";
+  import { commentInInbox, editCommentMessage, rebaseCommentThreads, setCommentInbox, setCommentTags, normalizeTag } from "../../../lib/project/comments";
   import { fluxAiSignal } from "../../agent/fluxAiMark";
   import { commentColor, formatTagDefs, parseTagDefs, withTag } from "../../../lib/project/commentTags";
   import {
@@ -678,6 +678,9 @@
   let commentSaveTimer: ReturnType<typeof setTimeout> | undefined;
   let commentsDirty = false;
   let commentRevision = 0;
+  // The threads as this editor last read them from, or wrote them to, the sidecar: the base of
+  // the three-way merge (`rebaseCommentThreads`) that keeps an agent's reply when we save.
+  let commentBase: CommentThread[] | null = null;
   let pendingCommentWrite: Promise<void> = Promise.resolve();
   const commentAuthor = pm?.manifest.authors?.[0]?.name || "You";
   const commentCount = $derived(threads.filter((t) => !t.draft && !t.resolved).length);
@@ -703,9 +706,37 @@
     if (!pm || !commentsDirty) return;
     const generation = sessionGeneration, path = activeDocPath, revision = commentRevision;
     const write = persistThreadsTo(path);
-    pendingCommentWrite = write;
-    await write;
-    if (sessionCurrent(generation, path) && revision === commentRevision) commentsDirty = false;
+    pendingCommentWrite = write.then(() => {});
+    const result = await write;
+    if (!result || !sessionCurrent(generation, path)) return;
+    if (revision === commentRevision) commentsDirty = false;
+    adoptWrittenThreads(result);
+  }
+  /** After a save that merged in something from disk (an agent's reply the editor had not
+   *  heard of yet — the watcher drops that event as our own write's echo), show it. Edits made
+   *  while the save was in flight stay: the merge's base is exactly what this save sent. */
+  function adoptWrittenThreads({ sent, written }: { sent: CommentThread[]; written: CommentThread[] }) {
+    const hasDraft = threads.some((t) => t.draft);
+    if (hasDraft) { commentBase = sent; return; } // a draft keeps the margin still; disk is right
+    commentBase = written;
+    if (written.length === sent.length && written.every((t, i) => t === sent[i])) return;
+    showThreads(rebaseCommentThreads(sent, threads, written));
+  }
+  /** Replace the margin's threads, keeping each open thread's LIVE range (falling back to its
+   *  stored anchor for a thread that is new or reopened here). */
+  function showThreads(next: DraftThread[]) {
+    if (!view) { threads = next; return; }
+    const doc = view.state.doc.toString();
+    const effects = [];
+    for (const t of threads) effects.push(removeCommentMark.of(t.id));
+    for (const t of next) {
+      const r = t.resolved ? null : cRanges.get(t.id) ?? resolveAnchor(doc, t.anchor);
+      if (r) effects.push(addCommentMark.of({ id: t.id, from: r.from, to: r.to }));
+    }
+    threads = next;
+    if (activeComment && !next.some((t) => t.id === activeComment && !t.resolved)) activeComment = null;
+    if (effects.length) view.dispatch({ effects });
+    syncRanges();
   }
 
   // A new comment is written ON its text, in the card (it used to summon the margin's pane).
@@ -2094,6 +2125,7 @@
     const generation = sessionGeneration, path = activeDocPath;
     const loaded = await readComments(pm, path);
     if (!sessionCurrent(generation, path) || view !== v) return;
+    commentBase = loaded;
     if (!loaded.length) return;
     const doc = v.state.doc.toString();
     const effects = [];
@@ -2186,8 +2218,8 @@
   }
 
   // ---- F4: document switching --------------------------------------------
-  function persistThreadsTo(docPath: string): Promise<void> {
-    if (!pm || !docPath) return Promise.resolve();
+  async function persistThreadsTo(docPath: string): Promise<{ sent: CommentThread[]; written: CommentThread[] } | null> {
+    if (!pm || !docPath) return null;
     // Refresh each anchor from its live range before persisting.
     const doc = view?.state.doc.toString() ?? latest;
     const persist: CommentThread[] = threads
@@ -2200,7 +2232,8 @@
         const { draft: _draft, ...kept } = t;
         return { ...kept, anchor };
       });
-    return writeComments(pm, persist, docPath);
+    const written = await writeComments(pm, persist, docPath, commentBase);
+    return { sent: persist, written };
   }
 
   function loadDocument(path: string): Promise<void> {
@@ -2230,7 +2263,7 @@
       slidePickerOpen = false; slideInsertTarget = null;
       pickerOpen = false; figRefPickerOpen = false; doiPromptOpen = false;
       hover = null; doiStatus = ""; activeCitation.reset();
-      threads = []; activeComment = null; cRanges = new Map(); commentsDirty = false;
+      threads = []; activeComment = null; cRanges = new Map(); commentsDirty = false; commentBase = null;
       unregHandlers?.(); unregHandlers = null;
       untrackMath?.(); untrackMath = null;
       view = undefined;
@@ -2381,7 +2414,7 @@
           if (!saved) throw new Error("Save the current document before deleting it.");
           await persistThreadsTo(activeDocPath);
           activeDocPath = ""; releaseDocClaim(paneId);
-          initialDoc = ""; latest = ""; latestIdle = ""; diskBaseline = ""; threads = [];
+          initialDoc = ""; latest = ""; latestIdle = ""; diskBaseline = ""; threads = []; commentBase = null;
         } else await loadDocument(next);
         if (next && activeDocPath !== next) throw new Error("couldn’t switch this pane away from it");
       }
@@ -2427,26 +2460,19 @@
     refreshIdleNow(); // external reload is immediate, not debounced
     reanchorComments(); // PAP-4: re-attach comment marks to the new text (calls syncRanges)
   }
-  // F1 live reload for review comments: an external resolve/edit to the active
-  // doc's comments.json refreshes the margin in place. Non-destructive — skipped
-  // while the human is composing a draft, so in-progress work is never clobbered.
+  // F1 live reload for review comments: an external reply/resolve/edit to the active
+  // doc's sidecar refreshes the margin in place. Non-destructive: it merges with changes this
+  // editor has not saved yet (rather than replacing them), and is skipped while the human is
+  // composing a draft; the next save merges whatever it skipped, so nothing is lost either way.
   async function reloadCommentsFromDisk() {
     if (!pm || !view) return;
     if (threads.some((t) => t.draft)) return;
     const generation = sessionGeneration, path = activeDocPath, editor = view;
     const loaded = await readComments(pm, path);
-    if (!sessionCurrent(generation, path) || view !== editor) return;
-    const doc = view.state.doc.toString();
-    const effects = [];
-    for (const t of threads) effects.push(removeCommentMark.of(t.id));
-    for (const t of loaded) {
-      const r = t.resolved ? null : resolveAnchor(doc, t.anchor);
-      if (r) effects.push(addCommentMark.of({ id: t.id, from: r.from, to: r.to }));
-    }
-    threads = loaded;
-    if (activeComment && !loaded.some((t) => t.id === activeComment && !t.resolved)) activeComment = null;
-    if (effects.length) view.dispatch({ effects });
-    syncRanges();
+    if (!sessionCurrent(generation, path) || view !== editor || threads.some((t) => t.draft)) return;
+    const next = commentsDirty ? rebaseCommentThreads(commentBase, threads, loaded) : loaded;
+    commentBase = loaded;
+    showThreads(next);
   }
 
   async function onExternalManuscript(chg: { path: string; n: number } | null) {
