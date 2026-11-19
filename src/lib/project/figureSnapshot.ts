@@ -23,7 +23,7 @@ export interface FigureSnapshot {
   missingIndexInventory?: 'empty' | 'existing' | 'unavailable';
   baselines: Map<string, string | null>; captionBaselines: Map<string, CaptionBaseline>;
   diagnostics: { path: string; message: string }[];
-  /** Non-blocking asset problems (a referenced GLB file is missing). The model is
+  /** Non-blocking asset problems (a referenced GLB file or fluximg bundle is missing). The model is
    * still complete: read paths show a placeholder, mutations (for example deleting
    * the broken element) remain possible. */
   assetIssues: FigureAssetIssue[];
@@ -34,6 +34,16 @@ export function missingModelFileMessage(file: string, element: { id: string; nam
   const label = element.name ? `"${element.name}" (${element.id})` : element.id;
   const owner = figure.name && figure.name !== figure.id ? `"${figure.name}" (${figure.id})` : figure.id;
   return `3D model file ${file} is missing for element ${label} in figure ${owner}: restore ${file} or delete the element`;
+}
+/** One wording for every surface that reports a missing fluximg bundle (an immutable directory under fig/assets). */
+export function missingFluximgFileMessage(file: string, element: { id: string; name?: string }, figure: { id: string; name?: string }): string {
+  const label = element.name ? `"${element.name}" (${element.id})` : element.id;
+  const owner = figure.name && figure.name !== figure.id ? `"${figure.name}" (${figure.id})` : figure.id;
+  return `Image bundle ${file} is missing for element ${label} in figure ${owner}: restore ${file} or delete the element`;
+}
+/** The missing-file wording for an asset kind that lives outside assetData (a GLB file or a fluximg directory). */
+export function missingAssetFileMessage(kind: "glb" | "fluximg", file: string, element: { id: string; name?: string }, figure: { id: string; name?: string }): string {
+  return kind === "fluximg" ? missingFluximgFileMessage(file, element, figure) : missingModelFileMessage(file, element, figure);
 }
 export async function readFigureSnapshot(io: FigureSnapshotIO): Promise<FigureSnapshot> {
   const project: Project = { version: 2, name: '', canvases: [], figures: [], assets: [], palette: [], colorGroups: [] };
@@ -138,7 +148,8 @@ export async function readFigureSnapshot(io: FigureSnapshotIO): Promise<FigureSn
   for (const figure of project.figures) for (const element of figure.elements) {
     for (const id of elementSourceAssetIds(element)) if (!assets.has(id)) problem(`fig/canvases/${figure.canvasId}.json`, `Figure ${figure.id}, element ${element.id}: missing asset ${id}`);
   }
-  // Only GLB files that a figure element places matter to this snapshot. A
+  // Only GLB files and fluximg bundle directories that a figure element places
+  // matter to this snapshot (neither is ever read here: existence only). A
   // missing one is an asset issue, not a partial model: every canvas and the
   // index were read completely, so saving cannot lose data and the user or an
   // agent must still be able to repair the figure (for example delete it).
@@ -146,14 +157,15 @@ export async function readFigureSnapshot(io: FigureSnapshotIO): Promise<FigureSn
   if (io.assetExists) {
     const placed = new Map<string, { figure: Figure; element: Figure['elements'][number] }>();
     for (const figure of project.figures) for (const element of figure.elements) {
-      for (const id of elementAssetRefs(element).models) if (!placed.has(id)) placed.set(id, { figure, element });
+      const refs = elementAssetRefs(element);
+      for (const id of [...refs.models, ...refs.stacks]) if (!placed.has(id)) placed.set(id, { figure, element });
     }
-    for (const asset of project.assets) if (asset.kind === "glb" && asset.path && placed.has(asset.id)) {
+    for (const asset of project.assets) if ((asset.kind === "glb" || asset.kind === "fluximg") && asset.path && placed.has(asset.id)) {
       try {
         const file = `fig/${storedAssetPath(asset.path)}`;
         if (!await io.assetExists(file)) {
           const { figure, element } = placed.get(asset.id)!;
-          result.assetIssues.push({ path: file, assetId: asset.id, figureId: figure.id, elementId: element.id, message: missingModelFileMessage(file, element, figure) });
+          result.assetIssues.push({ path: file, assetId: asset.id, figureId: figure.id, elementId: element.id, message: missingAssetFileMessage(asset.kind, file, element, figure) });
         }
       } catch (error) { problem(asset.path, String(error)); }
     }

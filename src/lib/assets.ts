@@ -26,7 +26,8 @@ export async function ensureAssetBytes(ids: Iterable<Id>): Promise<void> {
   const current = () => get(stores.project) === owner && get(stores.embeddedProjectRoot) === embedded && get(stores.projectDir) === directory;
   for (const id of new Set(ids)) {
     const asset = owner.assets.find(a => a.id === id);
-    if (asset?.kind === "glb" || getAssetData(id)) continue;
+    // GLBs keep their binary/poster pipeline; a fluximg is a DIRECTORY read only in ranged pieces. Neither is ever base64'd.
+    if (asset?.kind === "glb" || asset?.kind === "fluximg" || getAssetData(id)) continue;
     if (!asset?.path || !bridge || !root || isAssetDirty(id)) throw new Error(`Cannot load asset ${id}: source bytes are unavailable`);
     const generation = assetDirtyGeneration(id), relative = storedAssetPath(`${embedded ? "fig/" : ""}${asset.path}`);
     const path = bridge.projectAssetPath ? await bridge.projectAssetPath(root, relative) : joinPath(root, relative);
@@ -97,7 +98,8 @@ export function dataUrlToBytes(dataUrl: string): Uint8Array {
   return base64ToBytes(dataUrl.slice(comma + 1));
 }
 
-export function mimeFor(kind: import("./types").Asset["kind"]): string {
+/** A fluximg bundle has no MIME: it is a directory and never becomes a data URL (the type refuses it at compile time). */
+export function mimeFor(kind: Exclude<import("./types").Asset["kind"], "fluximg">): string {
   return { png: "image/png", svg: "image/svg+xml", mp4: "video/mp4", glb: "model/gltf-binary" }[kind];
 }
 

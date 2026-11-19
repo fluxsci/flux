@@ -572,7 +572,7 @@ export function placeIncoming(incoming: Incoming[], figId?: string, at?: PlaceAt
     } else {
       // Each fits alone; the side-by-side arrangement is what overflows.
       const kinds = new Set(incoming.map(it => it.asset.kind));
-      const noun = kinds.size > 1 ? "items" : ({ glb: "models", svg: "plots", mp4: "videos", png: "images" } as const)[[...kinds][0]];
+      const noun = kinds.size > 1 ? "items" : ({ glb: "models", svg: "plots", mp4: "videos", png: "images", fluximg: "images" } as const)[[...kinds][0]];
       pushToast("info", `These ${incoming.length} ${noun} don't fit side by side in the ${frame}`, {
         detail: `Placed at true size; ${over.length} of ${incoming.length} ${over.length === 1 ? "extends" : "extend"} past the ${frameMm} ${frame}. Arrange or resize them — Ctrl+Shift+I brings them inside the ${frame} (unresized, may overlap)${slide ? "" : ", or regenerate the plots smaller"}.`,
       });
@@ -717,6 +717,13 @@ function writeProjectTo(dir: string) {
     assertOwner();
     // Save As copies every registration, including images never placed/opened.
     // Ordinary saves leave unloaded clean files untouched in their source tree.
+    // A fluximg bundle is an immutable DIRECTORY with no resident bytes. This standalone writer has no directory copy,
+    // so Save As refuses before publishing anything rather than leave the copy without its pixels; an ordinary save only
+    // checks the directory is still there (it is never rewritten).
+    for (const asset of p.assets) if (asset.kind === "fluximg") {
+      if (dir !== sourceRoot) throw new Error(`Cannot Save As: image bundle ${asset.name || asset.id} cannot be copied by this save yet`);
+      if (!asset.path || !sourceRoot || !await window.fig.exists(joinPath(sourceRoot, storedAssetPath(asset.path)))) throw new Error(`Missing fluximg asset ${asset.id}`);
+    }
     if (dir !== sourceRoot) {
       await ensureAssetBytes(p.assets.map(a => a.id));
       assertOwner();
@@ -757,6 +764,7 @@ function writeProjectTo(dir: string) {
         }
         continue;
       }
+      if (asset.kind === "fluximg") continue; // immutable directory, checked above; never written by a save
       const url = data[asset.id];
       if (!url) {
         if (dir !== sourceRoot || !asset.path || isAssetDirty(asset.id)) throw new Error(`Cannot save asset ${asset.id}: its bytes are unavailable`);
@@ -850,6 +858,11 @@ export async function openProject() {
         if(sidecars.issues?.length) modelIssues[asset.id]=sidecars.issues;
         if(sidecars.manifest) primedModels[asset.id]=sidecars.manifest;
         if(sidecars.recipe!==undefined) primedModelRecipes[asset.id]=sidecars.recipe;
+        continue;
+      }
+      // fluximg: an immutable bundle DIRECTORY; never read whole or base64'd (its own service reads ranged pieces).
+      if (asset.kind === "fluximg") {
+        if (!await window.fig.exists(joinPath(dir, asset.path))) throw new Error(`Missing fluximg asset ${asset.id}`);
         continue;
       }
       if (placed.has(asset.id)) {

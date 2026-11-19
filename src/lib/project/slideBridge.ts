@@ -4,6 +4,7 @@ import { slideAssetIds } from "../slide/deckProject";
 import { readScene3dSidecars, scene3dSidecarWrites } from "../model3d/persistence";
 import { scene3dManifests, scene3dRecipes, primeScene3dSidecars, clearScene3dSidecars } from "../model3d/store";
 import { storedAssetPath } from "./assetPath";
+import { FLUXIMG_NOT_IN_SLIDES } from "../fluximg/policy";
 import { generationBridgeIO } from "./generationBridgeIO";
 import { withIpcLock } from "../references/libLock";
 import { preparePlot } from "../plot/parse";
@@ -229,8 +230,8 @@ interface ResolvedDeckAssets {
 // intervening reimport/eviction outside this adapter.
 const acceptedPlotCache = new Map<string, { svg: string; manifest: string; recipe: string; dom: SVGSVGElement | undefined }>();
 
-function assetMime(kind: string): string {
-  return mimeFor(kind as Asset["kind"]);
+function assetMime(kind: Exclude<Asset["kind"], "fluximg">): string {
+  return mimeFor(kind);
 }
 
 export async function resolveDeckAssets(root: string, deck: Deck, isCurrent: () => boolean = () => true, deferPublication = false, reader = fileBridge()): Promise<ResolvedDeckAssets> {
@@ -296,6 +297,8 @@ export async function resolveDeckAssets(root: string, deck: Deck, isCurrent: () 
     if (!a.path) continue;
     try {
       if (a.kind === "glb") { await readModel(a, `slides/${deck.id}`); assets.push({ ...a }); continue; }
+      // Stage 1 keeps fluximg out of decks (the deck schema refuses the kind); never read a bundle directory as bytes.
+      if (a.kind === "fluximg") throw new Error(FLUXIMG_NOT_IN_SLIDES);
       if (a.kind === "mp4") {
         // Native range streaming keeps large clips out of renderer memory. A
         // browser-only fixture may use its injected bridge and small data URLs.
@@ -350,6 +353,8 @@ export async function resolveDeckAssets(root: string, deck: Deck, isCurrent: () 
           assets.push({ ...fa, path: `fig/${fa.path}` }); have.add(assetId); external.add(assetId);
           await readModel(fa, "fig"); return;
         }
+        // A fluximg is never resolved into a deck (stage 1), and its bundle directory is never read as bytes.
+        if (fa.kind === "fluximg") { diagnostics.push({ severity: "warning", assetId, reason: FLUXIMG_NOT_IN_SLIDES }); return; }
         const bytes = new Uint8Array(await fig.readFile(joinPath(root, "fig", fa.path)));
         if (isCurrent() && fa.kind === "svg" && !isAssetDirty(assetId)) {
           const manifest = await readManifestFile(`fig/assets/${assetId}.fluxplot.json`);

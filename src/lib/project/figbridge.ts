@@ -16,7 +16,7 @@ import { storedAssetPath } from "./assetPath";
 // figure numbering + palette + assets). The user never hand-edits `fig/`.
 
 import { get } from "svelte/store";
-import { readFigureSnapshot, missingModelFileMessage } from "./figureSnapshot";
+import { readFigureSnapshot, missingModelFileMessage, missingAssetFileMessage } from "./figureSnapshot";
 import { withIpcLock, type IpcLease } from "../references/libLock";
 import { applySourceUpdates, writeSourceUpdates, type SourceUpdate } from "../plot/sourceSync";
 import { commitTextGeneration, recoverTextGeneration, bytesToBase64, type GenerationWrite } from "./textGeneration";
@@ -218,6 +218,9 @@ export async function loadFigInto(
     if (!a.path) return;
     try {
       const assetPath = fig.projectAssetPath ? await fig.projectAssetPath(root, storedAssetPath(`${SUB}/${a.path}`)) : joinPath(root, SUB, a.path);
+      // fluximg: an immutable bundle DIRECTORY, read later in ranged pieces by its own service. Never read here; a
+      // missing one is the snapshot's non-blocking assetIssue, exactly like a GLB.
+      if (a.kind === "fluximg") return;
       if (a.kind === "glb") {
         // A missing model FILE never makes the load partial: the index and every
         // canvas were read, so saving cannot lose data. A placed one is the
@@ -282,9 +285,14 @@ export async function loadFigInto(
     figLoadFailure = snapshot.status === "complete" ? null : snapshot.diagnostics.map(d => `${d.path}: ${d.message}`).join("\n");
     figLoad(proj, null, opts); loadedFigureRoot = root;
     if (Object.keys(modelIssues).length) pushToast("info", "Some 3D metadata could not be loaded", { detail: Object.values(modelIssues).flat().join("\n") });
-    if (snapshot.assetIssues.length) pushToast("error", snapshot.assetIssues.length === 1 ? "A 3D model file is missing" : "Some 3D model files are missing", {
-      detail: snapshot.assetIssues.map(issue => issue.message).join("\n") + "\nSaving waits until the file is restored or that 3D model is deleted.",
-    });
+    if (snapshot.assetIssues.length) {
+      const stacks = snapshot.assetIssues.some(issue => proj.assets.find(a => a.id === issue.assetId)?.kind === "fluximg");
+      const models = snapshot.assetIssues.some(issue => proj.assets.find(a => a.id === issue.assetId)?.kind === "glb");
+      const what = stacks && models ? "asset" : stacks ? "image bundle" : "3D model";
+      pushToast("error", snapshot.assetIssues.length === 1 ? `A ${what} file is missing` : `Some ${what} files are missing`, {
+        detail: snapshot.assetIssues.map(issue => issue.message).join("\n") + `\nSaving waits until the file is restored or that ${stacks && !models ? "image" : stacks ? "element" : "3D model"} is deleted.`,
+      });
+    }
     if (figLoadFailure) pushToast("error", "Some figures could not be loaded", { detail: figLoadFailure + " Existing files will not be overwritten." });
   }, { root }));
   figureSaveQueue = adopt;
@@ -307,12 +315,14 @@ let figSubsystemLocked = false;
 let figLoadFailure: string | null = null;
 /** Names the file, element and figure (the "Missing GLB" prefix is what the
  * persistence gate and older messages match on). */
-function missingGlbMessage(figures: readonly Figure[], assetId: string, file: string): string {
+function missingGlbMessage(figures: readonly Figure[], assetId: string, file: string, kind: "glb" | "fluximg" = "glb"): string {
+  const what = kind === "fluximg" ? "fluximg" : "GLB";
   for (const figure of figures) for (const element of figure.elements) {
-    if (element.type === "model3d" && element.assetId === assetId) return `Missing GLB asset ${assetId}: ${missingModelFileMessage(file, element, figure)}`;
+    if (element.type === elementTypeOf(kind) && "assetId" in element && element.assetId === assetId) return `Missing ${what} asset ${assetId}: ${missingAssetFileMessage(kind, file, element, figure)}`;
   }
-  return `Missing GLB asset ${assetId}: ${file} is missing (no figure element places it); restore ${file}`;
+  return `Missing ${what} asset ${assetId}: ${file} is missing (no figure element places it); restore ${file}`;
 }
+const elementTypeOf = (kind: "glb" | "fluximg"): "model3d" | "fluximg" => kind === "fluximg" ? "fluximg" : "model3d";
 
 /** Registered GLBs whose files are gone block the save only while something
  * still uses them. Figure mode keeps an asset registered after its last element
@@ -323,12 +333,12 @@ function missingGlbMessage(figures: readonly Figure[], assetId: string, file: st
  * element and its refusal back. Mirrors slideBridge's deck save. */
 async function judgeMissingModels(root: string, fig: NonNullable<ReturnType<typeof fileBridge>>, p: FigProject, missing: readonly { asset: Asset; rel: string }[]): Promise<void> {
   for (const { asset, rel } of missing) for (const figure of p.figures) for (const element of figure.elements) {
-    if (elementSourceAssetIds(element).includes(asset.id)) throw new Error(`Cannot save: ${missingModelFileMessage(rel, element, figure)}`);
+    if (elementSourceAssetIds(element).includes(asset.id)) throw new Error(`Cannot save: ${asset.kind === "fluximg" ? missingAssetFileMessage("fluximg", rel, element, figure) : missingModelFileMessage(rel, element, figure)}`);
   }
   const decks = await (await import("./dependencies")).readDeckAssetUses(root, fig), dead = new Set<string>();
   for (const { asset, rel } of missing) {
     const uses = decks.byAsset[asset.id];
-    if (uses?.length) throw new Error(`Missing GLB asset ${asset.id}: ${rel} is missing and a saved deck still uses it (${[...new Set(uses.map(u => u.label))].join(", ")}); restore ${rel}, or delete that 3D model from the deck`);
+    if (uses?.length) throw new Error(`Missing ${asset.kind === "fluximg" ? "fluximg" : "GLB"} asset ${asset.id}: ${rel} is missing and a saved deck still uses it (${[...new Set(uses.map(u => u.label))].join(", ")}); restore ${rel}, or delete that 3D model from the deck`);
     // Incomplete inspection is never permission to drop a registration: an
     // unreadable deck keeps it (the save still succeeds, nothing is lost).
     if (decks.complete) dead.add(asset.id);
@@ -437,6 +447,15 @@ async function saveFigFromUnlocked(root: string, opts: { force?: boolean; source
   // asset is already on disk, so a debounced save no longer rewrites MBs of bytes.
   for (const a of p.assets) {
     if (opts.sourceUpdates?.some(update => update.assetId === a.id)) continue;
+    // fluximg: the bundle directory was published by the native import and is IMMUTABLE. A figure save never writes,
+    // rewrites or stages it (no bytes are resident to write); it only checks the directory is still there.
+    if (a.kind === "fluximg") {
+      if (!a.path) throw new Error(`Cannot save fluximg ${a.id}: native import has not completed`);
+      const rel = storedAssetPath(`${SUB}/${a.path}`);
+      const path = fig.projectAssetPath ? await fig.projectAssetPath(root, rel) : joinPath(root, rel);
+      if (!await fig.exists(path)) missingModels.push({ asset: a, rel });
+      continue;
+    }
     if (a.kind === "glb") {
       if (!a.path) throw new Error(`Cannot save GLB ${a.id}: native import has not completed`);
       const rel = storedAssetPath(`${SUB}/${a.path}`);
@@ -687,11 +706,11 @@ export async function readFigStructure(root: string): Promise<FigSource> {
   const issues: { assetId: string; message: string }[] = [];
   for (const asset of view.assets) {
     if (asset.kind === "mp4") throw new Error("Video assets cannot be loaded into Figure mode");
-    if (asset.kind !== "glb" || !asset.path) continue;
+    if ((asset.kind !== "glb" && asset.kind !== "fluximg") || !asset.path) continue;
     try {
       const rel = storedAssetPath(`${SUB}/${asset.path}`);
       const path = fig.projectAssetPath ? await fig.projectAssetPath(root, rel) : joinPath(root, rel);
-      if (!await fig.exists(path)) throw new Error(missingGlbMessage(view.figures, asset.id, rel));
+      if (!await fig.exists(path)) throw new Error(missingGlbMessage(view.figures, asset.id, rel, asset.kind));
     } catch (error) { issues.push({ assetId: asset.id, message: String(error) }); }
   }
 
@@ -762,6 +781,13 @@ export async function readFigAssets(root: string, assetIds: Iterable<string>, so
     if (a.kind === "mp4") throw new Error("Video assets cannot be loaded into Figure mode");
     if (!a.path) continue;
     try {
+      // fluximg: existence only; its pixels are read in ranged pieces by its own service, never as a data URL.
+      if (a.kind === "fluximg") {
+        const rel = storedAssetPath(`${SUB}/${a.path}`);
+        const path = fig.projectAssetPath ? await fig.projectAssetPath(root, rel) : joinPath(root, rel);
+        if (!await fig.exists(path)) throw new Error(missingGlbMessage(Object.values(structure.figures), a.id, `${SUB}/${a.path}`, "fluximg"));
+        continue;
+      }
       if (a.kind === "glb") {
         const rel = storedAssetPath(`${SUB}/${a.path}`);
         const path = fig.projectAssetPath ? await fig.projectAssetPath(root, rel) : joinPath(root, rel);
@@ -771,14 +797,15 @@ export async function readFigAssets(root: string, assetIds: Iterable<string>, so
         if (sidecars.manifest) model3dManifests[a.id] = sidecars.manifest;
         continue;
       }
+      const kind = a.kind; // narrowed: never glb / fluximg past this point
       const decoded = await readFigSourceFile(fig, joinPath(root, SUB, a.path), seenFiles, async () => {
         const bytes = new Uint8Array(await fig.readFile(joinPath(root, SUB, a.path!)));
-        return { url: bytesToDataUrl(bytes, mimeFor(a.kind)), bytes: a.kind === "png" ? bytes : null };
+        return { url: bytesToDataUrl(bytes, mimeFor(kind)), bytes: kind === "png" ? bytes : null };
       });
       assetData[a.id] = decoded.url;
       if (decoded.bytes) captureSnipMeta(a.id, decoded.bytes);
     } catch (error) {
-      if (a.kind === "glb") issues.push({ assetId: a.id, message: String(error) });
+      if (a.kind === "glb" || a.kind === "fluximg") issues.push({ assetId: a.id, message: String(error) });
       /* Missing images retain the existing read-only behavior. */
     }
     if (a.kind === "svg") {

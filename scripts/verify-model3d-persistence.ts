@@ -52,7 +52,7 @@ h.eq(deck.schemaVersion,'0.6.0','3D uses the current unpublished deck minor');
 h.eq(validateDeckFile(deck),[],'current deck schema accepts model3d and complete GLB metadata');
 h.ok(validateDeckFile({...deck,assets:[{...asset,model:undefined}]}).length>0,'deck schema rejects missing GLB geometry metadata');
 const video={type:'video',assetId:'movie',posterAssetId:'still'};
-h.eq(elementAssetRefs(video),{images:['still'],models:[],media:['movie'],manifests:[],posterRefs:[]},'video retains its media and poster buckets');
+h.eq(elementAssetRefs(video),{images:['still'],models:[],media:['movie'],stacks:[],manifests:[],posterRefs:[]},'video retains its media and poster buckets');
 h.eq(elementSourceAssetIds(video),['still','movie'],'physical reference collector retains video and poster');
 h.eq([...figureImageAssetIds({elements:[element,video as never,{...element,type:'image',assetId:'raster'} as never]})],['still','raster'],'render image set excludes GLB and video binary');
 h.eq(['png','svg','mp4','glb'].map(k=>mimeFor(k as never)),['image/png','image/svg+xml','video/mp4','model/gltf-binary'],'MIME mapping has no GLB-as-PNG fallback');

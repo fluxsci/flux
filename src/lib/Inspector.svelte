@@ -121,7 +121,7 @@
   // has no plots/ tenancy).
   let dissectCount: number | null = null;
   const dissectMemo = { key: "", rev: -1, gen: 0 };
-  $: dissectKey = !slideMode && single && single.type !== "model3d" && "assetId" in single ? dissectKeyForElement(single) : "";
+  $: dissectKey = !slideMode && single && single.type !== "model3d" && single.type !== "fluximg" && "assetId" in single ? dissectKeyForElement(single) : "";
   $: {
     const rev = $dissectionsRevision;
     if (!dissectKey) {
@@ -136,7 +136,7 @@
       });
     }
   }
-  $: elCrop = single && (single.type === "image" || single.type === "plot") ? (single.crop ?? null) : null;
+  $: elCrop = single && (single.type === "image" || single.type === "plot" || single.type === "fluximg") ? (single.crop ?? null) : null;
   $: physRef = elCrop ? { width: elCrop.width, height: elCrop.height } : physSize;
   $: atPhys =
     !!physRef &&

@@ -94,7 +94,10 @@ async function assetSignature(root: string): Promise<string> {
     }
     for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
       const r = rel ? `${rel}/${e.name}` : e.name;
-      if (e.isDirectory()) await walk(r);
+      // A fluximg bundle is an immutable, content-addressed directory (its sha256 is in fig/index.json, which the key
+      // already hashes): never walk its possibly thousands of chunk files on this stat-only path.
+      if (e.isDirectory() && /\.fluximg$/i.test(e.name)) parts.push(`${r}:bundle`);
+      else if (e.isDirectory()) await walk(r);
       else {
         const st = await fs.stat(path.join(dir, r)).catch(() => null);
         if (st) parts.push(`${r}:${st.size}:${Math.round(st.mtimeMs)}`);

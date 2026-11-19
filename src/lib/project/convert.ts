@@ -1,4 +1,5 @@
 import { elementSourceAssetIds } from "../model3d/refs";
+import { FLUXIMG_NOT_IN_SLIDES, isFluximgElement } from "../fluximg/policy";
 import { prepareModelCopy, publishModelCopy, type PreparedModelCopy } from "../model3d/copy";
 import { scene3dSidecarWrites } from "../model3d/persistence";
 import { collectModel3dSourceBindings } from "../model3d/sourceBinding";
@@ -89,6 +90,12 @@ async function figureAssets(fig: FileBridge, root: string, snapshot: FigureSnaps
       if (!await fig.exists(joinPath(root, "fig", storedAssetPath(asset.path)))) throw new Error(`Missing GLB asset ${id}`);
       continue;
     }
+    // A fluximg bundle is an immutable DIRECTORY that never crosses into a deck (stage 1) and is never read whole:
+    // existence only, so a project holding one can still convert its other figures.
+    if (asset.kind === "fluximg") {
+      if (!await fig.exists(joinPath(root, "fig", storedAssetPath(asset.path)))) throw new Error(`Missing fluximg asset ${id}`);
+      continue;
+    }
     const rel = `fig/${storedAssetPath(asset.path)}`;
     const abs = fig.projectAssetPath ? await fig.projectAssetPath(root, rel) : joinPath(root, rel);
     bytes.set(id, new Uint8Array(await fig.readFile(abs)));
@@ -130,6 +137,7 @@ function sourceAssets(elements: Figure["elements"]) {
   for (const id of ids) {
     const asset = metadata.find(a => a.id === id), url = getAssetData(id);
     if (asset?.kind === "glb") continue;
+    if (asset?.kind === "fluximg") throw new Error(FLUXIMG_NOT_IN_SLIDES);
     if (!asset || !url) throw new Error(`Missing conversion asset: ${id}`);
     const man = manifests[id];
     source.set(id, { asset, bytes: dataUrlToBytes(url),
@@ -158,6 +166,8 @@ async function prepareModelSidecars(fig: FileBridge, root: string, writes: Asset
  * remain by-id references; unsaved assets are copied into the destination deck. */
 export async function sendFigureToDeck(root: string, figure: Pick<Figure, "name" | "elements" | "groups"> & Partial<Pick<Figure, "width" | "height">>, deckId: string | null): Promise<{ deckId: string; slideId: string; title: string }> {
   const fig = fileBridge(); if (!fig) throw new Error("no file bridge");
+  // Stage 1: a fluximg never enters a deck (ARCHITECTURE decision 8). Refuse before any read or write.
+  if (figure.elements.some(isFluximgElement)) throw new Error(FLUXIMG_NOT_IN_SLIDES);
   const captured = structuredClone(figure), source = sourceAssets(captured.elements), models = sourceModels(captured.elements), localOwner = captureOwner(root);
   const sourceErrors = validateModel({ version: 2, name: "Conversion", canvases: [{ id: "source", name: "Source" }], figures: [{ ...captured, id: "source-figure", canvasId: "source", x: 0, y: 0, width: 1, height: 1 }], assets: [...source.values()].map(v => v.asset).concat(models), palette: [] });
   if (sourceErrors.length) throw new Error(sourceErrors.join("; "));

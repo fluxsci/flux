@@ -148,12 +148,16 @@ export function figureRenderReaders(root: string, assets: Asset[], readFile: (fi
     async readAsset(id: string): Promise<string | undefined> {
       const asset = byId.get(id);
       if (!asset?.path) throw new Error(`Missing asset path: ${id}`);
+      // A fluximg bundle is a DIRECTORY read in ranged pieces by its own renderer; it never becomes a data URL.
+      // figureImageAssetIds never names one (elementAssetRefs puts it in `stacks`); this refuses any other caller.
+      if (asset.kind === "fluximg") throw new Error(`fluximg asset ${id} is not readable as image bytes`);
+      const kind = asset.kind;
       const value = await readFile(await projectAssetPath(root, `fig/${asset.path}`), "asset");
       if (value === undefined) return undefined;
       const bytes = Buffer.isBuffer(value) ? value : Buffer.from(value as string);
       let urls = assetDataUrls.get(bytes);
       if (!urls) { urls = new Map(); assetDataUrls.set(bytes, urls); }
-      const mime = mimeFor(asset.kind);
+      const mime = mimeFor(kind);
       if (!urls.has(mime)) urls.set(mime, `data:${mime};base64,${bytes.toString("base64")}`);
       return urls.get(mime);
     },
