@@ -6,18 +6,32 @@ function capabilities(version, help) {
   const promptFile = help.includes("--append-system-prompt-file");
   if (!promptFile && !help.includes("--append-system-prompt")) missing.push("--append-system-prompt");
   return { version: version.trim(), available: !missing.length, reason: missing.length ? `Update Claude Code: missing ${missing.join(", ")}` : undefined,
-    promptFile, model: help.includes("--model"), effort: help.includes("--effort") };
+    promptFile, model: help.includes("--model"), effort: help.includes("--effort"), auto: AUTO_MODE.test(help) };
 }
+// Does this CLI know the "auto" permission mode? Its help lists the modes after the flag.
+const AUTO_MODE = /--permission-mode\b[\s\S]{0,320}?"auto"/;
+// HOW A BACKGROUND AGENT IS ALLOWED TO ACT (task mode). Owner, 2026-11-19: "there should be NO
+// permissions prompts … it should act like claude code in my terminal, which is always on auto
+// mode". So a task runs in Claude Code's own AUTO mode with nobody to ask:
+//   --permission-mode auto --permission-prompts none
+// Reads and edits inside the project (cwd and --add-dir) are allowed; anything else is decided by
+// auto mode's classifier; what it will not approve is DENIED BACK TO THE MODEL, which carries on
+// another way. Nothing ever reaches the user. The narrow --allowedTools rules below still apply
+// (they skip the classifier); deny rules apply in every mode.
+// Where auto mode does not exist (an older CLI: caps.auto false) or is refused for this account,
+// organisation or model (the runner sees it in the init event and sets askFirst), a task falls
+// back to the earlier profile: edits allowed, everything else asks through mcp__flux__approve.
+const autonomous = o => o.mode === "task" && !!o.caps.auto && !o.askFirst;
 function args(o) {
   const a = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
     o.caps.promptFile ? "--append-system-prompt-file" : "--append-system-prompt", o.caps.promptFile ? o.packPath : o.packText,
     "--tools", o.mode === "task" ? "Read,Grep,Glob,Edit,Write,Bash" : "Read,Grep,Glob",
-    "--permission-mode", o.mode === "task" ? "acceptEdits" : "dontAsk",
+    "--permission-mode", o.mode === "task" ? (autonomous(o) ? "auto" : "acceptEdits") : "dontAsk",
     "--strict-mcp-config", "--mcp-config", o.mcpPath];
   if (o.model) a.push("--model", o.model);
   if (o.effort) a.push("--effort", o.effort);
   if (o.resume) a.push("--resume", o.resume);
-  if (o.mode === "task") a.push("--permission-prompt-tool", "mcp__flux__approve");
+  if (o.mode === "task" && !autonomous(o)) a.push("--permission-prompt-tool", "mcp__flux__approve");
   else a.push("--permission-prompts", "none");
   // Variadic lists are last; user turns always travel on stdin.
   a.push("--add-dir", ...(o.mode === "task" ? [o.root] : []), o.runDir);
@@ -50,6 +64,8 @@ function parser(emit) {
         emit({ type: "error", fatal: true, message: "Claude Code started in bare mode. Disable bare mode and sign in using your installed CLI. See https://code.claude.com/docs/en/cli-reference" });
         return;
       }
+      // The mode Claude Code actually started in (a refused "auto" starts in manual, silently).
+      if (typeof e.permissionMode === "string") emit({ type: "permission-mode", mode: e.permissionMode });
       if (e.session_id) emit({ type: "session", sessionId: e.session_id });
       const connected = e.mcp_servers?.some(s => s.name === "flux" && s.status === "connected");
       emit({ type: "status", state: "running", ...(connected ? {} : { reason: "Flux tools unavailable in this Claude session — run Flux → AI status → Repair" }) });
@@ -95,4 +111,4 @@ function parser(emit) {
     } else if (e.type === "error") emit({ type: "error", message: e.error?.message || e.message || "Claude Code failed" });
   };
 }
-module.exports = { capabilities, args, turn, parser };
+module.exports = { capabilities, args, turn, parser, autonomous };

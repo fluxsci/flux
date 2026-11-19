@@ -6,7 +6,8 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 const driver = process.argv[2], args = process.argv.slice(3);
 if (args.includes('--version')) { console.log(driver === 'claude' ? '2.1.283' : 'codex-cli 0.157.1'); process.exit(0); }
 if (args.includes('--help')) {
-  console.log('--input-format --output-format --verbose --include-partial-messages --tools --permission-mode --permission-prompt-tool --permission-prompts --allowedTools --disallowedTools --add-dir --strict-mcp-config --mcp-config --resume --append-system-prompt --append-system-prompt-file --json --skip-git-repo-check --sandbox --cd --image --config --model --effort [PROMPT]'); process.exit(0);
+  // FAKE_TASK_AUTO: this "CLI" knows the auto permission mode (its help lists the choices, as the real one does).
+  console.log('--input-format --output-format --verbose --include-partial-messages --tools --permission-mode' + (process.env.FAKE_TASK_AUTO ? ' <mode> (choices: "acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan")' : '') + ' --permission-prompt-tool --permission-prompts --allowedTools --disallowedTools --add-dir --strict-mcp-config --mcp-config --resume --append-system-prompt --append-system-prompt-file --json --skip-git-repo-check --sandbox --cd --image --config --model --effort [PROMPT]'); process.exit(0);
 }
 const emit = (e: unknown) => console.log(JSON.stringify(e));
 let text = '';
@@ -30,7 +31,11 @@ try {
   };
   const tools = await client.listTools();
   await fs.appendFile(process.env.FAKE_TASK_EVIDENCE!, JSON.stringify({ cwd: process.cwd(), state, args, text, approve: tools.tools.some(t => t.name === 'approve') }) + '\n');
-  if (driver === 'claude') emit({ type: 'system', subtype: 'init', session_id: 'vendor-thread', mcp_servers: [{ name: 'flux', status: 'connected' }] });
+  // The mode it "started in": what was asked for, unless FAKE_TASK_MODE says auto is refused here
+  // (the real CLI then starts in manual mode, silently, and reports it in this event).
+  const asked = args[args.indexOf('--permission-mode') + 1], refused = asked === 'auto' && !!process.env.FAKE_TASK_MODE;
+  if (driver === 'claude') emit({ type: 'system', subtype: 'init', session_id: 'vendor-thread', permissionMode: refused ? process.env.FAKE_TASK_MODE : asked, mcp_servers: [{ name: 'flux', status: 'connected' }] });
+  if (refused) await new Promise(r => setTimeout(r, 5000)); // a real session has done nothing yet when the runner stops it
   else { emit({ type: 'thread.started', thread_id: 'vendor-thread' }); emit({ type: 'turn.started' }); }
   const claim = await call('claim_item', { id: itemId });
   if (!JSON.parse((claim.content as any[])[0].text).claimed) throw Error('Fake could not claim');

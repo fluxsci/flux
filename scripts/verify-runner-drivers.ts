@@ -56,6 +56,21 @@ try {
   h.ok(ta.includes('acceptEdits') && !ta.includes('--permission-prompts') && ta.includes('mcp__flux__approve'), 'Claude tasks escalate through the permission-prompt tool');
   h.eq(ta.slice(ta.indexOf('--add-dir')), ['--add-dir','/project','/run','--allowedTools','mcp__flux','Bash(/flux *)','Bash(uv run *)'], 'task directories and variadic allowlist are last, without a positional prompt');
   h.ok(!claude.args({...task, uvProject:false}).includes('Bash(uv run *)'), 'uv allow rule requires both workspace files');
+  // Auto mode (owner, 2026-11-19: background agents must never prompt, like their own terminal sessions).
+  const REAL_HELP = '  --permission-mode <mode>              Permission mode to use for the session\n                                        (choices: "acceptEdits", "auto",\n                                        "bypassPermissions", "manual",\n                                        "dontAsk", "plan")\n';
+  const withAuto = claude.capabilities('v2', '--input-format --output-format --verbose --include-partial-messages --tools --permission-prompt-tool --permission-prompts --allowedTools --disallowedTools --add-dir --strict-mcp-config --mcp-config --resume --append-system-prompt' + REAL_HELP);
+  h.eq([withAuto.available, withAuto.auto, cc.auto], [true, true, false], 'auto mode is read from the CLI\'s own list of permission modes');
+  h.ok(!claude.capabilities('v2', '--input-format --output-format --verbose --include-partial-messages --tools --permission-mode <mode> (choices: "acceptEdits", "plan") --permission-prompt-tool --permission-prompts --allowedTools --disallowedTools --add-dir --strict-mcp-config --mcp-config --resume --append-system-prompt --automatic "auto"'.replace('"auto"', '')).auto, 'a CLI whose modes do not include auto is not taken to have it');
+  const au = claude.args({ ...task, caps: withAuto });
+  h.eq([au[au.indexOf('--permission-mode')+1], au[au.indexOf('--permission-prompts')+1], au.includes('--permission-prompt-tool'), au.includes('mcp__flux__approve')], ['auto', 'none', false, false], 'a task on a CLI with auto mode: auto, nobody to ask, no approval tool');
+  h.eq(au.slice(au.indexOf('--add-dir')), ['--add-dir','/project','/run','--allowedTools','mcp__flux','Bash(/flux *)','Bash(uv run *)'], 'auto mode keeps the project directory (its edits are allowed there) and the same narrow allow rules; nothing broad is added');
+  h.ok(!au.includes('bypassPermissions') && !au.includes('--dangerously-skip-permissions'), 'it never bypasses permissions: auto mode still refuses what it judges unsafe');
+  const first = claude.args({ ...task, caps: withAuto, askFirst: true });
+  h.ok(first.includes('acceptEdits') && first.includes('mcp__flux__approve') && !first.includes('--permission-prompts'), 'when auto mode was refused for this run, the same CLI gets the ask-first profile');
+  const askAuto = claude.args({ ...o, caps: withAuto });
+  h.ok(askAuto.includes('dontAsk') && !askAuto.includes('auto'), 'Ask stays read-only whatever the CLI can do');
+  const modes: any[] = []; claude.parser((e: any) => modes.push(e))({ type: 'system', subtype: 'init', session_id: 's1', permissionMode: 'default', mcp_servers: [{ name: 'flux', status: 'connected' }] });
+  h.eq(modes.find(e => e.type === 'permission-mode'), { type: 'permission-mode', mode: 'default' }, 'the driver reports the mode the session actually started in');
   h.ok(!claude.capabilities('old', '--input-format --output-format --verbose --include-partial-messages --tools --permission-mode --permission-prompts --allowedTools --disallowedTools --add-dir --strict-mcp-config --mcp-config --resume --append-system-prompt').available, 'missing permission-prompt-tool disables older Claude');
   h.ok(tc.includes('workspace-write') && tc.includes('approval_policy="never"'), 'Codex task uses workspace-write and never prompts');
   h.ok(tc.indexOf('mcp_servers.flux.default_tools_approval_mode="approve"') > tc.findIndex((a:string)=>a.startsWith('mcp_servers.flux={')), 'Codex Flux write-tool approval override follows the replacement server config');

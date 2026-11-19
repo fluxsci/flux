@@ -66,6 +66,40 @@ try {
   h.ok(events.some(e=>e.type==='usage'&&e.costUsd===0.01),'task usage and cost forwarded');
   await wait(async()=>!(await readPresence(root)).some(s=>s.id===run.runId),'completed task presence removed');
   runner.cancel(1,run);
+  h.ok(proof.args.includes('acceptEdits')&&proof.args.includes('mcp__flux__approve'),'a CLI that does not know auto mode runs the ask-first profile');
+
+  // 2026-11-19 (owner: "there should be NO permissions prompts … it should act like claude code in my terminal, which is
+  // always on auto mode"): a CLI that knows auto mode runs a task in it, with nobody to ask.
+  const launches=async(id:string)=>(await fs.readFile(evidence,'utf8')).trim().split('\n').map(s=>JSON.parse(s)).filter(c=>c.text.includes(JSON.stringify(id)));
+  const flags=(args:string[])=>({mode:args[args.indexOf('--permission-mode')+1],prompts:args.includes('--permission-prompts')?args[args.indexOf('--permission-prompts')+1]:null,tool:args.includes('--permission-prompt-tool')});
+  const autoNote=makeNote('auto-task',{surface:'figure'},'human');await appendAnnotationEvent(root,autoNote);
+  const autoEvents:any[]=[];
+  const autoRunner=createAgentRunner({userDataDir:path.join(temp,'auto-config'),launcher,binaries:binary,env:{...env,FAKE_TASK_ID:autoNote.id,FAKE_TASK_AUTO:'1'},emit:(_:any,e:any)=>autoEvents.push(e)});runners.push(autoRunner);
+  const autoRun=await autoRunner.start(4,{mode:'task',driver:'claude',root,itemId:autoNote.id});
+  await wait(()=>autoEvents.some(e=>e.runId===autoRun.runId&&e.state==='idle'),'auto-mode task');
+  let made=await launches(autoNote.id);
+  h.eq(made.map(c=>flags(c.args)),[{mode:'auto',prompts:'none',tool:false}],'a background Claude task runs in auto mode with nobody to ask: one launch, no permission-prompt tool');
+  h.ok(made[0].args.includes('Bash(uv run *)')&&made[0].args[made[0].args.indexOf('--add-dir')+1]===root,'it keeps its narrow allow rules and its project directory');
+  h.eq([(await readInbox(root)).items.find(i=>i.id===autoNote.id)!.status,autoEvents.some(e=>e.type==='permission'),autoEvents.some(e=>e.type==='permission-mode')],['resolved',false,false],'it does the work; no permission request exists, and the mode report is not sent to the window');
+  autoRunner.cancel(4,autoRun);
+
+  // Auto mode refused for this account, organisation or model: the CLI starts in manual mode without a word.
+  // The runner sees it in the init event, stops that session before it has acted, and starts the turn again ask-first.
+  const refusedNote=makeNote('refused-task',{surface:'figure'},'human');await appendAnnotationEvent(root,refusedNote);
+  const refusedEvents:any[]=[];
+  const refusedRunner=createAgentRunner({userDataDir:path.join(temp,'refused-config'),launcher,binaries:binary,env:{...env,FAKE_TASK_ID:refusedNote.id,FAKE_TASK_AUTO:'1',FAKE_TASK_MODE:'default'},emit:(_:any,e:any)=>refusedEvents.push(e)});runners.push(refusedRunner);
+  const refusedRun=await refusedRunner.start(5,{mode:'task',driver:'claude',root,itemId:refusedNote.id});
+  await wait(()=>refusedEvents.some(e=>e.runId===refusedRun.runId&&e.state==='idle'),'refused auto falls back');
+  made=await launches(refusedNote.id);
+  h.eq(made.map(c=>flags(c.args)),[{mode:'auto',prompts:'none',tool:false},{mode:'acceptEdits',prompts:null,tool:true}],'refused auto mode: the same turn is started again the ask-first way');
+  h.eq((await readInbox(root)).items.find(i=>i.id===refusedNote.id)!.status,'resolved','and the work is done by the second session');
+  h.ok(refusedEvents.some(e=>e.type==='status'&&/Auto mode is not available here \(Claude Code started in default mode\)/.test(e.reason??''))&&!refusedEvents.some(e=>e.state==='failed'),'the user is told once, and nothing is reported as a failure');
+  refusedRunner.cancel(5,refusedRun);
+  const again=makeNote('refused-again',{surface:'figure'},'human');await appendAnnotationEvent(root,again);
+  const againRun=await refusedRunner.start(5,{mode:'task',driver:'claude',root,itemId:again.id});
+  await wait(()=>refusedEvents.some(e=>e.runId===againRun.runId&&e.state==='idle'),'second task after a refusal');
+  h.eq((await launches(again.id)).map(c=>flags(c.args)),[{mode:'acceptEdits',prompts:null,tool:true}],'once refused, later tasks start ask-first at once instead of starting twice');
+  refusedRunner.cancel(5,againRun);
 
   const fallback=makeNote('fallback-task',{surface:'figure'},'human');await appendAnnotationEvent(root,fallback);
   const fEvents:any[]=[];

@@ -251,12 +251,17 @@ bg · claude · wren)"), ready to run again or assign. Replying in the item's th
 reply sent while the agent is working waits for that turn to finish. If a run ends
 without replying or resolving, its last message is added to the thread.
 
-A background agent may edit the project and its analysis workspace, and use Flux's
-tools (and `uv run` in a uv workspace) without asking. Anything else Claude Code wants
-to do opens a dialog showing the **exact** command or input: **Allow once**
-or **Deny**. Closing the window, or leaving the dialog for two minutes, denies it. Codex
-runs with workspace-write access and refuses anything that would need more approval.
-Both are told never to push, publish or delete, and to propose those instead.
+A background agent does not ask you for permission. Claude Code runs in its own **auto
+mode**, the same mode as a terminal session set to auto: it reads and edits the project and
+its analysis workspace freely, uses Flux's tools and `uv run`, and decides other actions
+itself; what auto mode judges unsafe is refused and the agent finds another way, without a
+dialog. Codex runs with workspace-write access and refuses anything outside it, also without
+asking. Both are told never to push, publish or delete, and to propose those instead.
+
+If auto mode is not available for your Claude account, organisation or chosen model, Flux
+notices when the agent starts, says so in the agent's line, and falls back to asking first:
+edits are allowed, and anything else opens a dialog showing the **exact** command or input
+(**Allow once** or **Deny**; closing the window, or leaving it for two minutes, denies it).
 
 One agent works on each item. **Agent that Flux launches** (Settings, or AI status)
 sets how many background runs go at once (1–3, default 2); further items wait for a

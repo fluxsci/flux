@@ -104,6 +104,21 @@ capabilities as the GUI, through these surfaces:
   Stop appends the shared release-session event and removes presence after the process
   tree exits. Task turns use writable Flux MCP tools; Ask remains read-only and never
   registers `approve`, even if a token is accidentally inherited.
+  **A background Claude task runs in Claude Code's AUTO mode and never prompts (2026-11-19; owner: "there
+  should be NO permissions prompts … it should act like claude code in my terminal, which is always on auto
+  mode").** `runnerDrivers/claude.cjs`: when the CLI's help lists `"auto"` among its permission modes
+  (`caps.auto`), a task gets `--permission-mode auto --permission-prompts none` and NO
+  `--permission-prompt-tool`. Reads and edits inside cwd and `--add-dir` are allowed; anything else is decided
+  by auto mode's classifier; what it will not approve is denied back to the model, which carries on. The
+  narrow `--allowedTools` rules stay (they skip the classifier; broad rules such as a bare `Bash` are dropped
+  by auto mode anyway, so never add one), deny rules apply in every mode, and it is NEVER
+  `bypassPermissions`. Auto mode can be refused for an account, organisation or model, and then the CLI
+  starts in manual mode WITHOUT AN ERROR (exit 0): the only tell is `permissionMode` in the stream's
+  `system/init` event. The driver forwards it as an internal `permission-mode` event; `agentRunner`
+  (`askFirstInstead`) stops that session before it has acted, starts the same turn again with the earlier
+  ask-first profile (`acceptEdits` + `--permission-prompt-tool mcp__flux__approve`), tells the user once in
+  the status line, and remembers the refusal per model for the app's lifetime. The ask-first path below is
+  therefore still live code: for an older CLI and for a refused auto mode.
   Claude's `approve` MCP tool exists only with a run token; authenticated `POST /approve`
   checks token, project, owning window and active Claude task. `runner:respond` answers
   the exact input once; cancellation, closed window, bad token and 120s timeout deny.

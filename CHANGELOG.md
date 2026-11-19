@@ -33,6 +33,12 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 - **It never competes with your hands.** While you type, click, scroll or drag, the mark holds
   completely still, and comes back to life a moment after you stop. Typing next to it measures
   the same as typing with no mark at all.
+- **Background agents no longer ask for permission.** A background Claude Code agent now runs
+  in Claude Code's auto mode, like a terminal session set to auto: it works in the project
+  without dialogs, and anything auto mode judges unsafe is refused instead of asked about. It
+  never bypasses permissions. Where auto mode is not available (an account, organisation or
+  model without it, or an older Claude Code), Flux says so and falls back to asking first, as
+  before. Codex already ran without prompts and is unchanged.
 - **The Inbox reads as a conversation.** An agent's work no longer sits under its answer as a
   dark panel of steps. It is one line in the thread: who is working, on what, and for how long,
   with **Stop**; once the agent has stopped, what it did in a few words ("14 steps · 2 min 05

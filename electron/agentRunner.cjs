@@ -132,8 +132,15 @@ function createAgentRunner({ userDataDir, launcher, emit, preferences = () => ({
   }
   let detecting;
   function capabilities() { return detecting ??= Promise.all(Object.keys(drivers).map(detect)).finally(() => { detecting = undefined; }); }
+  // Models (as chosen for a run) for which this machine's Claude Code refused auto mode: such runs
+  // start the ask-first way at once, instead of starting twice every time.
+  const autoRefused = new Set();
   function event(run, payload) {
     if (run.cancelled && !(payload.type === "status" && payload.state === "cancelled")) return;
+    if (payload.type === "permission-mode") { // the driver's report of the mode in force: never sent on
+      if (run.autonomous && payload.mode !== "auto") askFirstInstead(run, payload.mode);
+      return;
+    }
     if (run.mode === "task" && payload.type === "message") run.finalMessage = payload.text;
     if (run.mode === "task" && payload.type === "message.delta") run.partialMessage = (run.partialMessage ?? "") + payload.text;
     if (payload.type === "session") {
@@ -155,6 +162,17 @@ function createAgentRunner({ userDataDir, launcher, emit, preferences = () => ({
     const { fatal, settled, ...data } = payload;
     emit(run.owner, { ...data, runId: run.id, seq: ++run.seq, ...(run.mode === "task" ? { itemId: run.itemId, root: run.root, driver: run.driver, backgroundSessionId: run.id } : {}) });
     if (fatal) fail(run, new Error(payload.message));
+  }
+  // Auto mode was asked for and Claude Code started in another mode (auto is not available for
+  // this account, organisation or model). With nobody to ask, that session would refuse nearly
+  // everything, so stop it before it has done anything and start the same turn again the
+  // ask-first way: edits allowed, everything else through the approval dialog.
+  function askFirstInstead(run, mode) {
+    autoRefused.add(run.model || "");
+    run.autonomous = false; run.askFirst = true; run.relaunch = true;
+    run.pending = run.lastPending ?? null;
+    emit(run.owner, { type: "status", state: "starting", reason: `Auto mode is not available here (Claude Code started in ${mode || "manual"} mode): this agent will ask before unusual actions`, runId: run.id, seq: ++run.seq, itemId: run.itemId, root: run.root, driver: run.driver, backgroundSessionId: run.id });
+    killTree(run.child, true);
   }
   function armIdle(run) {
     clearTimeout(run.idleTimer);
@@ -249,6 +267,7 @@ function createAgentRunner({ userDataDir, launcher, emit, preferences = () => ({
       run.prepared ??= await prepare(run);
       if (run.cancelled) return;
       let turn = run.pending; run.pending = null;
+      run.lastPending = turn; // kept so the same turn can be started again (askFirstInstead)
       run.settling = null;
       if (run.mode === "task") {
         const task = await taskCall(run, "prepare");
@@ -258,7 +277,8 @@ function createAgentRunner({ userDataDir, launcher, emit, preferences = () => ({
       }
       const images = await imagePaths(run, turn?.images);
       if (run.cancelled) return;
-      const o = { ...run.prepared, resume: run.sessionId, images };
+      const o = { ...run.prepared, resume: run.sessionId, images, askFirst: !!run.askFirst || (run.driver === "claude" && autoRefused.has(run.model || "")) };
+      run.autonomous = run.driver === "claude" && !!drivers.claude.autonomous?.(o);
       // An empty Codex run is only preparation; exec itself starts on Send.
       if (run.driver === "codex" && !turn) { event(run, { type: "status", state: "idle" }); return; }
       const child = spawnOwned(o.binary, drivers[run.driver].args(o), { env: o.env, cwd: run.cwd, trackChild });
@@ -284,6 +304,7 @@ function createAgentRunner({ userDataDir, launcher, emit, preferences = () => ({
         run.closing = cleanupPresence(run);
         await run.closing; run.closing = null;
         if (run.cancelled) { killTree(child, true); finish(run); }
+        else if (run.relaunch) { run.relaunch = false; void launch(run); return; }
         else if (run.idling && run.mode === "ask") event(run, { type: "status", state: "idle", reason: "Session sleeping; the next message resumes it" });
         else if (!run.settling && (code !== 0 || (run.inFlight && !run.pending))) fail(run, new Error(stderr.trim() || `${run.driver} exited before completing the turn (${code})`));
         pump();
