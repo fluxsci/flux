@@ -137,6 +137,22 @@ async function figTree(root: string): Promise<Map<string, string>> {
 const no3d = JSON.parse(await fs.readFile(new URL('./fixtures/model3d/persistence-no3d.json', import.meta.url), 'utf8'));
 assert(JSON.stringify(planFigSave(no3d.input, null)) === JSON.stringify(no3d.plan), 'no-3D save plan stays byte-identical to pre-P1 8ff8742');
 
+// fluximg: the asset kind survives the plan and the load normalization, and stamps rise only with the content
+// (the two-engine byte-identical round trip with a real bundle lives in verify-fluximg-model.ts).
+{
+  const { normalizeIndexAssets } = await import("../src/lib/project/figfiles");
+  const fx = { id: "fx", name: "cells.fluximg", kind: "fluximg" as const, path: "assets/fx.fluximg", naturalWidth: 8, naturalHeight: 4, sha256: "b".repeat(64), bytes: 99,
+    fluximg: { dims: ["y", "x"], shape: [4, 8], dtype: "uint8" as const, encoding: "exact" as const, channels: ["a"], levels: [1], layers: [], regions: 0 } };
+  const model = (withElement: boolean) => ({ version: 2, name: "", palette: [], canvases: [{ id: "c1", name: "C" }], assets: [fx],
+    figures: [{ id: "f1", canvasId: "c1", name: "F", x: 0, y: 0, width: 10, height: 10, elements: withElement ? [{ type: "fluximg", id: "e", assetId: "fx", x: 0, y: 0, width: 8, height: 4, rotation: 0 }] : [] }] }) as unknown as Project;
+  const plan = planFigSave(model(true), null), idx = JSON.parse(plan.index.text);
+  assert(idx.schemaVersion === "0.3.0" && JSON.parse(plan.canvases[0].text).schemaVersion === "0.4.0", "a fluximg asset stamps the index 0.3.0 and its canvas 0.4.0");
+  assert(JSON.parse(planFigSave(model(false), null).canvases[0].text).schemaVersion === "0.1.0", "a canvas without the element keeps 0.1.0 (only the index carries the asset)");
+  const back = normalizeIndexAssets(idx)[0];
+  assert(back.kind === "fluximg" && back.sha256 === fx.sha256 && back.bytes === 99 && JSON.stringify(back.fluximg) === JSON.stringify(fx.fluximg) && back.path === fx.path,
+    "the index entry normalizes back to the same fluximg asset (never coerced to svg)");
+}
+
 const work = await fs.mkdtemp(path.join(os.tmpdir(), "flux-parity-"));
 try {
   // ---- 1. load parity ----------------------------------------------------------

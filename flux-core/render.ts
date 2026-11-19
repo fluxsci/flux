@@ -228,6 +228,7 @@ export async function renderFigureSvgFromModel(fig: Figure, ctx: FigureModelRend
       if (markup) plotMarkup.set(el.id, markup);
     }
   }
+  // fluximg: wave 2 replaces this placeholder (a fluximg reaches export.ts elementToSvg's placeholder here; no bytes are read)
   return figureToSvg(fig, aid => assetCache[aid], e => plotMarkup.get(e.id),
     aid => ops.assetDisplaySize(renderProject, aid) ?? undefined,
     { ...opts, model3d: ctx.models?.context });

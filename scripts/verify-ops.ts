@@ -236,4 +236,24 @@ assert(solo.figures.length === 0, "deleteFigure allowEmpty leaves the canvas emp
   assert(runIn.length === 2 && runIn[1] - runIn[0] === 1, "the moved inner group's run is contiguous on the destination");
 }
 
+// fluximg (stage 1): placement + crop + view through the same core (the merge laws live in verify-fluximg-model)
+{
+  const fp: Project = { version: 2, name: "fx", canvases: [{ id: "c", name: "C" }], figures: [], assets: [], palette: [] };
+  const F = ops.createFigure(fp, { canvasId: "c", width: 400, height: 300 });
+  const asset = { id: "fx", name: "cells.fluximg", kind: "fluximg" as const, path: "assets/fx.fluximg", naturalWidth: 1200, naturalHeight: 600, sha256: "a".repeat(64), bytes: 10,
+    fluximg: { dims: ["y", "x"], shape: [600, 1200], dtype: "uint16" as const, encoding: "exact" as const, channels: ["a"], levels: [1], layers: [], regions: 0 } };
+  const id = ops.addFluximg(fp, { figureId: F.id, asset });
+  const e = F.elements[0];
+  assert(e.id === id && e.type === "fluximg" && e.width === 400 - 2 * ops.FLUXIMG_FIT_MARGIN && e.height === e.width / 2 && e.lockAspect === true,
+    "addFluximg fits a too-wide image to the figure width (less the margin), aspect kept and locked");
+  assert(fp.assets.length === 1 && ops.assetDisplaySize(fp, "fx")?.width === 1200, "the asset is registered; its display size is its pixel size");
+  assert(ops.setCrop(fp, id, { x: 0, y: 0, width: 600, height: 600 }) && e.type === "fluximg" && e.crop?.width === 600, "setCrop treats a fluximg like an image");
+  ops.setFluximgView(fp, id, { index: { z: 2 } });
+  ops.setFluximgView(fp, id, { index: { z: null as never } });
+  assert(e.type === "fluximg" && e.view === undefined, "setFluximgView: clearing the last override leaves no view");
+  const dup = ops.duplicateFigure(fp, F.id)!;
+  const copy = fp.figures.find((f) => f.id === dup)!.elements[0];
+  assert(copy.type === "fluximg" && copy.id !== id && copy.assetId === "fx" && fp.assets.length === 1, "duplicating a figure copies the element and shares the asset");
+}
+
 console.log("\nALL OPS TESTS PASSED");
