@@ -5687,7 +5687,7 @@ outside this PNG packaging change.
 
 | # | Trap | Mitigation / gate |
 | --- | --- | --- |
-| T1 | Electron with `--disable-gpu` or headless ozone has no WebGL | the poster worker selects ANGLE SwiftShader explicitly and never passes `--disable-gpu`; `verify-model3d-electron.cjs` runs a `SOFTGPU` scenario |
+| T1 | Electron with `--disable-gpu` or headless ozone has no WebGL | the poster worker selects ANGLE SwiftShader explicitly and never passes `--disable-gpu`; `verify-model3d-electron.cjs` runs a `SOFTGPU` scenario. Headless ozone CAN use the real GPU (measured 2026-11-19, Electron 43.7.3, RTX PRO 5000): pass `--ozone-platform=headless --use-angle=vulkan --enable-features=Vulkan --ignore-gpu-blocklist` ON ARGV with `DISPLAY` and `WAYLAND_DISPLAY` unset; WebGL2 then reports the NVIDIA renderer and no window exists anywhere. `--enable-unsafe-swiftshader` in its place gives the software renderer. Setting `ozone-platform` with `app.commandLine.appendSwitch` is too late (the display connection precedes main-process JS) and the process hangs silently |
 | T2, T3, T10 | Chromium caps live WebGL contexts per page, and reusing a canvas for a second renderer loses its context | one context per document and one renderer per canvas lifetime (`dispose` + `forceContextLoss`); `Element.svelte` never hosts WebGL, because resize previews mount a second view; `verify-model3d-gui.mjs` asserts the context count, `verify-model3d-render-browser.ts` loss and restore |
 | T7 | CSP `connect-src` blocks `fetch(data:/blob:)` | parse GLBs from an `ArrayBuffer` only; `verify-model3d-poster-worker.cjs` renders under `connect-src 'none'` |
 | T9 | The zoom proxy can't see WebGL, `foreignObject` or `blob:` | the scene holds data-URL posters and SVG only; `verify-model3d-gui.mjs` checks mesh pixels in the proxy |
@@ -13286,6 +13286,34 @@ module both engines call; `flux missing-pdfs` lost its sign-in columns.
   `captureRules.js`: a comment edit there turns `verify-extension-build` red until re-signed.
 - Cleanup that deletes user files belongs behind the same `FLUX_NO_MIGRATE` escape hatch as migration,
   or a gate that spawns the real CLI with a real HOME would run it on the developer's machine.
+
+### 2026-11-19 — fluximg: storage and rendering investigation, proposal only (Claude Fable 5.2, no code in this repo)
+**Work:** Owner asked for a plan for first-class N-D images (TIFF stacks, channels, z/t). Measured storage codecs,
+in-renderer decode, GPU and pure-JS rendering on real stacks in a scratch project; the proposal is a Paper document
+there, awaiting the owner's review. Nothing in this repo changed except this entry and trap T1.
+**Learnings:** (T1 in §9 corrected: headless Electron can use the real GPU)
+- Electron 43.7.3 is Chromium 150 and Node 24.21. Main has `zlib.zstdDecompressSync`; the renderer has no zstd in
+  `DecompressionStream` and cannot decode JPEG XL. `three/examples/jsm/libs/zstddec.module.js`, already in the
+  tree, decodes zstd at 1 to 3 GB/s of output on one thread in the renderer.
+- A privileged custom protocol with Range support served a 75 MB file at ~700 MB/s and a ranged 46 kB chunk,
+  fetched and decoded, in ~0.9 ms. With COOP/COEP response headers the page is `crossOriginIsolated`.
+- The first WebGL context of a renderer costs 150 to 250 ms (ANGLE GL; up to ~500 ms through ANGLE-Vulkan), and
+  the first 2-D canvas of a fresh process is similar. Never put a first paint behind a GL context: draw the still
+  on the CPU and create the context when the window opens. With no GPU switches, headless ozone returns
+  `getContext("webgl2") === null`; `--use-gl=angle --use-angle=gl-egl` reaches the real GPU with the blocklist
+  respected, and is the closer stand-in for the app's default backend than ANGLE-Vulkan.
+- A fragment shader and a plain typed-array loop produced the same 8-bit image for LUT + window compositing (0 to
+  4 samples in 4 M differing by 1), so a pure-TS reference renderer can back a WebGL fast path without tolerance
+  games; the JS loop costs ~5 ms per megapixel for two channels once warm (14 ms on its first, unoptimised call).
+- Decoding a 4 MB float plane on the main thread costs ~7 ms, so two channels per frame sit at the 16 ms budget.
+  Four module workers (ranged fetch + WASM decode, buffers transferred) with a look-ahead of four frames held a
+  3.4 ms frame interval with ~1.5 ms of main-thread work, and an 8-frame ring of 2-D textures was enough GPU state.
+- A self-review by a second agent found claims that a number alone had hidden: a benchmark that held the whole
+  stack on the GPU, "first paint" that left out context creation, arrays silently cast from float64. Label every
+  figure with where it ran and what it leaves out before it goes in front of the owner.
+- Open defect, not fixed: headless `compose-figure <file>.png` reports success but stores the PNG bytes as an
+  `.svg` asset with a 240×180 natural size and no panel; `delete-figure` then leaves those files in `fig/assets`.
+  Raster inputs need a real path or a refusal.
 
 ### 2026-11-19 — paper/ was never watched; GUI comment saves erased agent replies (Claude Opus 5.5, `main`)
 **Work:** The project watcher's hand-written target list lacked `paper/` (routed since b6a741b8, never watched), so
