@@ -11,7 +11,7 @@
 import { mkdtempSync, readFileSync, readdirSync, statSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { launch, gotoApp, clickMode, realErrors, APP_URL } from "./lib/driver.mjs";
+import { launch, gotoApp, clickMode, realErrors, openGalleryDialog, APP_URL } from "./lib/driver.mjs";
 import { waitFor } from "./lib/wait.mjs";
 import { harness } from "./lib/harness.mjs";
 import { fixtures, writeFixture } from "./lib/fluximgFixtures.ts";
@@ -63,6 +63,17 @@ try {
   await page.evaluate(() => { const vp = document.querySelector("[data-plots-gallery] .viewport"); if (vp) vp.scrollTop = vp.scrollHeight; });
   const half = await waitFor(page, (s) => { const n = document.querySelector(`${s} .unavailable`); return n ? n.getAttribute("title") : null; }, tileOf("/half.fluximg"), { label: "the broken bundle's tile", timeout: 10000 });
   h.ok(/^No fluximg.json: an unfinished or damaged image bundle$/.test(half), `a folder named .fluximg without a manifest is listed and says why it has no picture: ${half}`);
+
+  h.section("the bundle in the Plot gallery");
+  await openGalleryDialog(page);
+  const rows = await waitFor(page, () => {
+    const all = [...document.querySelectorAll(".importer [data-path]")].map((n) => ({ path: n.getAttribute("data-path"), kind: n.getAttribute("data-kind") }));
+    return all.some((r) => r.path?.endsWith("/cells.fluximg")) ? all : null;
+  }, null, { label: "the gallery's bundle row", timeout: 10000 });
+  h.ok(rows.find((r) => r.path.endsWith("/cells.fluximg"))?.kind === "file", "the gallery lists a bundle as one file, not a folder to enter");
+  h.eq(rows.filter((r) => /\.fluximg\//.test(r.path)), [], "…and nothing inside it");
+  await page.evaluate(() => window.__flux.fig.importerOpen.set(false));
+  await waitFor(page, () => !document.querySelector(".importer"), null, { label: "gallery closed" });
 
   h.section("placing it");
   await page.evaluate(() => { const vp = document.querySelector("[data-plots-gallery] .viewport"); if (vp) vp.scrollTop = 0; });
