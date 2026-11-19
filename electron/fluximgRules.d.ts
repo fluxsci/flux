@@ -1,0 +1,63 @@
+// Type surface of electron/fluximgRules.js. Keep in sync with its exports.
+
+export const FLUXIMG_SPEC: "fluximg/1";
+export const FLUXIMG_READ_LIMIT: number;
+export const FLUXIMG_MANIFEST_MAX_BYTES: number;
+export const FLUXIMG_IMPORT_MAX_FILES: number;
+export const FLUXIMG_IMPORT_MAX_DIRS: number;
+export const FLUXIMG_IMPORT_MAX_DEPTH: number;
+export const FLUXIMG_IMPORT_MAX_BYTES: number;
+export const FLUXIMG_ASSETS_REL: string;
+export const FLUXIMG_EXT: string;
+
+export const fluximgErrors: {
+  assetId(id: unknown): string;
+  root(): string;
+  sourcePath(): string;
+  sourceEscapes(): string;
+  sourceSymlinkEscapes(): string;
+  notDirectory(p: string): string;
+  notBundle(p: string): string;
+  manifestTooLarge(): string;
+  manifestJson(detail: string): string;
+  manifestSpec(spec: unknown): string;
+  manifestShape(): string;
+  destinationInsideSource(): string;
+  exists(id: string): string;
+  symlink(rel: string): string;
+  special(rel: string): string;
+  nonPortableName(rel: string): string;
+  tooManyFiles(n: number): string;
+  tooManyDirs(n: number): string;
+  tooDeep(n: number): string;
+  tooLarge(bytes: number, limit: number): string;
+  changed(rel: string): string;
+  noSpace(): string;
+  projectChanged(): string;
+  bundle(bundle: unknown): string;
+  bundleEscapes(bundle: string): string;
+  bundleMissing(bundle: string): string;
+  path(p: unknown): string;
+  pathEscapes(p: string): string;
+  missing(bundle: string, p: string): string;
+  notFile(p: string): string;
+  range(detail: string): string;
+  tooLong(length: number): string;
+  beforeStart(p: string, size: number, back: number): string;
+  shortRead(p: string, start: number, length: number, size: number): string;
+  saved(id: string): string;
+  savedUnreadable(): string;
+  discardNotDirectory(id: string): string;
+};
+
+export function fluximgAssetId(id: unknown): string;
+export function fluximgAssetRel(id: string): string;
+export function fluximgAssetPath(id: string): string;
+export function fluximgBundleRel(bundle: unknown): { rel: string; parts: string[]; area: string };
+export function fluximgInnerPath(p: unknown): string[];
+export function fluximgCheckRange(offset: unknown, length: unknown): void;
+export function fluximgRange(p: string, size: number, offset: number, length: number): { start: number; length: number };
+export function isFluximgJunkName(name: string): boolean;
+export function parseFluximgManifest(text: string): import("../src/lib/fluximg/types").FluximgManifest;
+export function compareCodePoints(a: string, b: string): number;
+export function fluximgContentIdText(entries: Iterable<{ path: string; sha256: string }>): string;
