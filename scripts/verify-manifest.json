@@ -479,7 +479,8 @@
       "verify-docs-link.ts",
       "verify-dissect-format.ts",
       "verify-dissect-names.ts",
-      "verify-comment-model.ts"
+      "verify-comment-model.ts",
+      "verify-flux-ai-mark.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -628,6 +629,7 @@
       "verify-annotation-surface-gui.mjs",
       "verify-ai-monitor-gui.mjs",
       "verify-inbox-gui.mjs",
+      "verify-flux-ai-mark-gui.mjs",
       "verify-ask-gui.mjs",
       "verify-background-run-gui.mjs",
       "verify-plot-view-gui.mjs",
@@ -1642,6 +1644,22 @@
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "$why": "The Flux AI mark (2026-11-19): shape and numbers are the owner's pick; the engine carries a performance contract (hands off while the user works, idle time only, nothing unseen). Its two gates first, then every surface that shows it.",
+      "glob": "{src/shell/agent/{fluxAiMark,fluxAiMarkEngine}.ts,src/shell/agent/{FluxAiMark,AgentMark}.svelte}",
+      "run": [
+        "verify-flux-ai-mark.ts",
+        "verify-flux-ai-mark-gui.mjs",
+        "verify-inbox-gui.mjs",
+        "verify-ask-gui.mjs",
+        "verify-annotation-surface-gui.mjs",
+        "verify-paper-comments-gui.mjs",
+        "verify-ai-monitor-gui.mjs",
+        "verify-background-run-gui.mjs",
+        "verify-context-stamp.ts",
+        "tier:pure"
+      ]
+    },
     {
       "glob": "{scripts/lib/figureDetailInstrumentation.cjs,scripts/verify-figure-detail-electron.cjs}",
       "run": [
@@ -12437,6 +12455,26 @@
       "coverage": "behavior"
     },
     "verify-paper-comments-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-flux-ai-mark.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-flux-ai-mark-gui.mjs": {
       "runtime": "tsx",
       "prerequisites": [
         "server"

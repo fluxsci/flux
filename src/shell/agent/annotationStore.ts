@@ -1,5 +1,6 @@
 // Renderer IO over the shared annotation fold and inbox. One append publishes
 // note + optional withdrawal/assignment, always after its picture is durable.
+import { fluxAiSignal } from "./fluxAiMark";
 import { get, writable, derived } from "svelte/store";
 import { fileBridge, joinPath } from "../../lib/project/types";
 import { ANNOTATIONS_REL, ANNOTATION_IMAGES_REL, foldAnnotations, parseLedger, serializeEvent, makeNote, makeWithdraw, makeAssign, makeRelease, makeReleaseSession,
@@ -149,6 +150,7 @@ export async function addAnnotation(text: string, context: ContextStamp, route: 
   const events: AnnotationEvent[] = opts.replaces ? [makeWithdraw(opts.replaces, "human", "edited"), note] : [note];
   if (typeof route === "object" && "session" in route) events.push(makeAssign(note.id, route.session, "human"));
   await append(ownerRoot, events);
+  fluxAiSignal("sent"); // the mark answers: received
   if (owner === generation) { await refreshAnnotations(); feedbackRevision.update(n => n + 1); }
   if (owner === generation && typeof route === "object" && "background" in route) {
     try { await (await import("../inbox/backgroundStore")).startBackgroundRun(ownerRoot, note.id, route.background); }

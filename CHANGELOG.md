@@ -18,12 +18,21 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   margin comment quotes its passage in full. The heading names the surface once
   ("FIGURE  Protein Structure", not "figure · figure …"), and replies are set in one voice.
 - The Inbox's action buttons keep their bottom edge (the reply box was painted over it).
-- **The Flux AI mark is alive.** It is now a small network: eleven points of the Flux logo's
-  spiral, sparsely connected, turning slowly while colour passes from node to node and, now and
-  then, a node fires and the flash spreads along its connections. Its colours are still the
-  state (the logo's own, blue while an agent works, gold when something waits for you, green,
-  red). It costs nothing while it runs: every moving part is a transform or a fade the
-  compositor handles by itself.
+- **The Flux AI mark is a living network, and it is everywhere.** Ten points of the Flux
+  logo's spiral, woven into a closed mesh (every point sits on a loop). Points fire, and the
+  firing travels down a link as a soft glow that leaves the link warm for a moment; colour
+  passes from point to point. One mark now stands for Flux AI throughout: on the agent
+  surfaces, as each agent's own avatar (the same network in that agent's colouring), in the
+  title bar in place of the "AI" label, and on the Reader's Annotate action.
+- **The mark reports what agents are doing.** When an agent claims an item a wave crosses the
+  network and leaves it blue, and that agent holds one point in its own colour (two agents, two
+  points). An agent's question turns it gold with a heartbeat. A finish is one green lap. A
+  failure is three red flickers, then quiet. Sending something to Flux AI is one pulse inward.
+  Its rhythm follows the work: slow while an agent thinks, quick while it writes, one sharp
+  pulse for each tool it uses.
+- **It never competes with your hands.** While you type, click, scroll or drag, the mark holds
+  completely still, and comes back to life a moment after you stop. Typing next to it measures
+  the same as typing with no mark at all.
 - **Annotate and Ask are "Flux AI".** Their headers read **Flux AI │ Annotate │ where** and
   **Flux AI │ Ask │ where**, with the seed of the Flux logo in the top-left corner, always
   turning. Its colour is the state: blue when what you send goes straight to an agent that is

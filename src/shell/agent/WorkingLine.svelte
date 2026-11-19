@@ -6,6 +6,7 @@
   // chain, never rAF. After ten seconds Stop gains the accent outline.
   import { onDestroy } from "svelte";
   import AgentMark from "./AgentMark.svelte";
+  import { fluxAiSignal } from "./fluxAiMark";
   let { busy, phase = "", agent = "", seed = "", startedAt = 0, mark = "idle", onstop, showStop = true, size = 14 }:
     { busy: boolean; phase?: string; agent?: string; seed?: string; startedAt?: number; mark?: "idle" | "working" | "done" | "error"; onstop?: () => void; showStop?: boolean; size?: number } = $props();
   let elapsed = $state(0);
@@ -26,10 +27,15 @@
   onDestroy(() => { if (timer) clearTimeout(timer); });
   const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
   const markState = $derived(busy ? "working" : mark);
+  // The mark takes the rhythm of the work (the phase is the agent's real state, from its
+  // transcript): thinking is slow, writing is quick and small, and each tool use is one sharp
+  // pulse down a link, on every live mark.
+  const activity = $derived(!busy ? null : /^Thinking/.test(phase) ? "thinking" as const : /^Writing/.test(phase) ? "writing" as const : /^(Reading|Searching|Editing|Running|Using|Calling|Fetching)/.test(phase) ? "tool" as const : null);
+  $effect(() => { if (activity === "tool") { void phase; fluxAiSignal("tool"); } });
 </script>
 
 <div class="working-line" class:busy role="status" aria-live="polite" data-elapsed={elapsed}>
-  <AgentMark {size} state={markState} {seed} />
+  <AgentMark {size} state={markState} {seed} {activity} />
   {#if agent}<span class="agent">{agent}</span>{/if}
   {#key phase}<span class="phase arrive">{phase}</span>{/key}
   <span class="grow"></span>

@@ -46,6 +46,7 @@
   } from "../../../lib/pdf/citePreview";
   import type { PDFDocumentProxy } from "../../../lib/pdf/pdfjs";
   import { createFindMatchCollector, type FindMatch, type OutlineSection } from "../../../lib/pdf/findMatches";
+  import FluxAiMark from "../../agent/FluxAiMark.svelte";
 
   let {
     buffer,
@@ -1094,7 +1095,7 @@
         {/each}</span>
       {/if}
       {#if canHighlight && (onAnnotate || onAsk)}<span class="msep" aria-hidden="true"></span>{/if}
-      {#if onAnnotate}<button class="annotate-passage" title="Annotate this passage: a note for your agents" aria-label="Annotate this passage" onmousedown={e => e.preventDefault()} onclick={() => { if (menu) { const m = menu; menu = null; onAnnotate?.(m.anchor.quote, m.page); } }}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 12.5 3.6 10 10.5 3.1a1.4 1.4 0 0 1 2 0l.4.4a1.4 1.4 0 0 1 0 2L6 12.4 3 12.5ZM9.3 4.3l2.4 2.4" /></svg><span>Annotate</span></button>{/if}
+      {#if onAnnotate}<button class="annotate-passage" title="Annotate this passage: a note for your agents" aria-label="Annotate this passage" onmousedown={e => e.preventDefault()} onclick={() => { if (menu) { const m = menu; menu = null; onAnnotate?.(m.anchor.quote, m.page); } }}><FluxAiMark still size={15} tone="live" /><span>Annotate</span></button>{/if}
       {#if onAsk}<button class="ask-passage" title="Ask about this passage" aria-label="Ask about this passage" onmousedown={e => e.preventDefault()} onclick={() => { if (menu) { const m = menu; menu = null; onAsk?.(m.anchor.quote, m.page); } }}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" /></svg><span>Ask</span></button>{/if}
     </div>
   {/if}
@@ -1264,7 +1265,7 @@
     cursor: var(--cursor-cross-hover);
     transition: background-color 80ms linear, border-color 80ms linear, color 80ms linear;
   }
-  .annotate-passage svg, .ask-passage svg { width: 14px; height: 14px; fill: none; stroke: var(--c-accent-bright); stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+  .ask-passage svg { width: 14px; height: 14px; fill: none; stroke: var(--c-accent-bright); stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
   .annotate-passage:hover, .ask-passage:hover, .annotate-passage:focus-visible, .ask-passage:focus-visible { outline: none; background: var(--c-surface-2); border-color: var(--c-line-strong); color: var(--c-tx-hi); }
   .annotate-passage:active, .ask-passage:active { background: var(--c-accent-tint); border-color: var(--c-accent); }
   @media (prefers-reduced-motion: reduce) { .dot, .annotate-passage, .ask-passage { transition: none; } }

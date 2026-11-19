@@ -9,6 +9,7 @@
   import { pushToast } from "../../../lib/toast";
   import { ANNOTATION_COLORS, type Annotation } from "../../../lib/references/annotations";
   import { hlSwatch } from "../../../lib/references/annotationColors";
+  import FluxAiMark from "../../agent/FluxAiMark.svelte";
 
   let {
     annotation,
@@ -149,7 +150,7 @@
       {/each}
     </div>
     {#if onAnnotate || onAsk}<span class="psep" aria-hidden="true"></span>{/if}
-    {#if onAnnotate}<button class="pact annotate" title="Annotate this passage: a note for your agents" aria-label="Annotate this passage" onclick={onAnnotate}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 12.5 3.6 10 10.5 3.1a1.4 1.4 0 0 1 2 0l.4.4a1.4 1.4 0 0 1 0 2L6 12.4 3 12.5Z" /></svg>Annotate</button>{/if}
+    {#if onAnnotate}<button class="pact annotate" title="Annotate this passage: a note for your agents" aria-label="Annotate this passage" onclick={onAnnotate}><FluxAiMark still size={14} tone="live" />Annotate</button>{/if}
     {#if onAsk}<button class="pact" title="Ask about this passage" aria-label="Ask about this passage" onclick={onAsk}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" /></svg>Ask</button>{/if}
     <span class="spacer"></span>
     <span class="ppage">p.{annotation.page}</span>

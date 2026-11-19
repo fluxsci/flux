@@ -23,6 +23,7 @@
   import Transcript_ from "./Transcript.svelte";
   import WorkingLine from "./WorkingLine.svelte";
   import FluxAiMark from "./FluxAiMark.svelte";
+  import { fluxAiSignal } from "./fluxAiMark";
   let { request }: { request: AskRequest } = $props();
   const req = untrack(() => request);
   const fb = fileBridge();
@@ -118,6 +119,7 @@
       if (disposed || started !== generation || !runId) return;
       busy = true; reason = "Reading the captured context…";
       await fb!.runnerSend!({ runId, text: askPacket(text, stamp), ...(png ? { images: [{ png }] } : {}) });
+      fluxAiSignal("sent");
     } catch (e) { if (!disposed && started === generation) { error = (e as Error).message; busy = false; transcript = reduceTranscript(transcript, { type: "error", message: (e as Error).message }); transcript = reduceTranscript(transcript, { type: "status", state: "failed" }); } }
   }
   function retry() { if (!busy && lastQuestion) { error = ""; void send(lastQuestion); } }

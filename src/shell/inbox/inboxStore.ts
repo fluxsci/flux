@@ -7,8 +7,9 @@ import { ANNOTATIONS_REL, foldAnnotations, parseLedger, serializeEvent, makeRepl
 import { buildInbox, filterInbox, type InboxItem } from "../../lib/project/inbox";
 import { PRESENCE_DIR_REL, parsePresence, liveSessions } from "../../lib/project/presence";
 import { visibleSessions } from "../../lib/project/agentRouting";
+import { fluxAiSignal } from "../agent/fluxAiMark";
 import { feedbackRevision, presenceRevision, externalManuscriptChange } from "../../lib/project/projectWatch";
-import { inboxCount, inboxNeedsInput, inboxOpen, inboxSelection, inboxQuery, inboxDrafts } from "./inboxState";
+import { inboxAgentsAtWork, inboxCount, inboxJustFinished, inboxNeedsInput, inboxOpen, inboxSelection, inboxQuery, inboxDrafts } from "./inboxState";
 
 export const inboxItems = writable<InboxItem[]>([]);
 export const inboxDocuments = writable<string[]>([]);
@@ -56,6 +57,24 @@ async function readSnapshot(owner: string) {
   return { items: buildInbox({ state, comments: all.comments, liveness, humanAuthors: all.manifest.authors?.map(a => a.name) }), documents: all.documents.map(d => d.path), sessionIds: liveness.liveSessionIds };
 }
 
+// What the Flux AI mark reports: which live agents hold a claim, and the moment one of them
+// resolves what it held (the claim is gone and the item is resolved: a finish, not a release).
+let claims = new Map<string, string>(), finishedTimer: ReturnType<typeof setTimeout> | undefined;
+function reportAgents(items: InboxItem[], live: ReadonlySet<string>): void {
+  // `now`: what a live agent holds (working on it, or waiting for an answer about it).
+  const now = new Map<string, string>(), working = new Set<string>();
+  for (const i of items) {
+    if (i.archived || !i.claimedBy || !live.has(i.claimedBy.id) || (i.status !== "claimed" && i.status !== "needs-input")) continue;
+    now.set(i.id, i.claimedBy.name);
+    if (i.status === "claimed") working.add(i.claimedBy.name);
+  }
+  const finished = [...claims.keys()].some(id => !now.has(id) && items.find(i => i.id === id)?.status === "resolved");
+  claims = now;
+  const names = [...working];
+  if (names.join("\n") !== get(inboxAgentsAtWork).join("\n")) inboxAgentsAtWork.set(names);
+  if (finished) { inboxJustFinished.set(true); clearTimeout(finishedTimer); finishedTimer = setTimeout(() => inboxJustFinished.set(false), 2600); }
+}
+
 export function refreshInbox(): Promise<void> {
   again = true;
   if (pending) return pending;
@@ -70,6 +89,7 @@ export function refreshInbox(): Promise<void> {
         inboxItems.set(result.items); inboxDocuments.set(result.documents); inboxSessionIds.set(result.sessionIds);
         inboxCount.set(filterInbox(result.items, {}).length);
         inboxNeedsInput.set(result.items.filter(i => i.status === "needs-input" && !i.archived).length);
+        reportAgents(result.items, result.sessionIds);
         inboxError.set(""); inboxLoaded.set(true);
       } catch (e) { if (owner === root && epoch === generation) inboxError.set((e as Error).message); }
     }
@@ -87,6 +107,7 @@ export function initInboxStore(): void {
     root = next; generation++;
     if (!first) inboxOpen.set(false); inboxSelection.set(null); inboxQuery.set(""); inboxDrafts.clear();
     inboxItems.set([]); inboxDocuments.set([]); inboxSessionIds.set(new Set()); inboxCount.set(0); inboxNeedsInput.set(0); inboxError.set(""); inboxLoaded.set(false);
+    claims = new Map(); clearTimeout(finishedTimer); inboxAgentsAtWork.set([]); inboxJustFinished.set(false);
     void refreshInbox();
   });
   for (const store of [feedbackRevision, presenceRevision, commentsRevision, externalManuscriptChange]) {
@@ -118,6 +139,7 @@ export async function changeInboxItem(item: InboxItem, action: "reply" | "archiv
     feedbackRevision.update(n => n + 1);
   }
   await refreshInbox();
+  if (action === "reply") fluxAiSignal("sent"); // the mark answers: received
   if (action === "reply" && owner === root && epoch === generation) await (await import("./backgroundStore")).followUpBackground(owner, item.id, text);
 }
 

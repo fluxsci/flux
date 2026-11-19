@@ -3112,8 +3112,8 @@ Persistence invariants (all machine-checked — do not weaken):
     `markdown` action coalesces streaming re-renders to one per frame and paints a completed message
     synchronously. Tool rows humanise titles (`toolSummary`: `paper/draft.qmd:120–160`, `TODO in src/lib`,
     the figure id) and keep the raw name; image blocks in a tool result show inline. The agent is marked by
-    `AgentMark` (13 dots of the phyllotaxis bloom; it turns ONLY while a run is busy, on literal durations like
-    the Logomark, and never loops at rest); you are unmarked.
+    `AgentMark` (the Flux AI mark in that agent's own colouring and pose; a still picture unless the agent
+    is working); you are unmarked.
     **The agent surfaces are "Flux AI"** (owner, 2026-11-18: "the centerpiece of how we integrate Flux and AI
     Agents"): their shared header reads `[mark] Flux AI │ Inbox │ context` (`.surface-head .brand`, then `.ttl`;
     a header without a `.brand` keeps `.ttl` as its title). The mark is `FluxAiMark` (`shell/agent/fluxAiMark.ts`
@@ -3121,25 +3121,52 @@ Persistence invariants (all machine-checked — do not weaken):
     spinning"), its colour the state (`data-tone`: ready = the bloom's colours, live = blues and quicker, wait =
     gold, done = green, error = red). This does not break "nothing animates at rest": that rule is about
     main-thread loops. Round 1 was a 13-dot SVG seed turned by a `transform` on the SVG's own box.
-    **Round 2 (same day; owner: "sparser, looked more like a neural network (some connections, etc.), and felt
-    more 'alive' in terms of changing colors that influence each other … still circular and dynamic … with
-    spontaneous activity") it is a living network, and the technique is the point.** Eleven points of the
-    bloom's golden-angle spiral, joined along the spiral's own grain (every five-step link, plus the three-step
-    links of the inner four: in a golden-angle spiral those ARE a point's nearest neighbours; a greedy
-    "shortest pairs" graph gave a ragged tree that had lost the circle). The network is NOT drawn: its shape is
-    a `mask` on one HTML box (`.fam-net`, the mask an SVG data URI built from the same node list), and what
-    shows through are coloured layers: a resting conic sweep, two soft discs on orbits of 5.3 s and 7.9 s
-    (colour passing across neighbouring nodes), and two bursts that grow from a node and fade on 4.3 s and
-    6.7 s (a node firing, the front spreading along its connections). Every moving part animates only
-    `transform` or `opacity` on an HTML element. Measured in Electron with the Inbox idle for 3 s: 0 main
-    frames, 2 paints of 0 ms, 11 style ticks totalling 2 ms; with the mark stopped: zero of each. NEVER
-    animate a property the compositor cannot run (`fill`, `background`, `filter`) and never animate an SVG
-    child (it cannot be composited: it repaints on the main thread every frame, for as long as an agent
-    surface is open, and a continuous main-thread frame loop is what costs the editor its input latency).
-    To change a colour over time, move a coloured layer under a mask. `.still` (a button's icon) stops
-    everything. `verify-inbox-gui` pins: 11 nodes and 10 edges in the mask, no SVG inside, exactly five
-    animations, each transform or opacity on an HTML element, no two sharing a period, and nothing else in
-    the Inbox animating forever (the claimed chip used to breathe; live is now a filled dot in a ring).
+    **The mark today (owner's pick, 2026-11-19, after three rounds in a click-to-try viewer,
+    `notes/icon_sampler/flux-ai-mark-round{2,3}.html`): a living network, and the technique is the point.**
+    Ten points of the bloom's golden-angle spiral tied along BOTH of its spiral families (every 3-step and
+    every 5-step link, plus the first two points): 13 links, four loops, no loose end, and no link whose
+    removal splits it. (Round 2's first network was a TREE, eleven points and ten links, and the owner saw it
+    at once: "it could all unfold into a straight line". Rule for any future shape: every point on a loop.)
+    The network is NOT drawn: its shape is a `mask` on one HTML box (`.fam-net`, an SVG data URI built from
+    the node list in `fluxAiMark.ts`), and what shows through are coloured layers. Every number (spin, firing,
+    spread, signal time, glow, colour, curve, weights) is `FLUX_AI_FEEL`, the owner's final settings to the
+    digit; `verify-flux-ai-mark.ts` pins shape and numbers.
+    TWO LEVELS OF LIFE. (1) CSS only (`app.css`): it turns (24 s) and two fronts drift (5.3 s, 7.9 s). No
+    script. This is all a mark has before the engine attaches. (2) `fluxAiMarkEngine.ts`, imported
+    DYNAMICALLY by `FluxAiMark.svelte` only when a live mark is on screen: points fire (a flash, and a tint
+    that lingers 2.4 s), the signal travels down a link as a soft glow with the link warm behind it ("Glow
+    with a warm trail": the owner rejected a white-cored dot as "little white marbles"), colour passes on,
+    and the mark REPORTS: `set({tone, agents, waiting, activity})` and `fluxAiSignal("sent"|"tool")`. A new
+    name in `agents` is a claim: a wave from that agent's point crosses the network and the agent keeps the
+    point, lit in its colour. `waiting` is the gold heartbeat (the only regular rhythm). Entering `done` is one
+    green lap; entering `error` is three flickers, then quiet. `sent` is one pulse inward. `activity` sets the
+    rhythm from the agent's real phase (`WorkingLine`: Thinking = slow, Writing = quick and small, a tool =
+    one sharp pulse on every live mark). Where the state comes from: `inboxState.fluxAiTone`,
+    `inboxAgentsAtWork`, `inboxJustFinished` (set by `inboxStore.reportAgents` from live claims), used by the
+    Inbox header and the title bar's indicator (there the mark is `still`: colour only).
+    ONE MARK EVERYWHERE (owner: "update the Flux AI logo to the new one EVERYWHERE"): `AgentMark` is now a
+    thin wrapper that draws the same mark in the agent's own colouring and pose (`fluxAiAgentLook(name)`),
+    still unless that agent is working; the title bar's AI indicator and the Reader's Annotate actions wear
+    it at rest. `still` = one layer, no animation, no engine: safe in lists.
+    **THE PERFORMANCE CONTRACT** (owner: "be absolutely CERTAIN that the performance of flux itself is not at
+    all affected"; written at the top of the engine, held by `verify-flux-ai-mark-gui.mjs`). No frame loop
+    and no interval; script only when a point fires, in `requestIdleCallback` with no timeout; pooled
+    elements, caps on firing marks (3), signals in flight and firings a second; nothing when hidden or off
+    screen (IntersectionObserver, `document.hidden`); `contain: strict`. And HANDS OFF: while a key, the
+    wheel or a button was used in the last 350 ms, or a pointer is down, the engine starts nothing, fades
+    everything it drew as ONE layer (`.fam-live`) and cancels it, and pauses even the CSS turn (`.held`); it
+    comes back when the hands stop, and a report that arrived meanwhile plays then. MEASURED, in the real app
+    on a software-rendered display, key to next paint while typing with the mark at its busiest: firing
+    cost +0.4 ms a key; with firing stopped, the glows still in flight cost +0.8 ms (a fading layer costs a
+    little in EVERY frame the app renders, script or no script); and the plain compositor-only turn, shipped
+    since round 1, cost +0.9 ms against a still mark. With hands-off: 8.8 ms (alive, busiest) vs 9.6 ms (no
+    mark motion at all), i.e. nothing. LESSON: "compositor-only" means no main-thread FRAMES; it does not
+    mean free. An idle-frame count cannot see what an animated layer costs the frames something else causes.
+    Measure the user's own frames with and without. At its busiest the engine spends 2 to 3 ms of script a
+    second, never more than 0.4 ms at once.
+    NEVER animate a property the compositor cannot run (`fill`, `background`, `filter`) and never animate an
+    SVG child. To change a colour over time, move a coloured layer under a mask. Colours change per FIRING
+    (a style write when the point fires), never per frame.
     **The Inbox's thread (round 2, same day; owner: "images could render more cleanly, context could be more
     elegantly displayed").** One `.column` (680 px measure) holds the note, the picture (`figure.shot`: a mat, the
     image capped at the snapshot's own CSS width `context.snapshot.rect.w` so it is never enlarged, a caption),

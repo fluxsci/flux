@@ -163,7 +163,8 @@
     setCommentActive,
   } from "./comments/commentField";
   import CommentCard from "./comments/CommentCard.svelte";
-  import { editCommentMessage, setCommentInbox, setCommentTags, normalizeTag } from "../../../lib/project/comments";
+  import { commentInInbox, editCommentMessage, setCommentInbox, setCommentTags, normalizeTag } from "../../../lib/project/comments";
+  import { fluxAiSignal } from "../../agent/fluxAiMark";
   import { commentColor, formatTagDefs, parseTagDefs, withTag } from "../../../lib/project/commentTags";
   import {
     makeAnchor,
@@ -862,6 +863,7 @@
   }
   function routeComment(id: string, inbox: boolean) {
     changeThreads(setCommentInbox({ version: 1, threads }, id, inbox).threads, id);
+    if (inbox && !threads.find((t) => t.id === id)?.draft) fluxAiSignal("sent");
   }
   // A comment with a coloured tag wears that colour in the text. Compared with what the editor
   // HOLDS, not with what was last sent: a replaced editor state starts with none.
@@ -880,6 +882,7 @@
         ? { ...t, draft: false, messages: [{ author: commentAuthor, body, createdAt: new Date().toISOString(), kind: "human" as const }] }
         : t,
     );
+    if (threads.some((t) => t.id === id && commentInInbox(t))) fluxAiSignal("sent"); // a comment for Flux AI: the mark answers
     scheduleCommentSave();
   }
   function cancelNew(id: string) {

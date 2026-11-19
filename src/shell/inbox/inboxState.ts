@@ -14,6 +14,15 @@ export const inboxFocusRequest = writable(0);
 export const inboxCount = writable(0);
 /** Items waiting on the human (an agent asked a question) — the badge turns gold. */
 export const inboxNeedsInput = writable(0);
+/** The connected agents holding a claim right now, by name: each one lights a point of the Flux AI mark. */
+export const inboxAgentsAtWork = writable<string[]>([]);
+/** True for a moment after an agent resolves what it had claimed: the mark's green lap. */
+export const inboxJustFinished = writable(false);
+/** What the Flux AI mark's colour says, everywhere it reports the Inbox (its header, the title
+ *  bar): gold while something waits for you, green for a moment when an agent finishes, blue
+ *  while an agent works, the bloom's own colours otherwise. */
+export const fluxAiTone = derived([inboxNeedsInput, inboxAgentsAtWork, inboxJustFinished], ([needs, agents, finished]) =>
+  (needs > 0 ? "wait" : finished ? "done" : agents.length ? "live" : "ready") as "wait" | "done" | "live" | "ready");
 export const inboxSelection = writable<string | null>(null);
 export const inboxQuery = writable("");
 export const inboxDrafts = new Map<string, string>();

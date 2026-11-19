@@ -445,48 +445,56 @@ textarea,
 .surface-head .brand ~ .ttl { font-weight: 400; color: var(--c-tx); }
 .surface-head .flux-ai-mark { margin-right: -2px; }
 
-/* The Flux AI mark (shell/agent/fluxAiMark.ts): the bloom's seed, always turning. The turn is a
-   transform on the SVG's OWN box, which the compositor runs by itself: no main-thread frame is
-   produced while it turns, so it is exempt from "nothing animates at rest" (that rule, and the
-   E43 input-latency lesson behind it, are about main-thread loops). Rotating a <g> inside the
-   SVG would repaint every frame: never move the animation onto a child. Not gated on
-   prefers-reduced-motion (the Logomark precedent: this desktop reports `reduce` with animations
-   on). The colour is the state; it changes once, never per frame. */
-/* The Flux AI mark (shell/agent/fluxAiMark.ts): a small living network. The network's shape is a
-   MASK on .fam-net; what you see through it are coloured layers that only ever animate
-   `transform` or `opacity` (the compositor runs those alone: nothing here paints, restyles or
-   runs script per frame). The four periods share no factor, so the activity does not repeat. */
-.flux-ai-mark { position: relative; display: inline-block; flex-shrink: 0; width: var(--fam-size, 18px); height: var(--fam-size, 18px); vertical-align: middle;
-  /* ready: the bloom's wheel at rest, lit in passing by warm and cool fronts */
-  --fam-base: conic-gradient(from 200deg, #d14d41, #da702c, #d0a215, #879a39, #3aa99f, #4385be, #8b7ec8, #ce5d97, #d14d41);
-  --fam-flow-1: #ffd36b; --fam-flow-2: #55d6ff; --fam-spark: #ff9fd6; --fam-rest: .86; --fam-turn: 32s; --fam-pace: 1; }
-.flux-ai-mark[data-tone="live"] { --fam-base: conic-gradient(from 200deg, #4385be, #3aa99f, #5b9bd5, #8b7ec8, #4385be); --fam-flow-1: #bfe9ff; --fam-flow-2: #6ff5e2; --fam-spark: #ffffff; --fam-rest: .9; --fam-turn: 10s; --fam-pace: .5; }
-.flux-ai-mark[data-tone="wait"] { --fam-base: conic-gradient(from 200deg, #d0a215, #da702c, #e0b83a, #d0a215); --fam-flow-1: #ffe58a; --fam-flow-2: #ff9d47; --fam-spark: #fff8d8; }
-.flux-ai-mark[data-tone="done"] { --fam-base: conic-gradient(from 200deg, #879a39, #3aa99f, #a0af54, #879a39); --fam-flow-1: #d9f58a; --fam-flow-2: #63dbb8; --fam-spark: #f6ffe0; --fam-pace: 1.4; }
-.flux-ai-mark[data-tone="error"] { --fam-base: conic-gradient(from 200deg, #d14d41, #da702c, #e06a5e, #d14d41); --fam-flow-1: #ff9b8a; --fam-flow-2: #ffb163; --fam-spark: #ffe9e4; }
+/* The Flux AI mark (shell/agent/fluxAiMark.ts): a small living network. Its shape is a MASK on
+   .fam-net; what you see through it are coloured layers that only ever animate `transform` or
+   `opacity`, which the compositor runs alone: nothing here paints, restyles or runs script per
+   frame, so it is exempt from "nothing animates at rest" (that rule, and the E43 input-latency
+   lesson behind it, are about main-thread loops). Never move the turn onto something that
+   repaints. This file is the mark's CSS-only life (it turns, two fronts drift). The firing is
+   fluxAiMarkEngine.ts, which wakes only when a point fires, in idle time. The colours, mask,
+   pose and pace arrive as custom properties on the root (fluxAiMarkStyle). Not gated on
+   prefers-reduced-motion (the Logomark precedent: this desktop reports `reduce` with
+   animations on). `contain: strict`: nothing inside can touch layout or paint outside it. */
+.flux-ai-mark { position: relative; display: inline-block; flex-shrink: 0; width: var(--fam-size, 18px); height: var(--fam-size, 18px); vertical-align: middle; contain: strict; }
 .flux-ai-mark .fam-net { position: absolute; inset: 0; display: block; overflow: hidden; border-radius: 50%;
   -webkit-mask: var(--fam-mask) center / 100% 100% no-repeat; mask: var(--fam-mask) center / 100% 100% no-repeat;
-  will-change: transform; animation: flux-ai-turn var(--fam-turn) linear infinite; }
-.flux-ai-mark .fam-net > i { position: absolute; display: block; pointer-events: none; }
-.flux-ai-mark .fam-base { inset: 0; background: var(--fam-base); opacity: var(--fam-rest); }
+  will-change: transform; transform: rotate(var(--fam-pose, 0deg)); animation: flux-ai-turn var(--fam-turn, 24s) linear infinite; }
+.flux-ai-mark .fam-net > i, .flux-ai-mark .fam-live > i { position: absolute; display: block; pointer-events: none; }
+/* Everything the engine draws lives in this one box, so it can be faded and emptied as one. */
+.flux-ai-mark .fam-live { inset: 0; }
+.flux-ai-mark .fam-base { inset: 0; background: var(--fam-base); opacity: .85; }
+/* The colours it had a moment ago, fading out over the new ones when its tone changes. */
+.flux-ai-mark .fam-fade { inset: 0; opacity: 0; }
 /* A front of colour passing through: a soft disc on an orbit of its own. */
-.flux-ai-mark .fam-flow { left: 50%; top: 50%; width: 92%; height: 92%; margin: -46% 0 0 -46%; border-radius: 50%; will-change: transform;
+.flux-ai-mark .fam-flow { left: 50%; top: 50%; width: 92%; height: 92%; margin: -46% 0 0 -46%; border-radius: 50%; opacity: .26; will-change: transform;
   background: radial-gradient(closest-side, var(--fam-c) 0%, color-mix(in srgb, var(--fam-c) 62%, transparent) 42%, transparent 100%); }
-.flux-ai-mark .f1 { --fam-c: var(--fam-flow-1); animation: fam-orbit-a calc(5.3s * var(--fam-pace)) linear infinite; }
-.flux-ai-mark .f2 { --fam-c: var(--fam-flow-2); animation: fam-orbit-b calc(7.9s * var(--fam-pace)) linear infinite; }
-/* A burst: it starts at one node, spreads along that node's connections, and is gone. */
-.flux-ai-mark .fam-spark { width: 150%; height: 150%; margin: -75% 0 0 -75%; border-radius: 50%; opacity: 0; will-change: transform, opacity;
-  background: radial-gradient(closest-side, #fff 0%, var(--fam-spark) 26%, color-mix(in srgb, var(--fam-spark) 40%, transparent) 55%, transparent 78%); }
-.flux-ai-mark .s1 { animation: fam-fire calc(4.3s * var(--fam-pace)) cubic-bezier(.2, .7, .3, 1) infinite; }
-.flux-ai-mark .s2 { animation: fam-fire calc(6.7s * var(--fam-pace)) cubic-bezier(.2, .7, .3, 1) -2.6s infinite; }
-/* At rest (a button's icon): the network in its colours, nothing moving, nothing composited. */
+.flux-ai-mark .f1 { --fam-c: var(--fam-flow-1); animation: fam-orbit-a 5.3s linear infinite; }
+.flux-ai-mark .f2 { --fam-c: var(--fam-flow-2); animation: fam-orbit-b 7.9s linear infinite; }
+/* What the engine animates. Each is invisible and unpromoted until its fade runs.
+   flash: a point fires. mem: the colour that passed through lingers. pres: an agent holds this
+   point. pulse.glow / pulse.trail: the signal on its way down a link, and the link warm behind it.
+   --c is the signal's colour, --h the same colour heated toward white. */
+.flux-ai-mark .fam-flash, .flux-ai-mark .fam-mem, .flux-ai-mark .fam-pres, .flux-ai-mark .fam-pulse { border-radius: 50%; opacity: 0; }
+.flux-ai-mark .fam-flash { width: 85%; height: 85%; transform: translate(-50%, -50%);
+  background: radial-gradient(closest-side, var(--h, #fff) 0%, var(--c) 30%, color-mix(in srgb, var(--c) 45%, transparent) 62%, transparent 100%); }
+.flux-ai-mark .fam-mem, .flux-ai-mark .fam-pres { width: 30%; height: 30%; transform: translate(-50%, -50%); background: radial-gradient(closest-side, var(--c) 0 58%, transparent 100%); }
+.flux-ai-mark .fam-pulse { left: 0; top: 0; }
+.flux-ai-mark .fam-pulse.glow { background: radial-gradient(closest-side, color-mix(in srgb, var(--h) 60%, #fff) 0%, var(--h) 26%, color-mix(in srgb, var(--c) 46%, transparent) 64%, transparent 100%); }
+.flux-ai-mark .fam-pulse.trail { border-radius: 0; transform-origin: 0 50%; background: linear-gradient(90deg, transparent 0%, var(--c) 8%, var(--h) 50%, color-mix(in srgb, var(--h) 55%, #fff) 90%, transparent 100%); }
+/* Held: the user's hands are busy (fluxAiMarkEngine.ts, the performance contract). The mark
+   stops where it is and is a still picture until they pause. */
+.flux-ai-mark.held .fam-net, .flux-ai-mark.held .fam-flow { animation-play-state: paused; }
+/* At rest (a button's icon, a row in a list): the network in its colours, nothing moving,
+   nothing composited. */
 .flux-ai-mark.still .fam-net { animation: none; will-change: auto; }
 .flux-ai-mark.still .fam-base { opacity: 1; }
-.flux-ai-mark.still .fam-flow, .flux-ai-mark.still .fam-spark { display: none; }
-@keyframes flux-ai-turn { to { transform: rotate(360deg); } }
+/* An agent's turn that just finished settles with one small bloom. */
+.flux-ai-mark.agent-mark[data-state="done"] { animation: fam-bloom 220ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.flux-ai-mark.agent-mark[data-state="idle"] { opacity: .9; }
+@keyframes flux-ai-turn { from { transform: rotate(var(--fam-pose, 0deg)); } to { transform: rotate(calc(var(--fam-pose, 0deg) + 360deg)); } }
 @keyframes fam-orbit-a { from { transform: rotate(0deg) translateX(36%); } to { transform: rotate(360deg) translateX(36%); } }
 @keyframes fam-orbit-b { from { transform: rotate(40deg) translateX(-31%); } to { transform: rotate(-320deg) translateX(-31%); } }
-@keyframes fam-fire { 0% { opacity: 0; transform: scale(.04); } 3% { opacity: 1; transform: scale(.1); } 26% { opacity: 0; transform: scale(1); } 100% { opacity: 0; transform: scale(1); } }
+@keyframes fam-bloom { from { transform: scale(.8); } to { transform: scale(1); } }
 .surface-head .vsep { width: 1px; height: 14px; background: var(--c-line-strong); flex-shrink: 0; }
 .surface-head .ctx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-tx-muted); font: var(--ts-xs) var(--font-ui); }
 .surface-head .spacer { flex: 1; }

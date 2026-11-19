@@ -15,7 +15,7 @@
   import { onDestroy, onMount, tick } from "svelte";
   import { get } from "svelte/store";
   import { currentProject } from "../shellStore";
-  import { inboxOpen, inboxDetached, inboxSelection, inboxQuery, inboxDrafts, inboxCloseRequest, inboxFocusRequest, isInboxChord } from "./inboxState";
+  import { inboxOpen, inboxDetached, inboxSelection, inboxQuery, inboxDrafts, inboxCloseRequest, inboxFocusRequest, isInboxChord, inboxAgentsAtWork, fluxAiTone } from "./inboxState";
   import { inboxItems, inboxDocuments, inboxSessionIds, inboxError, inboxLoaded, changeInboxItem, refreshInbox } from "./inboxStore";
   import { annotationOpen, requestAnnotation, isAnnotateChord } from "../agent/annotateChord";
   import { parseInboxQuery, describeFilter, resolveInboxFilter, filterInbox, sortForInbox, toPacket, type InboxItem } from "../../lib/project/inbox";
@@ -70,10 +70,10 @@
   $: if (($currentProject?.path ?? "") !== root) inboxOpen.set(false);
   $: needsYou = $inboxItems.filter(i => i.status === "needs-input" && !i.archived).length;
   $: openCount = $inboxItems.filter(i => !i.archived && !["resolved", "withdrawn"].includes(i.status)).length;
-  // The header mark's colour is the Inbox's state: gold while something waits for you, blue while
-  // a connected agent holds an item, the bloom's own colours otherwise.
-  $: agentAtWork = $inboxItems.some(i => !i.archived && i.status === "claimed" && !!i.claimedBy && $inboxSessionIds.has(i.claimedBy.id));
-  $: tone = (needsYou ? "wait" : agentAtWork ? "live" : "ready") as "wait" | "live" | "ready";
+  // The header mark REPORTS the Inbox (inboxState.fluxAiTone): gold with a heartbeat while
+  // something waits for you, blue while a connected agent holds an item (each such agent holds
+  // one of its points), one green lap when an agent finishes, the bloom's own colours otherwise.
+  $: tone = $fluxAiTone;
   $: holder = selected?.claimedBy?.name ?? selected?.assignedTo?.name ?? selected?.lastHolder?.name ?? "";
   $: lastAgentIndex = selected ? selected.thread.map(m => m.kind).lastIndexOf("agent") : -1;
   $: if (!zoom) actual = false;
@@ -299,7 +299,7 @@
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div class="inbox-panel" role="dialog" aria-label="Inbox" aria-modal={!detached} tabindex="-1" use:modalFocus on:keydown={onKey}>
     <header class="surface-head">
-      <FluxAiMark size={20} {tone} />
+      <FluxAiMark size={20} {tone} agents={$inboxAgentsAtWork} waiting={needsYou > 0} />
       <span class="brand">Flux AI</span>
       <span class="vsep"></span>
       <strong class="ttl">Inbox</strong>

@@ -145,11 +145,14 @@ try {
   });
   h.eq(head.words, ['Flux AI', 'Inbox'], 'the header reads Flux AI, then Inbox');
   h.ok(head.first && head.size === 20, 'the Flux AI mark leads the header', JSON.stringify({ first: head.first, size: head.size }));
-  h.ok(head.nodes === 11 && head.edges === 10 && head.svgInside === 0, 'it is a sparse network (11 nodes, 10 connections) drawn as a mask, with no SVG to repaint', JSON.stringify({ nodes: head.nodes, edges: head.edges, svg: head.svgInside }));
-  h.eq(head.moving.map(m => `${m.on}:${m.name}:${m.props}`), ['fam-net:flux-ai-turn:transform', 'fam-flow.f1:fam-orbit-a:transform', 'fam-flow.f2:fam-orbit-b:transform', 'fam-spark.s1:fam-fire:opacity+transform', 'fam-spark.s2:fam-fire:opacity+transform'],
-    'it is alive: it turns, two fronts of colour drift through it and two nodes fire');
-  h.ok(head.moving.every(m => m.html && m.forever && /^(opacity\+)?transform$/.test(m.props)), 'everything that moves animates only transform or opacity on an HTML element (compositor-only)', JSON.stringify(head.moving));
-  h.ok(new Set(head.moving.map(m => m.period)).size === head.moving.length, 'no two of its motions share a period, so the activity does not visibly repeat', JSON.stringify(head.moving.map(m => m.period)));
+  // 2026-11-19: the owner's final network (ten points, thirteen links, every point on a loop); its firing is the engine's
+  // (verify-flux-ai-mark-gui), so what is asserted here is its CSS life and that everything moving is compositor-only.
+  h.ok(head.nodes === 10 && head.edges === 13 && head.svgInside === 0, 'it is the woven network (10 points, 13 links) drawn as a mask, with no SVG to repaint', JSON.stringify({ nodes: head.nodes, edges: head.edges, svg: head.svgInside }));
+  const forever = head.moving.filter(m => m.forever && m.name);
+  h.eq(forever.map(m => `${m.on.split('.').filter(c => c !== 'held').join('.')}:${m.name}:${m.props}`), ['fam-net:flux-ai-turn:transform', 'fam-flow.f1:fam-orbit-a:transform', 'fam-flow.f2:fam-orbit-b:transform'],
+    'its CSS life: it turns, and two fronts of colour drift through it');
+  h.ok(head.moving.every(m => m.html && /^(opacity(\+transform)?|transform)$/.test(m.props)), 'everything that moves animates only transform or opacity on an HTML element (compositor-only)', JSON.stringify(head.moving));
+  h.ok(new Set(forever.map(m => m.period)).size === forever.length, 'no two of its standing motions share a period', JSON.stringify(forever.map(m => m.period)));
   h.eq(head.others, [], 'nothing else in the Inbox animates at rest');
   h.eq(head.tone, 'wait', 'the mark is gold while an item needs you');
   // A row gives two lines of the note; the picture is shown whole; the keys are drawn on their buttons.
@@ -200,14 +203,29 @@ try {
   await choose(f.extra.home); await detailAction(page, 'Withdraw');
   await waitFor(page, id => window.__fluxInbox.items.find(i => i.id === id).status === 'withdrawn', f.extra.home, { label: 'withdrawn' });
   h.ok(true, 'Withdraw records a distinct withdrawn status');
+  const restingMark = await page.evaluate(() => ({ head: document.querySelector('.inbox-panel header .flux-ai-mark')?.dataset.tone, bar: document.querySelector('.ai-indicator .flux-ai-mark')?.dataset.tone, held: document.querySelectorAll('.inbox-panel header .flux-ai-mark .fam-pres').length }));
   await event(makeClaim(f.notes[1].id, f.heron, 'codex'));
   await waitFor(page, id => document.querySelector(`[data-item-id="${id}"] .status-chip`)?.textContent === 'Claimed by heron', f.notes[1].id, { label: 'second writer claim' });
+  // The Flux AI mark REPORTS it (owner, 2026-11-18: "I LOVED how it turned blue when a background agent claimed one of the inbox items").
+  const marks = () => page.evaluate(() => ({ head: document.querySelector('.inbox-panel header .flux-ai-mark')?.dataset.tone, bar: document.querySelector('.ai-indicator .flux-ai-mark')?.dataset.tone, held: document.querySelectorAll('.inbox-panel header .flux-ai-mark .fam-pres').length }));
+  // In this fixture heron (a live session) already holds another item, so the mark is ALREADY blue with heron on one
+  // point: an agent gets one point however many items it holds.
+  const atWork = await page.evaluate(async () => { const s = await import('/src/shell/inbox/inboxState.ts'); let v; s.inboxAgentsAtWork.subscribe(x => v = x)(); return v; });
+  h.eq([atWork, await marks()], [['heron'], { head: 'live', bar: 'live', held: 1 }], 'a live agent holds a claim: the mark is blue, in the Inbox and in the title bar, and the agent holds ONE of its points however many items it has');
   await event(makeReply(f.notes[1].id, { kind: 'agent', name: 'heron' }, 'Which paragraph?', 'codex', { state: 'needs-input', session: f.heron }));
   await choose(f.notes[1].id);
   await waitFor(page, () => document.querySelector('.detail .status-chip')?.textContent.includes('needs your input'), null, { label: 'live needs-input' });
+  await waitFor(page, () => document.querySelector('.inbox-panel header .flux-ai-mark')?.dataset.tone === 'wait', null, { label: 'the mark turns gold' });
+  h.eq([(await marks()).head, (await marks()).bar], ['wait', 'wait'], 'the agent asks a question: the mark turns gold (it is waiting for you)');
   h.ok(await page.$eval('.thread article.agent', e => e.textContent.includes('heron')), 'agent thread messages show the presence name');
+  const avatar = await page.$eval('.thread article.agent', e => { const m = e.querySelector('.flux-ai-mark.agent-mark'); return m && { still: m.classList.contains('still'), moving: [m, ...m.querySelectorAll('*')].flatMap(x => x.getAnimations()).length, own: m.style.getPropertyValue('--fam-base') !== document.querySelector('.inbox-panel header .flux-ai-mark').style.getPropertyValue('--fam-base'), layers: m.querySelector('.fam-net').children.length }; });
+  h.eq(avatar, { still: true, moving: 0, own: true, layers: 1 }, 'an agent is marked by the Flux AI mark in its own colouring, as a still picture (one layer, nothing moving)');
   await event(makeResolve(f.notes[1].id, 'codex', { author: { kind: 'agent', name: 'heron' }, session: f.heron }));
   await waitFor(page, () => document.querySelector('.detail .status-chip')?.textContent === 'Resolved by heron', null, { label: 'second writer resolve' });
+  await waitFor(page, () => document.querySelector('.inbox-panel header .flux-ai-mark')?.dataset.tone === 'done', null, { label: 'the mark turns green' });
+  h.ok(true, 'the agent resolves what it held: the mark turns green');
+  await waitFor(page, tone => document.querySelector('.inbox-panel header .flux-ai-mark')?.dataset.tone === tone, restingMark.head, { timeout: 6000, label: `the mark settles back to ${restingMark.head}` });
+  h.eq(await marks(), restingMark, 'and a moment later it settles back to what it showed before the agent came, holding nothing of that agent\'s');
   await detailAction(page, 'Reopen');
   await waitFor(page, id => window.__fluxInbox.items.find(i => i.id === id).status !== 'resolved', f.notes[1].id, { label: 'annotation reopened' });
   await page.evaluate(() => { window.__inboxAppend = window.fig.feedbackAppend; window.fig.feedbackAppend = async () => false; });

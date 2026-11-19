@@ -80,6 +80,14 @@ command in the command palette. The composer's **Open inbox** link opens the sam
 It combines annotations with margin comments from every project document. **Pin open**
 keeps it in a separate window; **Dock** brings it back without losing a reply draft.
 
+The mark at the top left of the Inbox (and of Annotate and Ask, and in the title bar) is the
+Flux AI mark, and it reports what your agents are doing. In the logo's colours, nothing is
+running. When an agent claims an item a wave crosses it and leaves it **blue**, and each
+working agent holds one point in its own colour, so you can count them. **Gold** with a
+steady double pulse means an agent is waiting for your answer. One **green** lap is an agent
+finishing; three **red** flickers, then quiet, is a failure. While you type, click or scroll
+it holds still, so it never takes anything from your work.
+
 The list groups items into **Needs input** (in gold: an agent is waiting for you; the
 titlebar badge turns gold too), **Open**, **Claimed**, and a collapsed **Resolved**
 section. Each row shows its picture or an icon for the surface it points at, two lines of the
@@ -101,7 +109,7 @@ marks that name it (four marks on one figure are one line), and takes you to tha
 you click its row; then the replies. Click the picture (or **Full size**) to see it large over
 the whole Inbox: fitted first, at its actual size after a click on it, closed by **Esc** or a
 click beside it. A margin comment shows the passage it is attached to, in full, above what
-was said about it. Agents are marked with the Flux seed and their name, their Markdown is
+was said about it. Agents are marked with the Flux AI mark in their own colouring and their name, their Markdown is
 rendered (lists, code, tables), and an agent's question is marked **Waiting for you** with the
 reply box inviting **Answer heron…**. **R** focuses Reply; **Enter** sends, and **Shift+Enter**
 adds a newline. The short id beside the status copies the full id when clicked, and a tag
@@ -207,7 +215,7 @@ handle vendor logins.
 
 The panel opens beside what you selected (the selection stays outlined underneath) and
 keeps its place while the answer arrives. Your question sits on the right; the answer is
-written in the manuscript's serif with the Flux seed in the margin — it turns while the
+written in the manuscript's serif with the agent's mark in the margin — it is alive while the
 agent works and settles when it is done. Headings, lists, code (with **Copy**), tables and
 links render properly. The agent's working notes fold into one line (**Read 3 files ·
 get_figure_image**) that opens into each step, with the pictures it looked at inline;

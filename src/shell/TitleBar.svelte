@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { inboxCount, inboxNeedsInput, requestInbox } from "./inbox/inboxState";
+  import { fluxAiTone, inboxCount, inboxNeedsInput, requestInbox } from "./inbox/inboxState";
+  import FluxAiMark from "./agent/FluxAiMark.svelte";
   import { onMount } from "svelte";
   import Logomark from "./Logomark.svelte";
   import Icon from "./Icon.svelte";
@@ -134,7 +135,7 @@
       {#if agentsOpen && AgentsPopover}<AgentsPopover close={() => agentsOpen = false} />{/if}
     {/if}
     <button class="ubtn ai-indicator" data-status={$aiColor} title={`AI status — ${$aiColor === 'green' ? 'ready' : $aiColor === 'red' ? 'broken' : 'needs attention'}`} aria-label="AI status" aria-expanded={$aiOpen} onclick={() => openAI()}>
-      <span>AI</span><span class="ai-dot" aria-hidden="true"></span>
+      <FluxAiMark still size={17} tone={$fluxAiTone} /><span class="ai-dot" aria-hidden="true"></span>
     </button>
     {#if $view === "workspace" && $currentProject?.path}<button class="ubtn inbox-button" class:needs={$inboxNeedsInput > 0} title={$inboxNeedsInput ? `Inbox — ${$inboxNeedsInput} need${$inboxNeedsInput === 1 ? "s" : ""} you · Alt+Q` : "Inbox — Alt+Q"} aria-label={`Inbox · ${$inboxCount} open${$inboxNeedsInput ? ` · ${$inboxNeedsInput} need input` : ""}`} onclick={() => requestInbox()}><Icon name="inbox" size={17} />{#if $inboxCount}<span class="inbox-badge">{$inboxCount}</span>{/if}</button>{/if}
     <button class="ubtn" title="Lighttable — browse image sets" aria-label="Lighttable" onclick={launchLighttable}>
@@ -173,9 +174,13 @@
 
 <style>
   .ubtn.agents-chip { width:auto;white-space:nowrap;padding:0 7px;font:11px var(--font-ui); }
-  .ai-indicator { position: relative; font: 11px var(--font-ui); }
+  /* The AI indicator is the Flux AI mark, at rest (owner, 2026-11-19: "doesn't need to be live,
+     static here is fine"). Its COLOUR is what the agents are doing (blue: one is working; gold:
+     one waits for you). The small dot is a different fact, the health of the AI setup, and is
+     only there when something needs attention. */
+  .ai-indicator { position: relative; }
   .ai-dot { position: absolute; right: 1px; bottom: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--flx-yellow-400, #d0a215); }
-  .ai-indicator[data-status="green"] .ai-dot { background: var(--flx-green-400, #879a39); }
+  .ai-indicator[data-status="green"] .ai-dot { display: none; }
   .ai-indicator[data-status="red"] .ai-dot { background: var(--flx-red-400, #d14d41); }
   .inbox-button { position:relative; }
   .inbox-badge { font:9px var(--font-mono);min-width:12px;color:var(--c-accent); }
