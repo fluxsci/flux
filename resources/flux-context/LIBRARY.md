@@ -82,6 +82,8 @@ before a bulk change, and keep unrelated tags/collections intact.
 - `fetch-pdfs --key <citekey>` / `fetch_pdfs {keys:[…]}` tries open-access sources,
   stores a valid PDF and extracts fulltext. Without a key filter it covers the library;
   choose that scope deliberately. A missing open-access copy is not a missing reference.
+  Flux has no other download route: for a paper without one, the user saves it with the
+  browser extension (Add to FluxLib) or gives you the file to ingest.
 - `ingest-pdf <file.pdf> --key <citekey>` / `ingest_pdf {filePath:…,key:…}` files a
   known local PDF. Check its identity first. CLI file paths are cwd-relative; MCP
   paths use the project default, or absolute paths when unbound.
