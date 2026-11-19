@@ -238,6 +238,10 @@ export interface FileBridge {
   discardModel3d?(request: import('../model3d/importData').Model3dImportOwnership): Promise<void>;
   model3dSourceFingerprint?(request: import("../model3d/source").ModelSourceFingerprintRequest): Promise<import("../model3d/source").ModelSourceFingerprint>;
   model3dAvailability?(): Promise<{ disabled: boolean }>;
+  /** Copy a .fluximg bundle into fig/assets as an immutable asset (docs/fluximg). */
+  importFluximg?(request: import('../fluximg/bridge').FluximgImportRequest): Promise<import('../fluximg/bridge').FluximgImportResult>;
+  /** Read part of one file of a bundle; never the whole stack at once. */
+  readFluximg?(request: import('../fluximg/bridge').FluximgReadRequest): Promise<ArrayBuffer>;
   /** System font bytes for a CSS font request (text ↔ shape letter outlines);
    *  null bytes when no readable font file backs it. */
   fontLookup?(request: { family: string; weight?: number; style?: string }): Promise<{ key: string; bytes: Uint8Array | null; format: string | null }>;
