@@ -20,7 +20,7 @@ This document is normative. Its executable half lives in the Flux repository:
     zarr.json
     0/zarr.json             level 0: full resolution
     0/c/<i>/0/…/0           its shard files
-    1/…                     overview levels, only for large planes
+    1/…                     overview levels, only for planes larger than 1024 px
   layers/<id>/              a raster layer: a Zarr v3 array on the image's pixel grid (section 6)
   layers/<id>.svg           a vector layer, or a label layer's outlines
   layers/<id>.table.json    one row per object
@@ -99,7 +99,7 @@ Every array in a bundle (each pixel level and each raster layer) is a Zarr v3 ar
 ```
 
 - **Inner chunks** (`codecs[0].configuration.chunk_shape`) are 1 along every leading dimension. Along `y` and
-  `x` they are the whole plane when the plane is at most 2048 px on both sides, otherwise 512 x 512 tiles. An
+  `x` they are the whole plane when the plane is at most 1024 px on both sides, otherwise 512 x 512 tiles. An
   edge tile is padded to the full tile shape with the fill value.
 - **Shards** (`chunk_grid…chunk_shape`) hold a whole number of inner chunks along every dimension. A shard
   spans the full extent of every dimension but the first; along the first it holds as many inner chunks as
@@ -115,8 +115,9 @@ Every array in a bundle (each pixel level and each raster layer) is a Zarr v3 ar
 ### 3.4 Levels
 
 `levels[0]` is full resolution with `downsample` 1. Overview levels exist only when a plane is larger than
-2048 px on either side. Their factors are 4, 8, 16, …, stopping at the first level whose longer side is at
-most 512 px (there is deliberately no 2x level). A level with factor `f` has the leading shape of level 0 and
+1024 px on either side (the same planes that are tiled). Their factors are 4, 8, 16, …, stopping at the first level whose longer side is at
+most 512 px (there is deliberately no 2x level). Overviews let a viewer answer at once while it scrubs and
+sharpen afterwards; tiles let it read only what a zoomed view shows. A level with factor `f` has the leading shape of level 0 and
 spatial shape `ceil(H / f)` x `ceil(W / f)`. Each overview sample is the mean of the valid VALUES in its
 `f` x `f` block of level 0 (fewer at the right and bottom edges), "no data" when the block has none, stored
 under the same encoding as level 0 (integers rounded to nearest).

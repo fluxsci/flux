@@ -181,7 +181,7 @@ export const FLUXIMG_SPEC = "fluximg/1" as const;
 export const FLUXIMG_MANIFEST = "fluximg.json";
 export const FLUXIMG_SUFFIX = ".fluximg";
 /** A plane larger than this on either side is stored as tiles and gets overview levels. */
-export const TILE_THRESHOLD = 2048;
+export const TILE_THRESHOLD = 1024;
 export const TILE_SIZE = 512;
 /** Overview levels stop once the longer side is at most this. */
 export const OVERVIEW_FLOOR = 512;

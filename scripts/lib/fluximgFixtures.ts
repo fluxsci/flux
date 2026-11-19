@@ -119,7 +119,14 @@ export function fixtures(): Fixture[] {
   {
     const H = 2300, W = 2600, d = new Uint16Array(H * W);
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) d[y * W + x] = y < 40 || x >= W - 30 ? 0 : 400 + ((x >> 3) + (y >> 2)) % 3000 + (((x * 7919) ^ (y * 104729)) & 15);
-    list.push({ name: "big_tiled_u16", about: "a plane larger than 2048 px: 512 px tiles and overview levels", dims: ["y", "x"], shape: [H, W], dtype: "uint16", data: d, input: { nodata: 0 }, expectEncoding: "exact" });
+    list.push({ name: "big_tiled_u16", about: "a large plane: 512 px tiles and overview levels at 4x and 8x", dims: ["y", "x"], shape: [H, W], dtype: "uint16", data: d, input: { nodata: 0 }, expectEncoding: "exact" });
+  }
+  {
+    // 1100 x 1300: just over the 1024 px threshold, so it must be tiled and get exactly one 4x overview.
+    const H = 1100, W = 1300, data = new Uint16Array(2 * H * W);
+    for (let c = 0; c < 2; c++) for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) data[(c * H + y) * W + x] = 200 + c * 900 + (((x >> 2) + (y >> 3) * (c + 1)) % 2000) + (((x * 31) ^ (y * 17)) & 7);
+    list.push({ name: "mid_tiled_u16", about: "a 1100 x 1300 two-channel image: tiled, with one overview level", dims: ["c", "y", "x"], shape: [2, H, W], dtype: "uint16", data, expectEncoding: "exact",
+      input: { axes: { y: { unit: "µm", scale: 0.2158 }, x: { unit: "µm", scale: 0.2158 } }, channels: [{ name: "405", color: "#001eff" }, { name: "488", color: "#2bff00" }] } });
   }
   {
     const r = rng(9);
