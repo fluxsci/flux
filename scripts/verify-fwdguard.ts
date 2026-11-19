@@ -9,7 +9,9 @@
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { isNewerSchema } from "../src/lib/project/types";
+import { isNewerSchema, FIG_INDEX_SCHEMA_VERSION, CANVAS_SCHEMA_VERSION } from "../src/lib/project/types";
+// One minor above what this build reads: the next breaking format (fluximg raised the index to 0.3, canvases to 0.4).
+const nextMinor = (v: string) => { const [maj, min] = v.split(".").map(Number); return `${maj}.${min + 1}.0`; };
 import { scaffold, loadFigModel } from "../flux-core/index";
 import { loadDeck, saveDeck, mutateDeck } from "../flux-core/slides";
 import { createDeck } from "../src/lib/slide/ops";
@@ -37,7 +39,11 @@ try {
   // ---- fig index bumped minor → loadFigModel refuses, bytes unchanged --------
   const idxPath = path.join(root, "fig", "index.json");
   const idx = JSON.parse(await fs.readFile(idxPath, "utf8"));
-  idx.schemaVersion = "0.3.0";
+  // the newest index this build reads (a fluximg asset stamps it) still loads
+  idx.schemaVersion = FIG_INDEX_SCHEMA_VERSION;
+  await fs.writeFile(idxPath, JSON.stringify(idx, null, 2) + "\n");
+  assert((await loadFigModel(root).then(() => true, () => false)), `fig/index.json at ${FIG_INDEX_SCHEMA_VERSION} (this build's newest) loads`);
+  idx.schemaVersion = nextMinor(FIG_INDEX_SCHEMA_VERSION);
   const idxBytes = JSON.stringify(idx, null, 2) + "\n";
   await fs.writeFile(idxPath, idxBytes);
   let threw = "";
@@ -60,7 +66,9 @@ try {
   await fs.writeFile(idxPath, JSON.stringify(idx2, null, 2) + "\n");
   const cvPath = path.join(cvDir, "canvas-1.json");
   const currentCanvas=JSON.parse(await fs.readFile(cvPath,"utf8"));
-  const cvBytes = JSON.stringify({ ...currentCanvas, schemaVersion: "0.5.0" }, null, 2) + "\n";
+  await fs.writeFile(cvPath, JSON.stringify({ ...currentCanvas, schemaVersion: CANVAS_SCHEMA_VERSION }, null, 2) + "\n");
+  assert((await loadFigModel(root).then(() => true, () => false)), `a canvas at ${CANVAS_SCHEMA_VERSION} (this build's newest, a fluximg stamps it) loads`);
+  const cvBytes = JSON.stringify({ ...currentCanvas, schemaVersion: nextMinor(CANVAS_SCHEMA_VERSION) }, null, 2) + "\n";
   await fs.writeFile(cvPath, cvBytes);
   threw = "";
   try {

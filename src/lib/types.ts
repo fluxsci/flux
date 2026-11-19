@@ -149,8 +149,9 @@ export interface Figure {
 export interface Asset {
   id: Id;
   name: string;
-  kind: "png" | "svg" | "mp4" | "glb";
-  // Relative path inside the project dir, e.g. "assets/plot1.svg".
+  kind: "png" | "svg" | "mp4" | "glb" | "fluximg";
+  // Relative path inside the project dir, e.g. "assets/plot1.svg". For a `fluximg` this is a DIRECTORY
+  // (`assets/<assetId>.fluximg`): an immutable bundle, read only in ranged pieces, never whole.
   path: string;
   // Intrinsic dimensions in px (used to seed placement size / aspect ratio).
   // For SVG these are CSS px (the browser converts pt/mm/in at 96 px/inch), so they
@@ -165,6 +166,9 @@ export interface Asset {
   sha256?: string;
   bytes?: number;
   model?: import("./model3d/types").Model3dInfo;
+  /** A fluximg bundle's manifest digest. `sha256`/`bytes` above are its content id and total size;
+   *  `naturalWidth`/`naturalHeight` are its x/y sizes in image pixels. Pixels never enter assetData. */
+  fluximg?: import("./fluximg/element").FluximgInfo;
   /** Prepared slide video metadata; original source remains untouched. */
   durationMs?: number;
   hasAudio?: boolean;
@@ -537,8 +541,10 @@ export type FigureElement =
   | LineElement
   | PathElement
   | SemanticPlotElement
-  | import("./model3d/types").Model3dElement;
+  | import("./model3d/types").Model3dElement
+  | import("./fluximg/element").FluximgElement;
 export type { Model3dElement } from "./model3d/types";
+export type { FluximgElement } from "./fluximg/element";
 
 /** Shared editor scene; canonical Figure files accept FigureElement only. */
 export type Element = FigureElement | import("./slide/mediaTypes").VideoElement;

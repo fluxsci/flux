@@ -257,6 +257,63 @@ ELEMENT_DEF.oneOf.push(elementBranch("model3d", ["assetId", "orbitAzimuth", "orb
   source: { type: "object", required: ["glbPath"], properties: { glbPath: { type: "string" }, sha256: { type: "string", pattern: "^[a-f0-9]{64}$" }, manifestPath: { type: "string" }, recipePath: { type: "string" }, external: { type: "boolean" }, frozen: { type: "boolean" } } },
   manifestRef: { type: "object", required: ["specVersion"], properties: { specVersion: { type: "string" }, hash: { type: "string" } } },
 }));
+
+// fluximg (stage 1): the placed N-dimensional image. `view` is the sparse recipe of fluximg/view.ts: every key typed,
+// unknown TOP-LEVEL keys refused (a misspelt key would silently do nothing), numeric ranges sane. Nested objects keep the
+// house leniency so a later field can be added inside one without a format bump. Figure schemas only: the deck schema
+// leaves this branch out (ARCHITECTURE decision 8: no fluximg in a deck yet).
+// Non-empty without minLength: Ajv's standalone minLength needs a CommonJS `require` helper this ESM module cannot load.
+const NON_EMPTY = { type: "string", pattern: "^[\\s\\S]+$" };
+const HEX_OR_NULL = { anyOf: [{ type: "string", pattern: "^#[0-9a-fA-F]{6}$" }, { type: "null" }] };
+const NAME_OR_NULL = { type: ["string", "null"] };
+const RANGE2 = { type: "array", minItems: 2, maxItems: 2, items: { type: "number" } };
+const UNIT = { type: "number", minimum: 0, maximum: 1 };
+const CORNER = { enum: ["bottom-right", "bottom-left", "top-right", "top-left"] };
+const FONT_SIZE = { type: "number", exclusiveMinimum: 0, maximum: 1000 };
+const INDEX_NUMBER = { type: "integer", minimum: 0 };
+const FLUXIMG_CHANNEL_VIEW = { type: "object", properties: {
+  visible: { type: "boolean" }, color: HEX_OR_NULL, lut: NAME_OR_NULL, range: RANGE2,
+  norm: { enum: ["linear", "log", "gamma"] }, gamma: { type: "number", exclusiveMinimum: 0, maximum: 100 }, invert: { type: "boolean" },
+} };
+const FLUXIMG_LAYER_VIEW = { type: "object", properties: {
+  visible: { type: "boolean" }, opacity: UNIT, color: HEX_OR_NULL, lut: NAME_OR_NULL,
+  strokeWidth: { type: "number", minimum: 0, maximum: 1000 }, fillOpacity: UNIT, range: RANGE2,
+} };
+const FLUXIMG_VIEW = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    index: { type: "object", additionalProperties: INDEX_NUMBER },
+    projection: { anyOf: [{ type: "null" }, { type: "object", required: ["dim", "mode", "from", "to"], properties: {
+      dim: NON_EMPTY, mode: { enum: ["max", "mean", "min", "sum", "std"] }, from: INDEX_NUMBER, to: { type: "integer", minimum: 1 },
+    } }] },
+    channels: { type: "array", items: { anyOf: [{ type: "null" }, FLUXIMG_CHANNEL_VIEW] } },
+    composite: { enum: ["blend", "single"] },
+    solo: INDEX_NUMBER,
+    smooth: { type: "boolean" },
+    background: { anyOf: [{ const: "transparent" }, { type: "string", pattern: "^#[0-9a-fA-F]{6}$" }] },
+    layers: { type: "object", additionalProperties: FLUXIMG_LAYER_VIEW },
+    layerOrder: { type: "array", items: { type: "string" } },
+    furniture: { type: "object", properties: {
+      scalebar: { anyOf: [{ const: false }, { type: "object", properties: {
+        length: { type: "number", exclusiveMinimum: 0 }, corner: CORNER, color: { type: "string" }, label: { type: "boolean" },
+        thickness: { type: "number", exclusiveMinimum: 0, maximum: 1000 }, fontSize: FONT_SIZE } }] },
+      stamp: { anyOf: [{ const: false }, { type: "object", properties: { dims: { type: "array", items: { type: "string" } }, corner: CORNER, color: { type: "string" }, fontSize: FONT_SIZE } }] },
+      channelLabels: { anyOf: [{ const: false }, { type: "object", properties: { corner: CORNER, fontSize: FONT_SIZE } }] },
+      names: { anyOf: [{ const: false }, { type: "object", properties: { layers: { type: "array", items: { type: "string" } }, fontSize: FONT_SIZE } }] },
+    } },
+    insetOf: NON_EMPTY,
+  },
+};
+const FLUXIMG_BRANCH = elementBranch("fluximg", ["assetId"], {
+  assetId: NON_EMPTY,
+  crop: CROP,
+  view: FLUXIMG_VIEW,
+  source: { type: "object", required: ["bundlePath"], properties: {
+    bundlePath: NON_EMPTY, sha256: { type: "string", pattern: "^[a-f0-9]{64}$" }, recipePath: { type: "string" },
+    external: { type: "boolean" }, frozen: { type: "boolean" } } },
+});
+ELEMENT_DEF.oneOf.push(FLUXIMG_BRANCH);
 const VEC3 = { type: "array", minItems: 3, maxItems: 3, items: { type: "number" } };
 const STRINGS = { type: "array", items: { type: "string" } };
 const MODEL_INFO = {
@@ -273,6 +330,33 @@ const GLB_ASSET_REQUIREMENTS = {
   if: { properties: { kind: { const: "glb" } }, required: ["kind"] },
   then: { required: ["sha256", "bytes", "model", "path"], properties: { sha256: { type: "string", pattern: "^[a-f0-9]{64}$" }, bytes: { type: "integer", minimum: 1 }, model: MODEL_INFO, path: { type: "string", pattern: "\\S" } } },
 };
+// fluximg/element.ts FluximgInfo: the manifest digest kept on the asset.
+const FLUXIMG_INFO = {
+  type: "object", required: ["dims", "shape", "dtype", "encoding", "channels", "levels", "layers", "regions"],
+  properties: {
+    dims: { type: "array", minItems: 2, items: NON_EMPTY },
+    shape: { type: "array", minItems: 2, items: { type: "integer", minimum: 1 } },
+    dtype: { enum: ["uint8", "int8", "uint16", "int16", "uint32", "int32", "float32", "float64"] },
+    encoding: { enum: ["exact", "linear16"] },
+    channels: STRINGS,
+    levels: { type: "array", minItems: 1, items: { type: "number", minimum: 1 } },
+    layers: { type: "array", items: { type: "object", required: ["id", "kind", "name"], properties: {
+      id: { type: "string" }, kind: { enum: ["intensity", "labels", "vector"] }, name: { type: "string" }, count: { type: "integer", minimum: 0 } } } },
+    regions: { type: "integer", minimum: 0 },
+    pixelSize: { type: "object", required: ["x", "y", "unit"], properties: { x: { type: "number", exclusiveMinimum: 0 }, y: { type: "number", exclusiveMinimum: 0 }, unit: { type: ["string", "null"] } } },
+    photometric: { enum: ["rgb", null] },
+  },
+};
+// A fluximg asset is an immutable DIRECTORY `assets/<id>.fluximg` inside fig/ (never a file, never outside fig/assets).
+const FLUXIMG_ASSET_REQUIREMENTS = {
+  if: { properties: { kind: { const: "fluximg" } }, required: ["kind"] },
+  then: { required: ["sha256", "bytes", "fluximg", "path"], properties: {
+    sha256: { type: "string", pattern: "^[a-f0-9]{64}$" }, bytes: { type: "integer", minimum: 1 }, fluximg: FLUXIMG_INFO,
+    path: { type: "string", pattern: "^assets/[^/\\\\]+\\.fluximg$" },
+    naturalWidth: { type: "integer", minimum: 1 }, naturalHeight: { type: "integer", minimum: 1 } } },
+};
+/** Per-kind requirements of a figure asset entry (index and assembled model). */
+const FIGURE_ASSET_REQUIREMENTS = { allOf: [GLB_ASSET_REQUIREMENTS, FLUXIMG_ASSET_REQUIREMENTS] };
 // A figure-family definition (figfamily.ts) — custom families persisted in
 // fig/index.json `families` (rolled up to project.json `figureFamilies`).
 const FAMILY_DEF = {
@@ -420,10 +504,10 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
         items: {
           type: "object",
           required: ["id", "kind"],
-          ...GLB_ASSET_REQUIREMENTS,
+          ...FIGURE_ASSET_REQUIREMENTS,
           properties: {
             id: { type: "string" },
-            kind: { type: "string", enum: ["png", "svg", "glb"] },
+            kind: { type: "string", enum: ["png", "svg", "glb", "fluximg"] },
             path: { type: "string" },
             name: { type: "string" },
             naturalWidth: { type: "number" },
@@ -472,7 +556,7 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
         items: { type: "object", required: ["id", "name"], properties: { id: { type: "string" }, name: { type: "string" } } },
       },
       figures: { type: "array", items: { $ref: "#/definitions/figure" } },
-      assets: { type: "array", items: { type: "object", required: ["id", "kind"], ...GLB_ASSET_REQUIREMENTS } },
+      assets: { type: "array", items: { type: "object", required: ["id", "kind"], ...FIGURE_ASSET_REQUIREMENTS } },
       palette: { type: "array" },
       colorGroups: COLOR_GROUPS,
       textStyles: TEXT_STYLES,
@@ -697,7 +781,7 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
       },
     },
     definitions: {
-      element: { oneOf: [...ELEMENT_DEF.oneOf, elementBranch("video", ["assetId", "posterAssetId", "durationMs"], {
+      element: { oneOf: [...ELEMENT_DEF.oneOf.filter((branch) => branch !== FLUXIMG_BRANCH), elementBranch("video", ["assetId", "posterAssetId", "durationMs"], {
         assetId: { type: "string", pattern: "[\\s\\S]" }, posterAssetId: { type: "string", pattern: "[\\s\\S]" },
         durationMs: { type: "number", exclusiveMinimum: 0 }, muted: { type: "boolean" }, loop: { type: "boolean" },
       })] },

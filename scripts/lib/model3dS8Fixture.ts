@@ -6,7 +6,7 @@ import { verifyPublicS8Fixture } from './model3dS8PublicFixture.mjs';
 import { model3dScaleFixtures } from './model3dScaleFixture.mjs';
 import { prepareModel3dImport, makeImportedModel3dElement } from '../../src/lib/model3d/importData';
 import { scene3dSidecarWrites } from '../../src/lib/model3d/persistence';
-import { FIG_INDEX_SCHEMA_VERSION, CANVAS_MODEL3D_SCHEMA_VERSION } from '../../src/lib/project/types';
+import { FIG_INDEX_MODEL3D_SCHEMA_VERSION as FIG_INDEX_SCHEMA_VERSION, CANVAS_MODEL3D_SCHEMA_VERSION } from '../../src/lib/project/types';
 const [source, destination] = process.argv.slice(2), scratch = process.env.MODEL3D_NATIVE_SCRATCH;
 if (!scratch || !path.resolve(scratch).startsWith(os.tmpdir() + path.sep) || !path.resolve(destination ?? '').startsWith(path.resolve(scratch) + path.sep)) throw Error('Owned scratch S8 destination required');
 const provenance = await verifyPublicS8Fixture(source);

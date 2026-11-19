@@ -9,7 +9,11 @@
 import type { Deck } from "./types";
 import type { Element } from "../types";
 import { DECK_BASE_SCHEMA_VERSION, DECK_SCHEMA_VERSION } from "./types";
-import { CANVAS_MODEL3D_SCHEMA_VERSION, CANVAS_SCHEMA_VERSION, LEGACY_FIG_SCHEMA_VERSION } from "../project/types";
+import type { Asset } from "../types";
+import {
+  CANVAS_ATTACH_SCHEMA_VERSION, CANVAS_FLUXIMG_SCHEMA_VERSION, CANVAS_MODEL3D_SCHEMA_VERSION, FIG_INDEX_FLUXIMG_SCHEMA_VERSION,
+  FIG_INDEX_MODEL3D_SCHEMA_VERSION, LEGACY_FIG_SCHEMA_VERSION,
+} from "../project/types";
 import { hasAttach } from "./attach";
 
 /** A file feature that needs a newer format: its name (for diagnostics and gates), the version a file holding it is written as, and its test. */
@@ -27,7 +31,15 @@ export const DECK_FEATURES: SchemaFeature<Deck>[] = [
 export const CANVAS_FEATURES: SchemaFeature<readonly Element[]>[] = [
   { name: "model3d", version: CANVAS_MODEL3D_SCHEMA_VERSION, has: (els) => els.some((e) => e.type === "model3d") },
   // an older Figure editor would move a box and leave its attached connector behind (and drop the field on save)
-  { name: "attach", version: CANVAS_SCHEMA_VERSION, has: (els) => els.some(hasAttach) },
+  { name: "attach", version: CANVAS_ATTACH_SCHEMA_VERSION, has: (els) => els.some(hasAttach) },
+  // fluximg stage 1: an older build's validator rejects the element kind (and so the whole canvas)
+  { name: "fluximg", version: CANVAS_FLUXIMG_SCHEMA_VERSION, has: (els) => els.some((e) => e.type === "fluximg") },
+];
+/** fig/index.json features, over its registered assets. Registered by: model3d (0.2.0), fluximg (0.3.0). */
+export const INDEX_FEATURES: SchemaFeature<readonly Pick<Asset, "kind">[]>[] = [
+  { name: "model3d", version: FIG_INDEX_MODEL3D_SCHEMA_VERSION, has: (assets) => assets.some((a) => a.kind === "glb") },
+  // an older build coerces an unknown asset kind to svg, then tries to read a directory as an SVG file
+  { name: "fluximg", version: FIG_INDEX_FLUXIMG_SCHEMA_VERSION, has: (assets) => assets.some((a) => a.kind === "fluximg") },
 ];
 
 /** Numeric x.y.z order (a missing or garbled part reads 0). */
@@ -42,6 +54,10 @@ const stamp = <T>(base: string, subject: T, features: readonly SchemaFeature<T>[
 /** The version a deck is written as: the base, raised by every registered feature it holds. Never above DECK_SCHEMA_VERSION. */
 export function deckSchemaFor(deck: Deck, features: readonly SchemaFeature<Deck>[] = DECK_FEATURES): string {
   return stamp(DECK_BASE_SCHEMA_VERSION, deck, features);
+}
+/** The version fig/index.json is written as, from its registered assets. */
+export function indexSchemaFor(assets: readonly Pick<Asset, "kind">[], features: readonly SchemaFeature<readonly Pick<Asset, "kind">[]>[] = INDEX_FEATURES): string {
+  return stamp(LEGACY_FIG_SCHEMA_VERSION, assets, features);
 }
 /** The version a canvas is written as, from the elements of every figure on it. */
 export function canvasSchemaFor(elements: readonly Element[], features: readonly SchemaFeature<readonly Element[]>[] = CANVAS_FEATURES): string {

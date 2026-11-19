@@ -1,7 +1,7 @@
 #!/usr/bin/env -S npx tsx
 // WP 3.0 (manim study, FINAL_PLAN ruling X3): content-derived schema stamps. A deck is written as 0.7.0 only while it holds a feature an
-// older build would break on, a canvas as 0.3.0 likewise (0.2.0 for a 3D model, 0.1.0 legacy); everything else keeps its bytes. The read
-// guards understand 0.7.0 / 0.3.0 and refuse anything newer.
+// older build would break on, a canvas as 0.3.0 likewise (0.4.0 for a fluximg, 0.2.0 for a 3D model, 0.1.0 legacy; the index 0.3.0 / 0.2.0 for fluximg / GLB assets); everything else keeps its bytes. The read
+// guards understand 0.7.0 / 0.4.0 / index 0.3.0 and refuse anything newer.
 //   npx tsx scripts/verify-schema-stamp.ts
 import { promises as fs, readFileSync, readdirSync, statSync } from "node:fs";
 import * as path from "node:path";
@@ -10,8 +10,9 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { harness } from "./lib/harness.mjs";
 import { DECK_SCHEMA_VERSION, DECK_BASE_SCHEMA_VERSION, type Deck } from "../src/lib/slide/types";
-import { DECK_FEATURES, CANVAS_FEATURES, deckSchemaFor, canvasSchemaFor, compareSchema, supportsDeckSchema, DECK_EDITABLE, type SchemaFeature } from "../src/lib/slide/schemaStamp";
-import { CANVAS_SCHEMA_VERSION, CANVAS_MODEL3D_SCHEMA_VERSION, LEGACY_FIG_SCHEMA_VERSION, isNewerSchema } from "../src/lib/project/types";
+import { DECK_FEATURES, CANVAS_FEATURES, INDEX_FEATURES, deckSchemaFor, canvasSchemaFor, indexSchemaFor, compareSchema, supportsDeckSchema, DECK_EDITABLE, type SchemaFeature } from "../src/lib/slide/schemaStamp";
+import { CANVAS_SCHEMA_VERSION, CANVAS_MODEL3D_SCHEMA_VERSION, CANVAS_ATTACH_SCHEMA_VERSION, CANVAS_FLUXIMG_SCHEMA_VERSION, FIG_INDEX_SCHEMA_VERSION, FIG_INDEX_MODEL3D_SCHEMA_VERSION, FIG_INDEX_FLUXIMG_SCHEMA_VERSION, LEGACY_FIG_SCHEMA_VERSION, isNewerSchema } from "../src/lib/project/types";
+import type { Asset } from "../src/lib/types";
 import { createDeck, migrateDeck, addSlideText } from "../src/lib/slide/ops";
 import { validateDeckFile } from "../src/lib/project/validate";
 import { scaffold } from "../flux-core/index";
@@ -24,7 +25,8 @@ const twin = require("../electron/deckSchemaSupport.cjs") as { DECK_EDITABLE: Re
 
 h.section("constants and the pure stamp");
 h.ok(DECK_SCHEMA_VERSION === "0.7.0" && DECK_BASE_SCHEMA_VERSION === "0.6.0", "decks: read 0.7.0, write 0.6.0 unless a feature says otherwise");
-h.ok(CANVAS_SCHEMA_VERSION === "0.3.0" && CANVAS_MODEL3D_SCHEMA_VERSION === "0.2.0" && LEGACY_FIG_SCHEMA_VERSION === "0.1.0", "canvases: read 0.3.0, write 0.2.0 for a 3D model, 0.1.0 otherwise");
+h.ok(CANVAS_SCHEMA_VERSION === "0.4.0" && CANVAS_FLUXIMG_SCHEMA_VERSION === "0.4.0" && CANVAS_ATTACH_SCHEMA_VERSION === "0.3.0" && CANVAS_MODEL3D_SCHEMA_VERSION === "0.2.0" && LEGACY_FIG_SCHEMA_VERSION === "0.1.0", "canvases: read 0.4.0, write 0.4.0 for a fluximg, 0.3.0 for an attachment, 0.2.0 for a 3D model, 0.1.0 otherwise");
+h.ok(FIG_INDEX_SCHEMA_VERSION === "0.3.0" && FIG_INDEX_FLUXIMG_SCHEMA_VERSION === "0.3.0" && FIG_INDEX_MODEL3D_SCHEMA_VERSION === "0.2.0", "fig/index.json: read 0.3.0, write 0.3.0 with a fluximg asset, 0.2.0 with a GLB, 0.1.0 otherwise");
 h.ok(compareSchema("0.7.0", "0.6.0") > 0 && compareSchema("0.6.0", "0.6.0") === 0 && compareSchema("0.10.0", "0.9.0") > 0, "versions compare numerically (0.10 > 0.9)");
 const deck = createDeck({ id: "d", title: "plain" });
 h.ok(deck.schemaVersion === DECK_BASE_SCHEMA_VERSION && deckSchemaFor(deck) === DECK_BASE_SCHEMA_VERSION, "createDeck writes the base format, and a featureless deck stamps it");
@@ -33,9 +35,13 @@ h.ok(deckSchemaFor({ ...deck, title: "has [marker]" }, [marker]) === "0.7.0" && 
 h.ok(deckSchemaFor({ ...deck, title: "has [marker]" }, [{ ...marker, version: "0.5.0" }]) === "0.6.0", "a feature never LOWERS the stamp below the base");
 for (const v of ["0.2.0", "0.3.0", "0.4.0", "0.5.0"]) h.ok(migrateDeck({ ...structuredClone(deck), schemaVersion: v }).schemaVersion === DECK_BASE_SCHEMA_VERSION, `migrateDeck stamps ${v} up to the base format`);
 h.ok(migrateDeck({ ...structuredClone(deck), schemaVersion: "0.7.0" }).schemaVersion === "0.7.0", "migrateDeck leaves a 0.7.0 deck alone (its migration-source regex is unchanged)");
-h.ok(DECK_FEATURES.every((f) => compareSchema(f.version, DECK_SCHEMA_VERSION) <= 0) && CANVAS_FEATURES.every((f) => compareSchema(f.version, CANVAS_SCHEMA_VERSION) <= 0), "no registered feature stamps above what this build reads");
+h.ok(DECK_FEATURES.every((f) => compareSchema(f.version, DECK_SCHEMA_VERSION) <= 0) && CANVAS_FEATURES.every((f) => compareSchema(f.version, CANVAS_SCHEMA_VERSION) <= 0) && INDEX_FEATURES.every((f) => compareSchema(f.version, FIG_INDEX_SCHEMA_VERSION) <= 0), "no registered feature stamps above what this build reads");
 const els = (types: string[]) => types.map((type, i) => ({ id: `e${i}`, type }) as unknown as Element);
 h.ok(canvasSchemaFor(els(["rect", "text"])) === "0.1.0" && canvasSchemaFor(els(["rect", "model3d"])) === "0.2.0" && canvasSchemaFor([]) === "0.1.0", "canvases stamp by content: legacy 0.1.0, a 3D model 0.2.0");
+h.ok(canvasSchemaFor(els(["rect", "fluximg"])) === "0.4.0" && canvasSchemaFor(els(["model3d", "fluximg"])) === "0.4.0" && canvasSchemaFor(els(["image"])) === "0.1.0", "a fluximg element stamps its canvas 0.4.0; an image does not");
+const kinds = (ks: Asset["kind"][]) => ks.map((kind) => ({ kind }));
+h.ok(indexSchemaFor(kinds(["png", "svg"])) === "0.1.0" && indexSchemaFor(kinds(["glb"])) === "0.2.0" && indexSchemaFor(kinds(["png", "fluximg"])) === "0.3.0" && indexSchemaFor(kinds(["glb", "fluximg"])) === "0.3.0" && indexSchemaFor([]) === "0.1.0", "the index stamps by its assets: legacy 0.1.0, a GLB 0.2.0, a fluximg 0.3.0");
+h.ok(isNewerSchema("0.4.0", "0.3.0") && isNewerSchema("0.3.0", "0.2.0"), "a build before fluximg (canvas 0.3.0, index 0.2.0) refuses both new stamps");
 
 h.section("accept checks: one regex, its CommonJS twin");
 h.ok(String(DECK_EDITABLE) === String(twin.DECK_EDITABLE), "electron/deckSchemaSupport.cjs is the same regex as schemaStamp.ts DECK_EDITABLE");

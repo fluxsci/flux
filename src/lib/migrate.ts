@@ -50,6 +50,7 @@ export function migrateProject(p: Project): Project {
           el.source = { svgPath: asset?.path ?? "" };
         }
       }
+      if (e.type === "fluximg") { migrateFluximg(e as unknown as Record<string, unknown>); continue; }
       if (e.type !== "text") continue;
       const legacy = e as unknown as { autoWidth?: boolean; sizing?: unknown };
       if (legacy.sizing !== "auto" && legacy.sizing !== "auto-h" && legacy.sizing !== "fixed") {
@@ -82,6 +83,21 @@ export function migrateProject(p: Project): Project {
   if (!Array.isArray(p.textStyles)) p.textStyles = structuredClone(DEFAULT_TEXT_STYLES);
   (p as { version: number }).version = 2;
   return p;
+}
+
+const isPlainObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+const finite = (v: unknown): boolean => typeof v === "number" && Number.isFinite(v);
+/** Lenient load of a fluximg element (stage 1). A missing `view` is the default view, so a `view`, `crop` or `source`
+ *  whose CONTAINER is garbage (null, an array, a crop of no area, a source without its bundle path) is dropped rather
+ *  than failing the whole canvas: each falls back to its default and nothing the user authored is lost. A well-formed
+ *  object is never rewritten (byte stability), and its fields stay strictly typed by the load-gate schema. */
+function migrateFluximg(e: Record<string, unknown>): void {
+  if ("view" in e && !isPlainObject(e.view)) delete e.view;
+  if ("crop" in e) {
+    const c = e.crop;
+    if (!isPlainObject(c) || ![c.x, c.y, c.width, c.height].every(finite) || !((c.width as number) > 0 && (c.height as number) > 0)) delete e.crop;
+  }
+  if ("source" in e && !(isPlainObject(e.source) && typeof e.source.bundlePath === "string" && e.source.bundlePath)) delete e.source;
 }
 
 /** Per-figure hints from a fig/index.json written before (or alongside) the

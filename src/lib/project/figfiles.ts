@@ -20,8 +20,8 @@
 // ---------------------------------------------------------------------------
 
 import type { Project, Figure, Asset, TextStyle, FigureFamilyDef } from "../types";
-import { FIG_INDEX_SCHEMA_VERSION, CANVAS_SCHEMA_VERSION, LEGACY_FIG_SCHEMA_VERSION } from "./types";
-import { canvasSchemaFor } from "../slide/schemaStamp";
+import { FIG_INDEX_SCHEMA_VERSION, CANVAS_SCHEMA_VERSION } from "./types";
+import { canvasSchemaFor, indexSchemaFor } from "../slide/schemaStamp";
 import { hasAttach, settleAttachments } from "../slide/attach";
 const settled = <T extends Parameters<typeof settleAttachments>[0]>(els: T): T => { settleAttachments(els); return els; };
 import { composeCaption } from "../captions";
@@ -60,8 +60,10 @@ export interface FigIndexFigure {
 }
 export interface FigIndexAsset {
   id: string;
-  kind: "png" | "svg" | "glb";
+  kind: "png" | "svg" | "glb" | "fluximg";
   sha256?: string; bytes?: number; model?: Asset["model"];
+  /** fluximg: the manifest digest (`sha256` / `bytes` above are the bundle's content id and size; `path` is its directory). */
+  fluximg?: Asset["fluximg"];
   path: string;
   name: string;
   naturalWidth: number;
@@ -113,8 +115,10 @@ export function normalizeIndexAssets(index: FigIndexFile | null): Asset[] {
   return (index?.assets ?? []).map((a) => ({
     id: a.id ?? "",
     name: a.name ?? a.id ?? "",
-    kind: a.kind === "glb" ? "glb" : a.kind === "png" ? "png" : "svg",
+    // Every kind that is not a known non-svg kind reads as svg (legacy indexes); a fluximg must survive by name.
+    kind: a.kind === "glb" ? "glb" : a.kind === "fluximg" ? "fluximg" : a.kind === "png" ? "png" : "svg",
     ...(a.kind === "glb" ? { sha256: a.sha256, bytes: a.bytes, model: a.model } : {}),
+    ...(a.kind === "fluximg" ? { sha256: a.sha256, bytes: a.bytes, fluximg: a.fluximg } : {}),
     path: a.path ?? "",
     naturalWidth: a.naturalWidth ?? 0,
     naturalHeight: a.naturalHeight ?? 0,
@@ -249,7 +253,8 @@ export function planFigSave(model: Project, prev: FigIndexFile | null, previousF
   const oldAssets=new Map(prev?.assets?.map(a=>[a.id,a]));
   const index: FigIndexFile = {
     ...prev,
-    schemaVersion: model.assets.some(a => a.kind === "glb") ? FIG_INDEX_SCHEMA_VERSION : LEGACY_FIG_SCHEMA_VERSION,
+    // Stamped by content (T25): 0.3.0 with a fluximg asset, 0.2.0 with a GLB, else the legacy bytes stay pinned.
+    schemaVersion: indexSchemaFor(model.assets),
     canvases: canvases.map((c, i) => ({ ...oldCanvases.get(c.id), id: c.id, name: c.name, order: i + 1 })),
     figures: model.figures.map((f, i) => {
       const ident = identity(f);
@@ -273,11 +278,12 @@ export function planFigSave(model: Project, prev: FigIndexFile | null, previousF
         caption: captionById.get(f.id) ?? "",
       };
     }),
-    assets: model.assets.filter((a): a is typeof a & { kind: "png" | "svg" | "glb" } => a.kind !== "mp4").map((a) => ({
+    assets: model.assets.filter((a): a is typeof a & { kind: FigIndexAsset["kind"] } => a.kind !== "mp4").map((a) => ({
       ...oldAssets.get(a.id),
       id: a.id,
       kind: a.kind,
       ...(a.kind === "glb" ? { sha256: a.sha256, bytes: a.bytes, model: a.model } : {}),
+      ...(a.kind === "fluximg" ? { sha256: a.sha256, bytes: a.bytes, fluximg: a.fluximg } : {}),
       path: a.path,
       name: a.name,
       naturalWidth: a.naturalWidth,
