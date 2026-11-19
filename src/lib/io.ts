@@ -10,6 +10,7 @@ import { prepareModelCopy, publishModelCopy } from './model3d/copy';
 import { elementSourceAssetIds } from "./model3d/refs";
 import { storedAssetPath } from './project/assetPath';
 import type { Model3dElement, Scene3dManifest } from './model3d/types';
+import type { FluximgElement } from "./fluximg/element";
 import { storeTenant } from "./tenancy";
 import { svgIntrinsicSize } from "./plot/svgGeometry";
 import { applySourceUpdates } from "./plot/sourceSync";
@@ -134,7 +135,7 @@ function kindOf(name: string): "png" | "svg" {
 // px (96/inch) — placement must never rescale them (see placeIncoming).
 export interface Incoming {
   asset: Asset;
-  el: ImageElement | SemanticPlotElement | VideoElement | Model3dElement;
+  el: ImageElement | SemanticPlotElement | VideoElement | Model3dElement | FluximgElement;
   /** Already-prepared dependent assets, e.g. a video's PNG poster. */
   extraAssets?: Asset[];
   /** Prepared bytes remain private until the destination is checked. */
@@ -293,14 +294,43 @@ async function buildIncoming(
   } };
 }
 
+// Image bundles (fluximg) are FOLDERS. A file dialog cannot pick a folder on Linux or Windows, so the Import dialog
+// offers the bundle's own manifest: choosing `cells.fluximg/fluximg.json` imports `cells.fluximg` (the dialog's
+// approval of that folder is what lets the file side read it).
+const FLUXIMG_MANIFEST_PICK = /[\\/]([^\\/]+\.fluximg)[\\/]fluximg\.json$/i;
+/** True for a path naming an image bundle folder (`…/cells.fluximg`). */
+export const isFluximgPath = (p: string): boolean => /[^\\/]\.fluximg[\\/]*$/i.test(p);
+/** A picked bundle manifest stands for its bundle; every other path is itself. */
+export const pickedBundlePath = (p: string): string => (FLUXIMG_MANIFEST_PICK.test(p) ? p.replace(/[\\/]fluximg\.json$/i, "") : p);
+
 export async function importAssets() {
   const canPlace = importDestination();
   const owner = get(project), figure = get(activeFigureId), tenant = storeTenant();
   const sameInsertion = () => get(project) === owner && get(activeFigureId) === figure && storeTenant() === tenant;
   try {
-    let paths = await window.fig.openFiles([{ name: storeTenant() === "figure" ? "Images and 3D models" : "Images", extensions: storeTenant() === "figure" ? ["png", "svg", "glb"] : ["png", "svg"] }]);
+    const figureFilters = [
+      { name: "Images, 3D models and image bundles", extensions: ["png", "svg", "glb", "json"] },
+      { name: "Image bundle (choose fluximg.json inside the .fluximg folder)", extensions: ["json"] },
+    ];
+    let paths = await window.fig.openFiles(storeTenant() === "figure" ? figureFilters : [{ name: "Images", extensions: ["png", "svg"] }]);
+    paths = paths?.map(pickedBundlePath) ?? paths;
     if (paths?.length) {
       if (!canPlace()) throw new Error("The insertion destination changed");
+      if (paths.some(isFluximgPath)) {
+        const fluximg = await import("./fluximg/import");
+        if (!canPlace()) throw new Error("The insertion destination changed");
+        const rootless = !fluximg.fluximgImportRoot();
+        await fluximg.ensureFluximgImportRoot();
+        if (!sameInsertion()) throw new Error("The insertion destination changed");
+        if (rootless) {
+          // Saving adopts a root and clears the dialog's read approvals: ask again (as for a 3D model).
+          pushToast("info", "Project saved. Choose the files to import.");
+          const savedDestination = importDestination();
+          paths = (await window.fig.openFiles(figureFilters))?.map(pickedBundlePath) ?? null;
+          if (!savedDestination()) throw new Error("The insertion destination changed");
+          if (!paths?.length) return;
+        }
+      }
       if (paths.some(path => /\.glb$/i.test(path))) {
         const model = await import('./model3d/import');
         if (!canPlace()) throw new Error('The insertion destination changed');
@@ -327,7 +357,8 @@ export async function importAssets() {
  * manifests/recipes and physical size. The caller owns placement/undo. */
 export async function readIncomingPlot(absPath: string): Promise<Incoming> {
   if (/\.glb$/i.test(absPath)) return (await import('./model3d/import')).readIncomingModel3d(absPath);
-  if (!/\.(png|svg)$/i.test(absPath)) throw new Error("Choose a PNG image, SVG plot or GLB model. Video clips can be inserted from the Slide gallery.");
+  if (isFluximgPath(pickedBundlePath(absPath))) return (await import("./fluximg/import")).readIncomingFluximg(pickedBundlePath(absPath));
+  if (!/\.(png|svg)$/i.test(absPath)) throw new Error(/\.json$/i.test(absPath) ? "Choose the fluximg.json inside a .fluximg image bundle, or a PNG image, SVG plot or GLB model." : "Choose a PNG image, SVG plot or GLB model. Video clips can be inserted from the Slide gallery.");
   const sameDestination = importDestination();
   const bytes = new Uint8Array(await window.fig.readFile(absPath));
   const incoming = await buildIncoming(basename(absPath), bytes, await resolveSiblingsFromFs(absPath));
@@ -349,6 +380,14 @@ export interface PlaceAt { x: number; y: number; fx?: number; fy?: number }
 export async function importPlotsFromPaths(absPaths: string[], canPlace: () => boolean = () => true,
   read: (path: string) => Promise<Incoming> = readIncomingPlot, opts: { at?: PlaceAt } = {}) {
   if (!window.fig || !absPaths.length) return 0;
+  if (absPaths.some(path => isFluximgPath(pickedBundlePath(path)))) {
+    // Stage 1 keeps image bundles out of Slides: refuse before anything is copied, then make sure there is a
+    // project folder to copy into (an unsaved project is saved first, as for a 3D model).
+    const originalDestination = importDestination(), fluximg = await import("./fluximg/import");
+    fluximg.assertFluximgDestination();
+    if (!originalDestination() || !canPlace()) throw new Error("The insertion destination changed");
+    await fluximg.ensureFluximgImportRoot();
+  }
   if (absPaths.some(path => /\.glb$/i.test(path))) {
     const originalDestination = importDestination(), model = await import('./model3d/import');
     if (!originalDestination() || !canPlace()) throw new Error('The insertion destination changed');
@@ -382,7 +421,7 @@ export async function importPlotsFromPaths(absPaths: string[], canPlace: () => b
   return incoming.length;
   } finally {
     if (!placed) for (const item of incoming) if (item.discard) {
-      try { await item.discard(); } catch (error) { pushToast('error', 'Cancelled 3D import could not be cleaned up', { detail: errMsg(error) }); }
+      try { await item.discard(); } catch (error) { pushToast('error', 'Cancelled import could not be cleaned up', { detail: errMsg(error) }); }
     }
   }
 }
@@ -441,6 +480,21 @@ export async function archivePastedImage(file: File, name: string): Promise<void
 // base name → it imports as a semantic plot. (Drops are sandboxed Files with no
 // filesystem path, so we can only pair what was dropped together.)
 export async function importDroppedFiles(files: File[], figId: string) {
+  // A bundle FOLDER dropped from the file manager arrives as a File named `x.fluximg` (its path is the preload's).
+  const bundles = files.filter(file => isFluximgPath(file.name || ""));
+  if (bundles.length) {
+    const originalDestination = importDestination();
+    try {
+      const fluximg = await import("./fluximg/import");
+      fluximg.assertFluximgDestination();
+      if (!originalDestination()) throw new Error("The insertion destination changed");
+      await fluximg.ensureFluximgImportRoot();
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") return;
+      if (bundles.length === files.length) { pushToast("info", errMsg(error)); return; }
+      throw error;
+    }
+  }
   if (files.some(file => /\.glb$/i.test(file.name))) {
     const originalDestination = importDestination();
     try {
@@ -463,11 +517,11 @@ export async function importDroppedFiles(files: File[], figId: string) {
     else if (n.endsWith(".snip.json")) snips.set(f.name.slice(0, -".snip.json".length), f);
   }
   const accepted = all.filter(
-    (f) => /\.(png|svg|glb)$/i.test(f.name || "") || /(png|svg)/i.test(f.type),
+    (f) => /\.(png|svg|glb)$/i.test(f.name || "") || /(png|svg)/i.test(f.type) || isFluximgPath(f.name || ""),
   );
   if (!accepted.length) {
     // A dropped JPEG/PDF/TIFF/… previously did NOTHING — say why (no silent failures).
-    pushToast("info", storeTenant() === "figure" ? "Only PNG/SVG/GLB can be imported here" : "Only PNG/SVG can be imported here");
+    pushToast("info", storeTenant() === "figure" ? "Only PNG/SVG/GLB files and .fluximg image bundles can be imported here" : "Only PNG/SVG can be imported here");
     return;
   }
   const incoming: Incoming[] = [];
@@ -477,6 +531,10 @@ export async function importDroppedFiles(files: File[], figId: string) {
     try {
     if (/\.glb$/i.test(file.name)) {
       incoming.push(await (await import('./model3d/import')).readDroppedModel3d(file, figId));
+      continue;
+    }
+    if (isFluximgPath(file.name || "")) {
+      incoming.push(await (await import("./fluximg/import")).readDroppedFluximg(file, figId));
       continue;
     }
     const bytes = new Uint8Array(await file.arrayBuffer());
@@ -506,7 +564,7 @@ export async function importDroppedFiles(files: File[], figId: string) {
   if (failures.length) pushToast("error", "Some files could not be imported", { detail: failures.join("\n") });
   } finally {
     if (!placed) for (const item of incoming) if (item.discard) {
-      try { await item.discard(); } catch (error) { pushToast('error', 'Cancelled 3D import could not be cleaned up', { detail: errMsg(error) }); }
+      try { await item.discard(); } catch (error) { pushToast('error', 'Cancelled import could not be cleaned up', { detail: errMsg(error) }); }
     }
   }
 }

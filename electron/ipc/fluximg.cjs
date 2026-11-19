@@ -25,6 +25,13 @@ function createFluximgCore({ rootFor, generationFor = rootFor, fsReadGuard }) {
       // Only the named fields cross: never a renderer-chosen limit or option.
       return fluximgFiles.importBundle({ root, sourcePath: request.sourcePath, assetId: request.assetId, checkCurrent, readGuard });
     });
+    ipcMain.handle("fluximg:importDropped", async (e, request) => {
+      const { root, checkCurrent } = bind(e, request);
+      // Only importDroppedFluximg(File) in the isolated preload reaches this channel, and it takes the path from the
+      // dropped File (webUtils), never from the page: the user's drop is the read capability, as for
+      // model3d:importDropped. Everything else (limits, containment, copy, content id) is importBundle's.
+      return fluximgFiles.importBundle({ root, sourcePath: request.sourcePath, assetId: request.assetId, checkCurrent, readGuard: () => {} });
+    });
     ipcMain.handle("fluximg:read", async (e, request) => {
       const { root, checkCurrent, readGuard } = bind(e, request);
       const bytes = await fluximgFiles.readRange({ root, bundle: request.bundle, path: request.path, offset: request.offset, length: request.length, readGuard });

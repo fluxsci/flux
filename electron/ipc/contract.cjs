@@ -186,6 +186,7 @@ const CHANNELS = [
   { channel: "fluximg:import", kind: "invoke", scope: "write" },
   { channel: "fluximg:read", kind: "invoke", scope: "read" },
   { channel: "fluximg:discard", kind: "invoke", scope: "write" },
+  { channel: "fluximg:importDropped", kind: "invoke", scope: "write" },
   // --- fonts (text ↔ shape letter outlines) ------------------------------------
   { channel: "fonts:lookup", kind: "invoke", scope: "read" },
   // --- the Plots rail (listing, header probes, thumbnails, dissection counts) --------------

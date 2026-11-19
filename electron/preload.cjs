@@ -19,6 +19,14 @@ contextBridge.exposeInMainWorld("fig", {
   importFluximg: (request) => ipcRenderer.invoke("fluximg:import", request),
   readFluximg: (request) => ipcRenderer.invoke("fluximg:read", request),
   discardFluximg: (request) => ipcRenderer.invoke("fluximg:discard", request),
+  importDroppedFluximg: (file, request) => {
+    // A bundle FOLDER dropped from the file manager. As for importDroppedModel3d, the path comes from the dropped
+    // File itself (a page-constructed File has none), never from a caller; it is returned with the result so the
+    // placed image can record where it came from.
+    const sourcePath = webUtils.getPathForFile(file);
+    if (!sourcePath) return Promise.reject(new Error("Drop a .fluximg folder from your file manager"));
+    return ipcRenderer.invoke("fluximg:importDropped", { root: request.root, assetId: request.assetId, sourcePath }).then((result) => ({ ...result, sourcePath }));
+  },
   fontLookup: (request) => ipcRenderer.invoke("fonts:lookup", request),
   rasterizeFigure: (request) => ipcRenderer.invoke("figure:rasterize", request),
   cancelFigureRaster: (rid) => ipcRenderer.invoke("figure:cancelRaster", rid),
