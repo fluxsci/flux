@@ -22,6 +22,8 @@ import * as ops from "../src/lib/ops";
 import { atomicWrite } from "./fsx";
 import { requireProject, projectAssetPath, safeJoin, readFigIndex, readCanvasFiles } from "./model";
 import { scanAbsurdPathCoords } from "./coordscan";
+import { fluximgRenderSession, resolveFluximgContext, type FluximgRenderSession } from "./fluximgRender";
+import { visibleFluximgElements, type FluximgSvgContext } from "../src/lib/fluximg/exportStatic";
 
 import { figureImageAssetIds } from "../src/lib/project/figureAssets";
 export { figureImageAssetIds } from "../src/lib/project/figureAssets";
@@ -94,7 +96,7 @@ export interface Model3dRenderOptions {
   warnings?: string[];
   signal?: AbortSignal;
 }
-interface LoadedRender { index: FigIndexFile; byId: Record<string, Figure>; assets: Asset[]; models?: ResolvedModelPosters }
+interface LoadedRender { index: FigIndexFile; byId: Record<string, Figure>; assets: Asset[]; models?: ResolvedModelPosters; fluximg?: FluximgRenderSession }
 async function loadRender(root: string): Promise<LoadedRender> {
   await requireProject(root);
   const index = await readFigIndex(root);
@@ -116,7 +118,12 @@ export async function renderFigureSvg(
     policy: opts.model3dPolicy ?? 'image', surface: opts.posterSurface ?? 'figure', allFigures: Object.values(byId), signal: opts.signal,
   });
   if (!snapshot.models) opts.warnings?.push(...models.warnings);
-  return renderFigureSvgFromModel(fig, { ...figureRenderReaders(root, snapshot.assets), assets: snapshot.assets, models, ...opts });
+  // fluximg stills at the output's resolution (PNG: its dpi; SVG / PDF / renders: 300 dpi). Each bundle opens once
+  // per snapshot, so a canvas or a materialize run reads a shared image's manifest once.
+  const fluximg = await resolveFluximgContext(root, [fig], snapshot.assets, {
+    surface: opts.posterSurface ?? 'figure', warnings: opts.warnings, signal: opts.signal, session: snapshot.fluximg ??= fluximgRenderSession(),
+  });
+  return renderFigureSvgFromModel(fig, { ...figureRenderReaders(root, snapshot.assets), assets: snapshot.assets, models, fluximg, ...opts });
 }
 
 export interface FigureModelRenderContext {
@@ -124,6 +131,9 @@ export interface FigureModelRenderContext {
   readAsset: (id: string) => string | undefined | Promise<string | undefined>;
   readManifest: (assetId: string, element?: Figure["elements"][number]) => FluxPlotManifest | undefined | Promise<FluxPlotManifest | undefined>;
   models?: ResolvedModelPosters;
+  /** fluximg stills and layer files for this output (`fluximgRender.resolveFluximgContext`). Without it a fluximg
+   *  element draws its stand-in and the render warns. */
+  fluximg?: FluximgSvgContext;
   groupId?: string;
   onlyElement?: string;
   warnings?: string[];
@@ -228,10 +238,11 @@ export async function renderFigureSvgFromModel(fig: Figure, ctx: FigureModelRend
       if (markup) plotMarkup.set(el.id, markup);
     }
   }
-  // fluximg: wave 2 replaces this placeholder (a fluximg reaches export.ts elementToSvg's placeholder here; no bytes are read)
+  if (!ctx.fluximg && visibleFluximgElements([fig]).length)
+    ctx.warnings?.push(`figure "${fig.id}": its images (fluximg) were rendered without their pixels (no image context was prepared for this render)`);
   return figureToSvg(fig, aid => assetCache[aid], e => plotMarkup.get(e.id),
     aid => ops.assetDisplaySize(renderProject, aid) ?? undefined,
-    { ...opts, model3d: ctx.models?.context });
+    { ...opts, model3d: ctx.models?.context, fluximg: ctx.fluximg });
 }
 
 // --- Rasterization (resvg) runs OUT OF PROCESS. A pathological SVG can PANIC
