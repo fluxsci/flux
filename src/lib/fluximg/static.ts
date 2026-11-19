@@ -25,6 +25,27 @@ export interface FluximgStaticInput {
   /** The element is mirrored (by its own transform, outside this markup): words are un-mirrored here. */
   flipX?: boolean;
   flipY?: boolean;
+  /** Blow-outs of this element (other elements whose view says `insetOf` this one): each one's crop is outlined here. */
+  insets?: Array<{ id: string; crop: PixelRect }>;
+}
+
+/** The elements of a figure that are blow-outs of `parentId`, as what the parent needs to outline them. */
+export function insetsOf(elements: ReadonlyArray<{ id: string; type: string }>, parentId: string, assetId: string): Array<{ id: string; crop: PixelRect }> {
+  const out: Array<{ id: string; crop: PixelRect }> = [];
+  for (const el of elements) {
+    if (el.type !== "fluximg" || el.id === parentId) continue;
+    // Only fluximg elements carry these fields; the figure's element union is wider than this module knows.
+    const e = el as { id: string; assetId?: string; crop?: PixelRect; view?: { insetOf?: string } };
+    if (e.assetId !== assetId || e.view?.insetOf !== parentId || !e.crop) continue;
+    out.push({ id: e.id, crop: { x: e.crop.x, y: e.crop.y, width: e.crop.width, height: e.crop.height } });
+  }
+  return out;
+}
+
+/** The outlines of an element's blow-outs, in its box ("" when it has none in view). */
+export function insetsMarkup(insets: ReadonlyArray<{ id: string; crop: PixelRect }> | undefined, crop: PixelRect, box: { width: number; height: number }, idPrefix: string): string {
+  if (!insets?.length) return "";
+  return insets.map((i) => insetRectMarkup(i.crop, crop, box, `${idPrefix}${i.id.replace(/[^A-Za-z0-9_-]/g, "_")}-`)).join("");
 }
 
 /** The id prefix of everything a placed fluximg draws: unique per element, safe in an XML id. */
@@ -64,6 +85,8 @@ export function fluximgStaticSvg(input: FluximgStaticInput): string {
     if (!layer || text === undefined || layer.kind === "intensity") continue;
     out.push(layerMarkup(layer, text, lv, crop, box, idPrefix));
   }
+
+  out.push(insetsMarkup(input.insets, crop, box, idPrefix));
 
   const words: string[] = [];
   const names = view.furniture.names;

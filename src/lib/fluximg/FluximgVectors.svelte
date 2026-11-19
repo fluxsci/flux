@@ -9,11 +9,11 @@
   import { fluximgLayerText, needLayerText } from "./store";
   import { layerMarkup, namesMarkup, objectIndex } from "./layers";
   import { furnitureSvg } from "./furniture";
-  import { layerSvgPath, unflipTransform } from "./static";
+  import { insetsMarkup, layerSvgPath, unflipTransform } from "./static";
   import type { FluximgManifest } from "./types";
   import type { PixelRect, ResolvedView } from "./view";
 
-  let { asset, manifest, view, crop, box, prefix, flipX = false, flipY = false }: {
+  let { asset, manifest, view, crop, box, prefix, flipX = false, flipY = false, insets = [] }: {
     asset: { id: string; path: string };
     manifest: FluximgManifest;
     view: ResolvedView;
@@ -23,6 +23,8 @@
     prefix: string;
     flipX?: boolean;
     flipY?: boolean;
+    /** Blow-outs of this element: each one's frame is outlined on it. */
+    insets?: Array<{ id: string; crop: PixelRect }>;
   } = $props();
 
   const objectLayers = $derived.by(() => {
@@ -78,4 +80,5 @@
 </script>
 
 {#each layers as layer (layer.id)}{@html layer.markup}{/each}
+{@html insetsMarkup(insets, crop, box, prefix)}
 {#if unflip}<g transform={unflip}>{@html names}{@html furniture}</g>{:else}{@html names}{@html furniture}{/if}

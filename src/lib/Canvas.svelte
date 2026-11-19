@@ -110,7 +110,7 @@
   import { plotManifests, plotGen, hasPlotDom, ensurePlotDom } from "./plot/store";
   import { model3dPosterRevision } from "./model3d/store";
   import { fluximgStillRevision } from "./fluximg/store";
-  import { fluximgLive, closeFluximgLive } from "./fluximg/live/session";
+  import { fluximgLive, closeFluximgLive, openFluximgLive, fluximgLiveUnavailable } from "./fluximg/live/session";
   import FluximgLiveOverlay from "./fluximg/live/FluximgLiveOverlay.svelte";
   import ElementView from "./Element.svelte";
   import ElementSlot from "./ElementSlot.svelte";
@@ -4528,6 +4528,14 @@
         return true;
       }
       requestModelOrbit(el.id);
+      return true;
+    }
+    // Double-clicking an image goes inside it: its live view (the same door R opens).
+    if (el.type === "fluximg" && unit.groupId === null && !e.shiftKey && !e.altKey) {
+      e.stopPropagation();
+      if (!$selection.has(el.id) || $selection.size !== 1) selection.set(new Set([el.id]));
+      const reason = fluximgLiveUnavailable(el.id);
+      if (reason) pushToast("info", reason); else openFluximgLive(el.id);
       return true;
     }
     if (el.type === "text" && unit.groupId === null) {

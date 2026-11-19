@@ -12,6 +12,7 @@
   import { fluximgBundle, fluximgManifests, fluximgService, needLuts, resolveLut } from "../store";
   import FluximgVectors from "../FluximgVectors.svelte";
   import { clampCrop } from "../still";
+  import { insetsOf } from "../static";
   import { contributingChannelIndices, describePosition, describeProjection, formatNumber, resolveView } from "../viewOps";
   import type { FluximgElement } from "../../types";
   import FluximgRail from "./FluximgRail.svelte";
@@ -27,6 +28,10 @@
   const crop = $derived(manifest ? clampCrop(manifest, element.crop) : null);
   const box = $derived({ width: element.width, height: element.height });
   const live = $derived($fluximgLive);
+  const insets = $derived.by(() => {
+    for (const f of $project.figures) if (f.elements.some((e) => e.id === element.id)) return insetsOf(f.elements, element.id, element.assetId);
+    return [];
+  });
 
   // --- geometry ---------------------------------------------------------------------------------
   const bw = $derived(element.width * zoom), bh = $derived(element.height * zoom);
@@ -277,7 +282,7 @@
   <canvas bind:this={canvas} class="gl" class:pixelated={!rv?.smooth} style={`left:${vis.x}px;top:${vis.y}px;width:${vis.w}px;height:${vis.h}px`}></canvas>
   {#if asset && manifest && rv && crop}
     <svg class="vec" width={bw} height={bh} viewBox={`0 0 ${box.width} ${box.height}`} preserveAspectRatio="none">
-      <FluximgVectors {asset} {manifest} view={rv} {crop} {box} {prefix} flipX={!!element.flipX} flipY={!!element.flipY} />
+      <FluximgVectors {asset} {manifest} view={rv} {crop} {box} {prefix} flipX={!!element.flipX} flipY={!!element.flipY} {insets} />
     </svg>
   {/if}
 </div>

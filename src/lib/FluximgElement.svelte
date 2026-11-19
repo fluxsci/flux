@@ -9,20 +9,30 @@
    * live view streams a gesture over this element the request waits, so decode workers serve the live view first.
    */
   import { tick, untrack } from "svelte";
-  import { project } from "./store";
+  import { project, viewport } from "./store";
   import { fluximgBundle, fluximgIdentity, fluximgIssues, fluximgManifests, fluximgService, fluximgStillRevision, needManifest } from "./fluximg/store";
   import FluximgVectors from "./fluximg/FluximgVectors.svelte";
   import { fluximgLive, fluximgLiveBusy } from "./fluximg/live/session";
   import { pixelKey, resolveView } from "./fluximg/viewOps";
   import { clampCrop, tieredStillSize } from "./fluximg/still";
   import { svgNum } from "./fluximg/layers";
-  import { PLACEHOLDER_FILL, fluximgIdPrefix } from "./fluximg/static";
+  import { PLACEHOLDER_FILL, fluximgIdPrefix, insetsOf } from "./fluximg/static";
   import type { FluximgElement } from "./types";
 
   let { element }: { element: FluximgElement } = $props();
 
-  /** Still pixels per canvas pixel at rest: sharp up to 2x zoom (or a 2x display at 1x); beyond that the detail tier. */
+  /** Still pixels per canvas pixel at rest: sharp up to 2x zoom (or a 2x display at 1x). Zooming further in asks for
+   *  a denser still, one octave at a time, up to the image's own pixels. */
   const BASE_SCALE = 2;
+  // The density follows the zoom only once it has SETTLED: a zoom gesture must not order a still per wheel notch.
+  let density = $state(BASE_SCALE);
+  $effect(() => {
+    const need = $viewport.zoom * (typeof devicePixelRatio === "number" ? devicePixelRatio : 1);
+    const octave = need <= BASE_SCALE ? BASE_SCALE : Math.pow(2, Math.ceil(Math.log2(need)));
+    if (octave === density) return;
+    const timer = setTimeout(() => { density = octave; }, 260);
+    return () => clearTimeout(timer);
+  });
 
   const asset = $derived($project.assets.find((a) => a.id === element.assetId && a.kind === "fluximg"));
   const manifest = $derived(asset ? $fluximgManifests[asset.id] : undefined);
@@ -32,12 +42,19 @@
   const rv = $derived(manifest ? resolveView(manifest, element.view) : null);
   const crop = $derived(manifest ? clampCrop(manifest, element.crop) : null);
   const box = $derived({ width: element.width, height: element.height });
-  const size = $derived(crop ? tieredStillSize(crop, box, BASE_SCALE) : null);
+  const size = $derived(crop ? tieredStillSize(crop, box, density) : null);
   const key = $derived(asset && manifest && rv && crop && size ? `${fluximgIdentity(asset)}|${pixelKey(manifest, rv, crop, size.width, size.height)}` : "");
+  /** What the still LOOKS like, whatever its resolution: only a change of this is news for cached pictures of the scene. */
+  const look = $derived(key.replace(/;out=\d+x\d+/, ""));
   const prefix = $derived(fluximgIdPrefix(element.id));
+  // Blow-outs of this image elsewhere in its figure: their frames are outlined on it.
+  const insets = $derived.by(() => {
+    for (const f of $project.figures) if (f.elements.some((e) => e.id === element.id)) return insetsOf(f.elements, element.id, element.assetId);
+    return [];
+  });
 
   // --- the still -------------------------------------------------------------------------------
-  let shown = $state<{ href: string; key: string; native: boolean } | null>(null);
+  let shown = $state<{ href: string; key: string; look: string; native: boolean } | null>(null);
   let failed = $state("");
   // Each mounted copy asks in its own slot: a resize preview's twin must not cancel this one's request.
   const slot = `el:${Math.random().toString(36).slice(2)}`;
@@ -53,13 +70,15 @@
       bundle: fluximgBundle(asset), view: element.view ? structuredClone(element.view) : null,
       crop: { ...crop }, outWidth: size.width, outHeight: size.height, slot,
     }));
-    const native = size.native;
+    const native = size.native, wantedLook = look;
     fluximgService().still(wanted, request).then(
       (href) => {
         if (closed) return;
-        shown = { href, key: wanted, native }; failed = "";
-        // After the new pixels are in the DOM, any cached picture of the scene is out of date.
-        void tick().then(() => { if (!closed) fluximgStillRevision.update((n) => n + 1); });
+        const changed = untrack(() => shown?.look) !== wantedLook;
+        shown = { href, key: wanted, look: wantedLook, native }; failed = "";
+        // After different pixels are in the DOM, any cached picture of the scene is out of date. A sharper copy of
+        // the same picture is not news (it arrives because of a zoom, and must not retake the scene mid-view).
+        if (changed) void tick().then(() => { if (!closed) fluximgStillRevision.update((n) => n + 1); });
       },
       (error: unknown) => {
         if (closed) return;
@@ -103,6 +122,6 @@
     </g>
   {/if}
   {#if asset && manifest && rv && crop}
-    <FluximgVectors {asset} {manifest} view={rv} {crop} {box} {prefix} flipX={!!element.flipX} flipY={!!element.flipY} />
+    <FluximgVectors {asset} {manifest} view={rv} {crop} {box} {prefix} flipX={!!element.flipX} flipY={!!element.flipY} {insets} />
   {/if}
 </svg>
