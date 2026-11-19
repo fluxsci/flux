@@ -13,7 +13,7 @@ import { clampCrop, fullCrop } from "../still";
 import type { FluximgManifest } from "../types";
 import type { FluximgChannelView, FluximgFurnitureView, FluximgLayerView, FluximgProjectionMode, FluximgView, PixelRect, ResolvedView } from "../view";
 import { positionDims, resolveView } from "../viewOps";
-import { autoStepOf, autoWindow, histDomain, moveWindow, nudgeStep, sampleStepOf, sampleWindow, snapValue, sortedSample } from "./histogram";
+import { autoWindow, histDomain, moveWindow, nextAutoStep, nextSampleStep, nudgeStep, sampleWindow, snapValue, sortedSample } from "./histogram";
 import { framePeriod, playStep, resizeRun, slideRun, stepIndex, type PlayMode } from "./rail";
 import { WHEEL_SETTLE_MS, cancelLiveEdit, fluximgLive, liveCrop, liveElement, liveMutate, liveSampler, liveView, setLive, settleLiveEdit } from "./session";
 
@@ -189,7 +189,8 @@ export function autoContrast(i: number | "all"): void {
   // One step for all channels, taken from the first: "Auto" on a composite must not mix tightness between channels.
   const lead = c.view.channels[which[0]];
   const leadSample = lead ? seen.get(lead.index) : undefined;
-  const step = !lead ? 0 : leadSample ? sampleStepOf(leadSample, lead.range, integer) + 1 : autoStepOf(c.manifest.channels[lead.index].stats, lead.range) + 1;
+  // The next rung whose window differs from the one on screen (coinciding percentiles must not make Auto stick).
+  const step = !lead ? 0 : leadSample ? nextSampleStep(leadSample, lead.range, integer) : nextAutoStep(c.manifest.channels[lead.index].stats, lead.range);
   const channels: Array<FluximgChannelView | null> = c.view.channels.map(() => null);
   for (const k of which) {
     const sorted = seen.get(k);

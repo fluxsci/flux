@@ -146,6 +146,27 @@ export function sampleWindow(sorted: Float64Array, step: number): [number, numbe
   return sorted[n - 1] > sorted[0] ? [sorted[0], sorted[n - 1]] : null;
 }
 
+/**
+ * The Auto step the next press shows, for a sorted sample: the first step after the current window's whose
+ * window is DIFFERENT (see `nextAutoStep`: coinciding percentiles must not make the ladder stick).
+ */
+export function nextSampleStep(sorted: Float64Array, range: readonly [number, number], integer = false): number {
+  const n = AUTO_PERCENT.length;
+  const windowAt = (i: number): [number, number] | null => {
+    const w = sampleWindow(sorted, i);
+    return w && integer ? [Math.round(w[0]), Math.round(w[1])] : w;
+  };
+  const same = (w: readonly [number, number] | null): boolean => {
+    if (!w) return false;
+    const tol = 1e-9 * Math.max(1, Math.abs(w[0]), Math.abs(w[1]));
+    return Math.abs(w[0] - range[0]) <= tol && Math.abs(w[1] - range[1]) <= tol;
+  };
+  let at = -1;
+  for (let i = 0; i < n; i++) if (same(windowAt(i))) at = i;
+  for (let k = 1; k <= n; k++) { const i = (at + k) % n; if (!same(windowAt(i))) return i; }
+  return Math.max(0, at);
+}
+
 /** Which Auto step of a sorted sample a window already is, or -1. */
 export function sampleStepOf(sorted: Float64Array, range: readonly [number, number], integer = false): number {
   for (let i = 0; i < AUTO_PERCENT.length; i++) {
@@ -165,6 +186,24 @@ export function autoStepOf(stats: FluximgStats, range: readonly [number, number]
     if (Math.abs(w[0] - range[0]) <= tol && Math.abs(w[1] - range[1]) <= tol) return i;
   }
   return -1;
+}
+
+/**
+ * The Auto step the next press shows: the first after the current window's step whose window is DIFFERENT. Two
+ * percentiles often coincide (8-bit data: 1 % and 0.1 % are both 0), and stepping onto an identical window made
+ * the ladder stick there for ever: every press after it changed nothing. When every step is the same window, it
+ * stays.
+ */
+export function nextAutoStep(stats: FluximgStats, range: readonly [number, number]): number {
+  const n = AUTO_STEPS.length;
+  const same = (w: readonly [number, number]): boolean => {
+    const tol = 1e-9 * Math.max(1, Math.abs(w[0]), Math.abs(w[1]));
+    return Math.abs(w[0] - range[0]) <= tol && Math.abs(w[1] - range[1]) <= tol;
+  };
+  let at = -1;
+  for (let i = 0; i < n; i++) if (same(autoWindow(stats, i))) at = i; // the LAST step showing this window
+  for (let k = 1; k <= n; k++) { const i = (at + k) % n; if (!same(autoWindow(stats, i))) return i; }
+  return Math.max(0, at);
 }
 
 /**
