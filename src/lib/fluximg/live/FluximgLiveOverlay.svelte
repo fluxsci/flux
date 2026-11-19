@@ -292,7 +292,7 @@
     </div>
   {/each}
   {#if vDim}
-    <div class="fx-railpos" style={`left:${vRail.x}px;top:${vRail.y}px`}>
+    <div class="fx-railpos v" style={`left:${vRail.x}px;top:${vRail.y}px`}>
       <FluximgRail dim={vDim} hotkey={keys[vDim] ?? ""} vertical length={dimLength(manifest, vDim)} index={rv.index[vDim] ?? 0}
         run={rv.projection?.dim === vDim ? rv.projection : null} profiles={profilesOf(vDim)} axis={manifest.axes?.[vDim]} extent={vRail.extent}
         armed={live?.armed === `pos:${vDim}` || live?.armed === `run:${vDim}`} readout={readoutOf(vDim)} unit={manifest.axes?.[vDim]?.unit ?? ""} format={formatNumber}
@@ -325,8 +325,10 @@
   /* Objects answer the pointer over their whole interior, drawn or not, so a thin outline is easy to find. */
   .vec :global([data-key]) { pointer-events: all; }
   .vec :global(.fx-hot) { stroke: var(--c-accent-bright) !important; stroke-width: 2px !important; vector-effect: non-scaling-stroke; fill: var(--c-accent-bright) !important; fill-opacity: 0.18 !important; }
-  .fx-railpos { position: absolute; z-index: 2; }
-  .fx-strip { position: absolute; z-index: 2; display: flex; align-items: center; gap: 14px; height: 20px; max-width: 720px; overflow: hidden; white-space: nowrap; font: 10.5px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--c-tx-2); pointer-events: none; }
+  /* Rails and the readout sit on their own surface: behind them is white paper or dark pasteboard, never known. */
+  .fx-railpos { position: absolute; z-index: 2; padding: 5px 8px 16px 4px; background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-panel); box-shadow: var(--elev-1, 0 1px 3px rgba(0, 0, 0, 0.35)); }
+  .fx-railpos.v { padding: 4px 6px 6px 6px; }
+  .fx-strip { position: absolute; z-index: 2; display: flex; align-items: center; gap: 14px; height: 22px; max-width: 720px; padding: 0 8px; background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-panel); overflow: hidden; white-space: nowrap; font: 10.5px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--c-tx-2); pointer-events: none; }
   .fx-strip .pos { color: var(--c-tx-hi); }
   .fx-strip .val { display: inline-flex; align-items: center; gap: 5px; }
   .fx-strip .val i { width: 8px; height: 8px; border-radius: var(--r-ui); border: 1px solid color-mix(in oklab, var(--c-tx-hi) 22%, transparent); box-sizing: border-box; }

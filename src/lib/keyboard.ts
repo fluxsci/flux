@@ -769,10 +769,12 @@ export function handleKey(e: KeyboardEvent) {
     (get(figureCatalog) || get(figureDeletion)) ||
     get(dissectTarget) ||
     get(railQuickLook) ||
-    get(fluximgLive) ||
     get(shellModalOpen)
   )
     return;
+  // An image's live view owns the unmodified keys (its panel's rows, the arrows, Space, Delete). Chords stay
+  // Flux-wide: undo and redo step through the live view's own gestures, and saving must keep working.
+  if (get(fluximgLive) && !(e.ctrlKey || e.metaKey)) return;
 
   // The Plots rail owns its own unmodified keys (tool letters type into its search, arrows move
   // between tiles); chords still reach this keymap — Ctrl+Z undoes a rail insert.

@@ -152,10 +152,10 @@
       {#each ticks as t (t.index)}
         <span class="tick" style={vertical ? `top:${t.pos}px` : `left:${t.pos}px`}>{t.label}</span>
       {/each}
-      {#if unit}<span class="unit">{unit}</span>{/if}
+      {#if unit && !vertical}<span class="unit">{unit}</span>{/if}
     </div>
   </div>
-  <div class="readout" aria-live="off">{readout}</div>
+  <div class="readout" aria-live="off">{#each readout.split(" · ") as part, i (i)}<span class:first={i === 0}>{part}</span>{/each}</div>
 </div>
 
 <style>
@@ -189,7 +189,9 @@
   .unit { position: absolute; color: var(--c-tx-faint); }
   .rail:not(.vertical) .unit { left: calc(100% + 6px); top: 0; }
   .rail.vertical .unit { top: calc(100% + 4px); left: 0; }
-  .readout { color: var(--c-tx-hi); font-size: 10.5px; line-height: 13px; white-space: nowrap; min-height: 13px; }
-  .rail:not(.vertical) .readout { align-self: center; padding-left: 4px; }
-  .rail.vertical .readout { white-space: normal; width: 80px; }
+  /* The position in words: the plane number first, then where that is. Fixed size, so nothing shifts while scrubbing. */
+  .readout { display: flex; color: var(--c-tx-2); font-size: 10.5px; line-height: 13px; white-space: nowrap; min-height: 13px; }
+  .readout .first { color: var(--c-tx-hi); }
+  .rail:not(.vertical) .readout { align-self: center; flex-direction: column; padding-left: 6px; width: 132px; }
+  .rail.vertical .readout { flex-direction: column; width: 74px; min-height: 26px; }
 </style>

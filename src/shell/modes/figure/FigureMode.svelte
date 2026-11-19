@@ -29,6 +29,7 @@
   import FigureDeletionDialog from "../../../lib/FigureDeletionDialog.svelte";
   import FigureCatalog from "../../../lib/FigureCatalog.svelte";
   import FluxFigMenu from "../../../lib/FluxFigMenu.svelte";
+  import FluximgLivePanel from "../../../lib/fluximg/live/FluximgLivePanel.svelte";
   import Xray from "../../../lib/Xray.svelte";
   import PlotImporter from "../../../lib/PlotImporter.svelte";
   import DissectOverlay from "../../../lib/dissect/DissectOverlay.svelte";
@@ -300,6 +301,7 @@
       <button class="edgetab right" title="Show right rail (Ctrl+Shift+B)" onclick={() => inspectorHidden.set(false)}>‹</button>
     {/if}
   </div>
+  <FluximgLivePanel />
   <FluxFigMenu />
   <Xray />
   <PlotImporter {active} allowModels />
