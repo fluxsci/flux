@@ -169,20 +169,38 @@ export class FluximgService {
 
   /** One whole plane of a level, as stored samples, for the live view. Calling it early is how to decode ahead. */
   plane(bundle: string, level: number, leading: readonly number[]): Promise<ServicePlane> {
-    const key = `${bundle}|${level}|${leading.join(",")}`;
+    const key = planeKey(bundle, level, leading);
     return this.touchPlane(key) ?? this.keepPlane(key, this.call<Omit<ServicePlane, "key">>({ t: "plane", bundle, level, leading: [...leading] }).promise.then((p) => revive(key, p)));
   }
 
   /** True when that plane is already decoded and held. */
   hasPlane(bundle: string, level: number, leading: readonly number[]): boolean {
-    const e = this.planes.get(`${bundle}|${level}|${leading.join(",")}`);
+    const e = this.planes.get(planeKey(bundle, level, leading));
     return !!e && e.bytes > 0;
   }
 
-  /** A statistic over a run of planes along one dimension, as float values. */
-  projection(bundle: string, level: number, leading: readonly number[], dim: string, from: number, to: number, mode: FluximgProjectionMode): Promise<ServicePlane> {
-    const key = `${bundle}|${level}|${leading.join(",")}|${dim}:${from}-${to}:${mode}`;
-    return this.touchPlane(key) ?? this.keepPlane(key, this.call<Omit<ServicePlane, "key">>({ t: "projection", bundle, level, leading: [...leading], dim, from, to, mode }).promise.then((p) => revive(key, p)));
+  /**
+   * A statistic over a run of planes along one dimension, as float values. Requests sharing a `slot` replace each
+   * other (a range being dragged): the superseded one is abandoned in its worker and rejects with "cancelled".
+   */
+  projection(bundle: string, level: number, leading: readonly number[], dim: string, from: number, to: number, mode: FluximgProjectionMode, slot?: string): Promise<ServicePlane> {
+    const key = projectionKey(bundle, level, leading, dim, from, to, mode);
+    const hit = this.touchPlane(key);
+    if (hit) return hit;
+    if (slot) { const prior = this.slots.get(slot); if (prior) this.cancel(prior); }
+    const { id, promise } = this.call<Omit<ServicePlane, "key">>({ t: "projection", bundle, level, leading: [...leading], dim, from, to, mode });
+    if (slot) {
+      this.slots.set(slot, id);
+      const release = (): void => { if (this.slots.get(slot) === id) this.slots.delete(slot); };
+      promise.then(release, release);
+    }
+    return this.keepPlane(key, promise.then((p) => revive(key, p)));
+  }
+
+  /** An intensity layer on the grid of the pixel level with that downsampling (1 = the layer's own samples). */
+  layer(bundle: string, layerId: string, downsample: number): Promise<ServicePlane> {
+    const key = layerKey(bundle, layerId, downsample);
+    return this.touchPlane(key) ?? this.keepPlane(key, this.call<Omit<ServicePlane, "key">>({ t: "layer", bundle, layerId, downsample }).promise.then((p) => revive(key, p)));
   }
 
   histogram(bundle: string, level: number, leading: readonly number[], lo: number, hi: number, bins = 256): Promise<Uint32Array> {
@@ -240,6 +258,12 @@ export class FluximgService {
     this.planeBytesHeld = 0; this.stillBytesHeld = 0;
   }
 }
+
+/** Cache keys: one definition, shared with whoever needs to recognise a plane it asked for. */
+export const planeKey = (bundle: string, level: number, leading: readonly number[]): string => `${bundle}|${level}|${leading.join(",")}`;
+export const projectionKey = (bundle: string, level: number, leading: readonly number[], dim: string, from: number, to: number, mode: FluximgProjectionMode): string =>
+  `${bundle}|${level}|${leading.join(",")}|${dim}:${from}-${to}:${mode}`;
+export const layerKey = (bundle: string, layerId: string, downsample: number): string => `${bundle}|layer:${layerId}|${downsample}`;
 
 /** Structured clone keeps typed arrays typed; this only names the plane and guards against a stray view. */
 function revive(key: string, p: Omit<ServicePlane, "key">): ServicePlane {

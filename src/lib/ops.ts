@@ -2113,6 +2113,7 @@ export { setModelView };
 // ---------------------------------------------------------------------------
 import type { Asset, FluximgElement } from "./types";
 import type { FluximgView } from "./fluximg/view";
+import { patchView } from "./fluximg/viewOps";
 import { FLUXIMG_NOT_IN_SLIDES } from "./fluximg/policy";
 import { DECK_CANVAS_ID } from "./slide/deckProject";
 
@@ -2178,59 +2179,13 @@ export function setFluximgView(p: Project, elementId: Id, patch: FluximgView): v
   for (const f of p.figures) for (const e of f.elements) {
     if (e.id !== elementId) continue;
     if (e.type !== "fluximg") throw new Error(`element ${elementId} is a ${e.type}, not a fluximg`);
-    // fluximg: replace with viewOps.patchView at integration
-    const next = mergeFluximgView(e.view, patch);
-    if (next) e.view = next;
+    // The ONE merge law is viewOps.patchView (undefined is ignored, null clears, objects merge, a null channel entry
+    // leaves that channel alone). A view equal to the defaults is stored as no view at all.
+    const next = patchView(e.view, patch);
+    if (Object.keys(next).length) e.view = next;
     else delete e.view;
     return;
   }
   throw new Error(`element not found: ${elementId}`);
 }
 
-const plainObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
-
-/** fluximg: replace with viewOps.patchView at integration.
- *  The merge laws (pinned by verify-fluximg-model):
- *   1. a key absent from the patch is unchanged;
- *   2. a key present as null or undefined is CLEARED (back to its default), at any depth;
- *   3. plain objects (index, layers, a layer's view, furniture, a furniture item) merge key by key, recursively;
- *      `projection`, ranges and lists of names are values and replace wholesale; `false` is a value (furniture off);
- *   4. `channels` is positional: entry i merges into channel i, a null entry clears channel i's override and a hole
- *      (or a missing tail) leaves it alone; trailing empty entries are trimmed;
- *   5. emptied objects and arrays are pruned, so clearing the last override leaves no `view` at all (returns undefined);
- *   6. the result shares nothing with either input. */
-function mergeFluximgView(view: FluximgView | undefined, patch: FluximgView): FluximgView | undefined {
-  const out = mergeObject(view ? structuredClone(view) as Record<string, unknown> : {}, patch as Record<string, unknown>, "");
-  return out && Object.keys(out).length ? (out as FluximgView) : undefined;
-}
-function mergeObject(base: Record<string, unknown>, patch: Record<string, unknown>, parent: string): Record<string, unknown> | undefined {
-  for (const [key, value] of Object.entries(patch)) {
-    if (value === null || value === undefined) { delete base[key]; continue; }
-    if (key === "channels" && parent === "" && Array.isArray(value)) {
-      const merged = mergeChannels(Array.isArray(base.channels) ? base.channels as unknown[] : [], value);
-      if (merged) base.channels = merged; else delete base.channels;
-      continue;
-    }
-    // `projection` is one indivisible value (dim, mode and run belong together); arrays are values by construction.
-    const atom = parent === "" && key === "projection";
-    if (plainObject(value) && !atom) {
-      const merged = mergeObject(plainObject(base[key]) ? base[key] as Record<string, unknown> : {}, value, key);
-      if (merged) base[key] = merged; else delete base[key];
-      continue;
-    }
-    base[key] = structuredClone(value);
-  }
-  return Object.keys(base).length ? base : undefined;
-}
-function mergeChannels(base: unknown[], patch: unknown[]): unknown[] | undefined {
-  const out = base.map((c) => (plainObject(c) ? c : null));
-  for (let i = 0; i < patch.length; i++) {
-    if (!(i in patch) || patch[i] === undefined) continue; // a hole: unchanged
-    const value = patch[i];
-    while (out.length <= i) out.push(null);
-    if (value === null || !plainObject(value)) { out[i] = null; continue; }
-    out[i] = mergeObject(plainObject(out[i]) ? out[i] as Record<string, unknown> : {}, value, "channel") ?? null;
-  }
-  while (out.length && out[out.length - 1] === null) out.pop();
-  return out.length ? out : undefined;
-}

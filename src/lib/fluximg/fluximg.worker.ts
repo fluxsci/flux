@@ -9,7 +9,8 @@
 import { ZSTDDecoder } from "three/examples/jsm/libs/zstddec.module.js";
 import { openFluximg, type BundleReadIO, type FluximgReader, type ZstdCodec } from "./reader";
 import { histogram } from "./stats";
-import { pixelMaps, readPiece, renderStill, StillCancelled } from "./still";
+import { blockMeanValues, pixelMaps, readPiece, renderStill, StillCancelled } from "./still";
+import { valueMaps } from "./encoding";
 import { colormapLut, ensureColormapLuts } from "../color/colormapLuts";
 import type { FluximgManifest, FluximgTypedArray } from "./types";
 import type { FluximgProjectionMode, FluximgView, PixelRect } from "./view";
@@ -20,6 +21,8 @@ export type WorkerRequest =
   | { t: "plane"; id: number; bundle: string; level: number; leading: number[] }
   | { t: "projection"; id: number; bundle: string; level: number; leading: number[]; dim: string; from: number; to: number; mode: FluximgProjectionMode }
   | { t: "histogram"; id: number; bundle: string; level: number; leading: number[]; lo: number; hi: number; bins: number }
+  /** An intensity layer on the grid of a pixel level: stored samples at `downsample` 1, block-mean VALUES above it. */
+  | { t: "layer"; id: number; bundle: string; layerId: string; downsample: number }
   | { t: "still"; id: number; bundle: string; view: FluximgView | null; crop: PixelRect | null; outWidth: number; outHeight: number }
   | { t: "cancel"; id: number }
   | { t: "forget"; bundle: string }
@@ -124,6 +127,21 @@ async function handle(msg: WorkerRequest): Promise<{ result: unknown; transfer?:
       const data = await r.readPlane(a, msg.leading);
       const counts = histogram({ data, map: pixelMaps(r.manifest)[channelOf(r.manifest, msg.leading)] }, msg.lo, msg.hi, msg.bins);
       return { result: counts, transfer: [counts.buffer as ArrayBuffer] };
+    }
+    case "layer": {
+      const r = await readerFor(msg.bundle);
+      const entry = r.manifest.layers.find((l) => l.id === msg.layerId);
+      if (!entry || entry.kind !== "intensity") throw new Error(`fluximg worker: ${msg.layerId} is not an intensity layer`);
+      const a = await r.array(entry.path), nd = a.meta.shape.length, W = a.meta.shape[nd - 1], H = a.meta.shape[nd - 2];
+      const map = valueMaps(entry.dtype, entry.encoding, 1, null)[0];
+      const raw = await r.readPlane(a, []);
+      if (msg.downsample <= 1) {
+        const data = raw.slice();
+        return { result: { data, dtype: a.meta.dtype, width: W, height: H, map }, transfer: [data.buffer as ArrayBuffer] };
+      }
+      const f = msg.downsample, w = Math.ceil(W / f), h = Math.ceil(H / f);
+      const data = blockMeanValues({ data: raw, map }, W, H, f, w, h);
+      return { result: { data, dtype: "float32", width: w, height: h, map: null }, transfer: [data.buffer as ArrayBuffer] };
     }
     case "still": return { result: await still(msg) };
     default: throw new Error(`fluximg worker: unknown request ${(msg as { t: string }).t}`);
