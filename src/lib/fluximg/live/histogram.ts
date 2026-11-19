@@ -1,0 +1,155 @@
+/**
+ * Channel-histogram geometry for the live view's contrast control: where values sit along the control, the
+ * histogram's outline, the transfer curve, and the "Auto" windows. Pure (no DOM, no Svelte).
+ *
+ * The manifest's histogram covers the channel's 0.1 .. 99.9 percentiles in 256 bins. The control's DOMAIN is
+ * wider whenever a handle or the data's true extremes lie outside that, so a handle is never off the control.
+ */
+import type { FluximgHistogram, FluximgStats } from "../types";
+
+export interface HistDomain { lo: number; hi: number }
+
+const finite = (v: number | undefined | null): v is number => typeof v === "number" && Number.isFinite(v);
+
+/**
+ * The value range the control spans: the histogram's own range, widened to hold both handles, with a little
+ * room past each handle so it can still be dragged outward. Never empty.
+ */
+export function histDomain(stats: FluximgStats, range: readonly [number, number]): HistDomain {
+  let lo = finite(stats.hist?.lo) ? stats.hist.lo : stats.min;
+  let hi = finite(stats.hist?.hi) ? stats.hist.hi : stats.max;
+  if (!finite(lo) || !finite(hi)) { lo = 0; hi = 1; }
+  if (hi <= lo) { lo = Math.min(lo, stats.min); hi = Math.max(hi, stats.max); }
+  if (hi <= lo) hi = lo + 1;
+  const a = Math.min(range[0], range[1]), b = Math.max(range[0], range[1]);
+  const pad = 0.04 * (Math.max(hi, b) - Math.min(lo, a));
+  if (finite(a) && a < lo) lo = a - pad;
+  if (finite(b) && b > hi) hi = b + pad;
+  return { lo, hi };
+}
+
+export function valueToX(v: number, d: HistDomain, width: number): number {
+  return ((v - d.lo) / (d.hi - d.lo)) * width;
+}
+export function xToValue(x: number, d: HistDomain, width: number): number {
+  return d.lo + (x / width) * (d.hi - d.lo);
+}
+
+/**
+ * The histogram as a closed area path, `width` x `height` px, baseline at the bottom. Counts are log-scaled by
+ * default (log1p), since a microscope image is mostly background and a linear histogram is one spike. The area
+ * is stepped (one flat top per bin), which is what a histogram is; bins narrower than a pixel merge by maximum.
+ */
+export function histogramPath(hist: FluximgHistogram | undefined, d: HistDomain, width: number, height: number, scale: "log" | "linear" = "log"): string {
+  const counts = hist?.counts;
+  if (!counts?.length || !(width > 0) || !(height > 0) || !(hist!.hi > hist!.lo)) return "";
+  const f = scale === "log" ? Math.log1p : (c: number): number => c;
+  let peak = 0;
+  for (const c of counts) { const v = f(c); if (v > peak) peak = v; }
+  if (!(peak > 0)) return "";
+  const n = counts.length, bw = (hist!.hi - hist!.lo) / n;
+  const x0 = valueToX(hist!.lo, d, width), x1 = valueToX(hist!.hi, d, width);
+  // Never a hairline spike at the very top: leave 2 px of headroom.
+  const usable = Math.max(1, height - 2);
+  const y = (c: number): number => height - (f(c) / peak) * usable;
+  const px = Math.max(1, Math.round(x1 - x0));
+  let dPath = `M${r2(x0)} ${height}`;
+  if (px >= n) {
+    for (let i = 0; i < n; i++) {
+      const xa = valueToX(hist!.lo + i * bw, d, width), xb = valueToX(hist!.lo + (i + 1) * bw, d, width), yy = r2(y(counts[i]));
+      dPath += `L${r2(xa)} ${yy}L${r2(xb)} ${yy}`;
+    }
+  } else {
+    for (let c = 0; c < px; c++) {
+      const a = Math.floor((c / px) * n), b = Math.max(a + 1, Math.floor(((c + 1) / px) * n));
+      let m = 0;
+      for (let i = a; i < b && i < n; i++) if (counts[i] > m) m = counts[i];
+      const xa = x0 + (c / px) * (x1 - x0), xb = x0 + ((c + 1) / px) * (x1 - x0), yy = r2(y(m));
+      dPath += `L${r2(xa)} ${yy}L${r2(xb)} ${yy}`;
+    }
+  }
+  return `${dPath}L${r2(x1)} ${height}Z`;
+}
+
+/**
+ * The transfer curve: displayed brightness (0 at the bottom, 1 at the top) against value, as an open path.
+ * Flat at 0 below the black point and at 1 above the white point; the shape between is the norm's.
+ */
+export function transferPath(range: readonly [number, number], norm: "linear" | "log" | "gamma", gamma: number, d: HistDomain, width: number, height: number, samples = 48): string {
+  const [b, w] = range;
+  if (!(w > b) || !(width > 0) || !(height > 0)) return "";
+  const xb = valueToX(b, d, width), xw = valueToX(w, d, width);
+  const map = (t: number): number => {
+    if (norm === "gamma") return Math.pow(t, gamma > 0 ? gamma : 1);
+    if (norm === "log") {
+      // The same shape colorscale's log norm gives a positive window; a window touching zero falls back to linear.
+      if (!(b > 0)) return t;
+      const v = b + t * (w - b);
+      return Math.log(v / b) / Math.log(w / b);
+    }
+    return t;
+  };
+  let p = `M0 ${height}L${r2(xb)} ${height}`;
+  for (let i = 1; i <= samples; i++) {
+    const t = i / samples;
+    p += `L${r2(xb + t * (xw - xb))} ${r2(height - map(t) * height)}`;
+  }
+  return `${p}L${r2(width)} 0`;
+}
+
+/** The percentile pairs "Auto" walks through, gentlest first; the last entry is the full data range. */
+export const AUTO_STEPS: ReadonlyArray<readonly [string, string] | "full"> = [["0.1", "99.9"], ["1", "99.8"], ["1", "99"], "full"];
+
+/** The window for Auto step `step` (wraps). Falls back to min .. max when a percentile is missing or the pair is empty. */
+export function autoWindow(stats: FluximgStats, step: number): [number, number] {
+  const s = AUTO_STEPS[((step % AUTO_STEPS.length) + AUTO_STEPS.length) % AUTO_STEPS.length];
+  if (s !== "full") {
+    const lo = stats.percentiles?.[s[0]], hi = stats.percentiles?.[s[1]];
+    if (finite(lo) && finite(hi) && hi > lo) return [lo, hi];
+  }
+  return stats.max > stats.min ? [stats.min, stats.max] : [stats.min, stats.min + 1];
+}
+
+/** Which Auto step a window already is (so the next press moves on), or -1. */
+export function autoStepOf(stats: FluximgStats, range: readonly [number, number]): number {
+  for (let i = 0; i < AUTO_STEPS.length; i++) {
+    const w = autoWindow(stats, i), tol = 1e-9 * Math.max(1, Math.abs(w[0]), Math.abs(w[1]));
+    if (Math.abs(w[0] - range[0]) <= tol && Math.abs(w[1] - range[1]) <= tol) return i;
+  }
+  return -1;
+}
+
+/**
+ * One wheel notch for a handle: about a hundredth of the control's span, snapped to 1, 2, 5 x 10^n so the
+ * numbers stay readable. Integer data never moves by less than 1.
+ */
+export function nudgeStep(d: HistDomain, integer: boolean): number {
+  const raw = (d.hi - d.lo) / 100;
+  if (!(raw > 0)) return integer ? 1 : 0.01;
+  const p = Math.pow(10, Math.floor(Math.log10(raw)));
+  const m = raw / p;
+  const step = (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * p;
+  return integer ? Math.max(1, Math.round(step)) : Number(step.toPrecision(12));
+}
+
+/** Round a handle value to the precision the control can show: integers for integer data, 4 significant steps else. */
+export function snapValue(v: number, d: HistDomain, integer: boolean): number {
+  if (integer) return Math.round(v);
+  const span = d.hi - d.lo;
+  if (!(span > 0)) return v;
+  const q = Math.pow(10, Math.floor(Math.log10(span)) - 3);
+  return Number((Math.round(v / q) * q).toPrecision(12));
+}
+
+/**
+ * Move one end of the window, keeping black strictly below white by at least `minGap`.
+ * `which`: 0 = black point, 1 = white point, 2 = slide both (the window keeps its width).
+ */
+export function moveWindow(range: readonly [number, number], which: 0 | 1 | 2, delta: number, minGap: number): [number, number] {
+  let [b, w] = range;
+  if (which === 2) return [b + delta, w + delta];
+  if (which === 0) b = Math.min(b + delta, w - minGap); else w = Math.max(w + delta, b + minGap);
+  return [b, w];
+}
+
+const r2 = (v: number): string => String(Math.round(v * 100) / 100);

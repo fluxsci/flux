@@ -484,7 +484,8 @@
       "verify-paper-conversations.ts",
       "verify-no-library-proxy.ts",
       "verify-fluximg-format.ts",
-      "verify-fluximg-static.ts"
+      "verify-fluximg-static.ts",
+      "verify-fluximg-render.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -1653,11 +1654,13 @@
     ],
     "fluximg": [
       "verify-fluximg-format.ts",
-      "verify-fluximg-static.ts"
+      "verify-fluximg-static.ts",
+      "verify-fluximg-render.ts"
     ],
     "fluximg-pure": [
       "verify-fluximg-format.ts",
-      "verify-fluximg-static.ts"
+      "verify-fluximg-static.ts",
+      "verify-fluximg-render.ts"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -12629,6 +12632,15 @@
       "coverage": "behavior"
     },
     "verify-fluximg-static.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-fluximg-render.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

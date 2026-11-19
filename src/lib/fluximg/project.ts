@@ -49,10 +49,19 @@ function finish(mode: FluximgProjectionMode, n: Float64Array, a: Float64Array, b
 }
 
 export function projectPlanes(planes: Iterable<RenderPlane>, length: number, mode: FluximgProjectionMode): Float32Array {
+  const acc = projector(length, mode);
+  for (const p of planes) acc.add(p);
+  return acc.finish();
+}
+
+/**
+ * `projectPlanes`, one plane at a time: for a caller that reads planes as it goes and must not hold a whole
+ * movie in memory. `finish` may be called once; the result is exactly `projectPlanes` over the planes added.
+ */
+export function projector(length: number, mode: FluximgProjectionMode): { add(plane: RenderPlane): void; finish(): Float32Array } {
   if (!MODES.includes(mode)) throw new Error(`fluximg project: unknown mode ${mode}`);
   const n = new Float64Array(length), a = new Float64Array(length), b = new Float64Array(mode === "std" ? length : 0);
-  for (const p of planes) feed(p, length, mode, n, a, b);
-  return finish(mode, n, a, b);
+  return { add: (p) => feed(p, length, mode, n, a, b), finish: () => finish(mode, n, a, b) };
 }
 
 // ---------------------------------------------------------------------------------------------
