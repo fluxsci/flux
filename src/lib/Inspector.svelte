@@ -55,6 +55,7 @@
   import ColorPalette from "./ColorPalette.svelte";
   import ColorPicker from "./ColorPicker.svelte";
   import Model3dInspector from "./model3d/Model3dInspector.svelte";
+  import FluximgInspector from "./fluximg/FluximgInspector.svelte";
   import ColorField from "./ColorField.svelte";
   import { haloBackgroundOf } from "./export";
   import NumberField from "./NumberField.svelte";
@@ -806,6 +807,7 @@
   {/if}
 
   {#if single?.type === "model3d"}<Model3dInspector element={single} readOnly={selectionReadOnly} />{/if}
+  {#if single?.type === "fluximg"}<FluximgInspector element={single} readOnly={selectionReadOnly} />{/if}
 
   {#if slideMode && single?.type === "video"}
     {@const videoAsset = $project.assets.find(asset => asset.id === single.assetId)}
