@@ -102,3 +102,63 @@ export interface FluximgView {
   /** This element is a blow-out of that element (same asset): the parent draws this element's crop as a rectangle. */
   insetOf?: string;
 }
+
+// ---------------------------------------------------------------------------------------------
+// The resolved view: the recipe with every default filled in from the manifest (viewOps.resolveView).
+// Renderers, furniture and the UI read THIS, never the sparse recipe.
+// ---------------------------------------------------------------------------------------------
+
+export interface ResolvedChannel {
+  /** Index into the manifest's channels (and along the `c` dimension). */
+  index: number;
+  name: string;
+  visible: boolean;
+  color: string | null;
+  lut: string | null;
+  range: [number, number];
+  norm: "linear" | "log" | "gamma";
+  gamma: number;
+  invert: boolean;
+}
+
+export interface ResolvedLayer {
+  id: string;
+  kind: "intensity" | "labels" | "vector";
+  name: string;
+  visible: boolean;
+  opacity: number;
+  /** null = keep the colours written in the layer. */
+  color: string | null;
+  lut: string | null;
+  /** Screen pixels. */
+  strokeWidth: number;
+  fillOpacity: number;
+  /** Intensity layers only. */
+  range: [number, number] | null;
+  /** Intensity layers only: opacity follows the normalized value. */
+  opacityFromValue: boolean;
+}
+
+export interface ResolvedFurniture {
+  scalebar: Required<Omit<FluximgScalebarView, "length">> & { length: number | null } | false;
+  stamp: Required<FluximgStampView> | false;
+  channelLabels: { corner: FurnitureCorner; fontSize: number } | false;
+  names: { layers: string[]; fontSize: number } | false;
+}
+
+export interface ResolvedView {
+  index: Record<string, number>;
+  projection: FluximgProjection | null;
+  channels: ResolvedChannel[];
+  composite: "blend" | "single";
+  solo: number;
+  smooth: boolean;
+  background: string;
+  /** Bottom to top. */
+  layers: ResolvedLayer[];
+  furniture: ResolvedFurniture;
+  insetOf: string | null;
+}
+
+/** A crop in image pixels (level 0), or in the pixels of whichever level a renderer was handed. */
+export interface PixelRect { x: number; y: number; width: number; height: number }
