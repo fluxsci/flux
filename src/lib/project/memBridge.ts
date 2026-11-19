@@ -19,6 +19,8 @@ import { supportsDeckSchema } from "../slide/schemaStamp";
 import { DISSECT_REL, dissectionRootRelFor, classifyDissectionFile, dissectionNoteRel, DISSECT_NOTE_MAX_BYTES } from "../dissect/rules";
 import { probeImageSize } from "../plotsRail/rules";
 import type { PlotIndexEntry } from "./types";
+import * as fxr from "../../../electron/fluximgRules.js";
+import type { FluximgImportRequest, FluximgImportResult, FluximgReadRequest } from "../fluximg/bridge";
 
 const sha256 = async (bytes:Uint8Array) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new Uint8Array(bytes).buffer)),b=>b.toString(16).padStart(2,"0")).join("");
 const enc = new TextEncoder();
@@ -97,6 +99,9 @@ export function createMemBridge(): FileBridge & {
   _files: Map<string, Uint8Array>;
   _dirs: Set<string>;
   _emitFsChange: (info: { subsystem: string; path: string }) => void;
+  /** Dev/test: write a bundle (bundle-relative path → bytes or base64) at a project-relative
+   *  `plots/…/<name>.fluximg` or `fig/assets/<id>.fluximg`, replacing what was there. Returns its path. */
+  _seedFluximg: (root: string, bundle: string, files: Record<string, string | Uint8Array>) => string;
 } {
   const reads: string[] = [];
   const runnerCalls: { method: string; options: unknown }[] = [];
@@ -184,6 +189,74 @@ export function createMemBridge(): FileBridge & {
     modelImports.set(result.receipt, { root, generation, state: 'pending', target: structuredClone(request.target), document: documentPath, result, paths });
     return result;
   }
+  // --- fluximg: the same requests, rules and messages as electron/fluximgFiles.cjs ------------
+  // (validation and wording are shared through electron/fluximgRules.js). This fixture has no links,
+  // special files or other windows, so those refusals exist only on the native side.
+  const memIsDir = (p: string) => dirs.has(p) || [...files.keys()].some((k) => k.startsWith(`${p}/`));
+  /** Resolve `.`/`..` in an absolute POSIX path; null when it climbs above "/". */
+  const memResolve = (p: string): string | null => {
+    const out: string[] = [];
+    for (const part of p.split("/")) {
+      if (!part || part === ".") continue;
+      if (part === "..") { if (!out.length) return null; out.pop(); } else out.push(part);
+    }
+    return `/${out.join("/")}`;
+  };
+  /** The request's project root: the open one (else "the project changed"), absolute. */
+  const fluximgRoot = (root: unknown): string => {
+    if (typeof root === "string" && watchedRoot !== undefined && watchedRoot !== norm(root)) throw new Error(fxr.fluximgErrors.projectChanged());
+    if (typeof root !== "string" || !root.startsWith("/") || root.includes("\0")) throw new Error(fxr.fluximgErrors.root());
+    return memResolve(root) ?? "/";
+  };
+  const fluximgSha = async (text: string) => sha256(enc.encode(text));
+
+  async function importMemFluximg(request: FluximgImportRequest): Promise<FluximgImportResult> {
+    if (typeof request?.root === "string" && watchedRoot !== undefined && watchedRoot !== norm(request.root)) throw new Error(fxr.fluximgErrors.projectChanged());
+    const id = fxr.fluximgAssetId(request?.assetId);
+    const root = fluximgRoot(request.root), sourcePath = request.sourcePath;
+    if (typeof sourcePath !== "string" || !sourcePath || sourcePath.length > 32768 || sourcePath.includes("\0")) throw new Error(fxr.fluximgErrors.sourcePath());
+    if (!files.has(`${root}/project.json`)) throw new Error(fxr.fluximgErrors.root());
+    const name = `${id}${fxr.FLUXIMG_EXT}`, destination = `${root}/${fxr.FLUXIMG_ASSETS_REL}/${name}`;
+    if (files.has(destination) || memIsDir(destination)) throw new Error(fxr.fluximgErrors.exists(id));
+    const relative = !sourcePath.replace(/\\/g, "/").startsWith("/");
+    const source = memResolve(relative ? `${root}/${sourcePath.replace(/\\/g, "/")}` : norm(sourcePath));
+    const inside = source !== null && (source === root || source.startsWith(`${root}/`));
+    if (relative && !inside) throw new Error(fxr.fluximgErrors.sourceEscapes());
+    if (source === null || (!files.has(source) && !memIsDir(source))) throw new Error(`ENOENT: ${sourcePath} does not exist`);
+    const label = baseOf(source);
+    if (files.has(source)) throw new Error(fxr.fluximgErrors.notDirectory(label));
+    if (`${root}/${fxr.FLUXIMG_ASSETS_REL}`.startsWith(`${source}/`) || source === `${root}/${fxr.FLUXIMG_ASSETS_REL}`) throw new Error(fxr.fluximgErrors.destinationInsideSource());
+    const manifestBytes = files.get(`${source}/fluximg.json`);
+    if (!manifestBytes) throw new Error(fxr.fluximgErrors.notBundle(label));
+    if (manifestBytes.byteLength > fxr.FLUXIMG_MANIFEST_MAX_BYTES) throw new Error(fxr.fluximgErrors.manifestTooLarge());
+    const manifest = fxr.parseFluximgManifest(dec.decode(manifestBytes));
+    // The walk: every file under the source, OS litter skipped, the native limits applied.
+    const found: { rel: string; bytes: Uint8Array }[] = [];
+    const folders = new Set<string>();
+    for (const [key, bytes] of files) {
+      if (!key.startsWith(`${source}/`)) continue;
+      const rel = key.slice(source.length + 1), parts = rel.split("/");
+      if (parts.some((part) => fxr.isFluximgJunkName(part))) continue;
+      for (let i = 1; i < parts.length; i++) folders.add(parts.slice(0, i).join("/"));
+      found.push({ rel, bytes });
+    }
+    for (const dir of dirs) if (dir.startsWith(`${source}/`) && !dir.slice(source.length + 1).split("/").some((part) => fxr.isFluximgJunkName(part))) folders.add(dir.slice(source.length + 1));
+    const deepest = Math.max(0, ...[...folders].map((f) => f.split("/").length));
+    if (deepest > fxr.FLUXIMG_IMPORT_MAX_DEPTH) throw new Error(fxr.fluximgErrors.tooDeep(fxr.FLUXIMG_IMPORT_MAX_DEPTH));
+    if (folders.size > fxr.FLUXIMG_IMPORT_MAX_DIRS) throw new Error(fxr.fluximgErrors.tooManyDirs(fxr.FLUXIMG_IMPORT_MAX_DIRS));
+    if (found.length > fxr.FLUXIMG_IMPORT_MAX_FILES) throw new Error(fxr.fluximgErrors.tooManyFiles(fxr.FLUXIMG_IMPORT_MAX_FILES));
+    const total = found.reduce((sum, f) => sum + f.bytes.byteLength, 0);
+    if (total > fxr.FLUXIMG_IMPORT_MAX_BYTES) throw new Error(fxr.fluximgErrors.tooLarge(total, fxr.FLUXIMG_IMPORT_MAX_BYTES));
+    const entries = await Promise.all(found.map(async (f) => ({ path: f.rel, sha256: await sha256(f.bytes) })));
+    const contentId = await fluximgSha(fxr.fluximgContentIdText(entries));
+    // Published all at once, after every check (the native side stages and renames).
+    if (files.has(destination) || memIsDir(destination)) throw new Error(fxr.fluximgErrors.exists(id));
+    addDir(destination);
+    for (const folder of folders) addDir(`${destination}/${folder}`);
+    for (const f of found) { const key = `${destination}/${f.rel}`; ensureParent(key); files.set(key, new Uint8Array(f.bytes)); }
+    return { path: fxr.fluximgAssetPath(id), sha256: contentId, bytes: total, files: found.length, manifest, method: "copy" };
+  }
+
   function ownedModel(request: Model3dImportOwnership) {
     const item = modelImports.get(request.receipt);
     if (!item || item.root !== norm(request.root) || request.target?.kind !== item.target.kind || (request.target.kind === 'slide' && item.target.kind === 'slide' && request.target.deckId !== item.target.deckId) || item.result.asset.id !== request.assetId) throw new Error('Unknown or already adopted model import receipt');
@@ -191,6 +264,49 @@ export function createMemBridge(): FileBridge & {
   }
 
   return {
+    importFluximg: (request) => importMemFluximg(request),
+    async readFluximg(request: FluximgReadRequest) {
+      if (typeof request?.root === "string" && watchedRoot !== undefined && watchedRoot !== norm(request.root)) throw new Error(fxr.fluximgErrors.projectChanged());
+      const root = fluximgRoot(request?.root);
+      const where = fxr.fluximgBundleRel(request.bundle), parts = fxr.fluximgInnerPath(request.path);
+      fxr.fluximgCheckRange(request.offset, request.length);
+      const bundle = `${root}/${where.rel}`;
+      if (!memIsDir(`${root}/${where.area}`) || !memIsDir(bundle)) throw new Error(fxr.fluximgErrors.bundleMissing(where.rel));
+      const rel = parts.join("/"), key = `${bundle}/${rel}`, bytes = files.get(key);
+      if (!bytes) throw new Error(memIsDir(key) ? fxr.fluximgErrors.notFile(rel) : fxr.fluximgErrors.missing(where.rel, rel));
+      const range = fxr.fluximgRange(rel, bytes.byteLength, request.offset, request.length);
+      // A fresh buffer sized exactly to the bytes read, like the IPC result.
+      return bytes.slice(range.start, range.start + range.length).buffer;
+    },
+    async discardFluximg(request) {
+      if (typeof request?.root === "string" && watchedRoot !== undefined && watchedRoot !== norm(request.root)) throw new Error(fxr.fluximgErrors.projectChanged());
+      const id = fxr.fluximgAssetId(request?.assetId);
+      const root = fluximgRoot(request.root);
+      if (!files.has(`${root}/project.json`)) throw new Error(fxr.fluximgErrors.root());
+      const target = `${root}/${fxr.FLUXIMG_ASSETS_REL}/${id}${fxr.FLUXIMG_EXT}`;
+      if (files.has(target)) throw new Error(fxr.fluximgErrors.discardNotDirectory(id));
+      if (!memIsDir(target)) return;
+      const index = files.get(`${root}/fig/index.json`);
+      let saved: { assets?: unknown } | undefined;
+      if (index) { try { saved = JSON.parse(dec.decode(index)); } catch { throw new Error(fxr.fluximgErrors.savedUnreadable()); } }
+      if (Array.isArray(saved?.assets) && saved.assets.some((a: { id?: unknown } | null) => a?.id === id)) throw new Error(fxr.fluximgErrors.saved(id));
+      for (const key of [...files.keys()]) if (key.startsWith(`${target}/`)) files.delete(key);
+      for (const dir of [...dirs]) if (dir === target || dir.startsWith(`${target}/`)) dirs.delete(dir);
+    },
+    _seedFluximg(root, bundle, content) {
+      const where = fxr.fluximgBundleRel(bundle), base = `${norm(root)}/${where.rel}`;
+      const entries = Object.entries(content).map(([rel, data]) => {
+        const parts = fxr.fluximgInnerPath(rel);
+        const bytes = typeof data === "string" ? Uint8Array.from(atob(data), (c) => c.charCodeAt(0)) : new Uint8Array(data);
+        return [`${base}/${parts.join("/")}`, bytes] as const;
+      });
+      for (const key of [...files.keys()]) if (key.startsWith(`${base}/`)) files.delete(key);
+      for (const dir of [...dirs]) if (dir.startsWith(`${base}/`)) dirs.delete(dir);
+      addDir(base);
+      for (const [key, bytes] of entries) { ensureParent(key); files.set(key, bytes); }
+      if (where.area === "plots") for (const l of batchListeners) l({ subsystem: "plots", paths: [base] });
+      return base;
+    },
     importModel3d: request => importMemModel(request),
     importDroppedModel3d: (file, request) => importMemModel({ ...request, sourcePath: file.name }, file),
     async adoptModel3d(request) {
@@ -864,6 +980,10 @@ export async function installDemoFixture(): Promise<string> {
   (window as unknown as { fig?: FileBridge }).fig = bridge;
   // Dev-only: let the headless harness simulate an external (agent/script) write.
   (window as unknown as { __fluxEmitFsChange?: unknown }).__fluxEmitFsChange = bridge._emitFsChange;
+  // Dev-only: put a .fluximg bundle (written in Node by the reference writer, files as base64) into the
+  // demo project, e.g. __fluxSeedFluximg("plots/cells.fluximg", { "fluximg.json": "…", … }).
+  (window as unknown as { __fluxSeedFluximg?: unknown }).__fluxSeedFluximg = (bundle: string, content: Record<string, string>) =>
+    bridge._seedFluximg(ROOT, bundle, content);
   // Dev-only: let the headless harness simulate a flux:// web capture.
 
   // Scaffold the real tree (project.json, _quarto.yml, AGENTS.md, dirs, …),
