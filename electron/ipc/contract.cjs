@@ -182,6 +182,10 @@ const CHANNELS = [
   { channel: "model3d:readFile", kind: "invoke", scope: "read" },
   { channel: "model3d:sourceFingerprint", kind: "invoke", scope: "read" },
   { channel: "model3d:availability", kind: "invoke", scope: "read" },
+  // --- fluximg bundles (electron/ipc/fluximg.cjs): import, ranged reads, discard ---
+  { channel: "fluximg:import", kind: "invoke", scope: "write" },
+  { channel: "fluximg:read", kind: "invoke", scope: "read" },
+  { channel: "fluximg:discard", kind: "invoke", scope: "write" },
   // --- fonts (text ↔ shape letter outlines) ------------------------------------
   { channel: "fonts:lookup", kind: "invoke", scope: "read" },
   // --- the Plots rail (listing, header probes, thumbnails, dissection counts) --------------

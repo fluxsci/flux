@@ -242,6 +242,8 @@ export interface FileBridge {
   importFluximg?(request: import('../fluximg/bridge').FluximgImportRequest): Promise<import('../fluximg/bridge').FluximgImportResult>;
   /** Read part of one file of a bundle; never the whole stack at once. */
   readFluximg?(request: import('../fluximg/bridge').FluximgReadRequest): Promise<ArrayBuffer>;
+  /** Remove an unplaced import, exactly fig/assets/<assetId>.fluximg (refused while fig/index.json lists it). */
+  discardFluximg?(request: { root: string; assetId: string }): Promise<void>;
   /** System font bytes for a CSS font request (text ↔ shape letter outlines);
    *  null bytes when no readable font file backs it. */
   fontLookup?(request: { family: string; weight?: number; style?: string }): Promise<{ key: string; bytes: Uint8Array | null; format: string | null }>;

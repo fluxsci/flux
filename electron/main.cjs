@@ -38,7 +38,7 @@ const fluxPaths = require("./fluxPaths.cjs");
 const { removeRetiredSessionPartition } = require("./retiredLibraryProxy.cjs");
 const { recordProjectOpened } = require("./projectsRegistry.cjs");
 const { resolveSpawn } = require("./execResolve.cjs");
-const { isDerivedFigureRenderPath } = require("./projectWatchPaths.cjs");
+const { isDerivedFigureRenderPath, isFluximgAssetBundlePath } = require("./projectWatchPaths.cjs");
 
 // Machine config is ALWAYS the lowercase app dir (~/.config/flux on Linux) —
 // pinned before ANYTHING touches userData (the single-instance lock, prefs,
@@ -1196,7 +1196,7 @@ let watchRules = null;
 // `routes` comes from projectWatchRules.projectWatchRoutes — the same table the watch
 // targets are built from, so nothing is classified that isn't watched (or vice versa).
 function subsystemFor(root, abs, routes) {
-  if (isDerivedFigureRenderPath(root, abs)) return null;
+  if (isDerivedFigureRenderPath(root, abs) || isFluximgAssetBundlePath(root, abs)) return null;
   const rel = path.relative(root, abs).split(path.sep).join("/");
   if (rel.startsWith("..") || path.isAbsolute(rel)) return null;
   const subsystem = watchRules.routeProjectRel(routes, rel);
@@ -1317,7 +1317,7 @@ ipcMain.handle("watch:setRoot", async (e, root) => {
   // Derived Figure renders must not invalidate their canonical source. Prune
   // them and exploratory lighttable collections before opening watch descriptors.
   const isPrunedWatchPath = (abs) => {
-    if (isDerivedFigureRenderPath(projectRoot, abs)) return true;
+    if (isDerivedFigureRenderPath(projectRoot, abs) || isFluximgAssetBundlePath(projectRoot, abs)) return true;
     if (!plotFolderRules) return false;
     const rel = path.relative(projectRoot, abs).split(path.sep).join("/");
     return !rel.startsWith("..") && plotFolderRules.isLighttableProjectRel(rel);
@@ -1497,6 +1497,8 @@ videoMediaCore.registerHandlers(ipcMain);
 onQuit(() => videoMediaCore.cancelAll());
 const model3dCore = require("./ipc/model3d.cjs").createModel3dCore({ rootFor, generationFor: (e) => sessionFor(e)?.watchGen, fsReadGuard: fileCore.fsReadGuard, noteWrite });
 model3dCore.registerHandlers(ipcMain);
+// fluximg bundles: same window/project/generation checks as model3d; pixels cross only in ranged reads.
+require("./ipc/fluximg.cjs").createFluximgCore({ rootFor, generationFor: (e) => sessionFor(e)?.watchGen, fsReadGuard: fileCore.fsReadGuard }).registerHandlers(ipcMain);
 // Letter outlines for text ↔ shape Becomes: system font bytes for a CSS request.
 require("./ipc/fonts.cjs").createFontsFamily({ configDir: () => fluxPaths.userDataDir() }).registerHandlers(ipcMain);
 // Plots rail: plot listing, header probes, cached thumbnails (raster work in a Node child,

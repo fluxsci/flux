@@ -10,4 +10,16 @@ function isDerivedFigureRenderPath(root, absolute) {
   return relative === "fig/renders" || relative.startsWith("fig/renders/");
 }
 
-module.exports = { isDerivedFigureRenderPath };
+// A placed fluximg bundle, `fig/assets/<id>.fluximg/`, is an immutable directory of
+// up to 20,000 files, and its import stages in a hidden sibling
+// (`.<id>.fluximg.tmp-<uuid>`, also used to discard one) before one rename. The
+// figure learns about a bundle from fig/index.json, never from the bundle itself,
+// so watching inside it would only spend a descriptor per Zarr chunk folder and
+// flood the "fig" subsystem with thousands of unmarked events per import.
+// Temp names: electron/fluximgFiles.cjs (verify-fluximg-files pins the two).
+const FLUXIMG_ASSET_RE = /^fig\/assets\/[^/]+\.fluximg(?:\.tmp-[^/]*)?(?:\/|$)/;
+function isFluximgAssetBundlePath(root, absolute) {
+  return FLUXIMG_ASSET_RE.test(path.relative(root, absolute).split(path.sep).join("/"));
+}
+
+module.exports = { isDerivedFigureRenderPath, isFluximgAssetBundlePath };

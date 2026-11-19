@@ -7,7 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const vm = require("node:vm");
 const { createFileCore, TMP_WRITE_RE } = require("../electron/ipc/files.cjs");
-const { isDerivedFigureRenderPath } = require("../electron/projectWatchPaths.cjs");
+const { isDerivedFigureRenderPath, isFluximgAssetBundlePath } = require("../electron/projectWatchPaths.cjs");
 let checks = 0;
 const ok = (value, message) => { assert.ok(value, message); checks++; };
 async function waitFor(test, label) {
@@ -30,7 +30,7 @@ async function waitFor(test, label) {
   const routes = watchRules.projectWatchRoutes(null);
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "flux-model3d-cache-watch-"));
   const project = path.join(root, "project");
-  const sandbox = { path, projectRoot: project, isDerivedFigureRenderPath, watchRules,
+  const sandbox = { path, projectRoot: project, isDerivedFigureRenderPath, isFluximgAssetBundlePath, watchRules,
     plotFolderRules: { isLighttableProjectRel }, dissectRules: { isDissectionProjectRel } };
   const classifyWith = vm.runInNewContext(`(${classifySource})`, sandbox);
   const classify = (root, absolute) => classifyWith(root, absolute, routes);
@@ -48,6 +48,16 @@ async function waitFor(test, label) {
     for (const relative of ["fig/index.json", "fig/canvases/main.json", "fig/assets/a.glb", "fig/assets/a.fluxplot.json", "fig/renders-source.svg", "fig/renderstate.json"]) {
       const absolute = path.join(project, relative);
       ok(!prune(absolute) && classify(project, absolute) === "fig", `canonical Figure path remains live: ${relative}`);
+    }
+    // Placed fluximg bundles are immutable directories the figure learns about from fig/index.json:
+    // their folders, files and import/discard staging are never watched (electron/fluximgFiles.cjs).
+    for (const relative of ["fig/assets/a.fluximg", "fig/assets/a.fluximg/pixels/0/c/0/0", "fig/assets/.a.fluximg.tmp-1234", "fig/assets/.a.fluximg.tmp-discard-1234/fluximg.json"]) {
+      const absolute = path.join(project, relative);
+      ok(prune(absolute) && pruneWithoutPlotRules(absolute) && classify(project, absolute) === null, `fluximg asset bundle excluded: ${relative}`);
+    }
+    for (const relative of ["fig/assets/a.fluximg.json", "fig/assets/a.png", "plots/a.fluximg/fluximg.json"]) {
+      const absolute = path.join(project, relative);
+      ok(!prune(absolute) && classify(project, absolute) !== null, `non-bundle path keeps its route: ${relative}`);
     }
     ok(!isDerivedFigureRenderPath(project, path.join(root, "other", "fig/renders/a.png")), "a different project path is not mistaken for this cache");
     ok(!prune(path.join(project, "plots", "model.glb")) && classify(project, path.join(project, "plots/model.glb")) === "plots", "linked GLB source updates keep their ordinary route");

@@ -15,6 +15,10 @@ contextBridge.exposeInMainWorld("fig", {
   discardModel3d: (request) => ipcRenderer.invoke("model3d:discard", request),
   model3dSourceFingerprint: request => ipcRenderer.invoke("model3d:sourceFingerprint", request),
   model3dAvailability: () => ipcRenderer.invoke("model3d:availability"),
+  // fluximg: copy a bundle into fig/assets, read one file's bytes in small ranges, drop an unplaced one.
+  importFluximg: (request) => ipcRenderer.invoke("fluximg:import", request),
+  readFluximg: (request) => ipcRenderer.invoke("fluximg:read", request),
+  discardFluximg: (request) => ipcRenderer.invoke("fluximg:discard", request),
   fontLookup: (request) => ipcRenderer.invoke("fonts:lookup", request),
   rasterizeFigure: (request) => ipcRenderer.invoke("figure:rasterize", request),
   cancelFigureRaster: (rid) => ipcRenderer.invoke("figure:cancelRaster", rid),
