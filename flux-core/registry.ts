@@ -370,8 +370,9 @@ export interface ExtraTool {
   run: (args: Record<string, unknown>) => Promise<McpRender>;
 }
 
-/** The first sentence of a summary, for the compact verb index. */
-function firstSentence(summary: string, max = 120): string {
+/** The first sentence of a summary, for the compact verb index. The index has a fixed 20 KB budget
+ *  (verify-mcp-launcher); 110 characters per line keeps room for new verbs (120 left 2 bytes, 2026-11-19). */
+function firstSentence(summary: string, max = 110): string {
   const m = /^(.+?[.!?])(\s|$)/.exec(summary);
   const one = (m ? m[1] : summary).replace(/\s+/g, " ").trim();
   return one.length > max ? one.slice(0, max - 1) + "…" : one;

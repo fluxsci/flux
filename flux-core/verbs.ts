@@ -15,6 +15,7 @@ import { PAIR_POLICY_IDS, TRANSFORM_METHOD_IDS } from "../src/lib/slide/targets"
 import type { VerbDef, CliArgSpec } from "./registry";
 import { INBOX_VERBS } from "./inboxVerbs";
 import { MODEL3D_VERBS } from './model3dVerbs';
+import { FLUXIMG_VERBS } from './fluximgVerbs';
 import { inboxSession, inboxAuthor, resolveItem } from "./annotations";import { ValidationError } from "./errors";
 import { text } from "./registry";
 import { renderLogEntries } from "../src/lib/project/contextTemplates";
@@ -4346,5 +4347,8 @@ export const VERBS: VerbDef[] = [
 
   // Figure-side 3D commands; Slides additions land after animation-v2.
   ...MODEL3D_VERBS,
+
+  // N-dimensional images (fluximg) on Figure canvases.
+  ...FLUXIMG_VERBS,
 
 ];
