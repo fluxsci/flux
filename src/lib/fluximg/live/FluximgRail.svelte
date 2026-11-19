@@ -14,7 +14,7 @@
   type Phase = "start" | "move" | "end" | "cancel";
   let {
     dim, hotkey, length, index, run = null, profiles = [], axis = undefined, vertical = false, extent, armed = false,
-    readout = "", unit = "", format = (v: number) => String(v), onscrub, onrun, onarm,
+    readout = "", unit = "", format = (v: number) => String(v), playing = false, onscrub, onrun, onarm, onplay = undefined,
   }: {
     dim: string;
     /** The key that arms this rail (shown as a key cap). */
@@ -36,6 +36,9 @@
     onscrub: (index: number, phase: Phase) => void;
     onrun: (from: number, to: number, phase: Phase) => void;
     onarm: () => void;
+    /** Present when the dimension can be played (not while a run is shown); the rail then offers a play button. */
+    playing?: boolean;
+    onplay?: (() => void) | undefined;
   } = $props();
 
   /** Track thickness (px across) and the grab zone of a run's edge. */
@@ -156,6 +159,11 @@
     </div>
   </div>
   <div class="readout" aria-live="off">{#each readout.split(" · ") as part, i (i)}<span class:first={i === 0}>{part}</span>{/each}</div>
+  {#if onplay && !run}
+    <button class="play" class:on={playing} type="button" onpointerdown={(e) => e.stopPropagation()} onclick={onplay} title={playing ? "Stop (Space)" : "Play (Space)"} aria-label={playing ? `Stop ${dim}` : `Play ${dim}`}>
+      <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">{#if playing}<rect x="1.5" y="1.5" width="7" height="7" />{:else}<path d="M2 1 L9 5 L2 9 Z" />{/if}</svg>
+    </button>
+  {/if}
 </div>
 
 <style>
@@ -194,4 +202,9 @@
   .readout .first { color: var(--c-tx-hi); }
   .rail:not(.vertical) .readout { align-self: center; flex-direction: column; padding-left: 6px; width: 132px; }
   .rail.vertical .readout { flex-direction: column; width: 74px; min-height: 26px; }
+  .play { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; flex: none; align-self: center; background: transparent; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); color: var(--c-tx-2); cursor: var(--cursor-cross-hover); }
+  .rail.vertical .play { align-self: flex-start; }
+  .play svg { fill: currentColor; }
+  .play:hover { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
+  .play.on { background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
 </style>

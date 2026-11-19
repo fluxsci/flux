@@ -16,7 +16,7 @@
   import { contributingChannelIndices, describePosition, describeProjection, formatNumber, resolveView } from "../viewOps";
   import type { FluximgElement } from "../../types";
   import FluximgRail from "./FluximgRail.svelte";
-  import { dimKeys, dimLength, panFrame, railDims, setPosition, setRun } from "./actions";
+  import { dimKeys, dimLength, panFrame, railDims, setPosition, setRun, togglePlayback } from "./actions";
   import { LiveDriver, type FrameInfo } from "./driver";
   import { cancelLiveEdit, fluximgHover, fluximgLive, fluximgLiveRect, livePointer, setLive, settleLiveEdit } from "./session";
 
@@ -293,6 +293,7 @@
       <FluximgRail {dim} hotkey={keys[dim] ?? ""} length={dimLength(manifest, dim)} index={rv.index[dim] ?? 0}
         run={rv.projection?.dim === dim ? rv.projection : null} profiles={profilesOf(dim)} axis={manifest.axes?.[dim]} extent={hRail.extent}
         armed={live?.armed === `pos:${dim}` || live?.armed === `run:${dim}`} readout={readoutOf(dim)} unit={manifest.axes?.[dim]?.unit ?? ""} format={formatNumber}
+        playing={live?.playing?.dim === dim} onplay={() => togglePlayback(dim)}
         onscrub={(index, phase) => scrub(dim, index, phase)} onrun={(from, to, phase) => runTo(dim, from, to, phase)} onarm={() => arm(dim)} />
     </div>
   {/each}
@@ -301,6 +302,7 @@
       <FluximgRail dim={vDim} hotkey={keys[vDim] ?? ""} vertical length={dimLength(manifest, vDim)} index={rv.index[vDim] ?? 0}
         run={rv.projection?.dim === vDim ? rv.projection : null} profiles={profilesOf(vDim)} axis={manifest.axes?.[vDim]} extent={vRail.extent}
         armed={live?.armed === `pos:${vDim}` || live?.armed === `run:${vDim}`} readout={readoutOf(vDim)} unit={manifest.axes?.[vDim]?.unit ?? ""} format={formatNumber}
+        playing={live?.playing?.dim === vDim} onplay={() => togglePlayback(vDim)}
         onscrub={(index, phase) => scrub(vDim, index, phase)} onrun={(from, to, phase) => runTo(vDim, from, to, phase)} onarm={() => arm(vDim)} />
     </div>
   {/if}
