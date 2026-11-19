@@ -33,3 +33,16 @@ export function lostShare(stats: InkStats, color: string): number;
 export function chooseBackdrop(stats: InkStats | null | undefined, opts?: { manifestPaper?: string | null; mode?: BackdropMode; destination?: string | null }): BackdropChoice;
 export function readsPoorlyOn(stats: InkStats | null | undefined, background: string | null | undefined): boolean;
 export function backdropTone(choice: BackdropChoice | null | undefined): "light" | "dark";
+
+export const FLUXIMG_ACCEPT: "fluximg";
+export const FLUXIMG_MANIFEST_NAME: "fluximg.json";
+export const FLUXIMG_PREVIEW_NAME: "preview.png";
+export const FLUXIMG_BROKEN: string;
+export function isFluximgBundleName(name: string): boolean;
+export function acceptsFluximg(accept: string | null | undefined): boolean;
+export function fileAcceptExts(accept: string | null | undefined): string[];
+export function fluximgBundleOf(p: string): string | null;
+export interface FluximgStat { size: number; mtimeMs: number }
+export function fluximgIndexEntry(a: { rel: string; abs: string; manifest: FluximgStat | null; preview: FluximgStat | null; dirMtimeMs?: number }): {
+  rel: string; abs: string; size: number; mtimeMs: number; semantic: false; snip: false; fluximg: { preview: boolean }; broken?: string;
+};

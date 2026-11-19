@@ -21,7 +21,7 @@ const THUMB_TIMEOUT_MS = 20000;
 const MAX_RESPAWNS = 3;
 const RESPAWN_WINDOW_MS = 10 * 60 * 1000;
 const BUCKETS = new Set([256, 512, 1024]);
-const ACCEPT_RE = /^[a-z0-9]{2,5}(,[a-z0-9]{2,5}){0,7}$/;
+const ACCEPT_RE = /^[a-z0-9]{2,7}(,[a-z0-9]{2,7}){0,7}$/; // 7: the image-bundle token "fluximg"
 
 function createPlotThumbsFamily({ app, appRoot, rootFor, libraryRoot, cacheDir, fontIndexFile, fsReadGuard, log = () => {}, thumbTimeoutMs = THUMB_TIMEOUT_MS }) {
   const here = path.join(appRoot, "electron");
@@ -160,8 +160,9 @@ function createPlotThumbsFamily({ app, appRoot, rootFor, libraryRoot, cacheDir, 
       }
       if (msg.op === "list") {
         const reserved = new Set(msg.reserved ?? []);
-        const exts = String(msg.accept).split(",").join("|");
-        return { result: await localEngine.list(msg.base, { skipDir: (n) => reserved.has(n), accept: (n) => new RegExp(`\\.(${exts})$`, "i").test(n), indexRoot: msg.indexRoot, dirs: msg.dirs }) };
+        const { fileAcceptExts, acceptsFluximg } = await import(pathToFileURL(path.join(here, "plotThumbRules.mjs")).href);
+        const exts = fileAcceptExts(msg.accept).join("|");
+        return { result: await localEngine.list(msg.base, { skipDir: (n) => reserved.has(n), accept: (n) => !!exts && new RegExp(`\\.(${exts})$`, "i").test(n), fluximg: acceptsFluximg(msg.accept), indexRoot: msg.indexRoot, dirs: msg.dirs }) };
       }
       if (msg.op === "probe") return { result: await localEngine.probe(msg.paths, msg.indexRoot) };
       return { error: "unavailable", unavailable: true };

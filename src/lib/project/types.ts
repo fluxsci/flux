@@ -255,6 +255,9 @@ export interface FileBridge {
   readFluximg?(request: import('../fluximg/bridge').FluximgReadRequest): Promise<ArrayBuffer>;
   /** Remove an unplaced import, exactly fig/assets/<assetId>.fluximg (refused while fig/index.json lists it). */
   discardFluximg?(request: { root: string; assetId: string }): Promise<void>;
+  /** Import a bundle FOLDER dropped from the file manager. The preload takes its path from the dropped File
+   *  (webUtils), never from the page, and returns it beside the result (where the element says it came from). */
+  importDroppedFluximg?(file: File, request: Omit<import('../fluximg/bridge').FluximgImportRequest, "sourcePath">): Promise<import('../fluximg/bridge').FluximgImportResult & { sourcePath: string }>;
   /** System font bytes for a CSS font request (text ↔ shape letter outlines);
    *  null bytes when no readable font file backs it. */
   fontLookup?(request: { family: string; weight?: number; style?: string }): Promise<{ key: string; bytes: Uint8Array | null; format: string | null }>;
@@ -635,6 +638,11 @@ export interface PlotIndexEntry {
   paper?: string;
   /** Quarantined: the preview crashed or timed out (until the file changes). */
   bad?: string;
+  /** An image bundle (a `*.fluximg` DIRECTORY, one item): `size`/`mtimeMs` are its manifest's (the bundle's
+   *  version), `preview` whether it carries a preview.png. Built by plotThumbRules.fluximgIndexEntry. */
+  fluximg?: { preview: boolean };
+  /** A bundle that cannot be shown or placed (no manifest yet): why, in plain words. */
+  broken?: string;
 }
 export interface PlotsListResult { base: string; entries: PlotIndexEntry[]; truncated: boolean; missing?: string[]; error?: string; unavailable?: boolean; stale?: boolean }
 export interface PlotProbe { abs: string; w?: number; h?: number; physMm?: [number, number] | null; size?: number; mtimeMs?: number; error?: string }

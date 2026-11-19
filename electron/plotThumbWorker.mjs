@@ -21,6 +21,7 @@ import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import * as path from "node:path";
 import { createThumbEngine } from "./plotThumbEngine.mjs";
+import { acceptsFluximg, fileAcceptExts } from "./plotThumbRules.mjs";
 
 const send = (msg) => process.stdout.write(JSON.stringify(msg) + "\n");
 
@@ -66,8 +67,10 @@ async function pump() {
 }
 
 function acceptFn(spec) {
-  const exts = String(spec || "svg,png").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
-  const re = new RegExp(`\\.(${exts.map((e) => e.replace(/[^a-z0-9]/g, "")).join("|")})$`, "i");
+  // Files only: the bundle token ("fluximg") lists DIRECTORIES (plotThumbRules.acceptsFluximg).
+  const exts = fileAcceptExts(spec);
+  if (!exts.length) return () => false;
+  const re = new RegExp(`\\.(${exts.join("|")})$`, "i");
   return (name) => re.test(name);
 }
 
@@ -90,6 +93,7 @@ async function handle(msg) {
       const result = await engine.list(msg.base, {
         skipDir: (name) => reserved.has(name),
         accept: acceptFn(msg.accept),
+        fluximg: acceptsFluximg(msg.accept),
         indexRoot: msg.indexRoot ?? msg.base,
         dirs: Array.isArray(msg.dirs) ? msg.dirs : null,
       });

@@ -12,6 +12,7 @@ export {
   bucketFor,
   svgIntrinsicSize,
   probeImageSize,
+  pngInfo,
   analyzeInk,
   presentBins,
   backdropScore,
@@ -20,5 +21,14 @@ export {
   backdropTone,
   contrastRatio,
   luminance8,
+  FLUXIMG_ACCEPT,
+  FLUXIMG_MANIFEST_NAME,
+  FLUXIMG_PREVIEW_NAME,
+  FLUXIMG_BROKEN,
+  isFluximgBundleName,
+  acceptsFluximg,
+  fileAcceptExts,
+  fluximgBundleOf,
+  fluximgIndexEntry,
 } from "../../../electron/plotThumbRules.mjs";
 export type { InkStats, BackdropMode, BackdropKind, BackdropChoice } from "../../../electron/plotThumbRules.mjs";

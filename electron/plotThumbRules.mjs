@@ -447,3 +447,68 @@ export function backdropTone(choice) {
   const L = hexLuminance(choice.color);
   return L != null && L >= 0.4 ? "light" : "dark";
 }
+
+// ---------------------------------------------------------------------------------------------
+// Image bundles (`<stem>.fluximg/`, docs/fluximg/SPEC.md) in a plots tree.
+// ---------------------------------------------------------------------------------------------
+// A bundle is ONE item: a DIRECTORY whose name ends in `.fluximg`. A walk never descends into one
+// (its preview.png and layer SVGs are parts of the image, never plots of their own), whether or
+// not the listing asked for bundles. What the index knows about a bundle comes from two stats —
+// `fluximg.json` and `preview.png` — never from reading the manifest: a listing of 500 bundles
+// must not open 500 manifests. The manifest is written LAST, so its size and mtime are the
+// bundle's version (a rewritten bundle is a fresh tile), and a bundle without one is an
+// unfinished or damaged write: listed as broken, never hidden. Both engines (the thumbnail
+// worker's walk and the in-memory dev bridge) build their entries here.
+
+/** The `accept` token that lists bundles (beside file extensions such as `svg,png`). */
+export const FLUXIMG_ACCEPT = "fluximg";
+export const FLUXIMG_MANIFEST_NAME = "fluximg.json";
+export const FLUXIMG_PREVIEW_NAME = "preview.png";
+/** Why a bundle has no picture and cannot be placed. */
+export const FLUXIMG_BROKEN = "No fluximg.json: an unfinished or damaged image bundle";
+
+/** True for a directory NAME that is an image bundle (`cells.fluximg`; a bare `.fluximg` is not). */
+export function isFluximgBundleName(name) {
+  const n = String(name || "");
+  return n.length > 8 && n.toLowerCase().endsWith(".fluximg");
+}
+
+/** Whether an accept list (`"svg,png,fluximg"`) asks for bundles. */
+export function acceptsFluximg(accept) {
+  return String(accept || "").split(",").some((s) => s.trim().toLowerCase() === FLUXIMG_ACCEPT);
+}
+
+/** The file extensions of an accept list, without the bundle token (a FILE named `x.fluximg` is not a bundle). */
+export function fileAcceptExts(accept) {
+  return String(accept || "svg,png").split(",").map((s) => s.trim().toLowerCase().replace(/[^a-z0-9]/g, "")).filter((s) => s && s !== FLUXIMG_ACCEPT);
+}
+
+/**
+ * The bundle a path lies in (or is): the path cut after its first `*.fluximg` segment, in the path's own
+ * separators; null for a path outside every bundle. `plots/a/cells.fluximg/pixels/0/zarr.json` →
+ * `plots/a/cells.fluximg`. A watcher event inside a bundle is an event OF the bundle.
+ */
+export function fluximgBundleOf(p) {
+  const s = String(p || "");
+  const re = /[^/\\]+/g;
+  let m;
+  while ((m = re.exec(s))) if (isFluximgBundleName(m[0])) return s.slice(0, m.index + m[0].length);
+  return null;
+}
+
+/**
+ * The index entry of a bundle at `rel` / `abs` (PlotIndexEntry, src/lib/project/types.ts), from the stats of its
+ * manifest and preview (null = absent). `dirMtimeMs` versions a broken bundle (no manifest yet).
+ */
+export function fluximgIndexEntry({ rel, abs, manifest, preview, dirMtimeMs = 0 }) {
+  return {
+    rel,
+    abs,
+    size: manifest ? manifest.size : 0,
+    mtimeMs: manifest ? manifest.mtimeMs : dirMtimeMs,
+    semantic: false,
+    snip: false,
+    fluximg: { preview: !!preview },
+    ...(manifest ? {} : { broken: FLUXIMG_BROKEN }),
+  };
+}

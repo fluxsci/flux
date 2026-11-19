@@ -7,6 +7,7 @@
 
 import { writable, get, type Readable } from "svelte/store";
 import { fileBridge, type PlotIndexEntry } from "../project/types";
+import { fluximgBundleOf } from "./rules";
 
 export type PlotScope = "project" | "global";
 
@@ -183,7 +184,9 @@ export function createPlotIndex(opts: { scope: PlotScope; collection?: string; a
   async function ensureSizes(abs: string[]) {
     const fb = fileBridge();
     if (!fb?.plotsProbe) return;
-    const want = abs.filter((a) => { const it = byAbs.get(a); return it && !it.w && !probing.has(a) && !unsized.has(`${a}|${it.stamp}`); });
+    // An image bundle has no header to probe (its size is in a manifest the index never opens): its tile learns
+    // the aspect from its own picture.
+    const want = abs.filter((a) => { const it = byAbs.get(a); return it && !it.fluximg && !it.w && !probing.has(a) && !unsized.has(`${a}|${it.stamp}`); });
     if (!want.length) return;
     for (const a of want) probing.add(a);
     const mine = generation;
@@ -252,8 +255,11 @@ export function createPlotIndex(opts: { scope: PlotScope; collection?: string; a
     const take = (paths: string[]) => {
       const base = get(state).base;
       if (!base) { if (loadingNow) changedDuringLoad = true; return; }
-      for (const p of paths) {
-        if (p !== base && !p.startsWith(base + "/") && !p.startsWith(base + "\\")) continue;
+      for (const raw of paths) {
+        if (raw !== base && !raw.startsWith(base + "/") && !raw.startsWith(base + "\\")) continue;
+        // A change inside an image bundle is a change OF the bundle: re-list the folder that holds it (its
+        // inner folders are never listed — their preview.png and layers are parts of one image).
+        const p = fluximgBundleOf(raw) ?? raw;
         const cut = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
         pendingDirs.add(p.slice(0, cut));
         // A path without an extension may be a folder that came or went.

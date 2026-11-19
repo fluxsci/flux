@@ -17,7 +17,7 @@ import { GLB_LIMITS } from '../model3d/glbCore.mjs';
 import { RESERVED_PLOT_DIRNAMES } from "./plotsFolders";
 import { supportsDeckSchema } from "../slide/schemaStamp";
 import { DISSECT_REL, dissectionRootRelFor, classifyDissectionFile, dissectionNoteRel, DISSECT_NOTE_MAX_BYTES } from "../dissect/rules";
-import { probeImageSize } from "../plotsRail/rules";
+import { probeImageSize, acceptsFluximg, fileAcceptExts, fluximgBundleOf, fluximgIndexEntry, FLUXIMG_MANIFEST_NAME, FLUXIMG_PREVIEW_NAME } from "../plotsRail/rules";
 import type { PlotIndexEntry } from "./types";
 import * as fxr from "../../../electron/fluximgRules.js";
 import type { FluximgImportRequest, FluximgImportResult, FluximgReadRequest } from "../fluximg/bridge";
@@ -265,6 +265,8 @@ export function createMemBridge(): FileBridge & {
 
   return {
     importFluximg: (request) => importMemFluximg(request),
+    // A "dropped" bundle in the fixture is named by its project-relative path (there is no file manager here).
+    importDroppedFluximg: (file, request) => importMemFluximg({ ...request, sourcePath: file.name }).then((result) => ({ ...result, sourcePath: file.name })),
     async readFluximg(request: FluximgReadRequest) {
       if (typeof request?.root === "string" && watchedRoot !== undefined && watchedRoot !== norm(request.root)) throw new Error(fxr.fluximgErrors.projectChanged());
       const root = fluximgRoot(request?.root);
@@ -379,10 +381,26 @@ export function createMemBridge(): FileBridge & {
       const collection = request.collection && RESERVED_PLOT_DIRNAMES.includes(request.collection) ? request.collection : "";
       const base = collection ? `${base0}/${collection}` : base0;
       if (!base0) return { base: "", entries: [], truncated: false };
-      const exts = new Set((request.accept ?? "svg,png").split(","));
+      const exts = new Set(fileAcceptExts(request.accept ?? "svg,png"));
+      const listBundles = acceptsFluximg(request.accept);
       const only = request.dirs ? new Set(request.dirs.map(norm)) : null;
       const entries: PlotIndexEntry[] = [];
       const seenDirs = new Set<string>();
+      // Image bundles: one entry per `*.fluximg` directory, never its inner files (the engine's rule, shared:
+      // plotThumbRules.fluximgIndexEntry). Found from the files under them and from empty bundle folders.
+      const bundles = new Map<string, string>(); // abs → rel
+      const noteBundle = (key: string): boolean => {
+        const at = fluximgBundleOf(key.slice(base.length + 1));
+        if (at === null) return false;
+        const abs = `${base}/${at}`;
+        if (key === abs && !memIsDir(abs)) return false; // a FILE named x.fluximg is not a bundle
+        const parts = at.split("/");
+        if (!collection && parts.slice(0, -1).some((d) => RESERVED_PLOT_DIRNAMES.includes(d))) return true;
+        if (!listBundles || (only && !only.has(parentOf(abs)))) return true;
+        bundles.set(abs, at);
+        return true;
+      };
+      for (const dir of dirs) if (dir.startsWith(base + "/")) noteBundle(dir);
       for (const [key, bytes] of files) {
         if (!key.startsWith(base + "/")) continue;
         const rel = key.slice(base.length + 1);
@@ -390,6 +408,7 @@ export function createMemBridge(): FileBridge & {
         const name = parts[parts.length - 1];
         const parent = parentOf(key);
         if (!collection && parts.slice(0, -1).some((d) => RESERVED_PLOT_DIRNAMES.includes(d))) continue;
+        if (noteBundle(key)) { seenDirs.add(parentOf(`${base}/${fluximgBundleOf(rel)}`)); continue; }
         seenDirs.add(parent);
         if (only && !only.has(parent)) continue;
         const ext = (name.match(/\.([a-z0-9]+)$/i)?.[1] ?? "").toLowerCase();
@@ -398,6 +417,9 @@ export function createMemBridge(): FileBridge & {
           semantic: /\.(svg|glb)$/i.test(name) && files.has(key.replace(/\.(svg|glb)$/i, ".fluxplot.json")),
           snip: /\.png$/i.test(name) && files.has(key.replace(/\.png$/i, ".snip.json")) });
       }
+      const statOf = (key: string) => { const b = files.get(key); return b ? { size: b.byteLength, mtimeMs: mtimes.get(key) ?? 0 } : null; };
+      for (const [abs, rel] of bundles)
+        entries.push(fluximgIndexEntry({ rel, abs, manifest: statOf(`${abs}/${FLUXIMG_MANIFEST_NAME}`), preview: statOf(`${abs}/${FLUXIMG_PREVIEW_NAME}`) }));
       const missing = only ? [...only].filter((d) => !seenDirs.has(d) && !dirs.has(d)) : [];
       return { base, entries, truncated: false, missing };
     },

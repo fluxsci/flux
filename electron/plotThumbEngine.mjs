@@ -23,6 +23,10 @@ import {
   THUMB_BUCKETS,
   analyzeInk,
   probeImageSize,
+  isFluximgBundleName,
+  fluximgIndexEntry,
+  FLUXIMG_MANIFEST_NAME,
+  FLUXIMG_PREVIEW_NAME,
 } from "./plotThumbRules.mjs";
 
 const RASTER_RE = /\.(png|jpe?g|gif|webp)$/i;
@@ -151,7 +155,7 @@ export function createThumbEngine(o) {
    * folders; `accept(name)` picks files. Returns rel paths under `base` with stamps and
    * whatever the index already knows (size, analysis, manifest paper).
    */
-  async function list(base, { skipDir = () => false, accept = (n) => /\.(svg|png)$/i.test(n), maxFiles = 20000, maxDepth = 20, indexRoot = base, dirs = null } = {}) {
+  async function list(base, { skipDir = () => false, accept = (n) => /\.(svg|png)$/i.test(n), fluximg = false, maxFiles = 20000, maxDepth = 20, indexRoot = base, dirs = null } = {}) {
     const ix = await rootIndex(indexRoot);
     const out = [];
     const missing = [];
@@ -165,8 +169,23 @@ export function createThumbEngine(o) {
       for (const e of entries) {
         if (e.isDirectory()) continue;
         // A symlinked plot counts (stat below follows it; a dangling link drops out there).
-        if ((e.isFile() || e.isSymbolicLink()) && accept(e.name)) files.push(e.name);
+        if ((e.isFile() || e.isSymbolicLink()) && accept(e.name) && !isFluximgBundleName(e.name)) files.push(e.name);
       }
+      // An image bundle is a DIRECTORY and ONE item; it is never walked into (its preview.png and layer SVGs are
+      // parts of the image). Two stats describe it — its manifest and preview — and nothing is read
+      // (plotThumbRules.fluximgIndexEntry). Listed here, beside the files, so an incremental re-list of a folder
+      // refreshes the bundles in it too.
+      const bundles = fluximg ? entries.filter((e) => e.isDirectory() && isFluximgBundleName(e.name)).map((e) => e.name) : [];
+      const statOf = (p) => fsp.stat(p).then((st) => (st.isFile() ? { size: st.size, mtimeMs: st.mtimeMs } : null)).catch(() => null);
+      const bundleStats = await Promise.all(bundles.map(async (n) => {
+        const b = path.join(dir, n);
+        const [manifest, preview, dirSt] = await Promise.all([statOf(path.join(b, FLUXIMG_MANIFEST_NAME)), statOf(path.join(b, FLUXIMG_PREVIEW_NAME)), fsp.stat(b).catch(() => null)]);
+        return { manifest, preview, dirMtimeMs: dirSt ? dirSt.mtimeMs : 0 };
+      }));
+      bundles.forEach((name, i) => {
+        if (out.length >= maxFiles) { truncated = true; return; }
+        out.push(fluximgIndexEntry({ rel: rel ? `${rel}/${name}` : name, abs: path.join(dir, name), ...bundleStats[i] }));
+      });
       const stats = await Promise.all(files.map((n) => fsp.stat(path.join(dir, n)).then((st) => (st.isFile() ? st : null)).catch(() => null)));
       files.forEach((name, i) => {
         const st = stats[i];
@@ -190,7 +209,7 @@ export function createThumbEngine(o) {
       });
       if (!recurse) return;
       for (const e of entries.filter((d) => d.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
-        if (skipDir(e.name, rel)) continue;
+        if (skipDir(e.name, rel) || isFluximgBundleName(e.name)) continue;
         await visit(path.join(dir, e.name), rel ? `${rel}/${e.name}` : e.name, depth + 1);
         if (out.length >= maxFiles) { truncated = true; return; }
       }
@@ -201,7 +220,8 @@ export function createThumbEngine(o) {
       for (const dir of dirs) {
         if (dir !== base && !dir.startsWith(base + path.sep)) continue;
         const rel = path.relative(base, dir).split(path.sep).join("/");
-        if (rel.split("/").some((seg) => skipDir(seg))) continue;
+        // A folder inside a bundle is part of the image: its bundle is re-listed through the bundle's own folder.
+        if (rel.split("/").some((seg) => skipDir(seg) || isFluximgBundleName(seg))) continue;
         await visit(dir, rel, 0, false);
       }
       return { entries: out, truncated, missing };
