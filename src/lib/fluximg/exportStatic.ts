@@ -22,7 +22,8 @@ import type { FluximgManifest } from "./types";
 import type { FluximgView, PixelRect, ResolvedView } from "./view";
 import { pixelKey, resolveView } from "./viewOps";
 import { clampCrop, stillSize } from "./still";
-import { fluximgIdPrefix, fluximgStaticSvg, layerSvgPath } from "./static";
+import { fluximgIdPrefix, fluximgStaticSvg, insetsOf, layerSvgPath } from "./static";
+import { colormapLut, ensureColormapLuts } from "../color/colormapLuts";
 import { escapeXml, sanitizeLayerSvg } from "./layers";
 import { fluximgPlaceholderSvg } from "./placeholder";
 
@@ -108,6 +109,10 @@ export interface FluximgSvgContext {
   stillOf(key: string): string | undefined;
   /** A layer file's SVG text (already checked by the sanitizer), by asset id and bundle path. */
   layerTextOf(assetId: string, path: string): string | undefined;
+  /** The blow-outs of an element in its figure (their frames are outlined on it). */
+  insetsOf?(elementId: string): Array<{ id: string; crop: PixelRect }>;
+  /** Colour-map tables for the calibration bar (loaded by the preparation when a shown bar needs one). */
+  resolveLut?(name: string): string[] | null;
 }
 
 /** What an engine supplies. Every call may throw: the element is then drawn as the stand-in and the reason reported. */
@@ -155,6 +160,14 @@ export async function prepareFluximgContext(figures: readonly Figure[], assets: 
     if (options.isCurrent && !options.isCurrent()) { const e = new Error("The figure changed while its images were prepared"); e.name = "AbortError"; throw e; }
   };
   const issue = (e: FluximgElement, message: string): void => options.onIssue?.(e, message);
+  // Blow-outs are a relation between elements of one figure: resolved here, where the figures are in hand.
+  const insets = new Map<string, Array<{ id: string; crop: PixelRect }>>();
+  for (const f of figures) for (const e of f.elements) {
+    if (e.type !== "fluximg" || effectiveHidden(f, e)) continue;
+    const mine = insetsOf(f.elements.filter((x) => !effectiveHidden(f, x)), e.id, e.assetId);
+    if (mine.length) insets.set(e.id, mine);
+  }
+  let wantLuts = false;
 
   await Promise.all(visibleFluximgElements(figures).map(async (e) => {
     const asset = byId.get(e.assetId);
@@ -172,6 +185,7 @@ export async function prepareFluximgContext(figures: readonly Figure[], assets: 
     }
     check();
     const rv = resolveView(manifest, e.view);
+    if (rv.furniture.colorbar && rv.channels.some((c) => c.lut)) wantLuts = true;
     const request = fluximgStillRequest(e, asset, manifest, scale, rv);
     const jobs: Array<Promise<void>> = [];
     if (!stills.has(request.key)) {
@@ -196,12 +210,16 @@ export async function prepareFluximgContext(figures: readonly Figure[], assets: 
     await Promise.all(jobs);
   }));
   check();
+  // A calibration bar draws a colour map's own colours; without the tables it would be gray.
+  if (wantLuts) await ensureColormapLuts().catch(() => {});
   return {
     scale, namespace: options.namespace,
     assetOf: (id) => byId.get(id),
     manifestOf: (id) => manifests.get(id),
     stillOf: (key) => stills.get(key),
     layerTextOf: (id, path) => texts.get(`${id}|${path}`),
+    insetsOf: (id) => insets.get(id) ?? [],
+    resolveLut: (name) => colormapLut(name)?.lut ?? null,
   };
 }
 
@@ -229,6 +247,7 @@ export function fluximgElementMarkup(e: FluximgElement, ctx?: FluximgSvgContext)
     manifest, view: rv, crop: request.crop, box: { width: Math.max(0, e.width), height: Math.max(0, e.height) },
     stillHref: ctx.stillOf(request.key) ?? null, layerSvg, idPrefix: fluximgExportIdPrefix(e.id, ctx.namespace),
     flipX: !!e.flipX, flipY: !!e.flipY,
+    insets: ctx.insetsOf?.(e.id) ?? [], resolveLut: ctx.resolveLut,
   };
   let inner: string;
   try { inner = fluximgStaticSvg(input); }
