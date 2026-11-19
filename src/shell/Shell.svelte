@@ -230,8 +230,7 @@
     <div class="fetch-chip" role="status" transition:fade={{ duration: DUR.quick }}>
       <span class="fc-spin" aria-hidden="true"></span>
       <span class="fc-label"
-        >{pdfFetchJob.phase === "proxy" ? "Library PDFs" : "PDFs"}
-        {pdfFetchJob.done}/{pdfFetchJob.total}</span>
+        >PDFs {pdfFetchJob.done}/{pdfFetchJob.total}</span>
       <button class="fc-cancel" title="Stop fetching" onclick={() => pdfFetchJob.cancel()}>✕</button>
     </div>
   {/if}

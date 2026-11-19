@@ -24,7 +24,6 @@ export const SOURCE_JSON = "source.json";
 export const FULLTEXT_TXT = "fulltext.txt";
 export const ANNOTATIONS_JSON = "annotations.json";
 export const CONVERSATIONS_JSON = "conversations.json";
-export const FETCH_FAILURE_JSON = "fetch-failure.json";
 /** Raw TEI from an OPTIONAL GROBID enrichment pass — kept verbatim so a better projection can be
  *  re-derived later without re-running the service. Absent on every default install. */
 export const GROBID_TEI_XML = "grobid.tei.xml";
@@ -111,7 +110,6 @@ export const grobidTeiPath = (lib: string, key: string): string => j(itemDir(lib
 export const grobidJsonPath = (lib: string, key: string): string => j(itemDir(lib, key), GROBID_JSON);
 export const annotationsPath = (lib: string, key: string): string => j(itemDir(lib, key), ANNOTATIONS_JSON);
 export const conversationsPath = (lib: string, key: string): string => j(itemDir(lib, key), CONVERSATIONS_JSON);
-export const failurePath = (lib: string, key: string): string => j(itemDir(lib, key), FETCH_FAILURE_JSON);
 export const supplementPath = (lib: string, key: string, n: number, ext: string): string =>
   j(itemDir(lib, key), `supplement-${n}.${ext.replace(/^\./, "")}`);
 
@@ -140,7 +138,7 @@ export interface SupplementRecord {
   name: string; // bare filename inside supplements/
   label?: string; // publisher's own wording, e.g. "Supplementary Video 1 (download MOV)"
   url?: string; // where it was captured from
-  source?: string; // "proxy" | "europepmc-suppl" | "attach" | "repair" | …
+  source?: string; // "europepmc-suppl" | "attach" | "repair" | … (older versions also wrote "proxy")
   bytes: number;
   sha256?: string;
   fetchedAt: string;
@@ -171,35 +169,14 @@ export function parseSupplementManifest(text: string | null | undefined): Supple
 /** Provenance for a stored PDF — written alongside it as source.json. */
 export interface SourceInfo {
   key: string; // citekey
-  source: string; // resolver that produced it: "openalex-oa" | "unpaywall" | "europepmc" | "pmc-oa" | "arxiv" | "biorxiv" | "crossref" | "proxy" | "ingest" | "assigned"
+  source: string; // resolver that produced it: "openalex-oa" | "unpaywall" | "europepmc" | "pmc-oa" | "arxiv" | "biorxiv" | "crossref" | "ingest" | "assigned" (older versions also wrote "proxy"; read as-is)
   url?: string; // the URL we requested
   finalUrl?: string; // after redirects
   fetchedAt: string; // ISO
   sha256?: string;
   bytes?: number;
-  isOa?: boolean; // true = open-access copy; false = version-of-record via proxy
+  isOa?: boolean; // true = open-access copy; false = not known to be open access
   license?: string;
-}
-
-/** Why a PDF fetch genuinely failed, recorded per-paper as items/<key>/fetch-failure.json
- *  so the failure is directly associated to the paper, survives restarts, is cleared on any
- *  later success, and lets the bulk run SKIP papers that already exhausted every route (no
- *  re-grinding the same DOI with the same failing methods). NEVER written for environment
- *  failures (session-expired / cancelled / not-configured) — those stay merely "missing". */
-export interface FetchFailure {
-  key: string; // citekey
-  target: string; // the DOI/landing URL we tried
-  host?: string; // publisher host we landed on (from proxy diag)
-  attemptedAt: string; // ISO of the most recent attempt
-  attempts: number; // increments across runs
-  oa?: string; // OA outcome: "no-oa" | "no-id" | an error string
-  proxy?: {
-    reason?: string; // engine reason: "no-affordances" | "not-a-pdf" | "error" | ...
-    landedUrl?: string;
-    affordancesFound?: string[];
-    detail?: string;
-  };
-  lastError?: string; // human-readable last error (OA or proxy)
 }
 
 // --- OA-miss ledger ---------------------------------------------------------------
@@ -209,7 +186,7 @@ export interface FetchFailure {
 // and throttle-saved during the run — minimal and fast at any library size. A miss is
 // only honored while it is FRESH: same identifier signature (a new DOI / OA URL / PMCID
 // from enrichment invalidates it) and younger than the TTL (papers become OA over time —
-// PMC embargoes lapse). "Retry failed" bypasses the ledger entirely.
+// PMC embargoes lapse). Fetching explicitly picked papers bypasses the ledger entirely.
 
 export const OA_MISSES_JSON = "oa-misses.json";
 export const oaMissesPath = (lib: string): string => j(lib, ".fluxlib", OA_MISSES_JSON);
@@ -239,16 +216,6 @@ export function isFreshOaMiss(miss: OaMiss | undefined, sig: string, now = Date.
   if (!miss || miss.sig !== sig) return false;
   const at = Date.parse(miss.at);
   return Number.isFinite(at) && now - at < OA_MISS_TTL_MS;
-}
-
-/** LR-7: the durable per-row outcome for a recorded failure — drives the Library's fetch pill.
- *  (Environment failures — session-expired/cancelled — are never recorded per the note above,
- *  so they stay "missing", not any of these.) */
-export type FetchOutcome = "no-id" | "no-oa" | "failed";
-export function fetchOutcome(f: FetchFailure): FetchOutcome {
-  if (f.oa === "no-id") return "no-id"; // no DOI/identifier to even attempt OA
-  if (f.oa === "no-oa") return "no-oa"; // no open-access copy; the publisher route also failed
-  return "failed"; // a route erred (wall / not-a-pdf / network) — see lastError
 }
 
 /** One row of the derived items index (.fluxlib/items.json) — a fast cache of

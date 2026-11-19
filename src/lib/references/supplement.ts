@@ -18,6 +18,8 @@ export type { PdfCandidate, SupplementDocInput } from "../../../electron/supplem
 /** Provenance sources that Flux chose on the user's behalf, so a wrong PDF is Flux's bug
  *  to catch. Manual routes (a file the user picked, a Zotero attachment they curated) are
  *  trusted: rejecting those would override an explicit human decision. */
+// "proxy" is provenance written by older versions; papers stored with it are still judged
+// as automated acquisitions.
 const AUTOMATED_SOURCES = new Set(["proxy", "openalex-oa", "unpaywall", "europepmc", "pmc-oa", "arxiv", "biorxiv", "crossref"]);
 
 /** True if `source` is an automated acquisition that should be verified before it becomes paper.pdf. */

@@ -293,11 +293,10 @@ export interface FileBridge {
   // List a directory's entries (files + subdirs). Optional: older bridges / the
   // web demo may not provide it. Used by the Plot Importer to browse plots/.
   readdir?(p: string, strict?: boolean): Promise<{ name: string; dir: boolean }[]>;
-  // Delete a file (e.g. clear a paper's fetch-failure record on a later success). Optional:
-  // older bridges may lack it; callers use `fb.remove?.(p)`.
   /** Native verified copy; preserves source and refuses different destination bytes. */
   copyFileVerified?(source: string, destination: string, sha256?: string): Promise<string>;
   moveFileVerified?(source: string, destination: string, sha256?: string): Promise<string>;
+  // Delete a file. Optional: older bridges may lack it; callers use `fb.remove?.(p)`.
   remove?(p: string): Promise<void>;
   // Move a file to the OS trash (a deleted manuscript stays recoverable). Where no
   // trash exists it removes the file instead and reports `trashed: false`. Optional:
@@ -344,35 +343,6 @@ export interface FileBridge {
     error?: string;
     status?: number;
   }>;
-  // Library proxy (EZProxy) — user-initiated paywalled PDF access (Electron only).
-  proxyLogin?(): Promise<{ ok?: boolean; error?: string }>;
-  proxyStatus?(): Promise<{ configured: boolean; signedIn: boolean }>;
-  // `token` is an opaque per-call id so a background bulk run can cancel this exact fetch
-  // (or all in-flight via proxyCancel("*")). `reason`/`diag` classify a failure for the
-  // Part C failure log (e.g. reason "no-affordances" | "session-expired" | "cancelled").
-  fetchViaProxy?(
-    target: string,
-    token?: string,
-    opts?: {
-      /** Also capture the article's supplementary files while we're on its page. */
-      withSupplements?: boolean;
-    },
-  ): Promise<{
-    bytesB64?: string;
-    contentType?: string;
-    finalUrl?: string;
-    via?: string;
-    error?: string;
-    reason?: string;
-    diag?: { landedUrl?: string; host?: string; affordancesFound?: string[]; detail?: string };
-    /** Present only when `withSupplements` was requested and the main capture succeeded. */
-    supplements?: Array<{ name: string; label?: string; url?: string; bytesB64: string }>;
-  }>;
-  proxyCancel?(token: string): Promise<{ ok?: boolean }>;
-  // Proxy credentials, stored ENCRYPTED via the OS keychain (Electron safeStorage).
-  proxySetCredentials?(username: string, password: string): Promise<{ ok?: boolean; error?: string }>;
-  proxyHasCredentials?(): Promise<{ username: string; hasPassword: boolean; available: boolean }>;
-  proxyClearCredentials?(): Promise<{ ok?: boolean }>;
   // Machine-global API-key store (<FluxLib>/keys.json), shared across all projects.
   keysGet?(): Promise<Record<string, unknown>>;
   keysSet?(patch: Record<string, unknown>): Promise<Record<string, unknown>>;

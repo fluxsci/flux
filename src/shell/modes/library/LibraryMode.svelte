@@ -63,8 +63,8 @@
   import ZoteroPanel from "./ZoteroPanel.svelte";
   import { zoteroSyncJob } from "../../../lib/references/zoteroSyncJob.svelte";
   import { openInReader } from "../reader/readerStore";
-  import { fetchPdfForEntry, fetchViaProxyForEntry, fetchSupplementsForEntries } from "../../../lib/references/pdfFinderBridge";
-  import { listPdfKeys, ingestPdfFile, revealReaderPdf, listFailures, clearFetchFailure, searchFulltext, type FulltextHit } from "../../../lib/references/itemsBridge";
+  import { fetchPdfForEntry, fetchSupplementsForEntries } from "../../../lib/references/pdfFinderBridge";
+  import { listPdfKeys, ingestPdfFile, revealReaderPdf, searchFulltext, type FulltextHit } from "../../../lib/references/itemsBridge";
   import { parseQueryTerms } from "../../../lib/references/textFold";
   import { loadAnnotations } from "../../../lib/references/annotationsBridge";
   import { saveAnnotationsMarkdown } from "../../../lib/io";
@@ -72,7 +72,7 @@
   import { mergeOrganize, organizeOf, allTags, allCollections, emptyOrganize, READING_STATUSES, type OrganizeData, type ReadingStatus } from "../../../lib/references/organize";
   import { pdfFetchJob, type GuiFetchSummaryLite } from "../../../lib/references/pdfFetchJob.svelte";
   import { assignJob, countInbox } from "../../../lib/references/assignJob.svelte";
-  import { safeKey, fetchOutcome, type FetchFailure, type FetchOutcome } from "../../../lib/references/items";
+  import { safeKey } from "../../../lib/references/items";
 
   let { focused = true }: { focused?: boolean } = $props();
 
@@ -136,30 +136,15 @@
   // The bulk "Get all PDFs" run lives in a module-level job (pdfFetchJob) so it survives
   // navigating away from Library; these mirror it for this view's button/row states.
   const fetchingAll = $derived(pdfFetchJob.running);
-  // LR-7: one eager map of every recorded fetch failure (keyed NFC) — the single source for
-  // the per-row outcome pill (no DOI / no OA / failed), the diagnostic banner, and the
-  // "failed N" filter. failedKeys derives from it so reload/refresh/clear stay in one place.
-  // Failures are the minority (only attempted-and-failed papers have a record), so reading
-  // each record on reload is a handful of extra file reads, not a per-row cost.
-  let failures = $state.raw<Record<string, FetchFailure>>({});
-  const failedKeys = $derived(new Set(Object.keys(failures)));
-  /** Narrow the list by PDF state. Cycles all → missing → failed → have → all. "failed" is a
-   *  step on this same axis rather than a standing "⚠ N failed" pill in the toolbar: for true
-   *  paywalls and the accepted anti-bot walls the count never reaches zero, and a warning that
-   *  can't be cleared is noise. The per-row outcome pill still says which papers died and why.
-   *  The step is skipped when nothing has failed, so a clean library never cycles through it. */
-  let pdfFilter = $state<"all" | "missing" | "failed" | "have">("all");
+  /** Narrow the list by PDF state. Cycles all → missing → have → all, read off disk (pdfKeys).
+   *  There is no separate "failed" step or standing failure count: a paper without an
+   *  open-access copy is simply missing, and a warning that can never reach zero is noise. */
+  let pdfFilter = $state<"all" | "missing" | "have">("all");
   function cyclePdfFilter() {
     if (pdfFilter === "all") pdfFilter = "missing";
-    else if (pdfFilter === "missing") pdfFilter = failedKeys.size > 0 ? "failed" : "have";
-    else if (pdfFilter === "failed") pdfFilter = "have";
+    else if (pdfFilter === "missing") pdfFilter = "have";
     else pdfFilter = "all";
   }
-  // Retrying the last failure (or clearing its record) empties failedKeys while the filter is
-  // still parked on it — that would show an empty list with no way to read why. Fall back.
-  $effect(() => {
-    if (pdfFilter === "failed" && failedKeys.size === 0) pdfFilter = "all";
-  });
   // LR-U2: row multiselect (by citekey) → bulk "add to project". Keyed by citekey so a selection
   // survives query/scope changes; the Clear action + select-all operate on the currently-shown rows.
   let selected = $state.raw<Set<string>>(new Set());
@@ -198,20 +183,7 @@
   let keyOpenAlex = $state("");
   let keyS2 = $state("");
   let keyMailto = $state("");
-  let keyEzproxy = $state("");
   let keysSaved = $state(false);
-
-  // Library proxy (EZProxy) status — drives the sign-in button + "Get via library".
-  let proxyConfigured = $state(false);
-  let proxySignedIn = $state(false);
-  let proxyBusy = $state(false);
-  let preflightBusy = $state(false); // bulk-fetch pre-flight auth probe in progress
-  // Stored (OS-keychain) proxy credentials for seamless auto-login.
-  let proxyUser = $state("");
-  let proxyPass = $state("");
-  let credAvailable = $state(false);
-  let credHasPass = $state(false);
-  let credSaved = $state(false);
 
   // World scope state.
   let worldResults = $state<WorldBrief[]>([]);
@@ -231,7 +203,7 @@
   // .includes per entry per keystroke instead of a 9-field join+lowercase.
   const enriched = $derived(attachHaystacks(mergeOrganize(mergeEnrich(entries, enrichMap), organizeData) as EnrichedEntry[]));
   // LR-4: precompute each entry's PDF-dir key (safeKey → 3 regexes + trim, then a Unicode
-  // NFC normalize) ONCE per load. hasPdf()/isFailed() run 4–6× per row per render across
+  // NFC normalize) ONCE per load. hasPdf() runs 4–6× per row per render across
   // every result row plus the coverage stats; without this they re-ran the whole regex+
   // normalize chain each time, which dominated re-renders on a multi-thousand-item library.
   const nfcOf = $derived(new Map(entries.map((e) => [e.key, safeKey(e.key).normalize("NFC")])));
@@ -323,30 +295,6 @@
     openInReader(key, { find: ftReaderTerm() });
   }
 
-  const isFailed = (key: string) => failedKeys.has(nfc(key));
-  // LR-7: the durable, categorized per-row outcome pill (replaces the ambiguous ⚠). Environment
-  // failures (session-expired / cancelled) are never recorded, so they stay plain "missing".
-  const OUTCOME_PILL: Record<FetchOutcome, { label: string; tone: "danger" | "muted"; title: string }> = {
-    "no-id": {
-      label: "no DOI",
-      tone: "muted",
-      title: "No DOI/identifier on this entry, so no fetch route could be tried — add a DOI (↗), then retry.",
-    },
-    "no-oa": {
-      label: "no OA",
-      tone: "danger",
-      title: "No open-access copy exists and the library-proxy route didn't return a PDF — click for details.",
-    },
-    failed: {
-      label: "failed",
-      tone: "danger",
-      title: "A fetch route erred (paywall wall / not-a-PDF / network) — click for details.",
-    },
-  };
-  const outcomePill = (key: string) => {
-    const f = failures[nfc(key)];
-    return f ? OUTCOME_PILL[fetchOutcome(f)] : null;
-  };
   // Column sorting (library scope): click a header to sort by it, click it again to
   // reverse. "" = the library's natural (file) order. Numeric columns start descending
   // (newest / most-cited first); text columns start ascending.
@@ -380,10 +328,8 @@
     // otherwise the metadata query. pdfFilter narrows either.
     let base = ftMode ? enriched.filter((r) => ftHits.has(nfc(r.key))) : queryRun(enriched, queryDebounced);
     // PDF presence isn't a metadata field — it's disk state (pdfKeys), so it narrows the
-    // result set here rather than living in the query grammar. "failed" reads the same axis
-    // off the failure records instead.
-    if (pdfFilter === "failed") base = base.filter((r) => isFailed(r.key));
-    else if (pdfFilter !== "all") base = base.filter((r) => hasPdf(r.key) === (pdfFilter === "have"));
+    // result set here rather than living in the query grammar.
+    if (pdfFilter !== "all") base = base.filter((r) => hasPdf(r.key) === (pdfFilter === "have"));
     if (sortCol) {
       const col = sortCol;
       const dir = sortDir;
@@ -565,11 +511,10 @@
 
   async function reload() {
     try {
-      [entries, enrichMap, pdfKeys, failures, organizeData] = await Promise.all([
+      [entries, enrichMap, pdfKeys, organizeData] = await Promise.all([
         loadFluxLib(),
         loadEnrichMap(),
         listPdfKeys(),
-        listFailures(),
         loadOrganize(),
       ]);
       loadError = "";
@@ -595,7 +540,6 @@
           action: { label: "Retry", run: () => void reload() },
         });
       });
-    void refreshProxy();
     // Zotero: make the header button reflect the connection without opening the panel.
     if (!zoteroSyncJob.settingsLoaded) void zoteroSyncJob.loadSettings();
     // Startup scan: on the first Library mount of the session, auto-process anything already in
@@ -645,7 +589,7 @@
   // while Library was open OR while the user was away in another mode (the old code only showed
   // the summary via the awaited start() call, which resolved on a since-destroyed component and
   // was silently lost). Fires once per run (guarded by the module-scoped shownFetchSeq), and
-  // re-lists coverage + failure pills since a run that finished while we were away changed disk.
+  // re-lists PDF coverage since a run that finished while we were away changed disk.
   $effect(() => {
     if (pdfFetchJob.running) return;
     const seq = pdfFetchJob.runSeq;
@@ -654,7 +598,7 @@
     shownFetchSeq = seq;
     showFetchSummary(sum);
     void (async () => {
-      [pdfKeys, failures] = await Promise.all([listPdfKeys(), listFailures()]);
+      pdfKeys = await listPdfKeys();
     })();
   });
 
@@ -749,40 +693,9 @@
       keyOpenAlex = (k.openAlexKey as string) || "";
       keyS2 = (k.s2Key as string) || "";
       keyMailto = (k.mailto as string) || "";
-      keyEzproxy = (k.ezproxyPrefix as string) || "";
       keysSaved = false;
-      const c = await fileBridge()?.proxyHasCredentials?.();
-      proxyUser = c?.username || "";
-      credAvailable = !!c?.available;
-      credHasPass = !!c?.hasPassword;
-      proxyPass = "";
     }
     keysOpen = !keysOpen;
-  }
-  async function saveCredentials() {
-    const r = await fileBridge()?.proxySetCredentials?.(proxyUser.trim(), proxyPass);
-    if (r && "error" in r && r.error) {
-      addStatus = "error";
-      addError = r.error;
-      setTimeout(() => {
-        if (addStatus === "error") addStatus = "";
-      }, 4200);
-      return;
-    }
-    if (proxyPass) credHasPass = true;
-    proxyPass = "";
-    credSaved = true;
-    setTimeout(() => (credSaved = false), 2000);
-  }
-  async function clearCredentials() {
-    try {
-      await fileBridge()?.proxyClearCredentials?.();
-      proxyUser = "";
-      proxyPass = "";
-      credHasPass = false;
-    } catch (e) {
-      pushToast("error", "Couldn't clear the saved credentials", { detail: e instanceof Error ? e.message : String(e) });
-    }
   }
   async function saveKeysPanel() {
     try {
@@ -790,68 +703,12 @@
         openAlexKey: keyOpenAlex.trim(),
         s2Key: keyS2.trim(),
         mailto: keyMailto.trim(),
-        ezproxyPrefix: keyEzproxy.trim(),
       });
       keysSaved = true;
       setTimeout(() => (keysSaved = false), 2000);
-      void refreshProxy();
     } catch (e) {
       pushToast("error", "Couldn't save API keys", { detail: e instanceof Error ? e.message : String(e) });
     }
-  }
-
-  async function refreshProxy() {
-    const s = await fileBridge()?.proxyStatus?.();
-    proxyConfigured = !!s?.configured;
-    proxySignedIn = !!s?.signedIn;
-  }
-  async function signInProxy() {
-    if (proxyBusy) return;
-    proxyBusy = true;
-    try {
-      const r = await fileBridge()?.proxyLogin?.();
-      if (r && "error" in r && r.error) {
-        addStatus = "error";
-        addError = r.error;
-        setTimeout(() => {
-          if (addStatus === "error") addStatus = "";
-        }, 3600);
-      }
-      await refreshProxy();
-    } finally {
-      proxyBusy = false;
-    }
-  }
-  async function getViaProxy(e: MouseEvent, entry: EnrichedEntry) {
-    e.stopPropagation();
-    if (fetchingKey || fetchingAll) return;
-    fetchingKey = entry.key;
-    try {
-      // One paper, user-initiated: grab its supplementary files too. The article page is
-      // already loaded and authenticated, so this is a few extra same-session GETs — a cost
-      // only bulk runs can't afford.
-      const r = await fetchViaProxyForEntry(entry, enrichMap[entry.key], { withSupplements: true });
-      if (r.status === "got") {
-        pdfKeys = await listPdfKeys();
-        await dropFailure(entry.key); // success clears any prior failure record + ⚠
-        if (r.supplements) pushToast("info", `Also saved ${r.supplements} supplementary file${r.supplements === 1 ? "" : "s"}`);
-      } else {
-        addStatus = "error";
-        addError = r.error || (r.status === "no-oa" ? "The proxy didn’t return a PDF (are you signed in?)." : "Proxy fetch failed.");
-        setTimeout(() => {
-          if (addStatus === "error") addStatus = "";
-        }, 4200);
-      }
-    } finally {
-      fetchingKey = "";
-    }
-  }
-  // Clear a paper's failure record + the local ⚠ set (on any successful per-row fetch).
-  async function dropFailure(key: string) {
-    if (!isFailed(key)) return;
-    await clearFetchFailure(key);
-    const { [nfc(key)]: _dropped, ...rest } = failures;
-    failures = rest;
   }
 
   async function runEnrich() {
@@ -962,9 +819,8 @@
       : (query ? `${query} ${clause}` : clause);
   }
   let facetsOpen = $state(false);
-  // Ctrl+Shift+click: open the PDF in the reader, fetching it first if it isn't on disk —
-  // open-access routes, then (if configured) the library proxy. Failures surface in the
-  // shared error toast with the reason.
+  // Ctrl+Shift+click: open the PDF in the reader, fetching it first (open access) if it isn't
+  // on disk. Failures surface in the shared error toast with the reason.
   async function readOrFetch(entry: EnrichedEntry) {
     if (hasPdf(entry.key)) {
       openInReader(entry.key);
@@ -974,27 +830,10 @@
     fetchingKey = entry.key;
     try {
       const oa = await fetchPdfForEntry(entry, enrichMap[entry.key]);
-      let got = oa.status === "got" || oa.status === "have";
-      let err = "";
-      if (!got) {
-        if (oa.status === "no-id") {
-          err = "No DOI / PMCID on this entry — Enrich it first.";
-        } else if (oa.status === "error") {
-          err = oa.error || "PDF fetch failed.";
-        } else if (proxyConfigured) {
-          const p = await fetchViaProxyForEntry(entry, enrichMap[entry.key], { withSupplements: true });
-          got = p.status === "got";
-          if (!got)
-            err = `No open-access copy, and the library proxy didn’t return a PDF${
-              p.error ? ` (${p.error})` : proxySignedIn ? "" : " (are you signed in? ⚙ Keys)"
-            }.`;
-        } else {
-          err = "No open-access PDF found — set a library proxy in ⚙ Keys for paywalled access.";
-        }
-      }
+      const got = oa.status === "got" || oa.status === "have";
+      const err = got ? "" : fetchMissMessage(oa.status, oa.error);
       if (got) {
         pdfKeys = await listPdfKeys();
-        await dropFailure(entry.key);
         openInReader(entry.key);
       } else {
         addStatus = "error";
@@ -1007,6 +846,13 @@
       fetchingKey = "";
     }
   }
+  /** What a single-paper fetch that came back empty-handed tells the user. An open-access miss
+   *  names the two routes that remain: the browser extension and a file they already have. */
+  function fetchMissMessage(status: string, error?: string): string {
+    if (status === "no-oa") return "No open-access PDF found. Open the paper in your browser and click Add to FluxLib, or use Add PDF…";
+    if (status === "no-id") return "No DOI / PMCID on this entry — Enrich it first.";
+    return error || "PDF fetch failed.";
+  }
   async function getPdf(e: MouseEvent, entry: EnrichedEntry) {
     e.stopPropagation();
     if (fetchingKey || fetchingAll) return;
@@ -1015,17 +861,9 @@
       const r = await fetchPdfForEntry(entry, enrichMap[entry.key]);
       if (r.status === "got" || r.status === "have") {
         pdfKeys = await listPdfKeys();
-        await dropFailure(entry.key);
       } else {
         addStatus = "error";
-        addError =
-          r.status === "no-oa"
-            ? proxyConfigured
-              ? 'No open-access PDF found — try "Get via library ⚿" in the row\'s details.'
-              : "No open-access PDF found — for paywalled PDFs, set up your library proxy in ⚙ Keys."
-            : r.status === "no-id"
-              ? "No DOI / PMCID on this entry — Enrich it first."
-              : r.error || "PDF fetch failed.";
+        addError = fetchMissMessage(r.status, r.error);
         setTimeout(() => {
           if (addStatus === "error") addStatus = "";
         }, 3600);
@@ -1055,19 +893,19 @@
       fetchingKey = "";
     }
   }
-  // Bulk fetch: OA waterfall then, for anything still missing, the library proxy — running in
-  // a module-level job so it keeps going after the user leaves Library. If a run is active the
-  // button cancels it. `retryFailed` ignores the Part C skip-list (the "Retry failed" action).
-  async function getAllPdfs(retryFailed = false) {
+  // Bulk fetch: the open-access waterfall over the whole library, running in a module-level
+  // job so it keeps going after the user leaves Library. If a run is active the button
+  // cancels it.
+  async function getAllPdfs() {
     if (pdfFetchJob.running) {
       pdfFetchJob.cancel();
       return;
     }
-    await runFetch(entries, retryFailed);
+    await runFetch(entries, false);
   }
-  // Alt+F / selection-bar action: the same two-phase pipeline over just the checked rows.
-  // Explicitly-picked papers bypass the failure skip-list + OA-miss ledger (retryFailed) —
-  // checking a box IS the retry gesture.
+  // Alt+F / selection-bar action: the same pipeline over just the checked rows.
+  // Explicitly-picked papers bypass the OA-miss ledger (recheckMisses) — checking a box IS
+  // the retry gesture.
   async function fetchSelectedPdfs() {
     if (pdfFetchJob.running || !selected.size) return;
     await runFetch(
@@ -1123,10 +961,8 @@
     return h < 24 ? `${h}h ago` : `${Math.floor(h / 24)}d ago`;
   }
 
-  // Backfill supplements for the checked rows. Separate from "Get PDFs" on purpose: it never
-  // touches a paper.pdf that's already there, it asks the repository (Europe PMC) first, and
-  // it only walks the publisher's page for what the repository doesn't hold — which is where
-  // the per-publisher rate limiter matters most.
+  // Backfill supplements for the checked rows from Europe PMC. Separate from "Get PDFs" on
+  // purpose: it never touches a paper.pdf that's already there.
   let fetchingSupps = $state(false);
   let suppProgress = $state("");
   async function fetchSelectedSupplements() {
@@ -1138,14 +974,13 @@
       const s = await fetchSupplementsForEntries(
         list.map((e) => ({ entry: e, enrich: enrichMap[e.key] })),
         {
-          allowProxy: proxyConfigured && proxySignedIn,
           onProgress: (done, total) => (suppProgress = `${done}/${total}`),
         },
       );
       pushToast(
-        s.files ? "info" : "info",
+        "info",
         s.files ? `Saved ${s.files} supplementary file${s.files === 1 ? "" : "s"} across ${s.papers} paper${s.papers === 1 ? "" : "s"}` : "No supplements found for those papers",
-        s.files || proxyConfigured ? undefined : { detail: "Europe PMC covers open-access papers only — configure the library proxy (⚙ Keys) to reach publisher-hosted supplements." },
+        s.files ? undefined : { detail: "Europe PMC covers open-access papers only. Save other supplements with the browser extension (Add to FluxLib), or attach them by hand." },
       );
     } catch (e) {
       pushToast("error", "Supplement fetch failed", { detail: e instanceof Error ? e.message : String(e) });
@@ -1154,28 +989,8 @@
       suppProgress = "";
     }
   }
-  async function runFetch(list: RefEntry[], retryFailed: boolean) {
-    if (fetchingKey || loading || !list.length || preflightBusy) return;
-    // PRE-FLIGHT: re-probe library authentication at click time (ground truth — a real
-    // proxied navigation in main, not the possibly-stale pill state). If the proxy is
-    // configured but the session is dead, START NOTHING: a bulk run would burn the whole
-    // library phase on session-expired bounces. The OA phase avoids the ban-prone
-    // publishers and needs no auth — it's gated here only when the user has a proxy
-    // configured and expects the paywalled route to work.
-    preflightBusy = true;
-    try {
-      await refreshProxy();
-      if (proxyConfigured && !proxySignedIn) {
-        addStatus = "error";
-        addError = "Library session inactive — nothing started. Sign in via ⚙ Keys → Sign in, then run Get PDFs again.";
-        setTimeout(() => {
-          if (addStatus === "error") addStatus = "";
-        }, 6000);
-        return;
-      }
-    } finally {
-      preflightBusy = false;
-    }
+  async function runFetch(list: RefEntry[], recheckMisses: boolean) {
+    if (fetchingKey || loading || !list.length) return;
     // Optimistically tick the local PDF set as papers land, so coverage updates live while
     // Library is mounted (the job also re-lists on completion). LR-4: coalesce the updates —
     // the old code allocated a fresh Set and reassigned pdfKeys per landed PDF, re-rendering
@@ -1197,7 +1012,7 @@
         if (!tickTimer) tickTimer = setTimeout(flushTicks, 250);
       }
     };
-    await pdfFetchJob.start(list, enrichMap, { proxyConfigured, proxySignedIn }, { retryFailed, onTick });
+    await pdfFetchJob.start(list, enrichMap, { recheckMisses, onTick });
     if (tickTimer) clearTimeout(tickTimer);
     tickBuf = [];
     // The summary + coverage re-list are handled by the completion $effect above, so they also
@@ -1210,18 +1025,13 @@
     if (sum.errorNote) {
       // The run threw — surface it as a real error, not a "you stopped it" summary.
       pushToast("error", "PDF fetch stopped on an error", { detail: sum.errorNote });
-      addedTitle = `Stopped on an error · ${sum.oaGot + sum.proxyGot} fetched first`;
+      addedTitle = `Stopped on an error · ${sum.got} fetched first`;
     } else if (sum.cancelled) {
-      addedTitle = `Stopped · ${sum.oaGot + sum.proxyGot} fetched so far`;
+      addedTitle = `Stopped · ${sum.got} fetched so far`;
     } else {
-      const parts = [`${sum.oaGot} open-access`];
-      if (sum.proxyGot || proxySignedIn) parts.push(`${sum.proxyGot} via library`);
       addedTitle =
-        `Fetched ${sum.oaGot + sum.proxyGot} (${parts.join(" · ")})` +
-        (sum.failedNew ? ` · ${sum.failedNew} failed` : "") +
-        (sum.needSignIn ? ` · ${sum.needSignIn} need library sign-in` : "") +
+        `Fetched ${sum.got} open-access` +
         (sum.oaSkipped ? ` · ${sum.oaSkipped} known no-OA skipped` : "") +
-        (sum.blockedSkipped ? ` · ${sum.blockedSkipped} deferred (publisher blocking)` : "") +
         (sum.errors ? ` · ${sum.errors} error` : "");
     }
     addStatus = "added";
@@ -1291,11 +1101,6 @@
   function toggleExpand(e: MouseEvent, key: string) {
     e.stopPropagation();
     expanded = expanded === key ? "" : key;
-  }
-  // Clear a paper's failure record so the next bulk run retries it (and drop the ⚠).
-  async function clearFailure(e: MouseEvent, key: string) {
-    e.stopPropagation();
-    await dropFailure(key);
   }
 
   // --- World scope ---------------------------------------------------------
@@ -1463,7 +1268,7 @@
       const r = results[highlighted];
       void deleteRefs(selected.size ? [...selected] : r ? [r.key] : []);
     } else if (e.code === "KeyF") {
-      // Alt+F: run the PDF-fetch pipeline (OA → library proxy) over the checked rows.
+      // Alt+F: run the open-access PDF fetch over the checked rows.
       e.preventDefault();
       void fetchSelectedPdfs();
     }
@@ -1547,16 +1352,14 @@
       </button>
       <button
         class="enrich getpdfs"
-        class:busy={fetchingAll || preflightBusy}
-        onclick={() => getAllPdfs(false)}
-        disabled={(fetchingKey !== "" && !fetchingAll) || loading || coverage.total === 0 || preflightBusy}
+        class:busy={fetchingAll}
+        onclick={() => getAllPdfs()}
+        disabled={(fetchingKey !== "" && !fetchingAll) || loading || coverage.total === 0}
         title={fetchingAll
           ? "Click to stop the running fetch"
-          : "Find & download PDFs for your whole library: open repositories first (PMC · Europe PMC · arXiv · bioRxiv), then your library proxy for the rest. Never hits publisher sites directly. Runs in the background — keep working."}>
-        {#if preflightBusy}
-          Checking sign-in…
-        {:else if fetchingAll}
-          {pdfFetchJob.phase === "proxy" ? "Library" : "OA"} {pdfFetchJob.done}/{pdfFetchJob.total} ✕
+          : "Find & download open-access PDFs for your whole library: open repositories first (PMC · Europe PMC · arXiv · bioRxiv), then other open-access copies. Runs in the background — keep working."}>
+        {#if fetchingAll}
+          Fetching {pdfFetchJob.done}/{pdfFetchJob.total} ✕
         {:else if pdfCoverage.have === 0}
           Get PDFs
         {:else if pdfCoverage.have < pdfCoverage.total}
@@ -1606,30 +1409,15 @@
           class:on={pdfFilter !== "all"}
           onclick={cyclePdfFilter}
           title={pdfFilter === "all"
-            ? `Filter by PDF: ${pdfCoverage.total - pdfCoverage.have} reference(s) have no main text. Click to show only those${failedKeys.size > 0 ? `, again for the ${failedKeys.size} whose fetch failed` : ""}, again for only those WITH a PDF.`
+            ? `Filter by PDF: ${pdfCoverage.total - pdfCoverage.have} reference(s) have no main text. Click to show only those, again for only those WITH a PDF.`
             : pdfFilter === "missing"
-              ? failedKeys.size > 0
-                ? `Showing only references with NO PDF. Click for the ${failedKeys.size} whose fetch failed outright.`
-                : "Showing only references with NO PDF. Click for only those WITH a PDF."
-              : pdfFilter === "failed"
-                ? `Showing the ${failedKeys.size} paper(s) that failed both the open-access and library routes — expand a row for the reason. Click for only those WITH a PDF.`
-                : "Showing only references WITH a PDF. Click to clear the filter."}>
-          {#if pdfFilter === "failed"}
-            ⊘ Failed ({failedKeys.size})
-          {:else if pdfFilter === "have"}
+              ? "Showing only references with NO PDF. Click for only those WITH a PDF."
+              : "Showing only references WITH a PDF. Click to clear the filter."}>
+          {#if pdfFilter === "have"}
             ▦ Has PDF ({pdfCoverage.have})
           {:else}
             ⬇ No PDF ({pdfCoverage.total - pdfCoverage.have})
           {/if}
-        </button>
-      {/if}
-      {#if pdfFilter === "failed"}
-        <button
-          class="enrich retryfailed"
-          onclick={() => getAllPdfs(true)}
-          disabled={fetchingAll || preflightBusy || fetchingKey !== ""}
-          title="Try all {failedKeys.size} of these again now, ignoring the skip-list that normally makes bulk runs pass over a known failure.">
-          Retry all
         </button>
       {/if}
       <div class="adddoi" class:failed={addStatus === "error"}>
@@ -1664,34 +1452,6 @@
         <span class="klbl">Polite email <span class="ksub">mailto — OpenAlex/CrossRef etiquette</span></span>
         <input bind:value={keyMailto} placeholder="you@example.com" spellcheck="false" autocomplete="off" />
       </label>
-      <label class="krow">
-        <span class="klbl">Library EZProxy prefix
-          <span class="ksub">optional · paywalled PDFs · UW-Madison: https://ezproxy.library.wisc.edu/login?url=</span></span>
-        <input bind:value={keyEzproxy} placeholder="https://ezproxy.library.wisc.edu/login?url=" spellcheck="false"
-          autocomplete="off" />
-      </label>
-      {#if proxyConfigured}
-        <label class="krow">
-          <span class="klbl">Library username <span class="ksub">NetID — stored in your OS keychain, auto-fills login</span></span>
-          <input bind:value={proxyUser} placeholder="your NetID" spellcheck="false" autocomplete="off" />
-        </label>
-        <label class="krow">
-          <span class="klbl">Library password
-            <span class="ksub">{credAvailable ? (credHasPass ? "saved ✓ · leave blank to keep" : "encrypted at rest (safeStorage)") : "OS keychain unavailable on this system"}</span></span>
-          <input bind:value={proxyPass} type="password" placeholder={credHasPass ? "•••••••• (unchanged)" : "your password"}
-            spellcheck="false" autocomplete="off" disabled={!credAvailable} />
-        </label>
-        <div class="krow proxyrow">
-          <span class="klbl">Library access
-            <span class="ksub">{proxySignedIn ? "signed in — paywalled fetch available" : "sign in once; the session + saved credentials keep you in"}</span></span>
-          <div class="proxybtns">
-            {#if credHasPass}<button class="proxybtn" onclick={clearCredentials} title="Remove stored credentials">Clear</button>{/if}
-            <button class="proxybtn" onclick={saveCredentials} disabled={!credAvailable}>{credSaved ? "Saved ✓" : "Save credentials"}</button>
-            <button class="proxybtn" class:on={proxySignedIn} disabled={proxyBusy} onclick={signInProxy}
-              >{proxyBusy ? "…" : proxySignedIn ? "Re-sign in" : "Sign in"}</button>
-          </div>
-        </div>
-      {/if}
       <div class="kfoot">
         <span class="khint">Stored in FluxLib/keys.json · used across every project · keyless still works</span>
         <button onclick={saveKeysPanel}>{keysSaved ? "Saved ✓" : "Save keys"}</button>
@@ -1761,13 +1521,13 @@
           >{addingToProject ? "Adding…" : `+ Add to ${projectRoot ? projectName : "project"}${projectRoot ? "" : " (none open)"}`}</button>
         <button
           class="selfetch"
-          disabled={fetchingAll || preflightBusy || fetchingKey !== ""}
-          title="Fetch PDFs for the checked references — open access first, then your library proxy (Alt+F)"
+          disabled={fetchingAll || fetchingKey !== ""}
+          title="Fetch open-access PDFs for the checked references (Alt+F)"
           onclick={fetchSelectedPdfs}>⬇ Get {selected.size} PDF{selected.size === 1 ? "" : "s"}</button>
         <button
           class="selfetch"
-          disabled={fetchingSupps || fetchingAll || preflightBusy || fetchingKey !== ""}
-          title="Fetch supplementary files for the checked references — Europe PMC first, then your library proxy. Never replaces a PDF you already have."
+          disabled={fetchingSupps || fetchingAll || fetchingKey !== ""}
+          title="Fetch supplementary files for the checked references from Europe PMC (open-access papers). Never replaces a PDF you already have."
           onclick={fetchSelectedSupplements}>{fetchingSupps ? `⧉ Supplements ${suppProgress}` : `⧉ Get supplements`}</button>
         <input
           class="bulktag"
@@ -1905,16 +1665,6 @@
                   disabled={fetchingKey === r.key || fetchingAll}
                   onclick={(e) => getPdf(e, r)}>{fetchingKey === r.key ? "…" : "⬇"}</button>
               {/if}
-              {#if !hasPdf(r.key)}
-                {@const pill = outcomePill(r.key)}
-                {#if pill}
-                  <button
-                    class="fpill t-{pill.tone}"
-                    title={pill.title}
-                    aria-label="Fetch outcome: {pill.label} — click for details"
-                    onclick={(e) => toggleExpand(e, r.key)}>{pill.label}</button>
-                {/if}
-              {/if}
               {#if r.doi}
                 <button class="ico" title="Open DOI" aria-label="Open DOI" onclick={(e) => openDoi(e, r.doi)}
                   >↗</button>
@@ -1946,19 +1696,6 @@
         {#if expanded === r.key}
           <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
           <div class="detail" bind:clientHeight={expandedH} onclick={(e) => e.stopPropagation()}>
-            {#if !hasPdf(r.key) && isFailed(r.key)}
-              <div class="failbanner">
-                <span class="fbtag">⚠ PDF fetch failed</span>
-                {#if failures[nfc(r.key)]}
-                  {@const f = failures[nfc(r.key)]}
-                  <span class="fbwhy"
-                    >{f.proxy?.reason || "no route"}{f.host ? ` · ${f.host}` : ""}{f.attempts > 1 ? ` · ${f.attempts}×` : ""}</span>
-                  {#if f.proxy?.detail}<span class="fbdetail">{f.proxy.detail}</span>{/if}
-                {/if}
-                <button class="fbretry" onclick={(e) => getViaProxy(e, r)} title="Try the library proxy again now">Retry via library ⚿</button>
-                <button class="fbclear" onclick={(e) => clearFailure(e, r.key)} title="Forget this failure so bulk runs retry it">Clear</button>
-              </div>
-            {/if}
             {#if r.enrich?.abstract}
               <p class="dabs">{r.enrich.abstract}</p>
             {:else}
@@ -2002,14 +1739,6 @@
                   disabled={fetchingKey === r.key || fetchingAll}
                   onclick={(e) => ingest(e, r.key)}
                   title="File a PDF you already downloaded">Add PDF…</button>
-                {#if proxyConfigured}
-                  <button
-                    class="proxy"
-                    disabled={fetchingKey === r.key || fetchingAll || !canFetch(r)}
-                    onclick={(e) => getViaProxy(e, r)}
-                    title={proxySignedIn ? "Fetch via your library proxy (paywalled)" : "Sign in to your library first (⚙ Keys)"}
-                    >{fetchingKey === r.key ? "Via library…" : "Get via library ⚿"}</button>
-                {/if}
               {/if}
               {#if r.doi}<button onclick={(e) => openDoi(e, r.doi)}>Open DOI ↗</button>{/if}
               <button disabled={!r.enrich?.openalexId} onclick={() => lookup("citing", r.key, authorLabel(r))}
@@ -2230,17 +1959,6 @@
   .getpdfs.busy {
     border-color: var(--c-accent);
     color: var(--c-accent);
-  }
-  /* "Retry all" — an action, shown only while the failed step of the PDF filter is active,
-     so it reads against the papers on screen rather than standing in the toolbar forever. */
-  .retryfailed {
-    border-color: var(--c-danger);
-    background: transparent;
-    color: var(--c-danger);
-  }
-  .retryfailed:hover:not(:disabled) {
-    background: var(--c-danger);
-    color: var(--c-on-accent);
   }
   /* PDF-presence filter — a neutral pill (it narrows the view, it doesn't warn). */
   .pdffilter {
@@ -2788,74 +2506,6 @@
   .ico.haspdf:hover {
     color: var(--c-accent-bright);
   }
-  /* LR-7: durable per-row fetch-outcome pill (no DOI / no OA / failed). */
-  .fpill {
-    border: 1px solid;
-    background: none;
-    cursor: var(--cursor-cross-hover);
-    font-size: var(--ts-xs);
-    line-height: 1;
-    padding: 2px 6px;
-    border-radius: 999px;
-    white-space: nowrap;
-  }
-  .fpill.t-danger {
-    color: var(--c-danger);
-    border-color: color-mix(in srgb, var(--c-danger) 45%, transparent);
-    background: color-mix(in srgb, var(--c-danger) 8%, transparent);
-  }
-  .fpill.t-muted {
-    color: var(--c-tx-faint);
-    border-color: var(--c-line-strong);
-  }
-  .fpill:hover {
-    filter: brightness(1.15);
-  }
-  /* Failure diagnostic banner inside an expanded failed row. */
-  .failbanner {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-    margin: 0 0 10px;
-    padding: 7px 10px;
-    border: 1px solid var(--c-danger);
-    border-radius: var(--r-1);
-    background: color-mix(in srgb, var(--c-danger) 8%, transparent);
-    font-size: var(--ts-xs);
-  }
-  .fbtag {
-    font-weight: 700;
-    color: var(--c-danger);
-  }
-  .fbwhy {
-    color: var(--c-tx-2);
-    font-family: var(--font-mono, monospace);
-  }
-  .fbdetail {
-    color: var(--c-tx-3);
-    flex: 1 1 100%;
-  }
-  .fbretry,
-  .fbclear {
-    margin-left: auto;
-    padding: 3px 9px;
-    border: 1px solid var(--c-line-strong);
-    border-radius: var(--r-pill);
-    background: var(--c-surface);
-    color: var(--c-tx-2);
-    font: inherit;
-    font-size: var(--ts-xs);
-    cursor: var(--cursor-cross-hover);
-  }
-  .fbclear {
-    margin-left: 0;
-  }
-  .fbretry:hover,
-  .fbclear:hover {
-    border-color: var(--c-accent);
-    color: var(--c-accent);
-  }
   .copied {
     color: var(--c-accent-bright);
     font-size: var(--ts-xs);
@@ -3006,37 +2656,6 @@
   .dbtns button.prim:hover:not(:disabled) {
     background: var(--c-accent);
     color: var(--c-on-accent);
-  }
-  .dbtns button.proxy:hover:not(:disabled) {
-    border-color: var(--c-accent);
-    color: var(--c-accent);
-  }
-  .proxyrow {
-    align-items: center;
-  }
-  .proxybtns {
-    display: flex;
-    gap: 6px;
-    flex: 0 0 auto;
-  }
-  .proxybtn {
-    flex: 0 0 auto;
-    border: 1px solid var(--c-line-strong);
-    background: transparent;
-    color: var(--c-tx-2);
-    border-radius: var(--r-1);
-    padding: 4px 10px;
-    font: inherit;
-    font-size: var(--ts-xs);
-    cursor: var(--cursor-cross-hover);
-    white-space: nowrap;
-  }
-  .proxybtn.on {
-    border-color: var(--c-accent);
-    color: var(--c-accent);
-  }
-  .proxybtn:hover:not(:disabled) {
-    border-color: var(--c-accent);
   }
   .dbtns button:disabled {
     opacity: 0.45;
