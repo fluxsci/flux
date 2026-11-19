@@ -141,7 +141,7 @@
           {#if row.kind === "dir"}
             <button class="tree-disclosure" class:open={row.expanded} tabindex="-1" aria-label={`${row.expanded ? "Collapse" : "Expand"} ${row.name}`} title={row.expanded ? "Collapse" : "Expand"} on:click|stopPropagation={() => toggle(row)} on:dblclick|stopPropagation><svg class="chev" viewBox="0 0 10 10" aria-hidden="true"><path d="M3.2 1.8 L6.6 5 L3.2 8.2" /></svg></button>
           {:else}<span class="tree-disclosure" aria-hidden="true"></span>{/if}
-          <span class="tree-icon" aria-hidden="true">{#if row.model3d}<Model3dIcon />{:else}{row.kind === "dir" ? "▰" : row.video ? "▷" : "▧"}{/if}</span>
+          <span class="tree-icon" aria-hidden="true">{#if row.model3d}<Model3dIcon />{:else}{row.kind === "dir" ? "▰" : row.video ? "▷" : row.fluximg ? "▦" : "▧"}{/if}</span>
           <span class="tree-name">{row.name}</span>
           {#if row.status === "loading"}<span class="tree-status" aria-label="Loading">…</span>{/if}
           {#if row.status === "error"}<button class="tree-retry" tabindex="-1" aria-label={`Retry ${row.name}`} on:click|stopPropagation={() => void tree.retry(row.abs)}>↻</button>{/if}

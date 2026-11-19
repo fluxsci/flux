@@ -127,7 +127,7 @@
     if (ph > h) { ph = h; pw = h * a; }
     return { w: Math.max(1, pw), h: Math.max(1, ph), x: (w - pw) / 2, y: (h - ph) / 2 };
   });
-  const MEDIA: BackdropChoice = { kind: "dark", color: BACKDROPS.dark, reason: "Videos and 3D models sit on the dark backdrop" };
+  const MEDIA: BackdropChoice = { kind: "dark", color: BACKDROPS.dark, reason: "Videos, 3D models and image stacks sit on the dark backdrop" };
   const choice = $derived(darkMedia && backdrop === "auto" ? MEDIA : chooseBackdrop(thumb.stats ?? knownStats, { manifestPaper: thumb.paper ?? paper, mode: backdrop, destination }));
   $effect(() => { const t = thumb; if (onAspect && t.width > 0 && t.height > 0) untrack(() => onAspect?.(t.width / t.height)); });
   const tone = $derived(backdropTone(choice));

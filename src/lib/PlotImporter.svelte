@@ -58,6 +58,8 @@
   import { fileBridge, joinPath, type PlotProbe } from "./project/types";
   import { importPlotsFromPaths } from "./io";
   import { pushToast, errMsg } from "./toast";
+  import { isFluximgBundleName } from "./plotsRail/rules";
+  import { fluximgRailFacts } from "./fluximg/railFacts";
   import {
     RESERVED_PLOT_FOLDERS,
     VIDEO_DIRNAME,
@@ -96,6 +98,8 @@
     snip?: boolean;
     video?: boolean;
     model3d?: boolean;
+    /** An image bundle: a `*.fluximg` FOLDER listed as one file (Figure only, like 3D models). */
+    fluximg?: boolean;
     scope: GalleryScope;
   }
   interface Row {
@@ -107,6 +111,7 @@
     snip?: boolean;
     video?: boolean;
     model3d?: boolean;
+    fluximg?: boolean;
     /** A reserved-folder row, surfaced by typing "_" (carries its own abs — it is
      *  always a child of plots/, never of the folder currently being browsed). */
     hint?: string;
@@ -232,7 +237,7 @@
   let sizeQueue: string[] = [], sizing = false, sizeGeneration = 0;
   /** Replace the pending probes with these paths (the listing changed or scrolled). */
   function queueSizes(paths: string[]) {
-    sizeQueue = paths.filter((p) => /\.(svg|png)$/i.test(p) && !asked.has(p));
+    sizeQueue = paths.filter((p) => (/\.(svg|png)$/i.test(p) || isFluximgBundleName(p.split("/").pop() ?? "")) && !asked.has(p));
     void pumpSizes();
   }
   async function pumpSizes() {
@@ -244,11 +249,16 @@
       while (sizeQueue.length && generation === sizeGeneration) {
         const batch = sizeQueue.splice(0, 200).filter((p) => !asked.has(p));
         for (const p of batch) asked.add(p);
+        // An image bundle has no header: its version is its manifest's stat (the index's rule), its aspect comes
+        // from its tile once that has read the manifest.
+        const bundles = batch.filter((p) => isFluximgBundleName(p.split("/").pop() ?? ""));
         let probes: PlotProbe[] = [];
-        try { probes = await fb.plotsProbe(batch); } catch { /* 4:3 stands in */ }
+        try { probes = await fb.plotsProbe(batch.filter((p) => !bundles.includes(p))); } catch { /* 4:3 stands in */ }
+        const bundleStats = await Promise.all(bundles.map((b) => fb.stat?.(joinPath(b, "fluximg.json")).catch(() => null) ?? null));
         if (generation !== sizeGeneration) break;
         const anchor = scrollAnchor();
         for (const p of probes) sizes.set(p.abs, { aspect: p.w && p.h ? p.w / p.h : 0, stamp: `${p.size ?? 0}:${p.mtimeMs ?? 0}` });
+        bundles.forEach((b, k) => { const st = bundleStats[k]; sizes.set(b, { aspect: 0, stamp: st ? `${st.size}:${st.mtimeMs}` : "0:0" }); });
         for (const path of batch) settled.add(path);
         sizes = sizes; settled = settled;
         await tick();
@@ -271,6 +281,12 @@
     listEl.scrollTop = Math.max(0, row.y - anchor!.offset);
     scrollTop = listEl.scrollTop;
   }
+  // What an image stack is ("3 channels · 25 z · 2048 × 2048 · uint16") and its aspect, once a tile of it has read
+  // its manifest (fluximg/railFacts.ts). The list view's rows have no tile: they say "image stack" until then.
+  // Reactive declarations (not plain functions): a template or layout calling them re-runs when the facts arrive.
+  $: stackFact = (r: Row) => { const f = r.fluximg && r.abs ? $fluximgRailFacts.get(r.abs) : undefined; return f && f.stamp === sizes.get(r.abs!)?.stamp ? f : null; };
+  $: stackLine = (r: Row): string => stackFact(r)?.line ?? "";
+  $: stackAspect = (r: Row): number => { const f = stackFact(r); return f ? f.width / f.height : 0; };
   function resetSizes() { sizeGeneration++; sizes = new Map(); settled = new Set(); asked.clear(); sizeQueue = []; }
   $: navCount = (() => { let n = 0; while (n < rows.length && rows[n].kind !== "file") n++; return n; })();
   // Each folder row previews (up to) four of the plots under it, from the search walk.
@@ -280,7 +296,7 @@
     for (const r of rows.slice(0, navCount)) if (r.kind === "dir") map.set(r.abs ?? joinPath(cwd, r.name), { count: 0, plots: [] });
     const all = new Map<string, string[]>();
     for (const p of planCaches.flatMap((c) => c?.recs ?? [])) {
-      if (p.video || p.model3d || !p.abs.startsWith(cwd + "/")) continue;
+      if (p.video || p.model3d || p.fluximg || !p.abs.startsWith(cwd + "/")) continue;
       const rest = p.abs.slice(cwd.length + 1), slash = rest.indexOf("/");
       const entry = slash > 0 ? map.get(joinPath(cwd, rest.slice(0, slash))) : undefined;
       if (!entry) continue;
@@ -296,7 +312,7 @@
     // Up is a slim bar on its own row (a page-sized card would spend a whole row on an arrow);
     // the section header names child folders only.
     ...(navCount ? [{ key: "folders", headerH: rows.slice(0, navCount).some((r) => r.kind === "dir") ? 26 : 0, aspects: rows.slice(0, navCount).map(() => FOLDER_ASPECT), blocks: rows.slice(0, navCount).map((r) => r.kind === "up" ? UP_BAR_H : 0) }] : []),
-    ...(rows.length > navCount ? [{ key: "files", headerH: 26, aspects: rows.slice(navCount).map((r) => (r.abs && sizes.get(r.abs)?.aspect) || 4 / 3) }] : []),
+    ...(rows.length > navCount ? [{ key: "files", headerH: 26, aspects: rows.slice(navCount).map((r) => (r.abs && (sizes.get(r.abs)?.aspect || stackAspect(r))) || 4 / 3) }] : []),
   ], { width: Math.max(40, listWidth - 32), rowHeight: Math.round(previewSize * .75), gap: spacing, captionH: galleryCaptionH, padTop: 8, sectionGap: 14, minAspect: .5, maxAspect: 6, minRowH: 60 }) : null;
   $: folderCount = rows.slice(0, navCount).filter((r) => r.kind === "dir").length;
   $: parentName = (cwd.replace(/\/[^/]+$/, "") === plotsRoot ? "" : cwd.replace(/\/[^/]+$/, "").split("/").pop()) || (browseScope === "global" ? "plot_library" : "plots");
@@ -493,7 +509,11 @@
         if (out.length >= 20000) { entry.truncated = true; return; }
         const abs = joinPath(dir, e.name);
         const r = rel ? `${rel}/${e.name}` : e.name;
-        if (e.dir) {
+        if (e.dir && isFluximgBundleName(e.name)) {
+          // One item, never walked into (its preview.png and layers are parts of the image).
+          if (allowModels) out.push({ abs, rel: r, name: e.name, scope: src.scope, semantic: false, fluximg: true });
+        }
+        else if (e.dir) {
           if (src.reserved || !isReservedPlotDirName(e.name) || videos && e.name === VIDEO_DIRNAME) await visit(abs, r, depth + 1);
         }
         else if (/\.svg$/i.test(e.name))
@@ -551,13 +571,16 @@
         const label = p.scope === "global" ? "Global" : "Project";
         return dir ? `${label} · ${dir}` : label;
       };
-      out.push(...matches.map(({ p }): Row => ({ kind: "file", name: p.name, abs: p.abs, rel: p.rel, semantic: p.semantic, snip: p.snip, video: p.video, model3d: p.model3d, scope: p.scope, where: whereOf(p) })));
+      out.push(...matches.map(({ p }): Row => ({ kind: "file", name: p.name, abs: p.abs, rel: p.rel, semantic: p.semantic, snip: p.snip, video: p.video, model3d: p.model3d, fluximg: p.fluximg, scope: p.scope, where: whereOf(p) })));
       return out;
     }
     const out: Row[] = [];
     if (cwd && cwd !== plotsRoot) out.push({ kind: "up", name: ".." });
     for (const e of entries) {
-      if (e.dir) out.push({ kind: "dir", name: e.name });
+      if (e.dir && isFluximgBundleName(e.name)) {
+        if (allowModels && !modelsOnly) out.push({ kind: "file", name: e.name, abs: joinPath(cwd, e.name), rel: e.name, scope: browseScope, semantic: false, fluximg: true });
+      }
+      else if (e.dir) out.push({ kind: "dir", name: e.name });
       else if (!modelsOnly || /\.glb$/i.test(e.name))
         out.push({
           kind: "file",
@@ -778,7 +801,7 @@
   }
 
   function previewRow(row: Row | undefined) {
-    if (row?.kind !== "file" || !row.abs) return;
+    if (row?.kind !== "file" || !row.abs || row.fluximg) return; // an image stack has no expanded preview yet
     expanded = { abs: row.abs, rel: relFor(row), name: row.name, semantic: !!row.semantic, video: row.video, model3d: row.model3d, snip: row.snip, scope: row.scope ?? browseScope };
   }
   $: previewFiles = rows.filter((r): r is Row & { abs: string } => r.kind === "file" && !!r.abs);
@@ -901,7 +924,7 @@
                       {#if r.video || r.model3d}
                         <span class="media" style:height={`${row.h}px`}><GalleryPreview path={r.abs} {previews} />{#if r.model3d}<Model3dChip path={r.abs} {previews} initial={r.semantic} tile />{/if}</span>
                       {:else if settled.has(r.abs)}
-                        <Tile path={r.abs} stamp={sizes.get(r.abs)?.stamp ?? "?"} aspect={sizes.get(r.abs)?.aspect || placed.w / row.h} w={placed.w} h={row.h} captionH={0} name="" backdrop={$railPrefs.backdrop} destination={destination?.background ?? null} {selected} focused={i === index} priority={Math.abs(i - index)} glyph={r.snip ? "✂" : r.semantic ? "◆" : ""} glyphTitle={r.snip ? "Paper snip" : r.semantic ? "Fluxplot — editable parts and data" : ""} />
+                        <Tile path={r.abs} stamp={sizes.get(r.abs)?.stamp ?? "?"} aspect={sizes.get(r.abs)?.aspect || stackAspect(r) || placed.w / row.h} w={placed.w} h={row.h} captionH={0} name="" backdrop={$railPrefs.backdrop} destination={destination?.background ?? null} {selected} focused={i === index} priority={Math.abs(i - index)} glyph={r.fluximg ? "▦" : r.snip ? "✂" : r.semantic ? "◆" : ""} glyphTitle={r.fluximg ? "Image stack" : r.snip ? "Paper snip" : r.semantic ? "Fluxplot — editable parts and data" : ""} darkMedia={!!r.fluximg} />
                       {:else}<span class="skeleton" style:height={`${row.h}px`}></span>{/if}
                     {:else if r.kind === "up"}
                       <span class="up-bar"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 7 4-4 4 4M8 3v10"/></svg>Up to {parentName}</span>
@@ -925,10 +948,10 @@
                       <span class="cap" style:top={`${row.h}px`} style:height={`${row.cap}px`}>
                         <span class="cap-line">
                           {#if r.kind !== "file"}<svg class="fglyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 4V2.5h5l1.5 1.5h6.5v9.5h-13Z" /></svg>{:else if selected}<span class="ic">✓</span>{/if}
-                          <span class="nm">{captionText(r.kind === "file" ? r.name.replace(/\.(svg|png|glb|mp4|mov)$/i, "") : r.name, placed.w - (r.kind !== "file" || selected ? 15 : 0) - (folder?.count ? captionMeasure()(String(folder.count)) + 8 : 0))}</span>
+                          <span class="nm">{captionText(r.kind === "file" ? r.name.replace(/\.(svg|png|glb|mp4|mov|fluximg)$/i, "") : r.name, placed.w - (r.kind !== "file" || selected ? 15 : 0) - (folder?.count ? captionMeasure()(String(folder.count)) + 8 : 0))}</span>
                           {#if folder?.count}<span class="fcount">{folder.count}</span>{/if}
                         </span>
-                        {#if r.hint}<span class="rel">{r.hint}</span>{:else if (q || similarTo) && r.where}<span class="rel" data-where>{r.where}</span>{/if}
+                        {#if r.hint}<span class="rel">{r.hint}</span>{:else if (q || similarTo) && r.where}<span class="rel" data-where>{r.where}</span>{:else if r.fluximg && stackLine(r)}<span class="rel" data-stack-line>{stackLine(r)}</span>{/if}
                       </span>
                     {/if}
                   </button>
@@ -942,8 +965,8 @@
               {@const selected = r.kind === "file" && !!r.abs && picked.has(r.abs)}
               <button class="row" class:sel={i === index} class:picked={selected} class:folder={r.kind !== "file"} data-i={i} data-kind={r.kind} data-path={r.abs} aria-pressed={r.kind === "file" ? selected : undefined} aria-label={r.hint || (r.kind === "file" ? `${relFor(r)} · Ctrl/⌘-click to preview` : r.name)} on:focus={() => index = i} on:pointerenter={() => index = i} on:click={e => onRowClick(e, r)} on:dblclick={e => onRowDblClick(e, r)}>
                 <span class="row-meta">
-                  <span class="ic">{#if r.model3d && !selected}<Model3dIcon />{:else}{selected ? "✓" : r.kind === "dir" ? "↳" : r.kind === "up" ? "↩" : r.video ? "▶"  : r.semantic ? "◆" : "◇"}{/if}</span>
-                  <span class="names"><span class="nm">{r.kind === "file" ? r.name.replace(/\.(svg|png|glb|mp4|mov)$/i, "") : r.name}</span>{#if r.hint}<span class="rel">{r.hint}</span>{:else if (q || similarTo) && r.where}<span class="rel" data-where>{r.where}</span>{/if}</span>
+                  <span class="ic">{#if r.model3d && !selected}<Model3dIcon />{:else}{selected ? "✓" : r.kind === "dir" ? "↳" : r.kind === "up" ? "↩" : r.video ? "▶" : r.fluximg ? "▦" : r.semantic ? "◆" : "◇"}{/if}</span>
+                  <span class="names"><span class="nm">{r.kind === "file" ? r.name.replace(/\.(svg|png|glb|mp4|mov|fluximg)$/i, "") : r.name}</span>{#if r.hint}<span class="rel">{r.hint}</span>{:else if (q || similarTo) && r.where}<span class="rel" data-where>{r.where}</span>{:else if r.fluximg}<span class="rel" data-stack-line>{stackLine(r) || "image stack"}</span>{/if}</span>
                   {#if r.model3d}<Model3dChip path={r.abs!} {previews} initial={r.semantic} />
                   {:else if r.kind === "file" && r.semantic}<span class="badge">semantic</span>{/if}
                   {#if r.snip}<span class="badge">snip</span>{/if}

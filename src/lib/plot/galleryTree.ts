@@ -1,4 +1,5 @@
 import { RESERVED_PLOT_FOLDERS } from "../project/plotsFolders";
+import { isFluximgBundleName } from "../plotsRail/rules";
 
 export interface GalleryTreeFile {
   abs: string;
@@ -9,6 +10,8 @@ export interface GalleryTreeFile {
   snip?: boolean;
   video?: boolean;
   model3d?: boolean;
+  /** An image bundle: a `*.fluximg` FOLDER shown as one file (never opened as a folder). */
+  fluximg?: boolean;
 }
 export interface GalleryTreeEntry extends GalleryTreeFile {
   kind: "dir" | "file";
@@ -44,9 +47,12 @@ export function galleryDirectoryEntries(root: string, dir: string, entries: read
   return entries.filter(e => {
     if (!childName(e.name) || seen.has(e.name)) return false;
     seen.add(e.name);
+    // An image bundle is one item where images can be placed (allowModels: the Figure gallery), and nothing elsewhere.
+    if (e.dir && isFluximgBundleName(e.name)) return allowModels;
     return e.dir || /\.(svg|png)$/i.test(e.name) || allowModels && /\.glb$/i.test(e.name) || allowVideos && /\.(mp4|mov)$/i.test(e.name);
   }).map(e => {
     const abs = `${normalizeGalleryPath(dir)}/${e.name}`;
+    if (e.dir && isFluximgBundleName(e.name)) return { abs, rel: galleryRelativePath(root, abs) ?? e.name, name: e.name, kind: "file" as const, semantic: false, fluximg: true };
     return {
       abs, rel: galleryRelativePath(root, abs) ?? e.name, name: e.name,
       kind: e.dir ? "dir" as const : "file" as const,

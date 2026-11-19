@@ -60,9 +60,9 @@
   const stats = $derived(c?.kind === "plot" ? (thumb?.stats ?? c.stats) : (thumb?.stats ?? null));
   const paper = $derived(c?.kind === "plot" ? (thumb?.paper ?? c.paper) : null);
   const destBg = $derived(dest?.background ?? null);
-  const isVideoOr3d = $derived(!!c && /\.(glb|mp4|mov)$/i.test(c.abs));
-  // The tile's own rule: videos and 3D previews sit on the dark backdrop under Automatic.
-  const MEDIA: BackdropChoice = { kind: "dark", color: BACKDROPS.dark, reason: "Videos and 3D models sit on the dark backdrop" };
+  const isVideoOr3d = $derived(!!c && /\.(glb|mp4|mov|fluximg)$/i.test(c.abs));
+  // The tile's own rule: videos, 3D previews and image stacks sit on the dark backdrop under Automatic.
+  const MEDIA: BackdropChoice = { kind: "dark", color: BACKDROPS.dark, reason: "Videos, 3D models and image stacks sit on the dark backdrop" };
   const choice = $derived(isVideoOr3d && $railPrefs.backdrop === "auto" ? MEDIA : chooseBackdrop(stats, { manifestPaper: paper, mode: $railPrefs.backdrop, destination: destBg }));
   const poor = $derived(!!c && !isVideoOr3d && !!destBg && readsPoorlyOn(stats, destBg));
   const wc = $derived(c?.kind === "plot" ? widthClass(c.physMm) : null);

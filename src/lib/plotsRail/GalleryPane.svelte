@@ -37,13 +37,14 @@
   import { storeTenant } from "../tenancy";
   import { settings } from "../settings";
   import type { HitBridgeHolder } from "../interact/canvasHitBridge";
+  import { fluximgRailFacts, fluximgRailFact } from "../fluximg/railFacts";
 
   let {
     active = true,
     hitBridge = null,
     refreshKey = 0,
     onShowDissections,
-    accept = "svg,png,glb",
+    accept = "svg,png,glb,fluximg",
     place = null,
     onBrowseChange,
   }: {
@@ -53,7 +54,7 @@
     refreshKey?: number;
     /** A ⧉ chip / "Show dissections": make sure the Dissections pane is visible. */
     onShowDissections?: () => void;
-    /** What the tree lists (Slide adds mp4,mov). */
+    /** What the tree lists (Slide adds mp4,mov; "fluximg" lists image bundles, the Figure rail's default). */
     accept?: string;
     /** The mode's placement route (Slide); the shared pipeline when null. */
     place?: PlaceAdapter | null;
@@ -83,7 +84,9 @@
     if (!r && sc === "project") { index = null; ix = EMPTY; return; }
     // Clips are the project's own (plots/_videos): Slide's video reader and importer refuse
     // anything else, so the library never lists them.
-    const acc = sc === "global" ? accept.split(",").filter((x) => x !== "mp4" && x !== "mov").join(",") : accept;
+    // Image bundles are read through the project's own file bridge, which is confined to the project: the library
+    // does not list them either.
+    const acc = sc === "global" ? accept.split(",").filter((x) => x !== "mp4" && x !== "mov" && x !== "fluximg").join(",") : accept;
     const created = createPlotIndex({ scope: sc, collection: col || undefined, accept: acc, watch: true });
     index = created;
     const offState = created.subscribe((v) => { ix = v; });
@@ -249,7 +252,8 @@
   // Videos have no header size: their poster's aspect, once it loads.
   let posterAspect = $state.raw<Map<string, number>>(new Map());
   function aspectOf(it: PlotItem): number {
-    return it.w && it.h ? it.w / it.h : posterAspect.get(it.abs) ?? (/\.(mp4|mov)$/i.test(it.name) ? 16 / 9 : 4 / 3);
+    if (it.fluximg) { const f = fluximgRailFact($fluximgRailFacts, it.abs, it.stamp); if (f) return f.width / f.height; }
+    return it.w && it.h ? it.w / it.h : posterAspect.get(it.abs) ?? (/\.(mp4|mov)$/i.test(it.name) ? 16 / 9 : it.fluximg ? 1 : 4 / 3);
   }
   function toGrid(it: PlotItem): GridItem {
     return { id: it.abs, aspect: aspectOf(it), data: it };
@@ -304,8 +308,8 @@
   const usage = $derived.by(() => {
     const m = new Map<string, { active: boolean; count: number; figs: string[] }>();
     for (const f of $project.figures) for (const el of f.elements) {
-      // Placed plots carry their source path; images and video clips are copied (no in-use mark).
-      const src = el.type === "plot" ? el.source?.svgPath : "";
+      // Placed plots and image bundles carry their source path; images and video clips are copied (no in-use mark).
+      const src = el.type === "plot" ? el.source?.svgPath : el.type === "fluximg" && !el.source?.external ? el.source?.bundlePath : "";
       if (!src) continue;
       const abs = absOf(src);
       const e = m.get(abs) ?? { active: false, count: 0, figs: [] };
@@ -417,7 +421,8 @@
   $effect(() => { railQuickLook.set(!!quick); });
   $effect(() => () => railQuickLook.set(false));
   const quickIndex = $derived(quick ? displayItems.findIndex((i) => i.abs === quick!.abs) : -1);
-  function openQuick(it: PlotItem | null) { if (it) quick = it; }
+  // An image bundle has no Quick Look of its own yet: Space shows its Peek (picture and what it is).
+  function openQuick(it: PlotItem | null) { if (it?.fluximg) { const cell = cellOf(it.abs); if (cell) peekToggle(() => plotPeekFor(it), cell); return; } if (it) quick = it; }
   function stepQuick(d: number) {
     const next = displayItems[quickIndex + d];
     if (next) { quick = next; focusId = next.abs; selected = new Set([next.abs]); anchorId = next.abs; void tick().then(() => grid?.reveal(next.abs)); }
@@ -628,8 +633,10 @@
     return counts.get(plotKeyFor(it.abs, root)) ?? 0;
   }
   const isVideo = (it: PlotItem) => /\.(mp4|mov)$/i.test(it.name);
-  const glyphFor = (it: PlotItem) => (it.model3d ? "3D" : isVideo(it) ? "▶" : it.snip ? "✂" : it.semantic ? "◆" : "");
-  const glyphTitle = (it: PlotItem) => (it.model3d ? "3D model" : isVideo(it) ? "Video clip" : it.snip ? "Paper snip" : it.semantic ? "Fluxplot — editable parts and data" : "");
+  const glyphFor = (it: PlotItem) => (it.fluximg ? "▦" : it.model3d ? "3D" : isVideo(it) ? "▶" : it.snip ? "✂" : it.semantic ? "◆" : "");
+  const glyphTitle = (it: PlotItem) => (it.fluximg ? "Image stack" : it.model3d ? "3D model" : isVideo(it) ? "Video clip" : it.snip ? "Paper snip" : it.semantic ? "Fluxplot — editable parts and data" : "");
+  /** What an image bundle is, once its tile has read the manifest: "3 channels · 25 z · 2048 × 2048 · uint16". */
+  const stackLine = (it: PlotItem) => (it.broken ? it.broken : fluximgRailFact($fluximgRailFacts, it.abs, it.stamp)?.line ?? "");
 
   // ------------------------------------------------------------------ peek
   function cellOf(id: string): HTMLElement | null {
@@ -647,7 +654,7 @@
     return {
       kind: "plot", abs: it.abs, stamp: it.stamp, name: it.name, folder: it.dir ? `${lib}/${it.dir}` : lib,
       aspect: aspectOf(it), physMm: it.physMm ?? null, size: it.size, mtimeMs: it.mtimeMs,
-      kindLabel: it.model3d ? "3D model" : isVideo(it) ? "▶ video clip" : it.snip ? "✂ paper snip" : it.semantic ? "◆ fluxplot" : /\.png$/i.test(it.name) ? "PNG image" : "SVG",
+      kindLabel: it.fluximg ? `▦ image stack${stackLine(it) ? ` · ${stackLine(it)}` : ""}` : it.model3d ? "3D model" : isVideo(it) ? "▶ video clip" : it.snip ? "✂ paper snip" : it.semantic ? "◆ fluxplot" : /\.png$/i.test(it.name) ? "PNG image" : "SVG",
       placements, dissectKey: key, dissections: key ? counts.get(key) ?? 0 : 0,
       stats: it.stats ?? null, paper: it.paper ?? null, fresh,
       placeholder: cellOf(it.abs)?.querySelector<HTMLImageElement>(".page img")?.src ?? "",
@@ -782,8 +789,8 @@
           {w}
           {h}
           captionH={$railPrefs.names ? 14 : 0}
-          name={(recent || similar) && it.dir ? `${it.dir}/${it.name.replace(/\.(svg|png|glb|mp4|mov)$/i, "")}` : it.name.replace(/\.(svg|png|glb|mp4|mov)$/i, "")}
-          title={st ? `${it.rel} — the newest of ${st.members.length} variants\nEnter or double-click shows them all · drag places this one` : `${it.rel}${it.bad ? `\nPreview failed: ${it.bad}` : ""}\nDouble-click or Enter places it · drag onto a ${storeTenant() === "slide" ? "slide" : "figure"} · Space for Quick Look`}
+          name={(recent || similar) && it.dir ? `${it.dir}/${it.name.replace(/\.(svg|png|glb|mp4|mov|fluximg)$/i, "")}` : it.name.replace(/\.(svg|png|glb|mp4|mov|fluximg)$/i, "")}
+          title={st ? `${it.rel} — the newest of ${st.members.length} variants\nEnter or double-click shows them all · drag places this one` : `${it.rel}${it.fluximg && stackLine(it) ? `\n${stackLine(it)}` : ""}${it.bad ? `\nPreview failed: ${it.bad}` : ""}\nDouble-click or Enter places it · drag onto a ${storeTenant() === "slide" ? "slide" : "figure"} · Space for ${it.fluximg ? "details" : "Quick Look"}`}
           stats={it.stats ?? null}
           paper={it.paper ?? null}
           backdrop={$railPrefs.backdrop}
@@ -801,8 +808,8 @@
           stack={st ? st.members.length : 0}
           stackHead={head ? head.count : 0}
           onStackToggle={() => { const k = st?.key ?? head?.key; if (k) toggleStack(k); }}
-          darkMedia={it.model3d || isVideo(it)}
-          onAspect={isVideo(it) && !it.w ? (a) => { if (Math.abs((posterAspect.get(it.abs) ?? 0) - a) > 0.01) posterAspect = new Map(posterAspect).set(it.abs, a); } : undefined}
+          darkMedia={it.model3d || isVideo(it) || !!it.fluximg}
+          onAspect={(isVideo(it) || it.fluximg) && !it.w ? (a) => { if (Math.abs((posterAspect.get(it.abs) ?? 0) - a) > 0.01) posterAspect = new Map(posterAspect).set(it.abs, a); } : undefined}
           onDissections={() => { offerFile(it.abs, root, scope); onShowDissections?.(); }} />
       {/if}
     {/snippet}

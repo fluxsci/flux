@@ -47,7 +47,9 @@ export async function insertPlots(paths: string[], at?: { figId: string; x: numb
     if (n > 0) {
       insertFlash.update((k) => k + 1);
       const name = destinationName(fig);
-      const what = paths.every((p) => /\.(mp4|mov)$/i.test(p)) ? (n === 1 ? "1 clip" : `${n} clips`) : n === 1 ? "1 plot" : `${n} plots`;
+      const what = paths.every((p) => /\.(mp4|mov)$/i.test(p)) ? (n === 1 ? "1 clip" : `${n} clips`)
+        : paths.every((p) => /\.fluximg$/i.test(p)) ? (n === 1 ? "1 image" : `${n} images`)
+        : n === 1 ? "1 plot" : `${n} plots`;
       // A slide is always the one on stage; a figure may be scrolled off-screen (Show).
       pushToast("success", `Placed ${what} ${slide ? "on" : "in"} ${name}`, slide ? undefined : { action: { label: "Show", run: () => { centerOnFigure(fig.id); } } });
     }

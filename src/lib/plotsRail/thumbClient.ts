@@ -108,6 +108,7 @@ function finish(e: Entry, bytes: Uint8Array | null, r: { width?: number; height?
 async function request(e: Entry): Promise<void> {
   const fb = fileBridge();
   if (/\.glb$/i.test(e.path)) return model3d(e);
+  if (/\.fluximg$/i.test(e.path)) return fluximg(e);
   if (/\.(mp4|mov)$/i.test(e.path)) return video(e);
   if (forceFallback || !fb?.plotThumb) { fallback(e); return; }
   let r: PlotThumbResult;
@@ -130,6 +131,22 @@ async function model3d(e: Entry) {
     publish(e, { url: p.url, width: 0, height: 0, stats: null, paper: null, pending: false, error: "" });
   } catch (err) {
     finish(e, null, { error: err instanceof Error ? err.message : "No 3D preview" });
+  }
+}
+
+// An image bundle: its preview.png, else a small still from the fluximg worker pool (fluximg/railThumb.ts). The
+// tile then also knows the bundle's size and what it is (fluximg/railFacts.ts).
+async function fluximg(e: Entry) {
+  try {
+    const { fluximgRailThumb } = await import("../fluximg/railThumb");
+    const p = await fluximgRailThumb(e.path, e.stamp, e.bucket);
+    if (p.bytes) { finish(e, p.bytes, { width: p.width, height: p.height }); return; }
+    e.phase = "done";
+    e.bytes = p.url?.length ?? 0;
+    publish(e, { url: p.url ?? "", width: p.width, height: p.height, stats: null, paper: null, pending: false, error: p.url ? "" : "Preview unavailable" });
+    trim();
+  } catch (err) {
+    finish(e, null, { error: err instanceof Error ? err.message : "No preview" });
   }
 }
 
