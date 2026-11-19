@@ -340,6 +340,32 @@ try {
   su.stopFluximgSourceWatch();
 
   // ------------------------------------------------------------------------------------------------------------
+  h.section("C2. the native drop channel (electron/ipc/fluximg.cjs)");
+  {
+    const { EventEmitter } = await import("node:events");
+    const { createFluximgCore } = require("../electron/ipc/fluximg.cjs");
+    const { createFileCore } = require("../electron/ipc/files.cjs");
+    const { CHANNELS } = require("../electron/ipc/contract.cjs");
+    const droot = path.join(scratch, "dproj"), outside = path.join(scratch, "outside", "dropped.fluximg");
+    await fs.mkdir(path.join(droot, "plots"), { recursive: true });
+    await fs.writeFile(path.join(droot, "project.json"), "{}");
+    await fs.cp(fx("gray2d_u8"), outside, { recursive: true });
+    const handlers = new Map<string, (...args: unknown[]) => Promise<{ sha256: string; path: string }>>();
+    const sender = Object.assign(new EventEmitter(), { id: 7, isDestroyed: () => false });
+    let currentRoot = droot;
+    const fileCore = createFileCore({ app: { getPath: (kind: string) => path.join(scratch, `app-${kind}`) }, dialog: {}, shell: {}, roots: () => [droot], windowFor: () => null });
+    createFluximgCore({ rootFor: () => currentRoot, generationFor: () => 1, fsReadGuard: fileCore.fsReadGuard }).registerHandlers({ handle: (n: string, fn: (...args: unknown[]) => Promise<{ sha256: string; path: string }>) => handlers.set(n, fn) });
+    h.ok(CHANNELS.some((c: { channel: string; kind: string }) => c.channel === "fluximg:importDropped" && c.kind === "invoke"), "fluximg:importDropped is a declared invoke channel");
+    const preload = await fs.readFile(path.join(repo, "electron", "preload.cjs"), "utf8");
+    h.ok(/importDroppedFluximg:[\s\S]{0,600}webUtils\.getPathForFile\(file\)[\s\S]{0,400}"fluximg:importDropped"/.test(preload), "the preload takes a dropped bundle's path from the File itself (webUtils), never from the page");
+    await rejects(handlers.get("fluximg:import")!({ sender }, { root: droot, sourcePath: outside, assetId: "fx_out" }), /refused|outside/, "a renderer-named path outside the project still needs the window's read capability");
+    const dropped = await handlers.get("fluximg:importDropped")!({ sender }, { root: droot, sourcePath: outside, assetId: "fx_drop" });
+    h.ok(dropped.path === "assets/fx_drop.fluximg" && dropped.sha256.length === 64, "a dropped bundle folder imports through its own channel (the drop is the capability)");
+    currentRoot = path.join(scratch, "other");
+    await rejects(handlers.get("fluximg:importDropped")!({ sender }, { root: droot, sourcePath: outside, assetId: "fx_drop2" }), /project changed/, "…bound to the window's open project like every fluximg call");
+  }
+
+  // ------------------------------------------------------------------------------------------------------------
   h.section("E. timing: the native import of the largest fixture");
   const filesSide = require("../electron/fluximgFiles.cjs");
   const nproj = path.join(scratch, "nproj");

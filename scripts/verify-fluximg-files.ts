@@ -283,7 +283,8 @@ try {
   let currentRoot = project, generation = 1;
   const fileCore = createFileCore({ app: { getPath: (kind: string) => path.join(scratch, `app-${kind}`) }, dialog: {}, shell: {}, roots: () => [project], windowFor: () => null });
   createFluximgCore({ rootFor: () => currentRoot, generationFor: () => generation, fsReadGuard: fileCore.fsReadGuard }).registerHandlers({ handle: (n: string, fn: (...args: any[]) => any) => handlers.set(n, fn) });
-  h.eq([...handlers.keys()].sort(), ["fluximg:discard", "fluximg:import", "fluximg:read"], "the family registers exactly its three channels");
+  // fluximg:importDropped (verify-fluximg-import covers it): an OS drop of a bundle folder, path from the preload.
+  h.eq([...handlers.keys()].sort(), ["fluximg:discard", "fluximg:import", "fluximg:importDropped", "fluximg:read"], "the family registers exactly its four channels");
   const call = (n: string, payload: unknown) => Promise.resolve().then(() => handlers.get(`fluximg:${n}`)!({ sender }, payload));
   const read = await call("read", { root: project, bundle: B, path: "fluximg.json", offset: 2, length: 9 });
   h.ok(read instanceof ArrayBuffer && read.byteLength === 9 && Buffer.from(read).equals(manifestBytes.subarray(2, 11)), "fluximg:read returns an ArrayBuffer sized exactly to the bytes read");
