@@ -24,6 +24,7 @@ import { DECK_CANVAS_ID } from "../src/lib/slide/deckProject";
 import { colormapLut, ensureColormapLuts } from "../src/lib/color/colormapLuts";
 import { loadFigModel, mutateFigModel, requireProject } from "./model";
 import { fluximgReader } from "./fluximgRender";
+import { listDecks, loadDeck } from "./slides";
 import { NotFoundError, ValidationError } from "./errors";
 
 const isInside = (root: string, p: string): boolean => {
@@ -140,7 +141,15 @@ export async function placeImage(root: string, figureId: string, bundlePath: str
   // Refuse what the placement would refuse BEFORE copying anything (a big bundle is a long copy).
   const { project: before } = await loadFigModel(root);
   const figure = before.figures.find((f) => f.id === figureId);
-  if (!figure) throw new NotFoundError(`Figure not found: ${figureId}`);
+  if (!figure) {
+    // A slide id (or a deck id) is a Slides target: say why it cannot take an image rather than "not found".
+    for (const d of await listDecks(root).catch(() => [])) {
+      if (d.id === figureId) throw new ValidationError(FLUXIMG_NOT_IN_SLIDES);
+      const deck = await loadDeck(root, d.id).catch(() => null);
+      if (deck?.slides.some((s) => s.id === figureId)) throw new ValidationError(FLUXIMG_NOT_IN_SLIDES);
+    }
+    throw new NotFoundError(`Figure not found: ${figureId}`);
+  }
   if (figure.canvasId === DECK_CANVAS_ID) throw new ValidationError(FLUXIMG_NOT_IN_SLIDES);
 
   // The same content already in the project: reuse its asset. Hashing is a full read of the source, so only bundles
