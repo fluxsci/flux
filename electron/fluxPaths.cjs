@@ -21,6 +21,7 @@ const os = require("node:os");
 const fsSync = require("node:fs");
 const fsp = require("node:fs/promises");
 const { FLUX_CONTEXT_FILES, FLUX_CONTEXT_HASH } = require("./fluxContextDocs.gen.cjs");
+const { cleanupRetiredLibraryProxy } = require("./retiredLibraryProxy.cjs");
 
 // ---------------------------------------------------------------------------
 // path resolution
@@ -210,6 +211,9 @@ async function withConfigLock(fn) {
 //       seeded once — user-owned afterwards)
 //   (e) sync Context/FluxContext (stock docs, re-synced on content-hash change)
 //   (f) record everything in <FluxConfig>/.fluxconfig.json (audit + fast-path)
+//   (g) remove the retired library sign-in state from the active FluxLib
+//       (retiredLibraryProxy.cjs) — on EVERY start, fast path included, after
+//       the FluxLib move, so a library moved in later is cleaned too
 // Idempotent: every step is existence-guarded; later runs hit a statSync-only
 // fast path. Failures never throw past this function's contract lightly — a
 // deferred/failed move leaves the resolver fallbacks working and is recorded.
@@ -794,8 +798,23 @@ async function ensureFluxConfig() {
   // Escape hatch for test harnesses: verify scripts spawn the REAL CLI/MCP,
   // and migration against the developer's real HOME mid-test-run would move
   // their actual library. run-verifies.mjs sets this for every child; the
-  // fluxconfig gate test clears it inside its scratch-HOME simulations.
+  // fluxconfig gate test clears it inside its scratch-HOME simulations. The
+  // retired-sign-in cleanup obeys it too (it deletes files in FluxLib).
   if (process.env.FLUX_NO_MIGRATE === "1") return configInfoSync();
+  try {
+    return await ensureFluxConfigSteps();
+  } finally {
+    // Never throws; resolved after the steps so a FluxLib that just moved is the
+    // one cleaned. Legacy locations are covered by the resolver's own fallbacks
+    // (an EXDEV-deferred library is still the active one); a stranded second
+    // library is left alone, exactly as migrateFluxLib leaves it.
+    let lib = "";
+    try { lib = resolveFluxLibPathSync(); } catch { /* unresolvable — nothing to clean */ }
+    await cleanupRetiredLibraryProxy({ fluxLibDir: lib });
+  }
+}
+
+async function ensureFluxConfigSteps() {
   // Fast path — inspect the small stock directory and required seeds.
   const pre = readPrefsRawSync();
   if (

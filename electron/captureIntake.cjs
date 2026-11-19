@@ -1,9 +1,8 @@
 // Web-capture intake (main-process side).
 //
 // Extracted from main.cjs so scripts/verify-capture-e2e.cjs can require() it under `electron`
-// without booting the app — the same seam proxyFetch.cjs uses, and for the same reason: this
-// is the code that MOVES FILES OUT OF THE USER'S DOWNLOAD FOLDER, so it deserves a real test
-// rather than a mirror of its logic.
+// without booting the app: this is the code that MOVES FILES OUT OF THE USER'S DOWNLOAD
+// FOLDER, so it deserves a real test rather than a mirror of its logic.
 //
 // It lives in main rather than the renderer because fsGuard deliberately refuses $HOME
 // (W12/SHL-6): a renderer-side move out of Downloads would be refused, and widening the guard

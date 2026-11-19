@@ -10,7 +10,7 @@ export interface FluxCapture {
   doi: string;
   /** citation_title / dc.title / document.title — the fallback identification signal. */
   title: string;
-  /** The PDF the page advertised, if any: Flux can still try it through the proxy engine. */
+  /** The PDF the page advertised, if any. Kept in the sidecar; Flux does not fetch it. */
   pdfUrl: string;
   /** Why it fell back to metadata: "no-pdf-on-page" | "pdf-fetch-blocked". */
   reason: string;

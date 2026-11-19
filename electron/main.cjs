@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain: rawIpcMain, dialog, shell, session, safeStorage, net, protocol } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain: rawIpcMain, dialog, shell, session, protocol } = require("electron");
 // Range-streamed video capabilities work in both Vite and packaged file pages.
 // The handler permits only an approved project asset token, never arbitrary URLs.
 protocol.registerSchemesAsPrivileged([{ scheme: "flux-media", privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true } }]);
@@ -35,6 +35,7 @@ const { resolveToDoi } = require("./resolveDoi.cjs");
 const { pickRelease, installLine, updateSpawn } = require("./updateCheck.cjs");
 const managedTools = require("./managedTools.cjs");
 const fluxPaths = require("./fluxPaths.cjs");
+const { removeRetiredSessionPartition } = require("./retiredLibraryProxy.cjs");
 const { recordProjectOpened } = require("./projectsRegistry.cjs");
 const { resolveSpawn } = require("./execResolve.cjs");
 const { isDerivedFigureRenderPath } = require("./projectWatchPaths.cjs");
@@ -71,7 +72,7 @@ function loadChokidar() {
 // ALL per-window lifecycle state lives in one session record — the window, its
 // open project root, its project file-watcher, and the root it was created to
 // open (CLI arg / second-instance path, read once by the renderer at boot).
-// Machine-global state (FluxLib watching, capture intake, the print/proxy
+// Machine-global state (FluxLib watching, capture intake, the print
 // utility windows) stays process-wide. The old single `mainWindow` /
 // `currentRoot` / `projectWatcher` slots are gone — the moment window B opened
 // a project they silently took window A's watcher, bridge, and locks
@@ -119,7 +120,7 @@ let quitting = false;
 const flushCoordinator = createFlushCoordinator();
 ipcMain.on("app:flush:done", (e, result) => flushCoordinator.ack(e.sender.id, result));
 // Quit-wedge R2: only APP windows participate in the quit decision — the
-// hidden proxy-capture/print windows are never registered, so they can no
+// hidden utility (print) windows are never registered, so they can no
 // longer keep a windowless process alive holding the single-instance lock.
 const appWindowPolicy = createAppWindowPolicy({
   isMac: process.platform === "darwin",
@@ -667,6 +668,12 @@ if (!gotSingleInstanceLock) {
 
 app.whenReady().then(async () => {
   if (!gotSingleInstanceLock) return;
+  // The retired library sign-in kept its session in its own partition; delete it
+  // before anything else runs (retiredLibraryProxy.cjs — never throws). Test
+  // harnesses opt out with FLUX_NO_MIGRATE like the FluxConfig migration below.
+  if (process.env.FLUX_NO_MIGRATE !== "1") {
+    await removeRetiredSessionPartition({ userDataDir: app.getPath("userData"), session });
+  }
   // One-time machine init/migration (FluxConfig, capital→lowercase config-dir
   // merge, FluxLib move, Guidelines seed) BEFORE the window exists, so the
   // renderer and the FluxLib watcher only ever see post-migration state. A
@@ -680,9 +687,9 @@ app.whenReady().then(async () => {
   // WS-9.1: inject the CSP as a RESPONSE HEADER for the dev-server document —
   // the meta in index.html covers the packaged file:// load, but headers are
   // the stronger mechanism and cover dev before the parser sees the meta.
-  // Scoped to the app's own dev origin on the DEFAULT session only — the
-  // publisher proxy-capture windows run in their own partitions and must never
-  // inherit app policy.
+  // Scoped to the app's own dev origin on the DEFAULT session only — other
+  // partitions (pdf:netGet's cookie jar, print windows) must never inherit app
+  // policy.
   if (DEV_URL) {
     const { session } = require("electron");
     const DEV_CSP =
@@ -740,11 +747,6 @@ app.on("before-quit", () => { quitting = true; });
 onQuit(() => {
   releaseAllGuiLocks(); // W3: never leave a stale "human" lock deferring agents
   stopAllBridges(); // W12 (SHL-8): remove every .meta/live/bridge.json (+ tokens) on quit
-  try {
-    networkFamily.disposeProxy(); // tear down the reusable proxy capture window
-  } catch {
-    /* not created yet */
-  }
 });
 
 // W12 (SHL-8): a kill / Ctrl-C / SIGTERM used to leave a live-looking bridge.json
@@ -1586,23 +1588,16 @@ const staticPrint = require("./ipc/staticPrint.cjs").createStaticPrint({BrowserW
 staticPrint.registerHandlers(ipcMain);
 onQuit(() => staticPrint.dispose());
 
-// WS-9.4b: the NETWORK family (keys, cite:*, pdf:netGet, EZProxy machinery)
-// lives in ipc/network.cjs.
+// WS-9.4b: the NETWORK family (keys, cite:*, pdf:netGet) lives in ipc/network.cjs.
 const networkFamily = require("./ipc/network.cjs").createNetworkFamily({
-  dialog,
   session,
-  BrowserWindow,
-  safeStorage,
-  net,
   fluxLibDir,
-  // proxy:login's parent — the focused window, not a fixed "main" one.
-  getMainWindow: () => focusTargetWindow(),
   resolveToDoi,
   locks: { lockDirFor: scope => {
     if (scope !== "fluxlib") throw new Error("Network key lease requires FluxLib scope");
     return path.join(fluxLibDir(), ".fluxlib", "locks");
   } },
-  files: { atomicWriteMain, noteWrite },
+  files: { atomicWriteMain },
 });
 networkFamily.registerHandlers(ipcMain);
 
