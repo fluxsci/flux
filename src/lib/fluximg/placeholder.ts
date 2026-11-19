@@ -1,10 +1,10 @@
 /**
- * The neutral stand-in for a placed fluximg until its still renderer lands (wave 2).
+ * The stand-in for a placed fluximg whose bundle cannot be drawn by a static output: no image context was prepared
+ * (a surface with no fluximg IO, such as a slide embed in stage 1 or a synchronous preview), or the bundle is missing
+ * or unreadable (`exportStatic.fluximgElementMarkup` falls back here, and the render reports why).
  *
- * ONE pure function so every surface that draws an element (the canvas, the static export, flux-core, the slide
- * player) shows the same thing, and wave 2 replaces every call site in one step: grep for
- * `fluximg: wave 2 replaces this placeholder`. Pure: no DOM, no measurement (character-count truncation, explicit
- * sizes), so Chromium and resvg draw it identically. It never touches pixels.
+ * ONE pure function so every such surface shows the same thing. Pure: no DOM, no measurement (character-count
+ * truncation, explicit sizes), so Chromium and resvg draw it identically. It never touches pixels.
  */
 import type { FluximgElement } from "./element";
 
