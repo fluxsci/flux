@@ -263,7 +263,11 @@ const summary = await waitFor(
   { timeout: 12000, interval: 250, label: "Alt+F fetch summary toast" },
 );
 assert(/fetched 0/i.test(summary), `Alt+F ran the fetch pipeline over the checked rows ("${summary}")`);
-assert(/2 need library sign-in/.test(summary), "…and over exactly the 2 checked references");
+// The run's own count proves its scope. (This used to read "2 need library sign-in" off the
+// summary; that phrase went with the library sign-in, owner decision 2026-11-18.)
+const ranOver = await page.evaluate(async () => (await import("/src/lib/references/pdfFetchJob.svelte.ts")).pdfFetchJob.total);
+assert(ranOver === 2, `…and over exactly the 2 checked references (job total ${ranOver})`);
+assert(!/library|sign-in/i.test(summary), "the summary names no library route");
 
 const errs = realErrors(page);
 await browser.close();
