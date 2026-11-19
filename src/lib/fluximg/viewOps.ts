@@ -96,7 +96,7 @@ function resolveFurniture(manifest: FluximgManifest, f: FluximgView["furniture"]
   const color = (v: unknown, d: string): string => (isColor(v) ? v : d);
   const dims = positionDims(manifest);
   const objectLayers = manifest.layers.filter((l) => l.kind !== "intensity").map((l) => l.id);
-  const sb = fur.scalebar, st = fur.stamp, cl = fur.channelLabels, nm = fur.names;
+  const sb = fur.scalebar, st = fur.stamp, cl = fur.channelLabels, nm = fur.names, cb = fur.colorbar;
   return {
     scalebar: isObj(sb)
       ? { length: finite(sb.length) && sb.length > 0 ? sb.length : null, corner: corner(sb.corner, "bottom-right"), color: color(sb.color, "#ffffff"),
@@ -109,6 +109,7 @@ function resolveFurniture(manifest: FluximgManifest, f: FluximgView["furniture"]
     names: isObj(nm)
       ? { layers: Array.isArray(nm.layers) ? nm.layers.filter((id) => objectLayers.includes(id)) : objectLayers, fontSize: size(nm.fontSize, 6) }
       : false,
+    colorbar: isObj(cb) ? { corner: corner(cb.corner, "bottom-left"), color: color(cb.color, "#ffffff"), fontSize: size(cb.fontSize, 6) } : false,
   };
 }
 

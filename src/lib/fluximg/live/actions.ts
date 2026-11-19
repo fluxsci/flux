@@ -42,7 +42,7 @@ export function railDims(m: FluximgManifest): string[] {
  * stay Flux-wide (properties, search). A dimension's rail takes its own letter when it is free (t, z), else a spare.
  */
 export const LIVE_KEYS = {
-  auto: "a", split: "x", projection: "e", layers: "d", frame: "v", smooth: "g", scalebar: "b", stamp: "w", channelNames: "c",
+  auto: "a", split: "x", projection: "e", layers: "d", frame: "v", smooth: "n", scalebar: "b", stamp: "w", channelNames: "c", colorbar: "g",
 } as const;
 const RAIL_SPARE = ["q", "`"];
 

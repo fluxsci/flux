@@ -27,6 +27,8 @@ export interface FluximgStaticInput {
   flipY?: boolean;
   /** Blow-outs of this element (other elements whose view says `insetOf` this one): each one's crop is outlined here. */
   insets?: Array<{ id: string; crop: PixelRect }>;
+  /** Colour-map tables (256 "#rrggbb"), for the calibration bar. Absent: a colour map's bar is drawn gray. */
+  resolveLut?: (name: string) => string[] | null;
 }
 
 /** The elements of a figure that are blow-outs of `parentId`, as what the parent needs to outline them. */
@@ -97,7 +99,7 @@ export function fluximgStaticSvg(input: FluximgStaticInput): string {
       words.push(namesMarkup(objectIndex(text), null, crop, box, { layerId: id, fontSize: names.fontSize, color: lv.color ?? layer.color ?? "#ffffff", flipX: input.flipX, flipY: input.flipY }, idPrefix));
     }
   }
-  words.push(furnitureSvg(manifest, view, crop, box, idPrefix));
+  words.push(furnitureSvg(manifest, view, crop, box, idPrefix, input.resolveLut));
   const unflip = unflipTransform(box, input.flipX, input.flipY), text = words.join("");
   out.push(unflip && text ? `<g transform="${unflip}">${text}</g>` : text);
   out.push("</svg>");

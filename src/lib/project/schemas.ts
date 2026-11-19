@@ -301,6 +301,7 @@ const FLUXIMG_VIEW = {
       stamp: { anyOf: [{ const: false }, { type: "object", properties: { dims: { type: "array", items: { type: "string" } }, corner: CORNER, color: { type: "string" }, fontSize: FONT_SIZE } }] },
       channelLabels: { anyOf: [{ const: false }, { type: "object", properties: { corner: CORNER, fontSize: FONT_SIZE } }] },
       names: { anyOf: [{ const: false }, { type: "object", properties: { layers: { type: "array", items: { type: "string" } }, fontSize: FONT_SIZE } }] },
+      colorbar: { anyOf: [{ const: false }, { type: "object", properties: { corner: CORNER, color: { type: "string" }, fontSize: FONT_SIZE } }] },
     } },
     insetOf: NON_EMPTY,
   },

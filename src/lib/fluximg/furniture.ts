@@ -121,7 +121,7 @@ export function scalebarGeometry(manifest: FluximgManifest, rv: ResolvedView, cr
  * Everything switched on in the resolved view's furniture, as one `<g>` ("" when nothing is). Items sharing a
  * corner stack away from it in a fixed order: scale bar, stamp, channel names.
  */
-export function furnitureSvg(manifest: FluximgManifest, rv: ResolvedView, crop: PixelRect, box: Box, idPrefix: string): string {
+export function furnitureSvg(manifest: FluximgManifest, rv: ResolvedView, crop: PixelRect, box: Box, idPrefix: string, resolveLut?: (name: string) => string[] | null): string {
   if (!(box.width > 0 && box.height > 0)) return "";
   const f = rv.furniture, inset = furnitureInset(box);
   const used: Record<FurnitureCorner, number> = { "bottom-right": 0, "bottom-left": 0, "top-right": 0, "top-left": 0 };
@@ -167,5 +167,50 @@ export function furnitureSvg(manifest: FluximgManifest, rv: ResolvedView, crop: 
     }
   }
 
+  if (f.colorbar) {
+    const cb = f.colorbar, chans = labelledChannels(rv);
+    if (chans.length) {
+      const fs = cb.fontSize * PT, gap = 0.25 * fs;
+      // A bar per shown channel: its colours from the black point (left) to the white point (right).
+      const width = Math.min(Math.max(40, 0.3 * box.width), Math.max(20, box.width - 2 * inset)), height = Math.max(2, 0.55 * fs);
+      const rowH = height + gap + (CAP + DESCENT) * fs, step = rowH + 0.5 * fs;
+      const total = chans.length * step - 0.5 * fs;
+      const x = isLeft(cb.corner) ? inset : box.width - inset - width;
+      const top = isTop(cb.corner) ? inset + used[cb.corner] : box.height - inset - used[cb.corner] - total;
+      const defs: string[] = [], bars: string[] = [];
+      chans.forEach((c, k) => {
+        const y = top + k * step, gid = `${idPrefix}colorbar.${c.index}.ramp`;
+        defs.push(`<linearGradient id="${escapeXml(gid)}" gradientUnits="userSpaceOnUse" x1="${svgNum(x)}" y1="0" x2="${svgNum(x + width)}" y2="0">${rampStops(c, resolveLut)}</linearGradient>`);
+        bars.push(`<rect id="${escapeXml(`${idPrefix}colorbar.${c.index}`)}" data-part="colorbar" x="${svgNum(x)}" y="${svgNum(y)}" width="${svgNum(width)}" height="${svgNum(height)}" fill="url(#${escapeXml(gid)})" stroke="${escapeXml(cb.color)}" stroke-width="${svgNum(Math.max(0.3, 0.05 * fs))}"/>`);
+        const ty = y + height + gap + CAP * fs;
+        // The window in the image's own values; how values spread across it is said when it is not linear.
+        const how = c.norm === "log" && c.range[0] > 0 ? "log" : c.norm === "gamma" && c.gamma !== 1 ? `γ ${trimNumber(c.gamma)}` : "";
+        bars.push(`<text id="${escapeXml(`${idPrefix}colorbar.${c.index}.min`)}" data-part="colorbar.label" x="${svgNum(x)}" y="${svgNum(ty)}" text-anchor="start"${textAttrs(fs, cb.color)}>${escapeXml(valueText(c.range[0]))}</text>`);
+        if (how) bars.push(`<text id="${escapeXml(`${idPrefix}colorbar.${c.index}.norm`)}" data-part="colorbar.label" x="${svgNum(x + width / 2)}" y="${svgNum(ty)}" text-anchor="middle"${textAttrs(fs, cb.color)}>${escapeXml(how)}</text>`);
+        bars.push(`<text id="${escapeXml(`${idPrefix}colorbar.${c.index}.max`)}" data-part="colorbar.label" x="${svgNum(x + width)}" y="${svgNum(ty)}" text-anchor="end"${textAttrs(fs, cb.color)}>${escapeXml(valueText(c.range[1]))}</text>`);
+      });
+      parts.push(`<g id="${escapeXml(idPrefix + "colorbar")}" data-part="colorbar"><defs>${defs.join("")}</defs>${bars.join("")}</g>`);
+      used[cb.corner] += total + 0.4 * fs;
+    }
+  }
+
   return parts.length ? `<g id="${escapeXml(idPrefix + "furniture")}" data-part="furniture">${parts.join("")}</g>` : "";
+}
+
+/** Up to 4 significant digits, no trailing zeros, U+2212 for minus: a bar's end value. */
+const trimNumber = (v: number): string => signed(String(Number(v.toPrecision(4))));
+const valueText = (v: number): string => (Number.isInteger(v) && Math.abs(v) < 1e7 ? signed(String(v)) : trimNumber(v));
+
+/** Gradient stops of a channel's colours: black to its colour, or nine samples of its colour map (gray when unknown). */
+function rampStops(c: { color: string | null; lut: string | null; invert: boolean }, resolveLut?: (name: string) => string[] | null): string {
+  let colors: string[];
+  if (c.color) colors = ["#000000", c.color];
+  else {
+    const table = c.lut && resolveLut ? resolveLut(c.lut) : null;
+    colors = table && table.length > 1
+      ? Array.from({ length: 9 }, (_, i) => table[Math.round((i / 8) * (table.length - 1))].slice(0, 7))
+      : ["#000000", "#ffffff"];
+  }
+  if (c.invert) colors = colors.slice().reverse();
+  return colors.map((col, i) => `<stop offset="${svgNum(i / (colors.length - 1))}" stop-color="${escapeXml(col)}"/>`).join("");
 }

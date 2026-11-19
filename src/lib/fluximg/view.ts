@@ -79,6 +79,8 @@ export interface FluximgFurnitureView {
   channelLabels?: { corner?: FurnitureCorner; fontSize?: number } | false;
   /** Names of layer objects drawn beside them. */
   names?: { layers?: string[]; fontSize?: number } | false;
+  /** The intensity calibration bar: each shown channel's colours laid from its black point to its white point, with both values. */
+  colorbar?: { corner?: FurnitureCorner; color?: string; fontSize?: number } | false;
 }
 
 export interface FluximgView {
@@ -144,6 +146,7 @@ export interface ResolvedFurniture {
   stamp: Required<FluximgStampView> | false;
   channelLabels: { corner: FurnitureCorner; fontSize: number } | false;
   names: { layers: string[]; fontSize: number } | false;
+  colorbar: { corner: FurnitureCorner; color: string; fontSize: number } | false;
 }
 
 export interface ResolvedView {

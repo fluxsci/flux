@@ -6,7 +6,7 @@
    * names, then furniture. The element at rest and the live view both mount this, so what you adjust is what
    * stays. The strings come from the same pure builders the export uses (`layers.ts`, `furniture.ts`).
    */
-  import { fluximgLayerText, needLayerText } from "./store";
+  import { fluximgLayerText, fluximgLutsReady, needLayerText, needLuts, resolveLut } from "./store";
   import { layerMarkup, namesMarkup, objectIndex } from "./layers";
   import { furnitureSvg } from "./furniture";
   import { insetsMarkup, layerSvgPath, unflipTransform } from "./static";
@@ -74,7 +74,9 @@
     }
     return out;
   });
-  const furniture = $derived.by(() => { try { return furnitureSvg(manifest, view, crop, box, prefix); } catch { return ""; } });
+  // The calibration bar draws a colour map's own colours, so the tables must be loaded (lazily) when one is shown.
+  $effect(() => { if (view.furniture.colorbar && view.channels.some((c) => c.lut)) void needLuts(); });
+  const furniture = $derived.by(() => { void $fluximgLutsReady; try { return furnitureSvg(manifest, view, crop, box, prefix, resolveLut); } catch { return ""; } });
   // A mirrored element mirrors its pixels and shapes, never its words: text sits in a group that undoes the mirror.
   const unflip = $derived(unflipTransform(box, flipX, flipY) || undefined);
 </script>

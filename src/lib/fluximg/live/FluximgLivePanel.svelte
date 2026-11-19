@@ -155,6 +155,7 @@
       case LIVE_KEYS.scalebar: toggleFurniture("scalebar"); return true;
       case LIVE_KEYS.stamp: toggleFurniture("stamp"); return true;
       case LIVE_KEYS.channelNames: toggleFurniture("channelLabels"); return true;
+      case LIVE_KEYS.colorbar: toggleFurniture("colorbar"); return true;
     }
     return true; // the panel owns unmodified keys: nothing leaks to canvas shortcuts (no stray Delete or nudge)
   }
@@ -396,6 +397,8 @@
             {/if}
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
             <div class="row" data-key={LIVE_KEYS.channelNames} onclick={() => toggleFurniture("channelLabels")}><span class="hk">{LIVE_KEYS.channelNames}</span><span class="label">Channel names</span><span class="value" class:on={!!ctx.view.furniture.channelLabels}>{ctx.view.furniture.channelLabels ? "on" : "off"}</span></div>
+            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+            <div class="row" data-key={LIVE_KEYS.colorbar} onclick={() => toggleFurniture("colorbar")}><span class="hk">{LIVE_KEYS.colorbar}</span><span class="label">Calibration bar</span><span class="value" class:on={!!ctx.view.furniture.colorbar}>{ctx.view.furniture.colorbar ? "on" : "off"}</span></div>
           </div>
         </div>
         <div class="foot">

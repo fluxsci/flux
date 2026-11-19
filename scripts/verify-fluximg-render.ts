@@ -124,7 +124,7 @@ h.section("A. resolveView: defaults and overrides");
   h.eq([lo.activity.lut, lo.activity.color, lo.activity.opacity, lo.activity.visible], ["gray", null, 1, true], "layer overrides: lut clears colour, opacity clamped to 1");
   h.eq([lo.discs.color, lo.discs.lut, lo.discs.strokeWidth, lo.discs.fillOpacity, lo.footprints.visible], ["#00ff00", null, 3, 0.5, false], "vector stroke, width, fill; a shown layer hidden");
 
-  h.eq(d.furniture, { scalebar: false, stamp: false, channelLabels: false, names: false }, "no furniture unless asked");
+  h.eq(d.furniture, { scalebar: false, stamp: false, channelLabels: false, names: false, colorbar: false }, "no furniture unless asked");
   const F = resolveView(trials, { furniture: { scalebar: {}, stamp: {}, channelLabels: {}, names: {} } }).furniture;
   h.eq(F.scalebar, { length: null, corner: "bottom-right", color: "#ffffff", label: true, thickness: 1.5, fontSize: 7 }, "scale bar defaults: automatic length, bottom right, white, labelled, 1.5 pt, 7 pt");
   h.eq(F.stamp, { dims: ["trial", "t"], corner: "top-left", color: "#ffffff", fontSize: 7 }, "stamp defaults: every position dimension, top left");
