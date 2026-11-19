@@ -43,7 +43,10 @@ h.ok(spawnIdx >= 0 && trustIdx < spawnIdx, "the trust gate runs BEFORE the share
 h.ok(runner.indexOf("spawn(rs.command") > runner.indexOf("resolveSpawn(executable"), "spawn launches the RESOLVED command (never a bare recipe.command)");
 h.ok(/if \(!\(await confirmRecipeTrust[\s\S]{0,120}return \{/.test(rr), "an untrusted recipe returns early (no spawn)");
 h.ok(/function confirmRecipeTrust/.test(main) && /dialog\.showMessageBox/.test(main), "confirmRecipeTrust prompts via dialog.showMessageBox");
-h.ok(/function isRecipeTrusted/.test(main) && /trustedRecipeRoots/.test(main), "trust is persisted per project (trustedRecipeRoots in prefs)");
+const trustModule = await fs.readFile(path.join(root, "electron", "recipeTrust.cjs"), "utf8");
+h.ok(/function isRecipeTrusted/.test(main) && /recipeTrust\.isRecipeRootTrusted\(readPrefs\(\)/.test(main) && /trustedRecipeRoots/.test(trustModule), "trust is persisted per project (trustedRecipeRoots in prefs, via the module the headless engine shares)");
+const headlessRecipe = await fs.readFile(path.join(root, "flux-core", "recipe.ts"), "utf8");
+h.ok(headlessRecipe.indexOf("await assertRecipeTrusted(") >= 0 && headlessRecipe.indexOf("await assertRecipeTrusted(") < headlessRecipe.indexOf("await runProcess("), "the headless runner checks the same trust BEFORE it spawns");
 h.ok(/function trustRecipeRoot[\s\S]{0,200}writePrefs\(/.test(main), "trustRecipeRoot writes through the atomic prefs writer");
 
 // --- B2: proxy-capture window containment --------------------------------------

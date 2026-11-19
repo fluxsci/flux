@@ -135,6 +135,13 @@ saves several plots, `rerun-plot <recipe> --only` regenerates just that recipe's
 stay untouched on disk; `--param` overrides then reach only the target). Without `--only`, every
 output regenerates and overrides leak into siblings.
 
+**Trust, once per project.** A recipe names a command, and `rerun-plot` runs it. The first rerun
+in a project is refused with a message that shows that command. If the project and the command
+are the user's own (you or they wrote the plotting script), run it again with `--trust`
+(`trust: true` over MCP); Flux remembers the project, and the app's *Regenerate* shares the
+answer. If the project came from someone else, show the user the command before trusting it.
+`set-plot-color-scale --regenerate` reruns the recipe too and takes the same `--trust`.
+
 ## Putting it together (one breath)
 
 Analysis script (with `fluxplot.style` + `fp.save`) writes `plots/density.svg` (+ manifest + recipe) → you

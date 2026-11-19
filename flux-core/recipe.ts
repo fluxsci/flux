@@ -8,6 +8,9 @@ import { runProcess } from "../electron/processRunner.cjs";
 import * as path from "node:path";
 import { stamp, journal } from "./journal";
 import { readJSON, writeText, findProjectRoot } from "./model";
+import { recipeTrustKey, isRecipeRootTrusted, withTrustedRecipeRoot, recipeCommandLine } from "../electron/recipeTrust.cjs";
+import { getPreferences, setPreferences } from "./fluxlib";
+import { ValidationError } from "./errors";
 
 // --------------------------------------------------------------------------
 // F2 reproducibility: re-run a plot's recipe (the generating script + params)
@@ -26,13 +29,43 @@ export interface RecipeRunResult {
   stderr: string;
 }
 
-export async function runRecipe(recipePath: string, paramOverrides: Record<string, unknown> = {}, opts: {only?: string | true; signal?: AbortSignal; timeoutMs?: number} = {}): Promise<RecipeRunResult> {
+/** Options for a headless recipe run. `trust` is the caller saying "this project's recipes may
+ *  run on this machine": it is needed once per project and remembered (see assertRecipeTrusted). */
+export interface RecipeRunOptions { only?: string | true; signal?: AbortSignal; timeoutMs?: number; trust?: boolean }
+
+/**
+ * Recipe workspace trust, the headless half (the app's half is confirmRecipeTrust in
+ * electron/main.cjs; both share electron/recipeTrust.cjs and the same preferences list).
+ *
+ * A recipe names the command a rerun executes, so a project from someone else can name any
+ * command. Until the project is trusted on this machine the run is REFUSED, and the refusal
+ * shows exactly what would have run. The caller (a person at the CLI, or an agent acting for
+ * one) reads it and runs again with `trust`, which runs it and remembers the project.
+ */
+async function assertRecipeTrusted(recipePath: string, invocation: { executable: string; argv: string[]; cwd: string }, grant: boolean | undefined): Promise<void> {
+  const key = recipeTrustKey(recipePath);
+  const prefs = await getPreferences();
+  if (isRecipeRootTrusted(prefs, key)) return;
+  if (grant) {
+    await setPreferences({ trustedRecipeRoots: withTrustedRecipeRoot(prefs, key).trustedRecipeRoots });
+    return;
+  }
+  throw new ValidationError(
+    `Nothing was run: this project's plot recipes are not trusted on this computer yet.\n` +
+      `Project: ${key}\nCommand: ${recipeCommandLine(invocation)}\nWorking directory: ${invocation.cwd}\n` +
+      `Re-running a plot runs that command. If the project and the command are the user's own, run it again with trust ` +
+      `(CLI: add --trust; MCP: trust: true); Flux remembers the project from then on. ` +
+      `If the project came from someone else, show the user the command before trusting it.`,
+  );
+}
+
+export async function runRecipe(recipePath: string, paramOverrides: Record<string, unknown> = {}, opts: RecipeRunOptions = {}): Promise<RecipeRunResult> {
   return withRecipeLease(recipePath, async assertOwned => runRecipeLocked(recipePath, paramOverrides, opts, assertOwned));
 }
 async function runRecipeLocked(
   recipePath: string,
   paramOverrides: Record<string, unknown> = {},
-  opts: { only?: string | true; signal?: AbortSignal; timeoutMs?: number } = {},
+  opts: RecipeRunOptions = {},
   assertOwned: () => Promise<void>,
 ): Promise<RecipeRunResult> {
   const recipe = await readJSON<{
@@ -56,6 +89,7 @@ async function runRecipeLocked(
   const dir = path.dirname(recipePath);
   const { params, args } = recipeInvocation(recipe, paramOverrides);
   const cwd = path.resolve(dir, recipe.cwd ?? ".");
+  await assertRecipeTrusted(recipePath, { executable: recipe.command, argv: args, cwd }, opts.trust);
 
   const snapshot = await snapshotRecipe(recipePath, await readRecipeText(recipePath));
   const { code, stdout, stderr, status } = await runProcess({ executable: recipe.command, argv: args, cwd,

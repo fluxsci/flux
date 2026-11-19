@@ -1372,33 +1372,24 @@ ipcMain.handle("watch:setRoot", async (e, root) => {
 // arbitrary code. We therefore require the containing project to be TRUSTED
 // before the first spawn, keyed by the resolved project-root path (moving/
 // copying a project re-prompts — conservative on purpose). Trust persists in
-// the atomic prefs (A4).
-function findProjectRoot(startDir) {
-  let dir = path.resolve(startDir);
-  for (let i = 0; i < 40; i++) {
-    if (fs.existsSync(path.join(dir, "project.json"))) return dir;
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return null;
-}
+// the atomic prefs (A4). The key and the list live in recipeTrust.cjs, which the headless
+// engine shares: `flux rerun-plot` / rerun_plot refuse the same untrusted project, and a
+// grant made on either side holds for both.
+const recipeTrust = require("./recipeTrust.cjs");
 function isRecipeTrusted(key) {
-  const list = readPrefs().trustedRecipeRoots;
-  return Array.isArray(list) && list.includes(key);
+  return recipeTrust.isRecipeRootTrusted(readPrefs(), key);
 }
 function trustRecipeRoot(key) {
-  const prefs = readPrefs();
-  const list = Array.isArray(prefs.trustedRecipeRoots) ? prefs.trustedRecipeRoots : [];
-  if (!list.includes(key)) writePrefs({ ...prefs, trustedRecipeRoots: [...list, key] });
+  const prefs = readPrefs(), next = recipeTrust.withTrustedRecipeRoot(prefs, key);
+  if (next !== prefs) writePrefs(next);
 }
 /** Confirm-once-per-project gate before spawning a recipe command. Returns true
  *  to proceed. Shows the exact command; a checkbox persists trust. Parents to
  *  the REQUESTING window — a modal on another window would block the wrong one. */
 async function confirmRecipeTrust(recipePath, invocation, parentWin) {
-  const key = findProjectRoot(path.dirname(recipePath)) ?? path.dirname(recipePath);
+  const key = recipeTrust.recipeTrustKey(recipePath);
   if (isRecipeTrusted(key)) return true;
-  const cmdline = [invocation.executable, ...invocation.argv].map(x => JSON.stringify(x)).join(" ");
+  const cmdline = recipeTrust.recipeCommandLine(invocation);
   const { response, checkboxChecked } = await dialog.showMessageBox(parentWin ?? focusTargetWindow(), {
     type: "warning",
     buttons: ["Cancel", "Run"],

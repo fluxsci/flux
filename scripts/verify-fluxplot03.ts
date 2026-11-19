@@ -95,7 +95,7 @@ const params = JSON.parse(process.env.FLUX_PARAMS);
 writeFileSync('out.svg', '<svg xmlns="http://www.w3.org/2000/svg"/>');
 writeFileSync('plot.recipe.json', JSON.stringify({command: process.execPath, args: ['make.mjs'], output: 'out.svg', inputs: ['fresh'], params}));`);
   await writeFile(recipe, JSON.stringify({ command: process.execPath, args: [script], output: "out.svg", params: { dose: 1e-7 } }));
-  const result = await runRecipe(recipe, { __fluxplot__: { field: { cmap: "plasma" } } });
+  const result = await runRecipe(recipe, { __fluxplot__: { field: { cmap: "plasma" } } }, { trust: true });
   assert.equal(result.code, 0, result.stderr);
   const saved = JSON.parse(await readFile(recipe, "utf8"));
   assert.deepEqual(saved.inputs, ["fresh"]);

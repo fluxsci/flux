@@ -70,7 +70,7 @@ fs.writeFileSync('plot.recipe.json', JSON.stringify({...${JSON.stringify(glbReci
   assert(guarded.includes(glbResult.glbPath)&&guarded.includes(glbResult.manifestPath),'both GLB and explicit metadata output use native guards');
   assert(!('bytes' in glbResult),'binary geometry stays out of recipe IPC');
   const {runRecipe}=await import('../flux-core/recipe');
-  const nodeResult=await runRecipe(recipePath,{dose:3e-9},{only:true});
+  const nodeResult=await runRecipe(recipePath,{dose:3e-9},{only:true,trust:true});
   assert.equal(nodeResult.glbPath,glbResult.glbPath);assert.equal(nodeResult.svgPath,'');assert.equal(nodeResult.manifestPath,glbResult.manifestPath);
   fs.writeFileSync(scriptPath,'process.exit(7);');
   const failedGlb=await handler({sender},{recipePath});assert.equal(failedGlb.glbPath,null,'failed command cannot reuse old GLB');

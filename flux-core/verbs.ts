@@ -2623,16 +2623,18 @@ export const VERBS: VerbDef[] = [
     cli: "rerun-plot",
     cliRoot: "flags",
     summary:
-      "Re-run a plot's recipe: its source script with params (strings, numbers, booleans, or JSON objects such as the __fluxplot__ colour controls — see set_plot_color_scale --regenerate for the guided form). only:true reruns just this recipe's plot when the script saves several (siblings untouched); a string targets named plots.",
+      "Re-run a plot's recipe: its source script with params (strings, numbers, booleans, or JSON objects such as the __fluxplot__ colour controls — see set_plot_color_scale --regenerate for the guided form). only:true reruns just this recipe's plot when the script saves several (siblings untouched); a string targets named plots. A recipe runs a command, so the first rerun in a project is refused until that project is trusted on this computer: the refusal shows the exact command, and trust:true runs it and remembers the project.",
     params: {
       recipePath: z.string(),
       params: z.record(z.unknown()).optional(),
       only: z.union([z.boolean(), z.string()]).optional(),
+      trust: z.boolean().optional(),
     },
     cliArgs: [
       { kind: "pos", at: 0, into: "recipePath", as: "path", required: true },
       { kind: "flag", at: "only", into: "only" },
-      // `root`/`only` are runner flags, not recipe params — every OTHER flag
+      { kind: "flag", at: "trust", into: "trust", as: "boolean" },
+      // `root`/`only`/`trust` are runner flags, not recipe params — every OTHER flag
       // persists into the recipe as a param override (the open-ended surface
       // kind:"flagRest" exists for).
       { kind: "flagRest", into: "params" },
@@ -2640,6 +2642,7 @@ export const VERBS: VerbDef[] = [
     handler: (_ctx, a) =>
       core.runRecipe(s(a.recipePath), (a.params ?? {}) as Record<string, unknown>, {
         only: a.only === true ? true : typeof a.only === "string" ? a.only : undefined,
+        trust: a.trust === true,
       }),
     render: {
       human: (r) => {
@@ -3323,7 +3326,7 @@ export const VERBS: VerbDef[] = [
   {
     name: "set_plot_color_scale", scope: "project", cli: "set-plot-color-scale", cliRoot: "flags",
     notAPath: { target: "Figure id or deckId/slideId, not a filesystem path" },
-    summary: "Recolour a plot's colour scale LIVE, in data units, without touching the source: colormap (any map fluxplot ships, e.g. viridis, crameri.batlow, cmr.ember, or *_r), reversed, norm kind (within the scale's editable.normKinds), vmin/vmax, center (twoslope/centered), gamma (power), linthresh/linscale (symlog), extend. target is a figureId or deckId/slideId; --scale names the scale when the plot has several; a slide --beat writes that step's Change endpoint (the colours tween), without it edit Design. Omitted fields are preserved, null restores one field's generated value, --reset restores the whole scale. --regenerate (figure targets) also writes the complete v2 __fluxplot__ control into the recipe, re-runs it, refreshes the figure's copies and clears the live override. Raster scales (images, contourf) accept only --regenerate edits. get_plot_color_scales lists what a plot has.",
+    summary: "Recolour a plot's colour scale LIVE, in data units, without touching the source: colormap (any map fluxplot ships, e.g. viridis, crameri.batlow, cmr.ember, or *_r), reversed, norm kind (within the scale's editable.normKinds), vmin/vmax, center (twoslope/centered), gamma (power), linthresh/linscale (symlog), extend. target is a figureId or deckId/slideId; --scale names the scale when the plot has several; a slide --beat writes that step's Change endpoint (the colours tween), without it edit Design. Omitted fields are preserved, null restores one field's generated value, --reset restores the whole scale. --regenerate (figure targets) also writes the complete v2 __fluxplot__ control into the recipe, re-runs it, refreshes the figure's copies and clears the live override. Raster scales (images, contourf) accept only --regenerate edits. get_plot_color_scales lists what a plot has. regenerate re-runs the plot's recipe, so it needs the same one-time project trust as rerun_plot (trust:true).",
     params: {
       target: z.string(), elementId: z.string(), scaleId: z.string().optional(), beatId: z.string().optional(),
       cmap: z.string().nullable().optional(), reversed: z.boolean().nullable().optional(),
@@ -3331,7 +3334,7 @@ export const VERBS: VerbDef[] = [
       vmin: z.number().finite().nullable().optional(), vmax: z.number().finite().nullable().optional(), vcenter: z.number().finite().nullable().optional(),
       gamma: z.number().finite().nullable().optional(), linthresh: z.number().finite().nullable().optional(), linscale: z.number().finite().nullable().optional(),
       extend: z.enum(["neither", "min", "max", "both"]).nullable().optional(),
-      reset: z.boolean().optional(), regenerate: z.boolean().optional(),
+      reset: z.boolean().optional(), regenerate: z.boolean().optional(), trust: z.boolean().optional(),
     },
     cliArgs: [
       { kind: "pos", at: 0, into: "target", required: true },
@@ -3350,6 +3353,7 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "extend", into: "extend" },
       { kind: "flag", at: "reset", into: "reset", as: "boolean" },
       { kind: "flag", at: "regenerate", into: "regenerate", as: "boolean" },
+      { kind: "flag", at: "trust", into: "trust", as: "boolean" },
     ],
     handler: (ctx, a) => {
       const { target, elementId, ...fields } = a;

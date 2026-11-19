@@ -471,7 +471,7 @@ export async function setPlotViewVerb(root: string, target: string, elementId: s
 }
 
 /** Fields of the `set_plot_color_scale` verb: one scale's edit plus where it lands. */
-export type ColorScaleVerbFields = ColorScaleFields & { beatId?: string; regenerate?: boolean };
+export type ColorScaleVerbFields = ColorScaleFields & { beatId?: string; regenerate?: boolean; trust?: boolean };
 export interface ColorScaleVerbResult {
   scaleId: string;
   /** The edited scale's live view (null: it paints as generated). */
@@ -499,7 +499,7 @@ async function plotRecipeFile(root: string, el: SemanticPlotElement): Promise<{ 
  *  complete v2 `__fluxplot__[scaleId]` control, re-runs the recipe, refreshes the figure's
  *  copies and clears the live override — the source then paints what the view showed. */
 export async function setPlotColorScaleVerb(root: string, target: string, elementId: string, fields: ColorScaleVerbFields): Promise<ColorScaleVerbResult> {
-  const { beatId, regenerate, ...edit } = fields;
+  const { beatId, regenerate, trust, ...edit } = fields;
   await ensureColormapLuts(); // named colormaps resolve to their tables at write time
   const apply = async (project: Project, el: SemanticPlotElement, deckId?: string) => {
     const manifest = await readPlotManifest(root, el, deckId);
@@ -533,7 +533,7 @@ export async function setPlotColorScaleVerb(root: string, target: string, elemen
     const recipe = await plotRecipeFile(root, el);
     const stored = JSON.parse(await fs.readFile(recipe.abs, "utf8")) as { params?: Record<string, unknown> };
     const controls = { ...((stored.params?.__fluxplot__ as Record<string, unknown> | undefined) ?? {}), [scale.id]: control };
-    const run = await runRecipe(recipe.abs, { __fluxplot__: controls });
+    const run = await runRecipe(recipe.abs, { __fluxplot__: controls }, { trust });
     if (run.code !== 0) throw new Error(`recipe exited ${run.code}; the live override stays in place\n${run.stderr.slice(-2000)}`);
     const sync = await syncFigureAssets(root, target);
     await mutateFigModel(root, "set_plot_color_scale", ({ project }) => { setPlotColorScale(project, elementId, scale.id, null); });

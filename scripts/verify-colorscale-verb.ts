@@ -93,7 +93,7 @@ try {
   h.ok(!('colorScale' in (await read()).el), 'figure reset deletes the colour scale');
 
   // 5. regenerate: the complete v2 control reaches the recipe, the source regenerates, the override clears
-  const result = JSON.parse((await cli('set-plot-color-scale', 'fig-cs', id, '--cmap', 'magma', '--vmax', '20', '--regenerate')).stdout);
+  const result = JSON.parse((await cli('set-plot-color-scale', 'fig-cs', id, '--cmap', 'magma', '--vmax', '20', '--regenerate', '--trust')).stdout);
   const control = { cmap: 'magma', vmin: 1, vmax: 20, norm: { kind: 'log' }, extend: 'neither' };
   h.eq(result.regenerated?.control, control, 'the verb reports the complete v2 control it wrote');
   h.eq(result.scale, null, 'after regeneration the live override is gone from the result');
