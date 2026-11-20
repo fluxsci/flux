@@ -28,6 +28,36 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   dependency tree drop to 8, none critical. The one left at high severity is in zod 3, which
   validates tool input from your own agent; it is fixed only in zod 4, a separate migration.
 
+### Images and image stacks
+
+- **Microscopy stacks, movies and photographs are first-class on figures.** fluxplot saves an
+  image with everything known about it (`fp.imsave`, or `fp.fluximg(...)` with layers, then
+  `.save()`): any number of dimensions (channels, depth, time, a dimension of your own), the
+  pixel size, channel names and colours, and layers on the same pixel grid (another image,
+  segmented objects with their table, lines and circles). Flux keeps the pixels exactly as
+  saved and never changes them; everything you adjust is a view stored on the placed image.
+- **Place one like a plot**: from the Plots rail or the Plot gallery (tiles marked ▦), with
+  Import (choose the `fluximg.json` inside the folder), or by dragging the `.fluximg` folder in.
+  The project keeps one copy however many times you place it, made in a fraction of a second
+  where the file system can clone. Re-running the script that wrote it updates every placed
+  copy, keeping each one's view; one Undo goes back.
+- **The live view: press R on an image, or double-click it.** Step through depth (a rail at the
+  side) and time (a rail below) with the wheel, the arrows or a drag, and play a movie at its
+  own frame rate. Set each channel's contrast on its histogram or by typing values, with Auto
+  that tightens on each press; change colours and colour maps, log or gamma scales, solo a
+  channel or split the channels into panels. Show a maximum, mean, minimum, sum or standard
+  deviation projection over a run of planes you can drag. Look at layers and the objects in
+  them (hover an object to find its row, filter by name or value), zoom and move the region
+  shown, pull it out as an inset, and add a scale bar, a position stamp, channel names, object
+  names and a calibration bar. Every gesture is one undo step.
+- **The Inspector shows the same settings as numbers**, with or without the live view open.
+- **Exports, Paper and headless renders** draw each image from its full-resolution pixels at
+  the output's own resolution (300 dpi for SVG, PDF and Paper), with layers, names and the
+  scale bar kept as vectors.
+- **Agents**: `place-image`, `set-image-view` and `image-info` place an image, change its view
+  (checked against the image, every problem named) and describe it without rendering.
+- Not yet: images on slides, TIFF import, 3-D rendering of volumes.
+
 ### Flux AI
 
 - **The Inbox's thread reads cleaner.** The note is set in a reading column. Its picture sits
