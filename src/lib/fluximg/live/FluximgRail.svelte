@@ -80,18 +80,20 @@
       onscrub(i, "start");
     }
   }
+  /** The run a run-drag gives with the pointer over plane `i` (draw, slide, or move one edge). */
+  function runAt(d: Drag, i: number): [number, number] {
+    if (d.kind === "draw") return [Math.min(d.origin, i), Math.max(d.origin, i) + 1];
+    if (d.kind === "slide") { const n = d.to - d.from, f = Math.min(length - n, Math.max(0, d.from + (i - d.origin))); return [f, f + n]; }
+    if (d.kind === "from") return [Math.min(i, d.to - 1), d.to];
+    return [d.from, Math.max(i + 1, d.from + 1)];
+  }
   function move(e: PointerEvent) {
     if (!track) return;
     hover = Math.min(extent, Math.max(0, along(e)));
     if (!drag || e.pointerId !== drag.pointer) return;
     const i = at(e);
     if (drag.kind === "scrub") onscrub(i, "move");
-    else if (drag.kind === "draw") onrun(Math.min(drag.origin, i), Math.max(drag.origin, i) + 1, "move");
-    else if (drag.kind === "slide") {
-      const n = drag.to - drag.from, f = Math.min(length - n, Math.max(0, drag.from + (i - drag.origin)));
-      onrun(f, f + n, "move");
-    } else if (drag.kind === "from") onrun(Math.min(i, drag.to - 1), drag.to, "move");
-    else onrun(drag.from, Math.max(i + 1, drag.from + 1), "move");
+    else { const [f, t] = runAt(drag, i); onrun(f, t, "move"); }
   }
   function finish(e: PointerEvent, phase: "end" | "cancel") {
     if (!drag || e.pointerId !== drag.pointer) return;
@@ -99,7 +101,9 @@
     drag = null;
     if (track?.hasPointerCapture(e.pointerId)) track.releasePointerCapture(e.pointerId);
     if (d.kind === "scrub") onscrub(phase === "end" ? at(e) : d.origin, phase);
-    else onrun(d.from, d.to, phase === "end" ? "end" : "cancel");
+    // Release where the pointer is (not where the drag began: that undid every run drawn, resized or slid).
+    else if (phase === "end") { const [f, t] = runAt(d, at(e)); onrun(f, t, "end"); }
+    else onrun(d.from, d.to, "cancel");
   }
   // A cursor that says which way the thing moves; a run's edges say "resize".
   const cursor = $derived.by(() => {
