@@ -196,21 +196,44 @@ h.eq(await entryRows(), ["1:structure", "2:signal", "z:Depth", "e:Projection", "
 h.ok(panel.h < 320, `…and is short (${Math.round(panel.h)} px for a two-channel z-stack)`);
 h.ok(await page.evaluate(() => !document.querySelector(".fluximgPanel .gtitle, .fluximgPanel .about, .fluximgPanel .value.dim, .fluximgPanel .lead")), "…with no group titles, about row or helper text");
 h.ok(await page.evaluate(() => /a\s*auto/.test(document.querySelector(".fluximgPanel .foot")?.textContent ?? "")), "Auto is a key named in the footer");
-// The readout lives inside the panel: a fixed strip, empty until the pointer is over the image.
+h.eq(await page.evaluate(() => [...document.querySelectorAll(".fluximgPanel .row.chan")].map((r) => { const m = r.querySelector("svg.mini"); return m ? [m.querySelectorAll("path").length, m.querySelectorAll("line.pt").length] : null; })), [[2, 2], [2, 2]], "each channel row carries its histogram: the area, the part inside the window in the channel's ink, and the two points");
+// The readout lives inside the panel: a fixed strip that says what the image IS until the pointer is over it.
 const readout = () => page.evaluate(() => { const r = document.querySelector(".fluximgPanel .readout[data-fluximg-readout]"); return r ? { text: r.textContent.trim(), h: r.getBoundingClientRect().height } : null; });
 let ro = await readout();
-h.ok(!!ro && ro.text === "" && Math.abs(ro.h - 36) < 1.5, "the readout strip is in the panel, 36 px tall and empty before hovering");
+const idle = (t) => /2 channels/.test(t) && /7 z/.test(t) && /uint16/.test(t) && /µm per pixel/.test(t) && !/\bx\s/.test(t);
+h.ok(!!ro && idle(ro.text) && Math.abs(ro.h - 36) < 1.5, `the readout strip is in the panel, 36 px tall, and says what the image is before hovering (${ro?.text.replace(/\s+/g, " ").slice(0, 70)})`);
+h.eq(await page.evaluate(() => document.querySelector(".fluximgPanel .menu-head .ctx")?.textContent.trim()), "", "…so the header carries the name alone");
 h.ok(!(await page.$(".fx-strip")), "…and nothing floats over the figure");
 const panelH0 = panel.h;
 await page.mouse.move(image.x + image.w * 0.4, image.y + image.h * 0.5);
-await waitFor(page, () => (document.querySelector(".fluximgPanel .readout[data-fluximg-readout]")?.textContent ?? "").trim().length > 0, null, { label: "readout filled" });
+await waitFor(page, () => !!document.querySelector(".fluximgPanel .readout[data-fluximg-readout] .where"), null, { label: "readout filled" });
 ro = await readout();
 h.ok(/x .*µm.*y .*µm/.test(ro.text) && /structure/.test(ro.text) && /signal/.test(ro.text), `hovering the image fills it (${ro.text.replace(/\s+/g, " ").slice(0, 70)})`);
 h.ok(Math.abs((await rect(".fluximgPanel")).h - panelH0) < 0.5, "…and the panel's height does not change");
 await page.mouse.move(5, 940);
-await waitFor(page, () => (document.querySelector(".fluximgPanel .readout[data-fluximg-readout]")?.textContent ?? "x").trim() === "", null, { label: "readout empty again" });
-h.ok(true, "…and empties when the pointer leaves the image");
+await waitFor(page, () => !document.querySelector(".fluximgPanel .readout[data-fluximg-readout] .where"), null, { label: "readout idle again" });
+h.ok(idle((await readout()).text), "…and says what the image is again when the pointer leaves it");
 h.ok(await page.evaluate(() => !document.querySelector(".fluximgPanel .hist") && !document.querySelector(".fluximgPanel svg.plot")), "zones are not shown until asked: no histogram in the DOM at open");
+// The mouse alone: the wheel over a channel's row arms that channel's white point (the notch is spent on arming),
+// further notches move it, and Esc gives the wheel back to the view's own rail without closing the view.
+{
+  const row = await rect(".fluximgPanel .row.chan[data-channel='1']");
+  const white = () => page.evaluate(() => window.__flux.fluximg.actions.liveContext().view.channels[1].range[1]);
+  const w0 = await white(), m0 = await model(S);
+  await wheel(row.cx, row.cy, -100, 1);
+  let m = await model(S);
+  h.ok(m.live.zone === "home" && m.live.armed === "white" && m.live.channel === 1 && (await white()) === w0 && m.past === m0.past, "the first wheel notch over a channel's row arms that channel's white point and changes nothing");
+  h.ok(await page.evaluate(() => document.querySelector(".fluximgPanel .row.chan[data-channel='1']").classList.contains("armed")), "…the row shows it is armed");
+  await wheel(row.cx, row.cy, -100, 2);
+  await settled();
+  h.ok((await white()) > w0, `…and the next notches raise it (${w0} -> ${await white()})`);
+  h.eq((await model(S)).past - m0.past, 1, "…as one undo step");
+  await press("Escape");
+  m = await model(S);
+  h.ok((await isOpen()) && m.live.zone === "home" && m.live.armed === "pos:z", "Esc disarms it (the view stays open, the rail has the wheel again)");
+  await press("z", ["Control"]);
+  await waitForFrame(page);
+}
 h.eq(await page.evaluate(() => document.getAnimations().length), 0, "nothing animates ~200 ms after open");
 h.ok(await page.evaluate(() => [document.querySelector(".fluximgPanel"), ...document.querySelectorAll(".fluximgPanel *, .fx-railpos, .fx-railpos *")].every((e) => { const s = getComputedStyle(e); return (s.backdropFilter === "none" || !s.backdropFilter) && (s.filter === "none" || !s.filter); })), "no backdrop-filter or filter anywhere in the panel, rails or readout");
 const LEFT = new Set([..."123456qwertasdfgzxcvb`", "h", "n"]);
@@ -404,6 +427,33 @@ let c1 = await chanOf(S, 0);
 h.ok(c1.range[1] > c0.range[1] && c1.range[0] === c0.range[0], `wheel up raises the white point (${c0.range[1]} -> ${c1.range[1]}), the black point stays`);
 after = await model(S);
 h.eq(after.past - before.past, 1, "…and the run of notches commits ONE undo step");
+h.eq(await page.evaluate(() => [...document.querySelectorAll(".fluximgPanel .field")].map((f) => [f.querySelector(".flabel")?.textContent.trim(), /^clips (<|>)?[\d.]+ %$/.test(f.querySelector(".clip")?.textContent.trim() ?? "")])), [["Black", true], ["White", true], ["Gamma", false]], "the black and white fields say what share of the channel they clip");
+{
+  // Dragging on the image pulls contrast: right narrows the window about its centre, up raises nothing but the
+  // centre; the window never leaves what the channel holds. One undo step per drag.
+  const r0 = (await chanOf(S, 0)).range, m0 = await model(S);
+  await page.mouse.move(image.cx, image.cy); await page.mouse.down();
+  await page.mouse.move(image.cx + 40, image.cy, { steps: 4 }); await page.mouse.move(image.cx + 80, image.cy, { steps: 4 });
+  await waitForFrame(page);
+  const mid = (await chanOf(S, 0)).range;
+  await page.mouse.up();
+  await waitForFrame(page);
+  const r1 = (await chanOf(S, 0)).range, m1 = await model(S);
+  h.ok(r1[1] - r1[0] < r0[1] - r0[0] && Math.abs((r1[0] + r1[1]) / 2 - (r0[0] + r0[1]) / 2) <= 1, `dragging right on the image narrows the window about its centre (${r0.join("..")} -> ${r1.join("..")})`);
+  h.ok(mid[1] - mid[0] < r0[1] - r0[0], "…while the pointer is still down (the picture follows the hand)");
+  h.ok(Number.isInteger(r1[0]) && Number.isInteger(r1[1]), "…in whole numbers for integer data");
+  h.ok(m1.past - m0.past === 1 && m1.live.zone === "channel" && (await isOpen()), "…as one undo step, and the view stays where it was");
+  const stats = await page.evaluate(() => { const st = window.__flux.fluximg.actions.liveContext().manifest.channels[0].stats; return [st.min, st.max]; });
+  await page.mouse.move(image.cx, image.cy); await page.mouse.down();
+  await page.mouse.move(image.cx, image.cy + 300, { steps: 6 }); await page.mouse.move(image.cx - 600, image.cy + 600, { steps: 6 });
+  await page.mouse.up();
+  await waitForFrame(page);
+  const r2 = (await chanOf(S, 0)).range;
+  h.ok(r2[0] >= Math.min(stats[0], r1[0]) && r2[1] <= Math.max(stats[1], r1[1]) && r2[1] > r2[0], `a long pull never takes the window outside the channel's values (${r2.join("..")} within ${stats.join("..")})`);
+  await press("z", ["Control"]); await press("z", ["Control"]);
+  await waitForFrame(page);
+  h.eq((await chanOf(S, 0)).range, r0, "two undos put the window back");
+}
 // Drag the black handle to the right.
 const histBox = await rect(".fluximgPanel .hist svg.plot");
 const marks = await rects(".fluximgPanel .hist .mark");
@@ -486,6 +536,8 @@ await press("b");
 const imgs1 = await countImages(); after = await model(S);
 const made = imgs1.filter((e) => !imgs0.some((o) => o.id === e.id));
 h.ok(made.length === 2 && made.every((e, i) => e.composite === "single" && e.solo === i), `b in a channel zone splits the channels into one solo panel each (${made.length})`);
+const inFigure = (ids) => page.evaluate((ids) => { const f = window.__flux.figures()[0]; return f.elements.filter((e) => ids.includes(e.id)).every((e) => e.x >= -0.5 && e.y >= -0.5 && e.x + e.width <= f.width + 0.5 && e.y + e.height <= f.height + 0.5); }, ids);
+h.ok(await inFigure(made.map((e) => e.id)), "…each inside the figure (a figure clips what lies outside it)");
 h.ok(after.past - before.past === 1 && (await isOpen()) && after.live.elementId === S, "…in one undo step, with the view still on the image");
 const link = after.el.view?.link ?? null;
 h.ok(!!link && made.every((e) => e.link === link), `…and the panels are linked to the composite (${link})`);
@@ -673,10 +725,13 @@ await settled();
 const frame = (await model(L)).el.crop;
 before = await model(L);
 await press("x");
+h.ok((await model(L)).live.armed === "inset" && (await model(L)).past === before.past, "x arms drawing an inset: nothing is made yet");
+h.ok(await page.evaluate(() => document.querySelector(".fluximgPanel .row[data-key='x']").classList.contains("armed") && /draw/.test(document.querySelector(".fluximgPanel .row[data-key='x'] .value").textContent)), "…and its row says to draw it on the image");
+await press("x");
 await waitForFrame(page);
 const after2 = await model(L);
 const inset = await page.evaluate((id) => window.__flux.figures()[0].elements.find((e) => e.type === "fluximg" && e.view?.insetOf === id) ?? null, L);
-h.ok(!!inset, "x (Pull out as an inset) creates one new element that remembers its parent");
+h.ok(!!inset, "x again pulls out the frame as it is: one new element that remembers its parent");
 h.ok(inset && Math.abs(inset.crop.x - frame.x) < 1e-6 && Math.abs(inset.crop.width - frame.width) < 1e-6 && Math.abs(inset.crop.y - frame.y) < 1e-6, "…whose crop is the frame");
 h.ok(!after2.el.crop, "…and the parent returns to the frame it had before (the whole image)");
 h.eq(after2.past - before.past, 1, "…in one undo step");
@@ -684,6 +739,30 @@ h.eq(after2.live?.zone, "home", "…and the panel goes back home");
 await waitFor(page, () => !!document.querySelector("[data-fluximg-live] [data-part='inset']"), null, { label: "inset outline on the live image", timeout: 3000 }).catch(() => {});
 h.ok(await page.evaluate(() => !!document.querySelector("[data-fluximg-live] [data-part='inset']")), "the parent draws the inset's rectangle in the live view");
 h.ok(await page.evaluate((a) => !!document.querySelector(`svg[data-fluximg="${a}"] [data-part='inset']`), after2.el.assetId), "…and at rest");
+h.ok(await inFigure([inset.id]), "the inset lies inside the figure");
+{
+  // A rectangle drawn on the image becomes an inset, and the image keeps its frame.
+  await press("v"); await press("x");
+  image = await rect("[data-fluximg-live]");
+  const m0 = await model(L), n0 = await page.evaluate((id) => window.__flux.figures()[0].elements.filter((e) => e.view?.insetOf === id).length, L);
+  await page.mouse.move(image.x + 0.2 * image.w, image.y + 0.25 * image.h); await page.mouse.down();
+  await page.mouse.move(image.x + 0.3 * image.w, image.y + 0.4 * image.h, { steps: 3 }); await page.mouse.move(image.x + 0.4 * image.w, image.y + 0.5 * image.h, { steps: 3 });
+  await waitForFrame(page);
+  const guide = await rect("[data-fluximg-live] .vec .draw");
+  h.ok(!!guide && Math.abs(guide.w - 0.2 * image.w) < 2 && Math.abs(guide.h - 0.25 * image.h) < 2, `while it is drawn the rectangle shows as a guide (${guide && [guide.w, guide.h].map((n) => n.toFixed(0)).join(" x ")} px)`);
+  await page.mouse.up();
+  await waitForFrame(page);
+  const m1 = await model(L);
+  const drawn = await page.evaluate((id) => window.__flux.figures()[0].elements.filter((e) => e.view?.insetOf === id), L);
+  const d = drawn[drawn.length - 1];
+  h.eq(drawn.length - n0, 1, "releasing makes one inset");
+  h.ok(Math.abs(d.crop.x - 0.2 * full.w) < 1.5 && Math.abs(d.crop.y - 0.25 * full.h) < 1.5 && Math.abs(d.crop.width - 0.2 * full.w) < 1.5 && Math.abs(d.crop.height - 0.25 * full.h) < 1.5, `…of the rectangle drawn (${[d.crop.x, d.crop.y, d.crop.width, d.crop.height].map((n) => n.toFixed(1)).join(", ")} of ${full.w} x ${full.h})`);
+  h.ok(!m1.el.crop, "…and the image keeps its own frame");
+  h.ok(Math.abs(d.width / d.height - d.crop.width / d.crop.height) < 1e-6 && (await inFigure([d.id])), "…at its region's aspect, inside the figure");
+  h.eq(m1.past - m0.past, 1, "…in one undo step");
+  h.ok(m1.live?.armed !== "inset" && !(await page.$("[data-fluximg-live] .vec .draw")), "…and drawing is disarmed, the guide gone");
+  await press("Escape");
+}
 await closeLive();
 
 // =====================================================================================================
@@ -699,6 +778,17 @@ h.eq(await page.evaluate(() => [...document.querySelectorAll(".fluximgPanel [dat
 for (const [key, kind] of ann) {
   await press(key);
   h.ok(await page.evaluate((k) => !!window.__flux.fluximg.actions.liveContext().view.furniture[k], kind), `${key} turns the ${kind} on`);
+}
+{
+  const corner = (k) => page.evaluate((k) => window.__flux.fluximg.actions.liveContext().view.furniture[k].corner, k);
+  const rowValue = (key) => page.evaluate((key) => document.querySelector(`.fluximgPanel .row[data-key='${key}'] .value`).textContent.trim(), key);
+  const c0 = await corner("scalebar"), m0 = await model(MV);
+  h.eq(await rowValue("b"), c0.replace("-", " "), "an annotation that is on shows its corner in its row");
+  const seen = [c0];
+  for (let i = 0; i < 4; i++) { await press("B", ["Shift"]); seen.push(await corner("scalebar")); }
+  h.ok(new Set(seen.slice(0, 4)).size === 4 && seen[4] === c0, `Shift + its key walks an annotation round the four corners and back (${seen.join(" -> ")})`);
+  h.ok(await page.evaluate(() => !!window.__flux.fluximg.actions.liveContext().view.furniture.scalebar), "…without switching it off");
+  h.ok((await model(MV)).past > m0.past, "…as undo steps");
 }
 const parts = ["scalebar", "scalebar.label", "stamp", "colorbar"];
 const markup = () => page.evaluate(({ id, parts }) => {

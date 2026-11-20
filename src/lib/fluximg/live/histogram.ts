@@ -37,13 +37,14 @@ export function xToValue(x: number, d: HistDomain, width: number): number {
 
 /**
  * The histogram as a closed area path, `width` x `height` px, baseline at the bottom. Counts are log-scaled by
- * default (log1p), since a microscope image is mostly background and a linear histogram is one spike. The area
+ * default (log1p), since a microscope image is mostly background and a linear histogram is one spike (`sqrt` sits
+ * between the two: at a word's height a log histogram is a solid block, and this still has a shape). The area
  * is stepped (one flat top per bin), which is what a histogram is; bins narrower than a pixel merge by maximum.
  */
-export function histogramPath(hist: FluximgHistogram | undefined, d: HistDomain, width: number, height: number, scale: "log" | "linear" = "log"): string {
+export function histogramPath(hist: FluximgHistogram | undefined, d: HistDomain, width: number, height: number, scale: "log" | "sqrt" | "linear" = "log"): string {
   const counts = hist?.counts;
   if (!counts?.length || !(width > 0) || !(height > 0) || !(hist!.hi > hist!.lo)) return "";
-  const f = scale === "log" ? Math.log1p : (c: number): number => c;
+  const f = scale === "log" ? Math.log1p : scale === "sqrt" ? Math.sqrt : (c: number): number => c;
   let peak = 0;
   for (const c of counts) { const v = f(c); if (v > peak) peak = v; }
   if (!(peak > 0)) return "";

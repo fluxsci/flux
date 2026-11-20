@@ -19,7 +19,7 @@
 
   const uid = `fxm-${Math.random().toString(36).slice(2)}`;
   const domain = $derived(histDomain(stats, range));
-  const area = $derived(histogramPath(stats.hist, domain, width, height));
+  const area = $derived(histogramPath(stats.hist, domain, width, height, "sqrt"));
   const xb = $derived(Math.min(width, Math.max(0, valueToX(range[0], domain, width))));
   const xw = $derived(Math.min(width, Math.max(0, valueToX(range[1], domain, width))));
 </script>
@@ -37,7 +37,7 @@
 <style>
   .mini { display: block; flex: none; background: var(--c-bg); outline: 1px solid var(--c-line); border-radius: var(--r-ui); }
   .out { fill: var(--c-tx-faint); opacity: 0.5; }
-  .in { opacity: 0.95; }
+  .in { opacity: 0.9; }
   .pt { stroke: var(--c-tx-hi); stroke-width: 1; opacity: 0.85; }
   .mini.off .in { fill: var(--c-tx-faint) !important; opacity: 0.5; }
   .mini.off .pt { opacity: 0.35; }

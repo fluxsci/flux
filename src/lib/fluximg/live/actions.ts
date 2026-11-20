@@ -13,9 +13,11 @@ import { clampCrop, fullCrop } from "../still";
 import type { FluximgManifest } from "../types";
 import type { FluximgChannelView, FluximgFurnitureView, FluximgLayerView, FluximgProjectionMode, FluximgView, PixelRect, ResolvedView } from "../view";
 import { positionDims, resolveView } from "../viewOps";
+import { insetLayout, splitLayout } from "../panelLayout";
 import { autoWindow, histDomain, moveWindow, nextAutoStep, nextSampleStep, nudgeStep, sampleWindow, snapValue, sortedSample } from "./histogram";
 import { framePeriod, playStep, resizeRun, slideRun, stepIndex, type PlayMode } from "./rail";
-import { WHEEL_SETTLE_MS, cancelLiveEdit, fluximgLive, liveCrop, liveElement, liveMutate, liveSampler, liveView, setLive, settleLiveEdit, liveArm } from "./session";
+import { selection } from "../../store";
+import { WHEEL_SETTLE_MS, cancelLiveEdit, closeFluximgLive, fluximgLive, liveCrop, liveElement, liveMutate, liveSampler, liveView, setLive, settleLiveEdit, liveArm } from "./session";
 
 export interface LiveContext { element: FluximgElement; manifest: FluximgManifest; view: ResolvedView; crop: PixelRect }
 
@@ -248,7 +250,9 @@ export function setLayer(id: string, patch: FluximgLayerView, key = `layer:${id}
 export function toggleLayer(id: string): void {
   const c = liveContext(), L = c?.view.layers.find((l) => l.id === id);
   if (!L) return;
-  setLayer(id, { visible: !L.visible }, `layer-show:${id}`);
+  // Back at the image's own default the key is cleared (null), so a view never stores what the image already says.
+  const own = c!.manifest.layers.find((l) => l.id === id)?.visible !== false;
+  setLayer(id, { visible: !L.visible === own ? (null as unknown as undefined) : !L.visible }, `layer-show:${id}`);
   settleLiveEdit();
 }
 export function nudgeLayerOpacity(id: string, steps: number): void {
@@ -300,9 +304,14 @@ export function dragContrast(i: number, from: readonly [number, number], dx: num
   if (!c || !ch) return;
   const d = histDomain(c.manifest.channels[i].stats, from), span = d.hi - d.lo;
   const half = Math.max(span * 1e-4, ((from[1] - from[0]) / 2) * Math.exp(-dx / 220));
-  const centre = (from[0] + from[1]) / 2 + (dy / 260) * span;
+  const stats = c.manifest.channels[i].stats;
+  const floor = Math.min(stats.min, from[0]), ceil = Math.max(stats.max, from[1]);
+  let centre = (from[0] + from[1]) / 2 + (dy / 260) * span;
+  // The window stays inside what the channel holds (or where it already was): brightness slides it up to an end.
+  if (2 * half <= ceil - floor) centre = Math.min(ceil - half, Math.max(floor + half, centre));
   const integer = integerData(c.manifest);
-  let lo = centre - half, hi = centre + half;
+  let lo = Math.max(floor, centre - half), hi = Math.min(ceil, centre + half);
+  if (!(hi > lo)) hi = lo + (integer ? 1 : span * 1e-4);
   if (integer) { lo = Math.round(lo); hi = Math.max(lo + 1, Math.round(hi)); }
   setChannel(i, { range: [lo, hi] }, `contrast-drag:${i}`);
 }
@@ -383,13 +392,20 @@ export function splitChannels(): void {
   if (!c) return;
   const n = c.view.channels.length;
   if (n < 2) { pushToast("info", "This image has one channel"); return; }
-  const id = c.element.id, gap = 6;
+  const id = c.element.id;
   const created: string[] = [];
+  const done: { place: "beside" | "inPlace" } = { place: "beside" };
   liveMutate("split", (p) => {
     const found = elementFigure(p, id);
     const asset = p.assets.find((a) => a.id === c.element.assetId);
-    if (!found || !asset) return;
+    const figure = found ? p.figures.find((f) => f.id === found.figureId) : undefined;
+    if (!found || !asset || !figure) return;
     const src = found.element;
+    // Beside the image when the figure has the room; otherwise image and channels share the image's own box
+    // (a figure clips what lies outside it: panels past its edge would be panels nobody can see).
+    const layout = splitLayout(figure, src, n);
+    done.place = layout.place;
+    if (layout.place === "inPlace") { src.x = layout.source.x; src.y = layout.source.y; src.width = layout.source.width; src.height = layout.source.height; }
     // The composite and its channel panels move together from now on (position, projection, each channel's window).
     const link = src.view?.link ?? `split-${src.id}`;
     src.view = { ...(src.view ?? {}), link };
@@ -397,17 +413,18 @@ export function splitChannels(): void {
       const channels: Array<FluximgChannelView | null> = [];
       for (let k = 0; k < n; k++) channels.push(k === i ? { ...(src.view?.channels?.[k] ?? {}), lut: "gray", color: null as unknown as undefined } : (src.view?.channels?.[k] ?? null));
       const view: FluximgView = { ...structuredClone(src.view ?? {}), link, composite: "single", solo: i, channels, furniture: { channelLabels: {} } };
+      const cell = layout.channels[i];
       const nid = addFluximg(p, {
-        figureId: found.figureId, asset, x: src.x + (i + 1) * (src.width + gap), y: src.y, width: src.width,
+        figureId: found.figureId, asset, x: cell.x, y: cell.y, width: cell.width,
         view, ...(src.crop ? { crop: { ...src.crop } } : {}), ...(src.source ? { source: structuredClone(src.source) } : {}),
       });
-      const el = p.figures.find((f) => f.id === found.figureId)!.elements.find((e) => e.id === nid)!;
-      el.height = src.height; el.name = `${src.name ?? asset.name} · ${c.view.channels[i].name}`;
+      const el = figure.elements.find((e) => e.id === nid)!;
+      el.height = cell.height; el.name = `${src.name ?? asset.name} · ${c.view.channels[i].name}`;
       created.push(nid);
     }
   });
   settleLiveEdit();
-  if (created.length) pushToast("info", `Split into ${created.length} channel panels`);
+  if (created.length) pushToast("info", `Split into ${created.length} channel panels`, done.place === "inPlace" ? { detail: "The figure has no room beside the image, so they share its place." } : {});
 }
 
 /**
@@ -424,23 +441,31 @@ export function makeInset(restore: CropRect | null, drawn?: PixelRect): string |
   if (region.width >= full.width - 1e-6 && region.height >= full.height - 1e-6) { pushToast("info", "Draw a rectangle on the image, or zoom into a region first, then pull it out as an inset"); return null; }
   const id = c.element.id;
   let created: string | null = null;
+  const done: { place: "right" | "below" | "inside" } = { place: "right" };
   liveMutate("inset", (p) => {
     const found = elementFigure(p, id), asset = p.assets.find((a) => a.id === c.element.assetId);
-    if (!found || !asset) return;
+    const figure = found ? p.figures.find((f) => f.id === found.figureId) : undefined;
+    if (!found || !asset || !figure) return;
     const src = found.element;
+    const at = insetLayout(figure, src, region.width / region.height);
+    done.place = at.place;
     // A blow-out follows its parent through planes and contrast (it is the same picture, closer).
     const link = src.view?.link ?? `inset-${src.id}`;
     src.view = { ...(src.view ?? {}), link };
     const view: FluximgView = { ...structuredClone(src.view ?? {}), link, insetOf: src.id, furniture: { scalebar: {} } };
     created = addFluximg(p, {
-      figureId: found.figureId, asset, x: src.x + src.width + 8, y: src.y, width: src.height * (region.width / region.height),
+      figureId: found.figureId, asset, x: at.box.x, y: at.box.y, width: at.box.width,
       view, crop: { x: region.x, y: region.y, width: region.width, height: region.height }, ...(src.source ? { source: structuredClone(src.source) } : {}),
     });
-    const el = p.figures.find((f) => f.id === found.figureId)!.elements.find((e) => e.id === created)!;
+    const el = figure.elements.find((e) => e.id === created)!;
     el.name = `${src.name ?? asset.name} · inset`;
     if (!drawn) { if (restore) src.crop = { ...restore }; else delete src.crop; }
   });
   settleLiveEdit();
+  // An inset standing ON its image lies under the live picture: the view closes on it, with the inset selected,
+  // so what was just made is what you see and can drag.
+  if (created && done.place === "inside") { closeFluximgLive(); selection.set(new Set([created])); }
+  if (created) pushToast("info", done.place === "inside" ? "Inset placed on the image" : done.place === "below" ? "Inset placed below the image" : "Inset placed beside the image", done.place === "inside" ? { detail: "The figure has no room beside it. Drag the inset where you want it." } : {});
   return created;
 }
 
@@ -499,6 +524,8 @@ export function backOut(): boolean {
   if (live.playing) { stopPlayback(); return true; }
   // Back home the first rail is the VIEW's arm again (wheel over the image only), not the zone row the user armed.
   if (live.zone !== "home") { cancelLiveEdit(); liveArm.explicit = false; setLive({ zone: "home", armed: defaultArmed() }); return true; }
+  // At home a channel's point armed from its row (the wheel over the row) is one level too: Esc gives the wheel back.
+  if (live.armed === "white" || live.armed === "black") { settleLiveEdit(); liveArm.explicit = false; setLive({ armed: defaultArmed() }); return true; }
   return false;
 }
 

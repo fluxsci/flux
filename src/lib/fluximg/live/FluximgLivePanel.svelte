@@ -434,7 +434,7 @@
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
             <div class="row" class:armed data-key={keys[d]} onclick={() => armLive(`pos:${d}`)}>
               <span class="hk">{keys[d]}</span><span class="label">{dimName(d)}</span>
-              <span class="value">{ctx.view.projection?.dim === d ? describeProjection(ctx.manifest, ctx.view.projection).replace(new RegExp(`\\s${d}\\s`), " ") : describePosition(ctx.manifest, d, ctx.view.index[d] ?? 0).replace(new RegExp(`^${d}\\s+`), "")}</span>
+              <span class="value">{ctx.view.projection?.dim === d ? describeProjection(ctx.manifest, ctx.view.projection).replace(new RegExp(`^\\S+\\s+${d}\\s+`), "") : describePosition(ctx.manifest, d, ctx.view.index[d] ?? 0).replace(new RegExp(`^${d}\\s+`), "")}</span>
             </div>
           {/each}
           {#if dims.length}
@@ -449,7 +449,7 @@
                   {/each}
                 </span>
               {:else}
-                <span class="value">{ctx.view.projection ? `${ctx.view.projection.mode} over ${ctx.view.projection.to - ctx.view.projection.from} planes` : "off"}</span>
+                <span class="value" class:on={!!ctx.view.projection}>{ctx.view.projection ? `${ctx.view.projection.mode} · ${ctx.view.projection.to - ctx.view.projection.from} ${ctx.view.projection.to - ctx.view.projection.from === 1 ? "plane" : "planes"}` : "off"}</span>
               {/if}
             </div>
           {/if}
@@ -483,7 +483,7 @@
             onarm={(which) => armLive(which)}
             onwindow={(range, phase) => { if (phase === "cancel") cancelLiveEdit(); else { setWindow(live.channel, range); if (phase === "end") settleLiveEdit(); } }} />
           <div class="fields">
-            {#each [["q", "black", "Black point"], ["w", "white", "White point"], ["e", "gamma", "Gamma"]] as [k, id, label] (id)}
+            {#each [["q", "black", "Black"], ["w", "white", "White"], ["e", "gamma", "Gamma"]] as [k, id, label] (id)}
               <label class="field" class:editing={live.armed === id} data-key={k}>
                 <span class="fhead"><span class="hk">{k}</span><span class="flabel">{label}</span>{#if clipped && id !== "gamma"}<span class="clip" title={id === "black" ? "The share of this channel's values at or below the black point" : "The share of this channel's values at or above the white point"}>clips {formatShare(id === "black" ? clipped.black : clipped.white)}</span>{/if}</span>
                 <input class="nin" type="text" inputmode="decimal" spellcheck="false" value={fieldValue(id)}
@@ -515,8 +515,8 @@
         </div>
         {@render readoutStrip()}
         <div class="foot">
-          <span><b class="hk">↕</b> wheel moves the {live.armed === "black" ? "black point" : live.armed === "gamma" ? "gamma" : live.armed === "window" ? "window" : "white point"}</span>
-          <span>drag the image: contrast</span>
+          <span><b class="hk">↕</b> {live.armed === "black" ? "black" : live.armed === "gamma" ? "gamma" : live.armed === "window" ? "window" : "white"}</span>
+          <span>drag on the image: contrast</span>
           {#if ctx.view.channels.length > 1}<span><b class="hk">1</b>–<b class="hk">{ctx.view.channels.length}</b> channel</span>{/if}
           <span><b class="hk">esc</b> back</span>
         </div>
@@ -526,6 +526,7 @@
           <div class="cm-head"><span class="hk">{LIVE_KEYS.layers}</span> Layers &amp; objects<button class="back" onclick={home} title="Back to the image (Esc)">← back <span class="hk">esc</span></button></div>
           <FluximgLayerList {ctx} armed={live.armed} />
         </div>
+        {@render readoutStrip()}
 
       {:else if live.zone === "frame"}
         <div class="body zone">
@@ -612,7 +613,7 @@
   .field.editing { background: var(--c-accent-tint); box-shadow: inset 2px 0 0 var(--c-accent); }
   .fhead { display: flex; align-items: center; gap: 6px; min-height: 16px; }
   .flabel { color: var(--c-tx); white-space: nowrap; }
-  .fhead .clip { margin-left: auto; font: 10px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--c-tx-muted); white-space: nowrap; }
+  .fhead .clip { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 10px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--c-tx-muted); white-space: nowrap; }
   .nin { width: 100%; height: 22px; background: var(--c-bg); border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); color: var(--c-tx); padding: 0 6px; font: 12px var(--font-mono); font-variant-numeric: tabular-nums; outline: none; box-sizing: border-box; text-align: right; }
   .nin:focus { border-color: var(--c-accent); }
   .acts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }

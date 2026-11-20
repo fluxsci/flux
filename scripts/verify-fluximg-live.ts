@@ -11,8 +11,9 @@ import {
   type PlayMode, type PlayState,
 } from "../src/lib/fluximg/live/rail";
 import {
-  AUTO_STEPS, autoStepOf, autoWindow, histDomain, histogramPath, moveWindow, nextAutoStep, nudgeStep, snapValue, transferPath, valueToX, xToValue,
+  AUTO_STEPS, autoStepOf, autoWindow, clippedShares, formatShare, histDomain, histogramPath, moveWindow, nextAutoStep, nudgeStep, shareBelow, snapValue, transferPath, valueToX, xToValue,
 } from "../src/lib/fluximg/live/histogram";
+import { gridCells, insetLayout, splitLayout, type PanelBox } from "../src/lib/fluximg/panelLayout";
 import { patchView, resolveView } from "../src/lib/fluximg/viewOps";
 import type { FluximgManifest, FluximgStats } from "../src/lib/fluximg/types";
 import type { FluximgView } from "../src/lib/fluximg/view";
@@ -319,6 +320,74 @@ h.section("viewOps: a patch that restores a default leaves no key");
   h.ok(rv.furniture.scalebar !== false, "an empty furniture object means 'on, with defaults'");
   h.eq(resolveView(manifest, {}).index, { t: 0, z: 3 }, "z defaults to the middle plane, other dimensions to the first");
   h.eq(resolveView(manifest, { channels: [{ range: [5, 5] }] }).channels[0].range, [0, 100], "an empty window is invalid and falls back to the default (callers must never write one)");
+}
+
+// ---------------------------------------------------------------------------------------------
+// What a window clips (the share each point's field prints), from the manifest's histogram
+// ---------------------------------------------------------------------------------------------
+{
+  // A flat histogram over 100 .. 1100 (the 0.1 and 99.9 percentiles), true extremes 0 and 4095.
+  const flat: FluximgStats = { count: 1e6, min: 0, max: 4095, percentiles: { "0.1": 100, "99.9": 1100 }, hist: { lo: 100, hi: 1100, counts: new Array(256).fill(1000) } };
+  const near = (a: number | null, b: number, tol = 1e-9): boolean => a !== null && Math.abs(a - b) <= tol;
+  h.ok(near(shareBelow(flat, 100), 0.001), "at the histogram's foot a tenth of a percent lies below (the lower tail)");
+  h.ok(near(shareBelow(flat, 1100), 0.999), "at its head a tenth of a percent lies above (the upper tail)");
+  h.ok(near(shareBelow(flat, 600), 0.5), "the middle of a flat histogram is the median");
+  h.ok(near(shareBelow(flat, 0), 0) && near(shareBelow(flat, -50), 0), "nothing lies below the data's minimum");
+  h.ok(near(shareBelow(flat, 4095), 1) && near(shareBelow(flat, 1e6), 1), "everything lies at or below the data's maximum");
+  h.ok(near(shareBelow(flat, 50), 0.0005), "the lower tail is spread evenly out to the minimum");
+  const bad = find(Array.from({ length: 400 }, () => [R() * 5000 - 400, R() * 5000 - 400] as [number, number]), ([a, b]) => {
+    const lo = Math.min(a, b), hi = Math.max(a, b), sa = shareBelow(flat, lo), sb = shareBelow(flat, hi);
+    return sa === null || sb === null || sa < 0 || sb > 1 || sa > sb + 1e-12;
+  });
+  h.ok(bad === null, `the share below a value is within 0 .. 1 and never falls as the value rises${bad ? ` (counter-example ${show(bad)})` : ""}`);
+  const c = clippedShares(flat, [350, 850]);
+  h.ok(!!c && near(c.black, 0.001 + 0.998 * 0.25) && near(c.white, 0.001 + 0.998 * 0.25), "a window over the middle half of a flat histogram clips a quarter at each end");
+  h.eq(clippedShares(flat, [0, 4095]), { black: 0, white: 0 }, "the full data range clips nothing");
+  h.eq(clippedShares({ ...flat, hist: { lo: 0, hi: 0, counts: [] } }, [0, 1]), null, "no histogram: no share is claimed");
+  h.eq([0, 0.0004, 0.004, 0.0149, 0.1234, 0.9995, 1].map(formatShare), ["0 %", "<0.1 %", "0.4 %", "1.5 %", "12 %", ">99.9 %", "100 %"], "shares print short: one decimal under ten percent, a bound at the extremes");
+  // The square-root scale (a channel row's small histogram) keeps a shape where the log scale is a block.
+  const spike: FluximgStats = { ...flat, hist: { lo: 100, hi: 1100, counts: Array.from({ length: 256 }, (_, i) => (i < 8 ? 100000 : 400)) } };
+  const tops = (scale: "log" | "sqrt"): number => { const ys = pairs(histogramPath(spike.hist, histDomain(spike, [100, 1100]), 256, 16, scale)).map((q) => q[1]); return ys[ys.length - 3]; };
+  h.ok(tops("sqrt") > tops("log") + 3, `the tail of a spiked histogram stands lower on the square-root scale than on the log scale (${tops("sqrt").toFixed(1)} vs ${tops("log").toFixed(1)} px from the top)`);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Where new panels go (panelLayout.ts): beside the image when the figure has room, else inside its footprint
+// ---------------------------------------------------------------------------------------------
+{
+  const within = (f: { width: number; height: number }, b: PanelBox): boolean => b.x >= -0.5 && b.y >= -0.5 && b.x + b.width <= f.width + 0.5 && b.y + b.height <= f.height + 0.5;
+  const overlap = (a: PanelBox, b: PanelBox): boolean => a.x < b.x + b.width - 1e-6 && b.x < a.x + a.width - 1e-6 && a.y < b.y + b.height - 1e-6 && b.y < a.y + a.height - 1e-6;
+  const page = { width: 680, height: 850 };
+  // The default case: a large image fitted to a blank figure's width.
+  const fitted = { x: 16, y: 101, width: 648, height: 648 };
+  const sp = splitLayout(page, fitted, 3);
+  h.eq(sp.place, "inPlace", "three channels of an image as wide as its figure share the image's place");
+  h.eq([sp.source, ...sp.channels].map((b) => [b.x, b.y, b.width, b.height]), [[16, 101, 321, 321], [343, 101, 321, 321], [16, 428, 321, 321], [343, 428, 321, 321]], "a square image and three channels make a 2 x 2 grid in the image's own box, the image first");
+  const small = { x: 20, y: 20, width: 120, height: 90 };
+  const sb = splitLayout(page, small, 3);
+  h.eq([sb.place, sb.source, sb.channels.map((b) => b.x)], ["beside", small, [146, 272, 398]], "with room in the figure the channels stand to the image's right and the image does not move");
+  const cases = Array.from({ length: 300 }, () => {
+    const f = { width: int(200, 1400), height: int(200, 1400) }, w = int(30, f.width - 10), hgt = int(30, f.height - 10);
+    return { f, src: { x: int(0, f.width - w), y: int(0, f.height - hgt), width: w, height: hgt }, n: int(1, 6) };
+  });
+  const lost = find(cases, ({ f, src, n }) => { const l = splitLayout(f, src, n); return l.channels.length !== n || ![l.source, ...l.channels].every((b) => within(f, b) && b.width > 0 && b.height > 0); });
+  h.ok(lost === null, `Split never puts a panel outside the figure${lost ? ` (counter-example ${show(lost)})` : ""}`);
+  const piled = find(cases, ({ f, src, n }) => { const l = splitLayout(f, src, n), all = [l.source, ...l.channels]; return all.some((a, i) => all.some((b, k) => k > i && overlap(a, b))); });
+  h.ok(piled === null, `Split panels never overlap each other${piled ? ` (counter-example ${show(piled)})` : ""}`);
+  const bent = find(cases, ({ f, src, n }) => { const l = splitLayout(f, src, n), a = src.width / src.height; return [l.source, ...l.channels].some((b) => Math.abs(b.width / b.height - a) > 1e-6 * a); });
+  h.ok(bent === null, `every Split panel keeps the image's aspect${bent ? ` (counter-example ${show(bent)})` : ""}`);
+  const spilled = find(cases, ({ f, src, n }) => { const l = splitLayout(f, src, n); return l.place === "inPlace" && ![l.source, ...l.channels].every((b) => b.x >= src.x - 1e-6 && b.y >= src.y - 1e-6 && b.x + b.width <= src.x + src.width + 1e-6 && b.y + b.height <= src.y + src.height + 1e-6); });
+  h.ok(spilled === null, `a Split in place stays inside the image's own box${spilled ? ` (counter-example ${show(spilled)})` : ""}`);
+  h.eq(gridCells({ x: 0, y: 0, width: 300, height: 100 }, 3, 1, 0).map((b) => [b.x, b.width]), [[0, 100], [100, 100], [200, 100]], "a wide box takes its cells in one row");
+  h.eq(gridCells({ x: 0, y: 0, width: 100, height: 100 }, 0, 1, 6), [], "no cells asked for: none given");
+
+  h.eq(insetLayout(page, small, 1), { place: "right", box: { x: 148, y: 20, width: 90, height: 90 } }, "an inset stands to its image's right at the image's height when the figure has room");
+  h.eq(insetLayout({ width: 150, height: 850 }, small, 2).place, "below", "no room to the right: below the image");
+  const corner = insetLayout(page, fitted, 1);
+  h.eq([corner.place, corner.box], ["inside", { x: 16 + 648 - 259.2 - 8, y: 109, width: 259.2, height: 259.2 }], "no room beside an image as wide as its figure: the inset stands in the image's top-right corner at two fifths of its height");
+  const out = find(cases, ({ f, src }) => { const a = 0.2 + R() * 4, l = insetLayout(f, src, a); return !within(f, l.box) || Math.abs(l.box.width / l.box.height - a) > 1e-6 * a || (l.place !== "inside" && overlap(l.box, src)); });
+  h.ok(out === null, `an inset is always inside the figure, keeps its region's aspect, and covers its image only when it stands on it${out ? ` (counter-example ${show(out)})` : ""}`);
+  h.ok(insetLayout(page, fitted, 6).box.width <= 324 + 1e-9, "a very wide inset on its image is never more than half the image's width");
 }
 
 await h.done();
