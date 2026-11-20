@@ -13,12 +13,13 @@ const fs = require("node:fs");
 const fsp = fs.promises;
 const path = require("node:path");
 const { createHash, randomUUID } = require("node:crypto");
-const { pathToFileURL } = require("node:url");
 const { shareRetry } = require("./fsRetry.cjs");
 
 /** @type {Promise<typeof import("./fluximgRules.js")> | undefined} */
 let rulesLoad;
-const loadRules = () => rulesLoad ??= import(pathToFileURL(path.join(__dirname, "fluximgRules.js")).href);
+// A literal specifier, so a bundler (the packaged CLI is one esbuild file) follows it; a path built from __dirname
+// would point at a file that does not exist beside the bundle.
+const loadRules = () => rulesLoad ??= import("./fluximgRules.js");
 
 const O_READ = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0);
 // Copies run a few files at a time: enough to overlap one file's fsync with the next one's reads.

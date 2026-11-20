@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { renderFigureSvgFromModel, figureRenderReaders, figureImageAssetIds } from '../flux-core/render.ts';
 import { resolveModelPosters } from '../flux-core/model3dPosterCache.ts';
+import { resolveFluximgContext } from '../flux-core/fluximgRender.ts';
 import { fontsFor, sceneDocument, prepareSceneImages } from './sceneRasterEngine.mjs';
 import rules from './figureRasterRules.cjs';
 const require = createRequire(import.meta.url);
@@ -49,8 +50,15 @@ export async function buildFigureSvg(request) {
   }
   const key = hash.digest('hex'), hit = compositions.get(key);
   if (hit) { compositions.delete(key); compositions.set(key, hit); return hit.svg; }
+  // Placed images (fluximg) draw from their bundles with the reference renderer, at the editor's own resting
+  // density (2 still px per canvas px), so the composition stays independent of the scale it is rasterized at
+  // and the cache above keeps working. The key already covers them: the figure (view, crop) and each asset's
+  // content id are hashed. A missing bundle draws the stand-in; it never fails the picture.
+  const fluximg = request.figure.elements.some(el => el.type === 'fluximg')
+    ? await resolveFluximgContext(request.root, [request.figure], request.assets, { surface: { kind: 'editor', dpr: 2 }, warnings: [] })
+    : undefined;
   const svg = await renderFigureSvgFromModel(request.figure, {
-    assets: request.assets, models, readAsset: async id => data.get(id), readManifest: async (_id, el) => manifests.get(el.id),
+    assets: request.assets, models, fluximg, readAsset: async id => data.get(id), readManifest: async (_id, el) => manifests.get(el.id),
   });
   const size = Buffer.byteLength(svg);
   if (size <= 64 * 1024 * 1024) {
