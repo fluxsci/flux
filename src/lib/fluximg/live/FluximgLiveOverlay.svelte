@@ -185,7 +185,17 @@
     const s = span(bounds.x, bounds.x + bounds.w, host.w, CAP + 8, HTAIL + 8);
     const height = hDims.length * ROW;
     const below = bounds.y + bounds.h + GAP, above = bounds.y - GAP - height;
-    const y = below + height <= host.h - 4 ? below : above >= 4 ? above : Math.max(4, host.h - height - 4);
+    let y = below + height <= host.h - 4 ? below : above >= 4 ? above : Math.max(4, host.h - height - 4);
+    // Beside a depth rail the row must not run into that rail's box (its key line stands above the image, so a time
+    // row moved ABOVE the image lay right across it): step past the depth box, on the same side, when they would meet.
+    if (vDim) {
+      const x0 = s.start - CAP, x1 = s.start + s.length + HTAIL, vy0 = vRail.y, vy1 = vRail.y + VHEAD + vRail.extent + 8;
+      if (x0 < vRail.x + VW && x1 > vRail.x && y < vy1 && y + height > vy0) {
+        const under = vy1 + 4, over = vy0 - 4 - height, fitsUnder = under + height <= host.h - 4, fitsOver = over >= 4;
+        if (y >= bounds.y + bounds.h) y = fitsUnder ? under : fitsOver ? over : y;
+        else y = fitsOver ? over : fitsUnder ? under : y;
+      }
+    }
     return { x: s.start - CAP, y, extent: s.length };
   });
 
