@@ -155,7 +155,8 @@
     if (k === " " && live.zone !== "layers") {
       const d = live.armed?.startsWith("pos:") ? live.armed.slice(4) : dims[0];
       done();
-      if (d) togglePlayback(d);
+      // A held Space (Space+drag pans the canvas) auto-repeats: only the first press plays or stops.
+      if (d && !e.repeat) togglePlayback(d);
       return;
     }
     if (live.zone === "home") return void (homeKey(k) && done());

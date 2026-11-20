@@ -663,6 +663,66 @@ h.eq(await page.evaluate(() => window.__flux.get(window.__flux.fig.activeTool)),
 await press("v");
 
 // =====================================================================================================
+h.section("playback, the wheel's ownership, and leaks");
+await page.evaluate(() => { const F = window.__flux; F.fluximg.live.closeFluximgLive(); F.fig.commit((p) => { p.figures[0].elements = p.figures[0].elements.filter((e) => e.type !== "fluximg"); }); F.fig.viewport.set({ panX: 240, panY: 110, zoom: 1 }); F.fig.resetHistory(); });
+const PB = await placeFixture("movie_f32", { x: 80, y: 60 }, { width: 320 });
+await waitStill(PB);
+await openLive(PB);
+image = await rect("[data-fluximg-live]");
+const playing = () => page.evaluate(() => structuredClone(window.__flux.get(window.__flux.fluximg.live.fluximgLive)?.playing ?? null));
+const pastNow = () => page.evaluate(() => window.__flux.fig.historyStats().past);
+const past0 = await pastNow();
+await page.keyboard.down(" ");
+for (let i = 0; i < 5; i++) { await page.keyboard.down(" "); await sleep(20); } // auto-repeat, as a held key sends // debounce: 20 ms between repeats
+h.ok(!!(await playing()), "Space plays, and a held Space (auto-repeat) does not toggle it on and off");
+await page.keyboard.up(" ");
+const steady = await page.evaluate(async () => {
+  const out = [], t0 = performance.now();
+  const r = (s) => { const e = document.querySelector(s); if (!e) return "none"; const b = e.getBoundingClientRect(); return [b.left, b.top, b.width, b.height].map((v) => Math.round(v * 10) / 10).join(","); };
+  while (performance.now() - t0 < 900) { await new Promise((res) => requestAnimationFrame(res)); out.push({ t: window.__flux.fluximg.actions.liveContext()?.view.index.t, layout: [r(".fluximgPanel"), r(".fx-railpos"), r(".fx-strip"), r("[data-fluximg-rail] .readout"), r("[data-fluximg-rail] .track"), r("[data-fluximg-live]"), r("[data-fluximg-live] canvas.gl")].join("|"), anims: document.getAnimations().length }); }
+  return out;
+});
+h.ok(new Set(steady.map((s) => s.t)).size >= 5, `playback advances (${new Set(steady.map((s) => s.t)).size} planes in 0.9 s)`);
+h.eq(new Set(steady.map((s) => s.layout)).size, 1, "nothing moves or changes size while playing (panel, rail, readout, track, image, canvas)");
+h.ok(steady.every((s) => s.anims === 0), "nothing is animated by CSS while playing");
+await press(" ");
+await settled();
+h.ok(!(await playing()), "Space again stops");
+h.eq((await pastNow()) - past0, 1, "a playback is one undo step");
+// Ctrl+wheel always zooms the canvas, even with a rail armed; the plane stays.
+const tNow = await idx(PB, "t"), z0 = await page.evaluate(() => window.__flux.get(window.__flux.fig.viewport).zoom);
+await wheel(image.cx, image.cy, -100, 1, ["Control"]);
+const z1 = await page.evaluate(() => window.__flux.get(window.__flux.fig.viewport).zoom);
+h.ok(z1 > z0 && (await idx(PB, "t")) === tNow, `Ctrl+wheel zooms the canvas while a rail is armed (${z0} -> ${z1.toFixed(3)}), and the plane stays`);
+await page.evaluate(() => window.__flux.fig.viewport.set({ panX: 240, panY: 110, zoom: 1 }));
+await closeLive();
+const pan0 = await page.evaluate(() => window.__flux.get(window.__flux.fig.viewport).panY);
+await wheel(700, 700, 100, 1);
+h.ok((await page.evaluate(() => window.__flux.get(window.__flux.fig.viewport).panY)) !== pan0, "after closing, the wheel pans the canvas again");
+await page.evaluate(() => window.__flux.fig.viewport.set({ panX: 240, panY: 110, zoom: 1 }));
+// Open and close 20 times: no listener or WebGL context left behind.
+const cdp = await page.createCDPSession();
+const listeners = async () => {
+  const counts = {};
+  for (const expr of ["window", "document"]) {
+    const { result } = await cdp.send("Runtime.evaluate", { expression: expr });
+    const { listeners: ls } = await cdp.send("DOMDebugger.getEventListeners", { objectId: result.objectId });
+    for (const l of ls) counts[`${expr}:${l.type}`] = (counts[`${expr}:${l.type}`] ?? 0) + 1;
+  }
+  return counts;
+};
+await page.evaluate(() => { window.__fxCtx = []; const orig = HTMLCanvasElement.prototype.getContext; HTMLCanvasElement.prototype.getContext = function (t, o) { const c = orig.call(this, t, o); if (t === "webgl2" && c && !window.__fxCtx.includes(c)) window.__fxCtx.push(c); return c; }; });
+await openLive(PB); await closeLive();
+const l0 = await listeners();
+for (let i = 0; i < 20; i++) { await openLive(PB); await press("1"); await press("Escape"); await closeLive(); }
+const l1 = await listeners();
+const grew = Object.keys({ ...l0, ...l1 }).filter((k) => (l1[k] ?? 0) > (l0[k] ?? 0)).map((k) => `${k} ${l0[k] ?? 0}->${l1[k]}`);
+h.eq(grew, [], "20 opens and closes leave no window or document listener behind");
+const ctx = await page.evaluate(() => ({ made: window.__fxCtx.length, alive: window.__fxCtx.filter((c) => !c.isContextLost()).length }));
+h.ok(ctx.made >= 20 && ctx.alive === 0, `…and every WebGL context is released (${ctx.made} made, ${ctx.alive} still alive)`);
+await cdp.detach();
+
+// =====================================================================================================
 h.section("after closing, the still shows the last live state");
 await page.evaluate(() => { const F = window.__flux; F.fig.commit((p) => { p.figures[0].elements = p.figures[0].elements.filter((e) => e.type !== "fluximg"); }); F.fig.resetHistory(); });
 const SM = await placeFixture("movie_f32", { x: 80, y: 60 }, { width: 360 });
