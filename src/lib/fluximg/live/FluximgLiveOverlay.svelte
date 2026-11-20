@@ -166,24 +166,46 @@
     const length = Math.min(Math.max(min, hi - lo), Math.max(40, limit - before - after));
     return { start: Math.min(Math.max(before, lo), Math.max(before, limit - after - length)), length };
   }
-  const hRail = $derived.by(() => {
-    const s = span(bounds.x, bounds.x + bounds.w, host.w, CAP + 8, 150);
-    const rows = hDims.length, stripH = 20;
-    const y = Math.min(bounds.y + bounds.h + GAP, host.h - rows * ROW - stripH - 6);
-    return { x: s.start - CAP, y, extent: s.length };
-  });
   const vRail = $derived.by(() => {
     const s = span(bounds.y, bounds.y + bounds.h, host.h, 30, 44);
     const x = Math.min(bounds.x + bounds.w + GAP, host.w - VRAIL - 6);
     return { x, y: s.start - 23, extent: s.length };
   });
-  const stripPos = $derived({ x: Math.max(8, Math.min(bounds.x, host.w - 320)), y: hRail.y + hDims.length * ROW });
+  /** The depth rail's box runs past the image's foot (its readout sits under the track): measured, else its usual size. */
+  let vBoxH = $state(0);
+  const vBottom = $derived(vDim ? vRail.y + (vBoxH || vRail.extent + 66) : -Infinity);
+  const hRail = $derived.by(() => {
+    const s = span(bounds.x, bounds.x + bounds.w, host.w, CAP + 8, 150);
+    const rows = hDims.length, stripH = 20, x = s.start - CAP;
+    let y = bounds.y + bounds.h + GAP;
+    // A horizontal rail's readout reaches under the depth rail: when they would meet, the row starts below that box
+    // (otherwise the depth rail's box covered the time readout whenever an image had both t and z).
+    if (vDim && rows && x + CAP + s.length + 150 > vRail.x && y < vBottom + 4) y = vBottom + 4;
+    return { x, y: Math.min(y, host.h - rows * ROW - stripH - 6), extent: s.length };
+  });
+  /** Everything right of the image that belongs to it: its rails' far edge. */
+  const railsRight = $derived(Math.max(bounds.x + bounds.w, vDim ? vRail.x + VRAIL : -Infinity, hDims.length ? hRail.x + CAP + hRail.extent + 150 : -Infinity));
+  const STRIP_MIN = 290;
+  /**
+   * The readout strip, under the rails. Beside a depth rail it either fits left of it (and is capped there) or drops
+   * below its box: it covered the depth rail's track and readout on any image narrower than the strip. The choice
+   * depends on geometry only, never on the text, so hovering never makes it jump; it never runs past the rails.
+   */
+  const stripPos = $derived.by(() => {
+    const x = Math.max(8, Math.min(bounds.x, host.w - 320));
+    let y = hRail.y + hDims.length * ROW, max = Math.max(STRIP_MIN, railsRight - x);
+    if (vDim && y < vBottom + 4) {
+      if (x + STRIP_MIN > vRail.x - 6) y = Math.min(vBottom + 4, host.h - 28);
+      else max = vRail.x - 6 - x;
+    }
+    return { x, y, max };
+  });
 
-  // The panel keeps clear of the image AND its rails.
+  // The panel keeps clear of the image AND its rails AND the readout.
   $effect(() => {
-    const x0 = Math.min(bounds.x, hDims.length ? hRail.x : bounds.x), y0 = Math.min(bounds.y, vDim ? vRail.y : bounds.y);
-    const x1 = Math.max(bounds.x + bounds.w, vDim ? vRail.x + VRAIL : 0, hDims.length ? hRail.x + CAP + hRail.extent + 150 : 0);
-    const y1 = Math.max(bounds.y + bounds.h, stripPos.y + 20);
+    const x0 = Math.min(bounds.x, hDims.length ? hRail.x : bounds.x, stripPos.x), y0 = Math.min(bounds.y, vDim ? vRail.y : bounds.y);
+    const x1 = Math.max(railsRight, stripPos.x + STRIP_MIN);
+    const y1 = Math.max(bounds.y + bounds.h, vBottom, stripPos.y + 22);
     fluximgLiveRect.set({ x: host.x + x0, y: host.y + y0, w: x1 - x0, h: y1 - y0 });
   });
 
@@ -309,7 +331,7 @@
     </div>
   {/each}
   {#if vDim}
-    <div class="fx-railpos v" style={`left:${vRail.x}px;top:${vRail.y}px`}>
+    <div class="fx-railpos v" style={`left:${vRail.x}px;top:${vRail.y}px`} bind:offsetHeight={vBoxH}>
       <FluximgRail dim={vDim} hotkey={keys[vDim] ?? ""} vertical length={dimLength(manifest, vDim)} index={rv.index[vDim] ?? 0}
         run={rv.projection?.dim === vDim ? rv.projection : null} profiles={profilesOf(vDim)} axis={manifest.axes?.[vDim]} extent={vRail.extent}
         armed={live?.armed === `pos:${vDim}` || live?.armed === `run:${vDim}`} readout={readoutOf(vDim)} unit={manifest.axes?.[vDim]?.unit ?? ""} format={formatNumber}
@@ -317,7 +339,7 @@
         onscrub={(index, phase) => scrub(vDim, index, phase)} onrun={(from, to, phase) => runTo(vDim, from, to, phase)} onarm={() => arm(vDim)} />
     </div>
   {/if}
-  <div class="fx-strip" style={`left:${stripPos.x}px;top:${stripPos.y}px`} data-fluximg-readout>
+  <div class="fx-strip" style={`left:${stripPos.x}px;top:${stripPos.y}px;max-width:${Math.min(720, stripPos.max)}px`} data-fluximg-readout>
     {#if problem}
       <span class="bad">{problem}</span>
     {:else if under}

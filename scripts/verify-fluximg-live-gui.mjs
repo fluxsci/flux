@@ -14,11 +14,19 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { launch, gotoApp, clickMode, shot, sleep, realErrors, waitFor, waitForFrame, APP_URL } from "./lib/driver.mjs";
 import { harness } from "./lib/harness.mjs";
-import { writeAllFixtures } from "./lib/fluximgFixtures.ts";
+import { writeAllFixtures, writeFixture } from "./lib/fluximgFixtures.ts";
 
 const h = harness("verify-fluximg-live-gui");
 const scratch = mkdtempSync(path.join(tmpdir(), "fx-livegui-"));
 await writeAllFixtures(scratch);
+// Time AND depth (the shared fixtures have one or the other): both rails at once.
+{
+  const T = 6, C = 2, Z = 5, Hh = 32, Ww = 40, d = new Uint16Array(T * C * Z * Hh * Ww);
+  let k = 0;
+  for (let t = 0; t < T; t++) for (let c = 0; c < C; c++) for (let z = 0; z < Z; z++) for (let y = 0; y < Hh; y++) for (let x = 0; x < Ww; x++) d[k++] = 100 + ((x * (c + 1) + y * 3 + t * 40 + z * 90) % 1000);
+  await writeFixture(scratch, { name: "tz_u16", about: "time and depth", dims: ["t", "c", "z", "y", "x"], shape: [T, C, Z, Hh, Ww], dtype: "uint16", data: d, expectEncoding: "exact",
+    input: { axes: { t: { unit: "s", scale: 0.5 }, z: { unit: "µm", scale: 1.5 }, y: { unit: "µm", scale: 0.3 }, x: { unit: "µm", scale: 0.3 } }, channels: [{ name: "a", color: "#ff00ff" }, { name: "b", color: "#00ff00" }] } });
+}
 function bundleFiles(name) {
   const root = path.join(scratch, `${name}.fluximg`), out = {};
   const walk = (d) => { for (const n of readdirSync(d)) { const p = path.join(d, n); if (statSync(p).isDirectory()) walk(p); else out[path.relative(root, p).split(path.sep).join("/")] = readFileSync(p).toString("base64"); } };
@@ -405,6 +413,34 @@ await press("q");
 h.eq((await model(S)).live.armed, "black", "keys work again after a field (q arms the black point)");
 await press("Escape");
 h.eq((await model(S)).live.zone, "home", "Esc returns to the home zone, not out of the view");
+await closeLive();
+
+// =====================================================================================================
+h.section("the chrome never covers itself, the image or the readout");
+const chrome = () => page.evaluate(() => {
+  const r = (e) => { const b = e.getBoundingClientRect(); return { x: b.left, y: b.top, right: b.right, bottom: b.bottom, w: b.width, h: b.height }; };
+  const host = r(document.querySelector(".canvas-host"));
+  return { image: r(document.querySelector("[data-fluximg-live]")), host, rails: [...document.querySelectorAll(".fx-railpos")].map(r), strip: r(document.querySelector(".fx-strip")), panel: r(document.querySelector(".fluximgPanel")),
+    readouts: [...document.querySelectorAll("[data-fluximg-rail] .readout")].map((e) => { const b = e.getBoundingClientRect(); const hit = document.elementFromPoint(b.left + 4, b.top + 5); return !!hit && e.contains(hit); }) };
+});
+for (const [label, fixture, width, zoom, patch] of [["t and z", "tz_u16", 320, 1, {}], ["t and z, narrow", "tz_u16", 150, 1, {}], ["z, narrower than the readout", "stack_u16", 200, 1, {}], ["z at zoom 0.3", "stack_u16", 320, 0.3, {}], ["z rotated 90 degrees", "stack_u16", 320, 1, { rotation: 90 }], ["t and an extra dimension", "trials_f32", 220, 1, {}]]) {
+  await page.evaluate(() => { const F = window.__flux; F.fluximg.live.closeFluximgLive(); F.fig.commit((p) => { p.figures[0].elements = p.figures[0].elements.filter((e) => e.type !== "fluximg"); }); F.fig.viewport.set({ panX: 240, panY: 110, zoom: 1 }); });
+  const id = await placeFixture(fixture, { x: 80, y: 60 }, { width, patch });
+  await page.evaluate((zoom) => window.__flux.fig.viewport.set({ panX: 240 + (zoom < 1 ? 200 : 0), panY: 110 + (zoom < 1 ? 100 : 0), zoom }), zoom);
+  await waitStill(id);
+  await openLive(id);
+  await page.mouse.move(image?.x ?? 300, 940); // the pointer off the chrome
+  await waitForFrame(page);
+  const c = await chrome();
+  const boxes = [...c.rails, c.strip];
+  let pair = true;
+  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) if (overlaps(boxes[i], boxes[j])) pair = false;
+  h.ok(pair, `${label}: rails and readout strip never overlap each other`);
+  h.ok(c.readouts.every(Boolean), `${label}: every rail's readout is visible (nothing lies on top of it)`);
+  h.ok(boxes.every((b) => !overlaps(b, c.image)), `${label}: no rail or readout covers the image`);
+  h.ok(![...boxes, c.image].some((b) => overlaps(b, c.panel)), `${label}: the panel covers neither the image, its rails nor the readout`);
+  if (label === "t and z") await shot(page, "fluximg-live-t-and-z");
+}
 await closeLive();
 
 // =====================================================================================================
