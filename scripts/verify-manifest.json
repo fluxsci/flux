@@ -490,7 +490,8 @@
       "verify-fluximg-model.ts",
       "verify-fluximg-gl.ts",
       "verify-fluximg-import.ts",
-      "verify-fluximg-export.ts"
+      "verify-fluximg-export.ts",
+      "verify-fluximg-live.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -687,7 +688,8 @@
       "verify-paper-find-gui.mjs",
       "verify-fluximg-place-gui.mjs",
       "verify-fluximg-export-gui.ts",
-      "verify-fluximg-inspector.mjs"
+      "verify-fluximg-inspector.mjs",
+      "verify-fluximg-live-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -1671,7 +1673,9 @@
       "verify-fluximg-place-gui.mjs",
       "verify-fluximg-export.ts",
       "verify-fluximg-export-gui.ts",
-      "verify-fluximg-inspector.mjs"
+      "verify-fluximg-inspector.mjs",
+      "verify-fluximg-live.ts",
+      "verify-fluximg-live-gui.mjs"
     ],
     "fluximg-pure": [
       "verify-fluximg-format.ts",
@@ -1681,12 +1685,14 @@
       "verify-fluximg-model.ts",
       "verify-fluximg-gl.ts",
       "verify-fluximg-import.ts",
-      "verify-fluximg-export.ts"
+      "verify-fluximg-export.ts",
+      "verify-fluximg-live.ts"
     ],
     "fluximg-ui": [
       "verify-fluximg-place-gui.mjs",
       "verify-fluximg-export-gui.ts",
-      "verify-fluximg-inspector.mjs"
+      "verify-fluximg-inspector.mjs",
+      "verify-fluximg-live-gui.mjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -12770,6 +12776,26 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 240000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-fluximg-live.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-fluximg-live-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 300000,
       "exclusive": true,
       "coverage": "behavior"
     }
