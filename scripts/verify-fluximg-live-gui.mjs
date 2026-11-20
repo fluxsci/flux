@@ -170,6 +170,15 @@ await press("h");
 h.eq(await page.evaluate(() => window.__flux.get(window.__flux.fig.activeTool)), "hand", "after closing, a canvas shortcut works again (h = Pan)");
 await press("v");
 h.eq(await page.evaluate(() => window.__flux.get(window.__flux.fig.activeTool)), "select", "…and v returns to Select");
+// Locked (or hidden) from elsewhere while open: the view closes rather than keep editing a locked element.
+await openLive(S);
+await page.evaluate((id) => window.__flux.fig.commit((p) => { p.figures[0].elements.find((e) => e.id === id).locked = true; }), S);
+await waitForFrame(page);
+h.ok(!(await isOpen()), "locking the image while its live view is open closes the view");
+const lockedZ = (await model(S)).el.view?.index?.z ?? null;
+await wheel(box0.x, box0.y, 100, 1);
+h.eq((await model(S)).el.view?.index?.z ?? null, lockedZ, "…and the wheel no longer edits the locked image");
+await page.evaluate((id) => { const F = window.__flux; F.fig.commit((p) => { p.figures[0].elements.find((e) => e.id === id).locked = false; }); F.fig.viewport.set({ panX: 240, panY: 110, zoom: 1 }); F.fig.resetHistory(); }, S);
 
 // =====================================================================================================
 h.section("the panel, in the F-menu's manner");

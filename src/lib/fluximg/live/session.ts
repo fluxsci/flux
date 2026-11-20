@@ -170,5 +170,7 @@ selection.subscribe((sel) => {
   if (live && !(sel.size === 1 && sel.has(live.elementId))) closeFluximgLive();
 });
 project.subscribe(() => {
-  if (get(fluximgLive) && !liveElement()) closeFluximgLive();
+  const live = get(fluximgLive);
+  // Gone, or no longer editable (locked or hidden from the layers list while open): the view must not keep editing it.
+  if (live && (!liveElement() || fluximgLiveUnavailable(live.elementId))) closeFluximgLive();
 });
