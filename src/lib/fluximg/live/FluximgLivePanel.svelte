@@ -38,13 +38,22 @@
   const asset = $derived(ctx ? $project.assets.find((a) => a.id === ctx.element.assetId) : undefined);
   const integer = $derived(!!ctx && ctx.manifest.pixels.encoding.kind === "exact" && !ctx.manifest.pixels.dtype.startsWith("float"));
   $effect(() => { if (live) void needLuts(); });
+  // The view opens with its first rail armed, so the wheel moves through the stack at once (the manifest may arrive
+  // a moment after the view opens; an image without rails arms nothing and the wheel stays the canvas's).
+  let armedFor = "";
+  $effect(() => {
+    if (!live) { armedFor = ""; return; }
+    if (!ctx || armedFor === live.elementId) return;
+    armedFor = live.elementId;
+    if (live.zone === "home" && live.armed === null) setLive({ armed: defaultArmed() });
+  });
 
   const DIM_NAMES: Record<string, string> = { t: "Time", z: "Depth" };
   const dimName = (d: string): string => DIM_NAMES[d] ?? d.charAt(0).toUpperCase() + d.slice(1);
   const channel = $derived(ctx && live ? ctx.view.channels[Math.min(live.channel, ctx.view.channels.length - 1)] : null);
   const table = $derived.by(() => { void $fluximgLutsReady; return channel ? channelTable(channel, resolveLut) : new Uint8Array(1024); });
   /** A value as the panel prints it: whole numbers for integer data, five significant digits otherwise. */
-  const fmt = (v: number): string => (integer ? formatNumber(Math.round(v)) : formatNumber(Number(v.toPrecision(5))));
+  const fmt = (v: number): string => (integer ? formatNumber(Math.round(v)) : formatNumber(Number(v.toPrecision(4))));
   /** A swatch for a channel: its colour, or its colour map as a small ramp. */
   function swatch(c: { color: string | null; lut: string | null; invert?: boolean }): string {
     void $fluximgLutsReady;
