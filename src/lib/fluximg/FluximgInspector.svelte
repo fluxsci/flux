@@ -341,6 +341,18 @@
           </div>
         {/if}
       </div>
+      <div class="block" data-fluximg-furniture="colorbar">
+        <div class="head"><label class="chk" title="Each shown channel's colours from its black point to its white point, with both values"><input type="checkbox" checked={!!f.colorbar} data-fluximg-colorbar onchange={(e) => view(furnitureOnPatch("colorbar", checked(e)))} /><span class="name">Calibration bar</span></label>
+          {#if f.colorbar}{@const cb = f.colorbar}<div class="sizefield"><NumberField label="" value={cb.fontSize} step={0.5} min={1} disabled={readOnly} title="Calibration bar text size in points"
+            on:commit={(e) => view(furnitureFieldPatch(m, "colorbar", "fontSize", e.detail))} on:scrub={(e) => view(furnitureFieldPatch(m, "colorbar", "fontSize", e.detail), true)} /></div><span class="u">pt</span>{/if}</div>
+        {#if f.colorbar}
+          <div class="pair">
+            <select aria-label="Calibration bar corner" title="Corner" value={f.colorbar.corner} onchange={(e) => view(furnitureFieldPatch(m, "colorbar", "corner", selectValue(e)))}>
+              {#each CORNERS as [k, label] (k)}<option value={k}>{label}</option>{/each}
+            </select>
+          </div>
+        {/if}
+      </div>
       {#if objectLayers.length}
         <div class="block" data-fluximg-furniture="names">
           <div class="head"><span class="name lbl">Object names</span>

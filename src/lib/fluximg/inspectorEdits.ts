@@ -30,7 +30,7 @@ export const integerData = (m: FluximgManifest): boolean => m.pixels.encoding.ki
 
 /** The view with nothing set. Every furniture piece is switched on so its defaults are readable too. */
 export function defaultView(m: FluximgManifest): ResolvedView {
-  return resolveView(m, { furniture: { scalebar: {}, stamp: {}, channelLabels: {}, names: {} } });
+  return resolveView(m, { furniture: { scalebar: {}, stamp: {}, channelLabels: {}, names: {}, colorbar: {} } });
 }
 
 const same = (a: readonly number[] | null | undefined, b: readonly number[] | null | undefined): boolean =>
@@ -192,7 +192,7 @@ export function furnitureOnPatch(piece: FurniturePiece, on: boolean): FluximgVie
 }
 
 /** One field of a piece of furniture that is on; its default clears the field (the piece stays on). */
-export function furnitureFieldPatch(m: FluximgManifest, piece: "scalebar" | "stamp" | "channelLabels" | "names", key: string, value: string | number | boolean | null): FluximgView {
+export function furnitureFieldPatch(m: FluximgManifest, piece: "scalebar" | "stamp" | "channelLabels" | "names" | "colorbar", key: string, value: string | number | boolean | null): FluximgView {
   const d = defaultView(m).furniture[piece] as unknown as Record<string, unknown>;
   const v = value === null || (d && d[key] === value) ? CLEAR : value;
   return { furniture: { [piece]: { [key]: v } } as FluximgFurnitureView };

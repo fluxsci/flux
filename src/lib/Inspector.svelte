@@ -619,7 +619,7 @@
   <!-- POSITION / SIZE -->
   {#if single}
     <section>
-      <h4>{single.type === "model3d" ? "3D model" : single.type}</h4>
+      <h4>{single.type === "model3d" ? "3D model" : single.type === "fluximg" ? "image" : single.type}</h4>
       <div class="secbody">
       <div class="row">
         <NumberField label="X" value={single.x}
