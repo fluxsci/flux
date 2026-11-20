@@ -1,8 +1,8 @@
 /**
  * What the live view can DO to an image, as plain functions over the session and the stores.
  *
- * The panel's rows, the rails, the on-image gestures, the wheel and the keyboard all call these, so every route
- * to a change shares one definition and one undo behaviour. Each function reads the live element fresh.
+ * The board's instruments, the on-image gestures, the wheel and the keyboard all call these, so every route to a
+ * change shares one definition and one undo behaviour. Each function reads the live element fresh.
  */
 import { get } from "svelte/store";
 import { addFluximg } from "../../ops";
@@ -13,10 +13,10 @@ import { clampCrop, fullCrop } from "../still";
 import type { FluximgManifest } from "../types";
 import type { FluximgChannelView, FluximgFurnitureView, FluximgLayerView, FluximgProjectionMode, FluximgView, PixelRect, ResolvedView } from "../view";
 import { positionDims, resolveView } from "../viewOps";
-import { insetLayout, splitLayout } from "../panelLayout";
+import { insetLayout, splitLayout, type SplitLayout } from "../panelLayout";
 import { autoWindow, histDomain, moveWindow, nextAutoStep, nextSampleStep, nudgeStep, sampleWindow, snapValue, sortedSample } from "./histogram";
 import { framePeriod, playStep, resizeRun, slideRun, stepIndex, type PlayMode } from "./rail";
-import { selection } from "../../store";
+import { project, selection } from "../../store";
 import { WHEEL_SETTLE_MS, cancelLiveEdit, closeFluximgLive, fluximgLive, liveElement, liveMutate, liveSampler, liveView, setLive, settleLiveEdit, liveArm } from "./session";
 
 export interface LiveContext { element: FluximgElement; manifest: FluximgManifest; view: ResolvedView; crop: PixelRect }
@@ -40,22 +40,21 @@ export function railDims(m: FluximgManifest): string[] {
 }
 
 /**
- * The panel's keys, all under the left hand (the right stays on the mouse). `r` closes the view and `f` opens the
- * properties menu as everywhere; every other unmodified key is the panel's own (so none is given to `r`, `f`, or
- * to `s`, which the open choices use to step). A dimension's rail takes its own letter when it is free (t, z),
- * else a spare.
+ * The board's keys, all under the left hand (the right stays on the mouse). They are the same everywhere on the
+ * board: there are no zones to be inside of. `r` closes the view and `f` opens the properties menu as everywhere
+ * in Flux. Digits take a channel in hand; a dimension's rail takes its own letter when it is free (t, z), else a spare.
  */
 export const LIVE_KEYS = {
-  // Home: the zones. `annotations` opens the zone whose rows are scalebar / stamp / channelNames / colorbar.
-  auto: "a", projection: "e", layers: "d", frame: "v", annotations: "b",
-  // Inside a zone (keys repeat across zones; each zone is its own small keyboard).
-  split: "b", smooth: "n", scalebar: "b", stamp: "w", channelNames: "c", colorbar: "g",
+  auto: "a", split: "s", projection: "e", layers: "d",
+  // The frame in hand; with Shift, the whole image again.
+  frame: "v", inset: "x", smooth: "n",
+  // An annotation on or off; with Shift, to its next corner.
+  scalebar: "b", stamp: "w", channelNames: "c", colorbar: "g",
 } as const;
 const RAIL_SPARE = ["q", "`"];
 
 export function dimKeys(m: FluximgManifest): Record<string, string> {
-  // Only the home zone's keys compete with a rail's letter.
-  const taken = new Set<string>(["r", "s", "f", LIVE_KEYS.auto, LIVE_KEYS.projection, LIVE_KEYS.layers, LIVE_KEYS.frame, LIVE_KEYS.annotations]);
+  const taken = new Set<string>(["r", "f", ...Object.values(LIVE_KEYS)]);
   const out: Record<string, string> = {};
   for (const d of railDims(m)) {
     const own = d[0]?.toLowerCase() ?? "";
@@ -180,14 +179,14 @@ export function nudgeGamma(i: number, steps: number): void {
 }
 
 /**
- * Auto contrast for one channel, or all of them, from the PIXELS IN VIEW: the plane (or projection) on screen,
- * inside the frame. The window snaps to their percentiles; pressing again tightens it (0.1–99.9 %, then 1–99.8 %,
- * 1–99 %), and a fourth press shows their full range. Before the first frame is on screen (or outside the live
- * view's canvas) the stack's stored percentiles stand in.
+ * The windows Auto would set, one per channel (null = left alone), from the PIXELS IN VIEW: the plane (or
+ * projection) on screen, inside the frame. The window snaps to their percentiles; asked again it tightens
+ * (0.1–99.9 %, then 1–99.8 %, 1–99 %), and a fourth time shows their full range. Before the first frame is on screen
+ * (or outside the live view's canvas) the stack's stored percentiles stand in.
  */
-export function autoContrast(i: number | "all"): void {
+export function autoPlan(i: number | "all"): Array<[number, number] | null> | null {
   const c = liveContext();
-  if (!c) return;
+  if (!c) return null;
   const which = i === "all" ? c.view.channels.map((ch) => ch.index) : [i];
   const integer = integerData(c.manifest);
   const seen = new Map<number, Float64Array>();
@@ -203,14 +202,21 @@ export function autoContrast(i: number | "all"): void {
   const leadSample = lead ? seen.get(lead.index) : undefined;
   // The next rung whose window differs from the one on screen (coinciding percentiles must not make Auto stick).
   const step = !lead ? 0 : leadSample ? nextSampleStep(leadSample, lead.range, integer) : nextAutoStep(c.manifest.channels[lead.index].stats, lead.range);
-  const channels: Array<FluximgChannelView | null> = c.view.channels.map(() => null);
+  const windows: Array<[number, number] | null> = c.view.channels.map(() => null);
   for (const k of which) {
     const sorted = seen.get(k);
     let w = sorted ? sampleWindow(sorted, step) : null;
     if (w && integer) { w = [Math.round(w[0]), Math.round(w[1])]; if (!(w[1] > w[0])) w = null; }
-    channels[k] = { range: w ?? autoWindow(c.manifest.channels[k].stats, step) };
+    windows[k] = w ?? autoWindow(c.manifest.channels[k].stats, step);
   }
-  liveView(`auto:${i}`, { channels });
+  return windows;
+}
+
+/** Auto contrast for one channel, or all of them (see `autoPlan`). One undo step. */
+export function autoContrast(i: number | "all"): void {
+  const windows = autoPlan(i);
+  if (!windows) return;
+  liveView(`auto:${i}`, { channels: windows.map((w) => (w ? { range: w } : null)) });
   settleLiveEdit();
 }
 
@@ -284,6 +290,14 @@ export function toggleFurniture(kind: FurnitureKind): void {
   settleLiveEdit();
 }
 const CORNERS = ["bottom-right", "bottom-left", "top-left", "top-right"] as const;
+export type FurnitureSpot = (typeof CORNERS)[number];
+/** Put an annotation that is on in a corner (it is being dragged there). The caller settles the gesture on release. */
+export function setFurnitureCorner(kind: "scalebar" | "stamp" | "channelLabels" | "colorbar", corner: FurnitureSpot): void {
+  const c = liveContext();
+  const item = c?.view.furniture[kind];
+  if (!c || !item || item.corner === corner) return;
+  liveView(`furniture-drag:${kind}`, { furniture: { [kind]: { corner } } as FluximgFurnitureView });
+}
 /** Move an annotation that is on to the next corner (clockwise from bottom right). */
 export function cycleFurnitureCorner(kind: "scalebar" | "stamp" | "channelLabels" | "colorbar"): void {
   const c = liveContext();
@@ -391,6 +405,14 @@ export function resetFrame(): void {
 function elementFigure(p: Project, id: string): { figureId: string; element: FluximgElement } | null {
   for (const f of p.figures) for (const e of f.elements) if (e.id === id && e.type === "fluximg") return { figureId: f.id, element: e };
   return null;
+}
+
+/** Where Split channels would put its panels, in the figure's own coordinates (for the key's preview). */
+export function splitPlan(): SplitLayout | null {
+  const c = liveContext();
+  if (!c || c.view.channels.length < 2) return null;
+  const figure = get(project).figures.find((f) => f.elements.some((e) => e.id === c.element.id));
+  return figure ? splitLayout(figure, c.element, c.view.channels.length) : null;
 }
 
 /**
@@ -502,7 +524,7 @@ export function togglePlayback(dim: string, mode: PlayMode = "loop", fps?: numbe
   if (live.playing) { stopPlayback(); return; }
   const c = liveContext();
   if (!c || dimLength(c.manifest, dim) <= 1 || c.view.projection?.dim === dim) return;
-  const rate = fps ?? naturalRate(c.manifest, dim);
+  const rate = fps ?? naturalRate(c.manifest, dim) * (live.speed > 0 ? live.speed : 1);
   setLive({ playing: { dim, fps: rate, mode }, armed: `pos:${dim}` });
   playClock = performance.now(); playCarry = 0; playDirection = 1;
   const tick = (now: number): void => {
@@ -525,17 +547,53 @@ export function togglePlayback(dim: string, mode: PlayMode = "loop", fps?: numbe
   playTimer = requestAnimationFrame(tick);
 }
 
+/** The speeds the play key's dial steps through, as multiples of the dimension's own rate. */
+export const PLAY_SPEEDS: readonly number[] = [0.25, 0.5, 1, 2, 4];
+/** Step the playback speed (+1 faster, -1 slower); a movie that is playing changes pace at once. */
+export function stepSpeed(by: number): void {
+  const live = get(fluximgLive);
+  if (!live) return;
+  const at = PLAY_SPEEDS.reduce((best, v, i) => (Math.abs(v - live.speed) < Math.abs(PLAY_SPEEDS[best] - live.speed) ? i : best), 0);
+  const next = PLAY_SPEEDS[(at + by + PLAY_SPEEDS.length) % PLAY_SPEEDS.length];
+  const c = liveContext();
+  setLive({ speed: next, ...(live.playing && c ? { playing: { ...live.playing, fps: naturalRate(c.manifest, live.playing.dim) * next } } : {}) });
+}
+
+// --- in hand ------------------------------------------------------------------------------------
+
+const POINTS = ["white", "black", "gamma"] as const;
+/** Let the view hold a rail by itself (a gesture on it began): the wheel over the image follows it; elsewhere the canvas still pans. */
+export function holdRail(dim: string): void {
+  const live = get(fluximgLive);
+  if (!live || live.armed === `run:${dim}`) return;
+  liveArm.explicit = false;
+  setLive({ armed: `pos:${dim}` });
+}
+
+/**
+ * Take a channel in hand (its digit, a click on its name): its white point first; asked again while it is in
+ * hand, the next of its points (white, black, gamma). `point` names one outright.
+ */
+export function takeChannel(i: number, point?: "black" | "white" | "gamma" | "window"): void {
+  const live = get(fluximgLive), c = liveContext();
+  if (!live || !c || !c.view.channels[i]) return;
+  const held = live.channel === i && (POINTS as readonly string[]).includes(live.armed ?? "") ? POINTS.indexOf(live.armed as (typeof POINTS)[number]) : -1;
+  liveArm.explicit = true;
+  setLive({ channel: i, armed: point ?? POINTS[(held + 1) % POINTS.length] });
+}
+/** True when a channel is what the view has in hand. */
+export const channelInHand = (armed: string | null | undefined): boolean => armed === "white" || armed === "black" || armed === "gamma" || armed === "window";
+
 // --- leaving ------------------------------------------------------------------------------------
 
-/** Esc: back out one level. Returns true when something was backed out of (false = the caller closes the view). */
+/** Esc: let go of one thing. Returns true when something was let go (false = the caller closes the view). */
 export function backOut(): boolean {
   const live = get(fluximgLive);
   if (!live) return false;
   if (live.playing) { stopPlayback(); return true; }
-  // Back home the first rail is the VIEW's arm again (wheel over the image only), not the zone row the user armed.
-  if (live.zone !== "home") { cancelLiveEdit(); liveArm.explicit = false; setLive({ zone: "home", armed: defaultArmed() }); return true; }
-  // At home a channel's point armed from its row (the wheel over the row) is one level too: Esc gives the wheel back.
-  if (live.armed === "white" || live.armed === "black") { settleLiveEdit(); liveArm.explicit = false; setLive({ armed: defaultArmed() }); return true; }
+  // Anything the user took in hand goes back: the first rail is the VIEW's own hold again (wheel over the image only).
+  if (liveArm.explicit && live.armed !== defaultArmed()) { settleLiveEdit(); liveArm.explicit = false; setLive({ armed: defaultArmed() }); return true; }
+  if (liveArm.explicit) { settleLiveEdit(); liveArm.explicit = false; return false; }
   return false;
 }
 

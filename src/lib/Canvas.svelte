@@ -5891,7 +5891,7 @@
         r="5"
         on:pointerdown={(e) => onLineEndDown(e, 2)}
       />
-    {:else if selChrome && !editingInfo && !editPathId}
+    {:else if selChrome && !editingInfo && !editPathId && !fluximgLiveItem}
       <g class="sel-chrome" class:cursor-on-light={chromeToneNow === "light"} class:cursor-on-dark={chromeToneNow === "dark"} use:chromeDrive={selChromeTransform}>
       <rect class="sel-box" x={selChrome.x} y={selChrome.y} width={selChrome.w} height={selChrome.h} fill="none" />
       {#if !selLocked}

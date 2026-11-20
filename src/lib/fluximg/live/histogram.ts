@@ -81,6 +81,33 @@ export function histogramPath(hist: FluximgHistogram | undefined, d: HistDomain,
 }
 
 /**
+ * The histogram of the pixels ON SCREEN (one plane, inside the frame), over the control's own span: what the
+ * channel strip draws in its colours, so the plot follows the stack as you move through it. `decode` turns a stored
+ * sample into a value or NaN. Thinned by a regular stride to at most `cap` samples (a 4-megapixel plane costs
+ * about a millisecond). Null when nothing in view has a value inside the span.
+ */
+export function viewHistogram(data: ArrayLike<number>, width: number, height: number, rect: { x: number; y: number; width: number; height: number }, decode: (s: number) => number, d: HistDomain, bins = 128, cap = 120_000): FluximgHistogram | null {
+  const x0 = Math.max(0, Math.floor(rect.x)), y0 = Math.max(0, Math.floor(rect.y));
+  const x1 = Math.min(width, Math.ceil(rect.x + rect.width)), y1 = Math.min(height, Math.ceil(rect.y + rect.height));
+  const n = Math.max(0, x1 - x0) * Math.max(0, y1 - y0);
+  if (!n || !(d.hi > d.lo) || !(bins > 0)) return null;
+  const stride = Math.max(1, Math.ceil(Math.sqrt(n / cap)));
+  const counts = new Array<number>(bins).fill(0), k = bins / (d.hi - d.lo);
+  let seen = 0;
+  for (let y = y0; y < y1; y += stride) {
+    const row = y * width;
+    for (let x = x0; x < x1; x += stride) {
+      const v = decode(data[row + x]);
+      if (!(v >= d.lo && v <= d.hi)) continue; // NaN fails both
+      const b = Math.floor((v - d.lo) * k);
+      counts[b < bins ? b : bins - 1]++;
+      seen++;
+    }
+  }
+  return seen ? { lo: d.lo, hi: d.hi, counts } : null;
+}
+
+/**
  * The transfer curve: displayed brightness (0 at the bottom, 1 at the top) against value, as an open path.
  * Flat at 0 below the black point and at 1 above the white point; the shape between is the norm's.
  */

@@ -1,25 +1,33 @@
 <script lang="ts">
   /**
-   * The live image: a WebGL canvas exactly over the placed element, the element's own vector layers on top of it,
-   * the navigator rails beside it, and a one-line readout of what is under the pointer.
+   * The live image: a WebGL canvas exactly over the placed element with the element's own vector layers on top of
+   * it, a pink viewfinder frame round it, and the control board (`FluximgBoard`) standing round that.
    *
    * The image stays flat and in place. Everything here is transient chrome: the view recipe is on the element
    * (edits go through `actions.ts`), and when the live view closes the element's still, drawn by the reference
    * renderer from the same recipe, is what remains.
+   *
+   * What the image itself answers to: the pointer reads out (ticks on the frame, a tick on every channel's
+   * histogram, a card for the object under it); a drag moves the frame when it is zoomed in, pulls the contrast of
+   * a channel that is in hand, or draws an inset when that is in hand; an annotation that is shown can be dragged
+   * to another corner.
    */
-  import { onDestroy, tick } from "svelte";
+  import { onDestroy } from "svelte";
   import { project } from "../../store";
   import { yieldsToShellModal, isAnnotateChord } from "../../../shell/agent/annotationVisibility";
   import { fluximgBundle, fluximgManifests, fluximgService, needLuts, resolveLut } from "../store";
   import FluximgVectors from "../FluximgVectors.svelte";
-  import { clampCrop } from "../still";
+  import { furnitureInset } from "../furniture";
+  import { clampCrop, fullCrop } from "../still";
   import { insetsOf } from "../static";
-  import { contributingChannelIndices, describePosition, describeProjection, formatNumber, resolveView } from "../viewOps";
+  import type { SplitLayout } from "../panelLayout";
+  import { contributingChannelIndices, formatNumber, resolveView } from "../viewOps";
   import type { FluximgElement } from "../../types";
-  import FluximgRail from "./FluximgRail.svelte";
-  import { dimKeys, dimLength, dragContrast, makeInset, panFrame, railDims, setPosition, setRun, togglePlayback } from "./actions";
+  import FluximgBoard from "./FluximgBoard.svelte";
+  import { channelInHand, defaultArmed, dragContrast, makeInset, panFrame, setFurnitureCorner, type FurnitureSpot } from "./actions";
   import { LiveDriver, type FrameInfo } from "./driver";
-  import { armLive, cancelLiveEdit, fluximgHover, fluximgLive, fluximgLiveProblem, fluximgLiveRect, fluximgReadout, livePointer, liveSampler, settleLiveEdit } from "./session";
+  import { fluximgTables, needTable, objectCells, tableOf } from "./objectTables";
+  import { cancelLiveEdit, fluximgFrame, fluximgHover, fluximgLive, fluximgLiveProblem, fluximgReadout, liveArm, livePointer, liveSampler, setLive, settleLiveEdit } from "./session";
 
   let { element, left, top, zoom, beginPan }: { element: FluximgElement; left: number; top: number; zoom: number; beginPan: () => void } = $props();
 
@@ -33,6 +41,7 @@
     for (const f of $project.figures) if (f.elements.some((e) => e.id === element.id)) return insetsOf(f.elements, element.id, element.assetId);
     return [];
   });
+  const whole = $derived.by(() => { if (!manifest || !crop) return true; const f = fullCrop(manifest); return crop.width >= f.width - 1e-6 && crop.height >= f.height - 1e-6; });
 
   // --- geometry ---------------------------------------------------------------------------------
   const bw = $derived(element.width * zoom), bh = $derived(element.height * zoom);
@@ -83,6 +92,13 @@
     const kx = crop.width / bw, ky = crop.height / bh;
     return { x: crop.x + vis.x * kx, y: crop.y + vis.y * ky, width: vis.w * kx, height: vis.h * ky };
   });
+  /** The image's ROTATED screen bounds: what the board stands round (it is never rotated or mirrored itself). */
+  const bounds = $derived.by(() => {
+    const a = (element.rotation * Math.PI) / 180;
+    const w = Math.abs(bw * Math.cos(a)) + Math.abs(bh * Math.sin(a)), h = Math.abs(bw * Math.sin(a)) + Math.abs(bh * Math.cos(a));
+    const cx = left + bw / 2, cy = top + bh / 2;
+    return { x: cx - w / 2, y: cy - h / 2, w, h };
+  });
 
   // --- frames -----------------------------------------------------------------------------------
   let driver = $state.raw<LiveDriver | null>(null);
@@ -99,6 +115,8 @@
     catch (error) { problem = error instanceof Error ? error.message : String(error); return; }
     d.onFrame = (info) => {
       frame = info;
+      if (info.sharp && !info.pending) { clearTimeout(waiting); waiting = undefined; }
+      fluximgFrame.set({ serial: info.serial, sharp: info.sharp, pending: info.pending });
       canvas?.dispatchEvent(new CustomEvent("flux-fluximg-frame", { bubbles: true, detail: { elementId: element.id, ...info, time: performance.now() } }));
     };
     d.onError = (message) => { problem = message; };
@@ -108,130 +126,40 @@
     void needLuts().then(() => d.invalidateTables());
     return () => { d.dispose(); if (driver === d) driver = null; liveSampler.read = null; };
   });
+  // A view whose frame has not reached the screen a moment after it was asked for: the board's lamp says so
+  // (the picture never goes blank while it waits, so nothing else would).
+  let waiting: ReturnType<typeof setTimeout> | undefined;
   $effect(() => {
     if (!driver || !rv || !visCrop || out.w < 1 || out.h < 1) return;
     driver.set({ view: rv, crop: visCrop, outWidth: out.w, outHeight: out.h });
+    clearTimeout(waiting);
+    waiting = setTimeout(() => fluximgFrame.update((f) => ({ ...f, sharp: false, pending: Math.max(1, f.pending) })), 160);
   });
 
-  // --- rails ------------------------------------------------------------------------------------
-  const dims = $derived(manifest ? railDims(manifest) : []);
-  const keys = $derived(manifest ? dimKeys(manifest) : {});
-  const vDim = $derived(dims.includes("z") ? "z" : null);
-  const hDims = $derived(dims.filter((d) => d !== vDim));
-  /** A channel's colour for chrome: its own colour, or a bright entry of its colour map. */
-  function inkOf(c: { color: string | null; lut: string | null }): string {
-    if (c.color) return c.color;
-    const table = c.lut ? resolveLut(c.lut) : null;
-    return table?.[Math.floor(table.length * 0.72)] ?? "#cecdc3";
+  // --- pointer: readout, hover, and what a drag on the image does ---------------------------------
+  /** Screen motion or position → the element's own axes (through its rotation; mirroring is applied by the caller). */
+  function unrotate(dx: number, dy: number): [number, number] {
+    const a = (-element.rotation * Math.PI) / 180;
+    return [dx * Math.cos(a) - dy * Math.sin(a), dx * Math.sin(a) + dy * Math.cos(a)];
   }
-  const shownChannels = $derived(rv ? contributingChannelIndices(rv).map((i) => rv.channels[i]) : []);
-  function profilesOf(dim: string): Array<{ color: string; values: ReadonlyArray<number | null> }> {
-    const mean = manifest?.profiles?.[dim]?.mean;
-    if (!mean) return [];
-    return shownChannels.filter((c) => mean[c.index]).map((c) => ({ color: inkOf(c), values: mean[c.index] }));
+  /** A client point as fractions of the box as it is DRAWN on screen (rotation undone, mirroring not). */
+  function boxPoint(clientX: number, clientY: number): { u: number; v: number } {
+    const [dx, dy] = unrotate(clientX - (host.x + left + bw / 2), clientY - (host.y + top + bh / 2));
+    return { u: (dx + bw / 2) / bw, v: (dy + bh / 2) / bh };
   }
-  function readoutOf(dim: string): string {
-    if (!manifest || !rv) return "";
-    const p = rv.projection;
-    // "z 12/25 · −13 µm" without its leading dimension letter: the key cap already says it.
-    const words = p && p.dim === dim ? describeProjection(manifest, p) : describePosition(manifest, dim, rv.index[dim] ?? 0);
-    // …and a projection reads "max 1–7 · −61.5 to −55.5 µm", for the same reason.
-    return p && p.dim === dim ? words.replace(new RegExp(`\\s${dim}\\s`), " ") : words.replace(new RegExp(`^${dim}\\s+`), "");
-  }
-  function scrub(dim: string, index: number, phase: "start" | "move" | "end" | "cancel"): void {
-    if (phase === "cancel") { cancelLiveEdit(); return; }
-    const before = rv?.index[dim] ?? 0;
-    setPosition(dim, index);
-    if (index !== before) driver?.prefetch(dim, index > before ? [1, 2, 3] : [-1, -2, -3]);
-    if (phase === "end") settleLiveEdit();
-  }
-  function runTo(dim: string, from: number, to: number, phase: "start" | "move" | "end" | "cancel"): void {
-    if (phase === "cancel") { cancelLiveEdit(); return; }
-    setRun(dim, from, to);
-    if (phase === "end") settleLiveEdit();
-  }
-  const arm = (dim: string): void => armLive(`pos:${dim}`);
-
-  // Layout around the element's ROTATED screen bounds (rails are never rotated or mirrored).
-  // ROW: a horizontal rail with its ticks. CAP: its key cap and gap. HTAIL: its position and play button.
-  // VW: a depth rail with its tick labels. VHEAD: the line above a depth rail (key, play, position).
-  const GAP = 10, ROW = 52, CAP = 31, HTAIL = 140, VW = 78, VHEAD = 74;
-  const bounds = $derived.by(() => {
-    const a = (element.rotation * Math.PI) / 180;
-    const w = Math.abs(bw * Math.cos(a)) + Math.abs(bh * Math.sin(a)), h = Math.abs(bw * Math.sin(a)) + Math.abs(bh * Math.cos(a));
-    const cx = left + bw / 2, cy = top + bh / 2;
-    return { x: cx - w / 2, y: cy - h / 2, w, h };
-  });
-  /** A span clamped into the host, keeping at least `min` px of track. */
-  function span(lo: number, hi: number, limit: number, before: number, after: number, min = 96): { start: number; length: number } {
-    const a = Math.max(lo, before), b = Math.min(hi, limit - after);
-    if (b - a >= min) return { start: a, length: b - a };
-    const length = Math.min(Math.max(min, hi - lo), Math.max(40, limit - before - after));
-    return { start: Math.min(Math.max(before, lo), Math.max(before, limit - after - length)), length };
-  }
-  /**
-   * Depth stands at the image's right. When the right has no room it stands at its left; only when neither side
-   * has room (the image fills the canvas) does it stand over the image's right edge. Rails never cover pixels
-   * while there is anywhere else to be.
-   */
-  const vRail = $derived.by(() => {
-    const s = span(bounds.y, bounds.y + bounds.h, host.h, VHEAD + 8, 12);
-    const right = bounds.x + bounds.w + GAP, leftSide = bounds.x - GAP - VW;
-    const x = right + VW <= host.w - 4 ? right : leftSide >= 4 ? leftSide : Math.max(4, host.w - VW - 4);
-    return { x, y: s.start - VHEAD, extent: s.length };
-  });
-  /** Time (and any other dimension) lies under the image; above it when there is no room below; over its foot last. */
-  const hRail = $derived.by(() => {
-    const s = span(bounds.x, bounds.x + bounds.w, host.w, CAP + 8, HTAIL + 8);
-    const height = hDims.length * ROW;
-    const below = bounds.y + bounds.h + GAP, above = bounds.y - GAP - height;
-    let y = below + height <= host.h - 4 ? below : above >= 4 ? above : Math.max(4, host.h - height - 4);
-    // Beside a depth rail the row must not run into that rail's box (its key line stands above the image, so a time
-    // row moved ABOVE the image lay right across it): step past the depth box, on the same side, when they would meet.
-    if (vDim) {
-      const x0 = s.start - CAP, x1 = s.start + s.length + HTAIL, vy0 = vRail.y, vy1 = vRail.y + VHEAD + vRail.extent + 8;
-      if (x0 < vRail.x + VW && x1 > vRail.x && y < vy1 && y + height > vy0) {
-        const under = vy1 + 4, over = vy0 - 4 - height, fitsUnder = under + height <= host.h - 4, fitsOver = over >= 4;
-        if (y >= bounds.y + bounds.h) y = fitsUnder ? under : fitsOver ? over : y;
-        else y = fitsOver ? over : fitsUnder ? under : y;
-      }
-    }
-    return { x: s.start - CAP, y, extent: s.length };
-  });
-
-  // The panel keeps clear of the image AND its rails: measured from what is on screen, after it is laid out.
-  let railBoxes = $state<HTMLElement[]>([]);
-  $effect(() => {
-    void hRail; void vRail; void hDims; void vDim; void rv;
-    const image = { x: host.x + bounds.x, y: host.y + bounds.y, w: bounds.w, h: bounds.h };
-    void tick().then(() => {
-      let x0 = image.x, y0 = image.y, x1 = image.x + image.w, y1 = image.y + image.h;
-      for (const box of railBoxes) {
-        if (!box?.isConnected) continue;
-        const r = box.getBoundingClientRect();
-        if (!r.width) continue;
-        x0 = Math.min(x0, r.left); y0 = Math.min(y0, r.top); x1 = Math.max(x1, r.right); y1 = Math.max(y1, r.bottom);
-      }
-      fluximgLiveRect.set({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
-    });
-  });
-
-  // --- pointer: readout, hover, panning inside the frame -----------------------------------------
-  /** Client point → level-0 image pixels (through the element's rotation and mirroring), or null off the image. */
-  function imagePoint(clientX: number, clientY: number): { x: number; y: number } | null {
+  /** Client point → level-0 image pixels (through rotation and mirroring); null off the image unless `clamp`. */
+  function imagePoint(clientX: number, clientY: number, clamp = false): { x: number; y: number } | null {
     if (!crop || !(bw > 0) || !(bh > 0)) return null;
-    const cx = host.x + left + bw / 2, cy = host.y + top + bh / 2, a = (-element.rotation * Math.PI) / 180;
-    let dx = clientX - cx, dy = clientY - cy;
-    [dx, dy] = [dx * Math.cos(a) - dy * Math.sin(a), dx * Math.sin(a) + dy * Math.cos(a)];
-    if (element.flipX) dx = -dx;
-    if (element.flipY) dy = -dy;
-    const u = (dx + bw / 2) / bw, v = (dy + bh / 2) / bh;
-    if (u < 0 || v < 0 || u >= 1 || v >= 1) return null;
+    let { u, v } = boxPoint(clientX, clientY);
+    if (element.flipX) u = 1 - u;
+    if (element.flipY) v = 1 - v;
+    if (clamp) { u = Math.min(1, Math.max(0, u)); v = Math.min(1, Math.max(0, v)); }
+    else if (u < 0 || v < 0 || u >= 1 || v >= 1) return null;
     return { x: crop.x + u * crop.width, y: crop.y + v * crop.height };
   }
-  let under = $state<{ x: number; y: number; values: number[] } | null>(null);
+  $effect(() => { livePointer.locate = (x, y) => imagePoint(x, y); return () => { livePointer.locate = null; }; });
+  let under = $state.raw<{ x: number; y: number; values: number[]; u: number; v: number; cx: number; cy: number } | null>(null);
   let moveQueued = 0, lastMove: PointerEvent | null = null;
-  let pan = $state.raw<{ pointer: number; x: number; y: number; from: { x: number; y: number; width: number; height: number } } | null>(null);
   let space = false;
 
   function readPointer(): void {
@@ -240,7 +168,8 @@
     if (!e) return;
     const p = imagePoint(e.clientX, e.clientY);
     livePointer.at = p;
-    under = p && driver ? { ...p, values: driver.valuesAt(p.x, p.y) } : null;
+    const b = boxPoint(e.clientX, e.clientY);
+    under = p && driver ? { ...p, values: driver.valuesAt(p.x, p.y), u: b.u, v: b.v, cx: e.clientX - host.x, cy: e.clientY - host.y } : null;
     const shape = e.target instanceof Element ? e.target.closest("[data-key]") : null;
     const layer = shape?.closest("[data-layer]")?.getAttribute("data-layer");
     const key = shape?.getAttribute("data-key");
@@ -248,12 +177,15 @@
     const was = $fluximgHover;
     if ((now?.key ?? "") !== (was?.key ?? "") || (now?.layerId ?? "") !== (was?.layerId ?? "")) { if (now || was?.from === "image") fluximgHover.set(now); }
   }
-  // Three things a press on the live image can be, by what the panel has open:
-  //   Frame zone             drag moves the image under its frame;
-  //   Frame zone, inset armed  drag draws the rectangle that becomes an inset (the pink of Flux's guides);
-  //   a channel's zone       drag pulls that channel's contrast (right/left) and brightness (up/down).
+
+  // Three things a drag on the live image can be, by what is in hand:
+  //   an inset           the drag draws the rectangle that becomes one (the pink of Flux's guides);
+  //   a channel          the drag pulls its contrast (right / left) and brightness (up / down);
+  //   otherwise          the image moves under its frame, when the frame shows only part of it.
+  let pan = $state.raw<{ pointer: number; x: number; y: number; from: { x: number; y: number; width: number; height: number } } | null>(null);
   let pull = $state.raw<{ pointer: number; x: number; y: number; from: [number, number]; channel: number } | null>(null);
   let drawn = $state.raw<{ pointer: number; x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const mode = $derived(live?.armed === "inset" ? "inset" : channelInHand(live?.armed) ? "pull" : live?.armed === "zoom" || !whole ? "pan" : "read");
   /** The rectangle being drawn, in the element's box (canvas px), for the guide. */
   const drawnBox = $derived.by(() => {
     if (!drawn || !crop) return null;
@@ -261,24 +193,11 @@
     const x = (Math.min(drawn.x0, drawn.x1) - crop.x) * kx, y = (Math.min(drawn.y0, drawn.y1) - crop.y) * ky;
     return { x, y, width: Math.abs(drawn.x1 - drawn.x0) * kx, height: Math.abs(drawn.y1 - drawn.y0) * ky };
   });
-  /** A client point as image pixels, clamped INTO the image (a drag may leave it). */
-  function imagePointClamped(clientX: number, clientY: number): { x: number; y: number } | null {
-    if (!crop || !(bw > 0) || !(bh > 0)) return null;
-    const cx = host.x + left + bw / 2, cy = host.y + top + bh / 2, a = (-element.rotation * Math.PI) / 180;
-    let dx = clientX - cx, dy = clientY - cy;
-    [dx, dy] = [dx * Math.cos(a) - dy * Math.sin(a), dx * Math.sin(a) + dy * Math.cos(a)];
-    if (element.flipX) dx = -dx;
-    if (element.flipY) dy = -dy;
-    const u = Math.min(1, Math.max(0, (dx + bw / 2) / bw)), v = Math.min(1, Math.max(0, (dy + bh / 2) / bh));
-    return { x: crop.x + u * crop.width, y: crop.y + v * crop.height };
-  }
   function onMove(e: PointerEvent): void {
     if (pan && e.pointerId === pan.pointer && crop) {
       e.preventDefault(); e.stopPropagation();
       // Screen motion → image pixels, through rotation and mirroring; the image follows the hand.
-      const a = (-element.rotation * Math.PI) / 180;
-      let dx = e.clientX - pan.x, dy = e.clientY - pan.y;
-      [dx, dy] = [dx * Math.cos(a) - dy * Math.sin(a), dx * Math.sin(a) + dy * Math.cos(a)];
+      let [dx, dy] = unrotate(e.clientX - pan.x, e.clientY - pan.y);
       if (element.flipX) dx = -dx;
       if (element.flipY) dy = -dy;
       panFrame(-dx * (pan.from.width / bw), -dy * (pan.from.height / bh), "frame-pan", pan.from);
@@ -291,7 +210,7 @@
     }
     if (drawn && e.pointerId === drawn.pointer) {
       e.preventDefault(); e.stopPropagation();
-      const p = imagePointClamped(e.clientX, e.clientY);
+      const p = imagePoint(e.clientX, e.clientY, true);
       if (p) drawn = { ...drawn, x1: p.x, y1: p.y };
       return;
     }
@@ -304,15 +223,15 @@
     if (e.button !== 0) return;
     e.preventDefault(); e.stopPropagation();
     if (!wrapper || !crop || !live) return;
-    if (live.zone === "frame" && live.armed === "inset") {
-      const p = imagePointClamped(e.clientX, e.clientY);
+    if (mode === "inset") {
+      const p = imagePoint(e.clientX, e.clientY, true);
       if (!p) return;
       drawn = { pointer: e.pointerId, x0: p.x, y0: p.y, x1: p.x, y1: p.y };
-    } else if (live.zone === "frame") {
-      pan = { pointer: e.pointerId, x: e.clientX, y: e.clientY, from: { ...crop } };
-    } else if (live.zone === "channel" && rv?.channels[live.channel]) {
+    } else if (mode === "pull" && rv?.channels[live.channel]) {
       const r = rv.channels[live.channel].range;
       pull = { pointer: e.pointerId, x: e.clientX, y: e.clientY, from: [r[0], r[1]], channel: live.channel };
+    } else if (mode === "pan" && !whole) {
+      pan = { pointer: e.pointerId, x: e.clientX, y: e.clientY, from: { ...crop } };
     } else return;
     wrapper.setPointerCapture(e.pointerId);
   }
@@ -324,8 +243,9 @@
     const cancelled = e.type !== "pointerup";
     pan = null; pull = null; drawn = null;
     if (rect) {
-      // The rectangle becomes an inset beside the image; the image keeps its frame and outlines the inset's region.
-      if (makeInset(null, rect)) armLive("zoom");
+      // The rectangle becomes an inset; the image keeps its frame and outlines the inset's region. One is enough:
+      // the view lets go of the inset tool.
+      if (makeInset(null, rect) && $fluximgLive) { liveArm.explicit = false; setLive({ armed: defaultArmed() }); }
       return;
     }
     if (cancelled) cancelLiveEdit(); else settleLiveEdit();
@@ -336,18 +256,17 @@
   }
   function onKey(e: KeyboardEvent): void {
     if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
-    // Space held = pan the canvas, as everywhere else (a Space TAP is the panel's play key: it acts on key-up).
+    // Space held = pan the canvas, as everywhere else (a Space TAP is the board's play key: it acts on key-up).
     if (e.code === "Space") { space = e.type === "keydown"; if (space) beginPan(); }
   }
-  // Capture phase: the panel's own window handler takes Space (play / stop) and stops it there, and this overlay,
-  // mounted after the panel, never saw it: Space+drag over the live image did not pan the canvas.
+  // Capture phase: the board's own window handler takes Space (play / stop) and stops it there.
   $effect(() => {
     window.addEventListener("keydown", onKey, { capture: true });
     window.addEventListener("keyup", onKey, { capture: true });
     return () => { window.removeEventListener("keydown", onKey, { capture: true }); window.removeEventListener("keyup", onKey, { capture: true }); };
   });
 
-  // The hovered object (from the image or from the list) is outlined on the image.
+  // The hovered object (from the image or from the list) is lit on the image.
   let hot: Element | null = null;
   $effect(() => {
     const h = $fluximgHover;
@@ -367,26 +286,116 @@
     return `${name} ${value.toFixed(decimals).replace("-", "−")} ${a.unit}`;
   }
   const fmtValue = (v: number): string => (Number.isNaN(v) ? "–" : formatNumber(Number(v.toPrecision(4))));
-  // What is under the pointer goes to the panel's readout strip (one fixed place, so nothing floats over the figure).
+  const shown = $derived(rv ? contributingChannelIndices(rv).map((i) => rv.channels[i]) : []);
+  /** A channel's colour for chrome: its own colour, or a bright entry of its colour map. */
+  function inkOf(c: { color: string | null; lut: string | null }): string {
+    if (c.color) return c.color;
+    const table = c.lut ? resolveLut(c.lut) : null;
+    return table?.[Math.floor(table.length * 0.72)]?.slice(0, 7) ?? "#cecdc3";
+  }
+  // What is under the pointer goes to the board: every channel's strip marks the value, the head says where.
   $effect(() => {
-    const object = $fluximgHover?.key ?? "";
+    const h = $fluximgHover;
     fluximgReadout.set(under ? {
-      where: `${place(under.x, ax, "x")}   ${place(under.y, ay, "y")}`,
-      values: shownChannels.map((c, i) => ({ name: c.name, ink: inkOf(c), text: fmtValue(under!.values[i] ?? NaN) })),
-      object,
+      where: [place(under.x, ax, "x"), place(under.y, ay, "y")],
+      values: shown.map((c, i) => ({ channel: c.index, value: under!.values[i] ?? NaN, text: fmtValue(under!.values[i] ?? NaN) })),
+      object: h ? { layerId: h.layerId, key: h.key } : null,
+      u: under.u, v: under.v,
     } : null);
   });
   $effect(() => { fluximgLiveProblem.set(problem); });
 
-  const boxStyle = $derived(`left:${left}px;top:${top}px;width:${bw}px;height:${bh}px;transform:rotate(${element.rotation}deg) scale(${element.flipX ? -1 : 1},${element.flipY ? -1 : 1});opacity:${element.opacity ?? 1}`);
-  onDestroy(() => { if (moveQueued) cancelAnimationFrame(moveQueued); hot?.classList.remove("fx-hot"); });
+  // --- the object under the pointer: a card that follows it -----------------------------------------
+  const card = $derived.by(() => {
+    const h = $fluximgHover;
+    if (!h || h.from !== "image" || !under || !manifest || !asset || pan || pull || drawn) return null;
+    const layer = manifest.layers.find((l) => l.id === h.layerId);
+    const table = layer && layer.kind !== "intensity" ? tableOf($fluximgTables, asset, layer.table) : null;
+    const flip = under.cx > host.w - 250, up = under.cy > host.h - 120;
+    return { key: h.key, layer: layer?.name ?? "", cells: objectCells(table, h.key).slice(0, 4), x: under.cx, y: under.cy, flip, up };
+  });
+  $effect(() => {
+    const h = $fluximgHover;
+    if (!h || !manifest || !asset) return;
+    const layer = manifest.layers.find((l) => l.id === h.layerId);
+    if (layer && layer.kind !== "intensity") needTable(asset, layer.table);
+  });
+
+  // --- annotations you can take hold of: drag one to another corner ---------------------------------
+  type Kind = "scalebar" | "stamp" | "channelLabels" | "colorbar";
+  const PARTS: Record<Kind, string> = { scalebar: '[data-part^="scalebar"]', stamp: '[data-part="stamp"]', channelLabels: '[data-part="channel"]', colorbar: '[data-part="colorbar"]' };
+  let grips = $state.raw<Array<{ kind: Kind; x: number; y: number; w: number; h: number }>>([]);
+  let gripDrag = $state.raw<{ pointer: number; kind: Kind; corner: FurnitureSpot } | null>(null);
+  function measureGrips(): void {
+    const root = wrapper;
+    if (!root || !rv) { grips = []; return; }
+    const next: typeof grips = [];
+    for (const kind of Object.keys(PARTS) as Kind[]) {
+      if (!rv.furniture[kind]) continue;
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const el of root.querySelectorAll(PARTS[kind])) {
+        const r = el.getBoundingClientRect();
+        if (!r.width && !r.height) continue;
+        x0 = Math.min(x0, r.left); y0 = Math.min(y0, r.top); x1 = Math.max(x1, r.right); y1 = Math.max(y1, r.bottom);
+      }
+      if (x1 > x0) next.push({ kind, x: x0 - host.x - 4, y: y0 - host.y - 4, w: x1 - x0 + 8, h: y1 - y0 + 8 });
+    }
+    grips = next;
+  }
+  // Measured AFTER the frame that draws the image (the picture comes first), and only while an annotation is shown.
+  let gripFrame = 0;
+  const anyFurniture = $derived(!!rv && !!(rv.furniture.scalebar || rv.furniture.stamp || rv.furniture.channelLabels || rv.furniture.colorbar));
+  $effect(() => {
+    void rv; void crop; void bw; void bh; void left; void top; void host;
+    if (!anyFurniture) { if (grips.length) grips = []; return; }
+    if (!gripFrame) gripFrame = requestAnimationFrame(() => { gripFrame = 0; measureGrips(); });
+  });
+  /** The corner of the picture a client point is nearest (annotations are never mirrored, so neither is this). */
+  function cornerAt(e: PointerEvent): FurnitureSpot {
+    const { u, v } = boxPoint(e.clientX, e.clientY);
+    return `${v < 0.5 ? "top" : "bottom"}-${u < 0.5 ? "left" : "right"}` as FurnitureSpot;
+  }
+  function gripDown(e: PointerEvent, kind: Kind): void {
+    if (e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    const item = rv?.furniture[kind];
+    gripDrag = { pointer: e.pointerId, kind, corner: item ? item.corner : "bottom-right" };
+  }
+  function gripMove(e: PointerEvent): void {
+    if (!gripDrag || e.pointerId !== gripDrag.pointer) return;
+    const corner = cornerAt(e);
+    if (corner !== gripDrag.corner) { gripDrag = { ...gripDrag, corner }; setFurnitureCorner(gripDrag.kind, corner); }
+  }
+  function gripUp(e: PointerEvent): void {
+    if (!gripDrag || e.pointerId !== gripDrag.pointer) return;
+    const cancelled = e.type !== "pointerup";
+    gripDrag = null;
+    if (cancelled) cancelLiveEdit(); else settleLiveEdit();
+  }
+  const slot = $derived(Math.max(8, furnitureInset(box) * zoom));
+
+  // --- what a hovered key would do, drawn on the figure ---------------------------------------------
+  let preview = $state.raw<null | { kind: "split"; plan: SplitLayout }>(null);
+  const origin = $derived({ x: left - element.x * zoom, y: top - element.y * zoom });
+  const previewBoxes = $derived.by(() => {
+    if (!preview) return [];
+    const at = (b: { x: number; y: number; width: number; height: number }, label: string) => ({ x: origin.x + b.x * zoom, y: origin.y + b.y * zoom, w: b.width * zoom, h: b.height * zoom, label });
+    const names = rv?.channels.map((c) => c.name) ?? [];
+    return [...(preview.plan.place === "inPlace" ? [at(preview.plan.source, "all")] : []), ...preview.plan.channels.map((b, i) => at(b, names[i] ?? String(i + 1)))];
+  });
+
+  const turn = $derived(`rotate(${element.rotation}deg)`);
+  const boxStyle = $derived(`left:${left}px;top:${top}px;width:${bw}px;height:${bh}px;transform:${turn} scale(${element.flipX ? -1 : 1},${element.flipY ? -1 : 1});opacity:${element.opacity ?? 1}`);
+  const frameStyle = $derived(`left:${left}px;top:${top}px;width:${bw}px;height:${bh}px;transform:${turn}`);
+  onDestroy(() => { if (moveQueued) cancelAnimationFrame(moveQueued); if (gripFrame) cancelAnimationFrame(gripFrame); clearTimeout(waiting); hot?.classList.remove("fx-hot"); });
 </script>
 
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div bind:this={wrapper} class="fx-live" class:framing={live?.zone === "frame" && live.armed !== "inset"} class:panning={!!pan} class:pulling={live?.zone === "channel"} style={boxStyle}
-  data-fluximg-live={element.id} data-command-scope="fluximg-live" data-level={frame?.level ?? ""} data-sharp={frame?.sharp ? "1" : "0"}
-  onpointerdown={onDown} onpointermove={onMove} onpointerup={onUp} onpointercancel={onUp} onlostpointercapture={onUp} onpointerleave={onLeave}>
+<div bind:this={wrapper} class="fx-live" class:pan={mode === "pan" && !whole} class:panning={!!pan} class:pull={mode === "pull"} class:inset={mode === "inset"} style={boxStyle}
+  data-fluximg-live={element.id} data-command-scope="fluximg-live" data-level={frame?.level ?? ""} data-sharp={frame?.sharp ? "1" : "0"} data-mode={mode}
+  onpointerdown={onDown} onpointermove={onMove} onpointerup={onUp} onpointercancel={onUp} onlostpointercapture={onUp} onpointerleave={onLeave} ondblclick={(e) => e.stopPropagation()}>
   <canvas bind:this={canvas} class="gl" class:pixelated={!rv?.smooth} style={`left:${vis.x}px;top:${vis.y}px;width:${vis.w}px;height:${vis.h}px`}></canvas>
   {#if asset && manifest && rv && crop}
     <svg class="vec" width={bw} height={bh} viewBox={`0 0 ${box.width} ${box.height}`} preserveAspectRatio="none">
@@ -396,41 +405,99 @@
   {/if}
 </div>
 
-{#if manifest && rv}
-  {#each hDims as dim, i (dim)}
-    <div class="fx-railpos" bind:this={railBoxes[i]} style={`left:${hRail.x}px;top:${hRail.y + i * ROW}px`}>
-      <FluximgRail {dim} hotkey={keys[dim] ?? ""} length={dimLength(manifest, dim)} index={rv.index[dim] ?? 0}
-        run={rv.projection?.dim === dim ? rv.projection : null} profiles={profilesOf(dim)} axis={manifest.axes?.[dim]} extent={hRail.extent}
-        armed={live?.armed === `pos:${dim}` || live?.armed === `run:${dim}`} readout={readoutOf(dim)} unit={manifest.axes?.[dim]?.unit ?? ""} format={formatNumber}
-        playing={live?.playing?.dim === dim} onplay={() => togglePlayback(dim)}
-        onscrub={(index, phase) => scrub(dim, index, phase)} onrun={(from, to, phase) => runTo(dim, from, to, phase)} onarm={() => arm(dim)} />
-    </div>
-  {/each}
-  {#if vDim}
-    <div class="fx-railpos v" bind:this={railBoxes[hDims.length]} style={`left:${vRail.x}px;top:${vRail.y}px`}>
-      <FluximgRail dim={vDim} hotkey={keys[vDim] ?? ""} vertical length={dimLength(manifest, vDim)} index={rv.index[vDim] ?? 0}
-        run={rv.projection?.dim === vDim ? rv.projection : null} profiles={profilesOf(vDim)} axis={manifest.axes?.[vDim]} extent={vRail.extent}
-        armed={live?.armed === `pos:${vDim}` || live?.armed === `run:${vDim}`} readout={readoutOf(vDim)} unit={manifest.axes?.[vDim]?.unit ?? ""} format={formatNumber}
-        playing={live?.playing?.dim === vDim} onplay={() => togglePlayback(vDim)}
-        onscrub={(index, phase) => scrub(vDim, index, phase)} onrun={(from, to, phase) => runTo(vDim, from, to, phase)} onarm={() => arm(vDim)} />
-    </div>
+<!-- The viewfinder: a pink hairline with corner marks says this image is live, and the marks thicken into handles
+     when the frame is in hand. Ticks on its edges follow the pointer across the image. -->
+<div class="fx-frame" class:hand={live?.armed === "zoom"} class:inset={mode === "inset"} style={frameStyle} aria-hidden="true" data-fxb-frame>
+  <i class="c tl"></i><i class="c tr"></i><i class="c bl"></i><i class="c br"></i>
+  {#if under && !pan && !pull && !drawn}
+    <i class="t x" style={`left:${under.u * 100}%`}></i><i class="t x b" style={`left:${under.u * 100}%`}></i>
+    <i class="t y" style={`top:${under.v * 100}%`}></i><i class="t y r" style={`top:${under.v * 100}%`}></i>
   {/if}
+  {#if gripDrag}
+    {#each ["top-left", "top-right", "bottom-left", "bottom-right"] as c (c)}
+      <i class="slot" class:on={gripDrag.corner === c} style={`${c.startsWith("top") ? "top" : "bottom"}:${slot}px;${c.endsWith("left") ? "left" : "right"}:${slot}px`}></i>
+    {/each}
+  {/if}
+</div>
+
+<!-- An annotation that is shown is a thing on the picture: take it and put it in another corner. -->
+{#each grips as g (g.kind)}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="fx-grip" class:held={gripDrag?.kind === g.kind} style={`left:${g.x}px;top:${g.y}px;width:${g.w}px;height:${g.h}px`} data-fxb-grip={g.kind}
+    onpointerdown={(e) => gripDown(e, g.kind)} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp} onlostpointercapture={gripUp}></div>
+{/each}
+
+{#each previewBoxes as b, i (i)}
+  <div class="fx-preview" style={`left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px`} aria-hidden="true"><span>{b.label}</span></div>
+{/each}
+
+{#if card}
+  <div class="fx-card" class:flip={card.flip} class:up={card.up} style={`left:${card.x}px;top:${card.y}px`} role="status" data-fxb-card>
+    <b>{card.key}</b><span class="of">{card.layer}</span>
+    {#each card.cells as [name, value] (name)}<span class="cell"><i>{name}</i>{value}</span>{/each}
+    {#if under}<span class="cell vals">{#each shown as c, i (c.index)}<span><i class="dot" style={`background:${inkOf(c)}`}></i>{fmtValue(under.values[i] ?? NaN)}</span>{/each}</span>{/if}
+  </div>
+{/if}
+
+{#if manifest && rv && host.w > 0}
+  <FluximgBoard image={bounds} host={{ w: host.w, h: host.h }} {origin} {zoom} prefetch={(dim, steps) => driver?.prefetch(dim, steps)} bind:preview />
 {/if}
 
 <style>
   .fx-live { position: absolute; transform-origin: center; touch-action: none; overflow: hidden; outline: none; cursor: var(--cursor-cross); }
-  .fx-live.framing { cursor: grab; }
+  .fx-live.pan { cursor: grab; }
   .fx-live.panning { cursor: grabbing; }
-  .fx-live.pulling { cursor: move; }
+  .fx-live.pull { cursor: move; }
+  .fx-live.inset { cursor: crosshair; }
   /* The rectangle being drawn for an inset: the pink of Flux's guides, a constant hairline at any zoom. */
-  .vec .draw { fill: var(--c-layout-gap-tint); stroke: var(--c-layout-gap); stroke-width: 1.25px; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+  .vec .draw { fill: color-mix(in oklab, var(--c-guide) 16%, transparent); stroke: var(--c-guide); stroke-width: 1.5px; stroke-dasharray: 5 3; vector-effect: non-scaling-stroke; }
   .gl { position: absolute; display: block; pointer-events: none; }
   /* The drawing buffer is one pixel per screen pixel; if the browser ever rescales it, it must not smooth true pixels. */
   .gl.pixelated { image-rendering: pixelated; }
   .vec { position: absolute; inset: 0; display: block; overflow: hidden; pointer-events: none; }
   /* Objects answer the pointer over their whole interior, drawn or not, so a thin outline is easy to find. */
   .vec :global([data-key]) { pointer-events: all; }
-  .vec :global(.fx-hot) { stroke: var(--c-accent-bright) !important; stroke-width: 2px !important; vector-effect: non-scaling-stroke; fill: var(--c-accent-bright) !important; fill-opacity: 0.18 !important; }
-  /* Rails are drawn straight on the canvas (no card of their own): see FluximgRail. */
-  .fx-railpos { position: absolute; z-index: 2; }
+  .vec :global(.fx-hot) { stroke: var(--c-guide) !important; stroke-width: 2px !important; vector-effect: non-scaling-stroke; fill: var(--c-guide) !important; fill-opacity: 0.22 !important; }
+
+  .fx-frame { position: absolute; z-index: 2; transform-origin: center; pointer-events: none; box-shadow: 0 0 0 1px color-mix(in oklab, var(--c-guide) 62%, transparent); animation: fx-frame-in 150ms linear backwards; }
+  @keyframes fx-frame-in { from { opacity: 0; } to { opacity: 1; } }
+  .c { position: absolute; width: 11px; height: 11px; border: 0 solid var(--c-guide); transition: width 90ms linear, height 90ms linear, border-width 90ms linear; }
+  .c.tl { left: -4px; top: -4px; border-left-width: 2px; border-top-width: 2px; }
+  .c.tr { right: -4px; top: -4px; border-right-width: 2px; border-top-width: 2px; }
+  .c.bl { left: -4px; bottom: -4px; border-left-width: 2px; border-bottom-width: 2px; }
+  .c.br { right: -4px; bottom: -4px; border-right-width: 2px; border-bottom-width: 2px; }
+  .fx-frame.hand .c { width: 17px; height: 17px; }
+  .fx-frame.hand .c.tl { border-left-width: 3.5px; border-top-width: 3.5px; }
+  .fx-frame.hand .c.tr { border-right-width: 3.5px; border-top-width: 3.5px; }
+  .fx-frame.hand .c.bl { border-left-width: 3.5px; border-bottom-width: 3.5px; }
+  .fx-frame.hand .c.br { border-right-width: 3.5px; border-bottom-width: 3.5px; }
+  .fx-frame.inset { box-shadow: 0 0 0 1px var(--c-guide), 0 0 0 4px color-mix(in oklab, var(--c-guide) 22%, transparent); }
+  /* Where the pointer is, on the frame's own edges: four small ticks that ride with it. */
+  .t { position: absolute; background: var(--c-guide); }
+  .t.x { top: -7px; width: 1.5px; height: 6px; margin-left: -0.75px; }
+  .t.x.b { top: auto; bottom: -7px; }
+  .t.y { left: -7px; width: 6px; height: 1.5px; margin-top: -0.75px; }
+  .t.y.r { left: auto; right: -7px; }
+  .slot { position: absolute; width: 20%; height: 11%; min-width: 26px; min-height: 14px; border: 1.5px dashed color-mix(in oklab, var(--c-guide) 70%, transparent); border-radius: 4px; }
+  .slot.on { border-style: solid; border-color: var(--c-guide); background: color-mix(in oklab, var(--c-guide) 18%, transparent); }
+
+  .fx-grip { position: absolute; z-index: 2; border-radius: 4px; cursor: grab; touch-action: none; transition: box-shadow 80ms linear, background-color 80ms linear; }
+  .fx-grip:hover { box-shadow: 0 0 0 1px var(--c-guide); background: color-mix(in oklab, var(--c-guide) 12%, transparent); }
+  .fx-grip.held { cursor: grabbing; box-shadow: 0 0 0 1.5px var(--c-guide); background: color-mix(in oklab, var(--c-guide) 20%, transparent); }
+
+  .fx-preview { position: absolute; z-index: 2; box-sizing: border-box; display: grid; place-items: center; pointer-events: none; border: 1.5px dashed var(--c-guide); background: color-mix(in oklab, var(--c-guide) 13%, transparent); border-radius: 2px; }
+  .fx-preview span { padding: 1px 8px; border-radius: 9px; background: var(--flx-paper); color: var(--flx-magenta-600); font: 600 10.5px var(--font-mono); white-space: nowrap; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); max-width: 90%; overflow: hidden; text-overflow: ellipsis; }
+
+  /* The object under the pointer, named beside it. */
+  .fx-card { position: absolute; z-index: 4; display: flex; flex-direction: column; gap: 1px; min-width: 96px; max-width: 232px; margin: 14px 0 0 14px; padding: 6px 10px 7px; border-radius: 8px; background: #161514; border: 1px solid var(--c-guide); box-shadow: 0 8px 22px -8px rgba(0, 0, 0, 0.75), 0 2px 5px rgba(0, 0, 0, 0.4); color: var(--flx-base-200); font: 10.5px/15px var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; }
+  .fx-card.flip { transform: translateX(calc(-100% - 28px)); }
+  .fx-card.up { margin-top: 0; transform: translateY(calc(-100% - 12px)); }
+  .fx-card.flip.up { transform: translate(calc(-100% - 28px), calc(-100% - 12px)); }
+  .fx-card b { font: 600 12.5px/17px var(--font-ui); color: var(--flx-paper); overflow: hidden; text-overflow: ellipsis; }
+  .fx-card .of { margin-bottom: 2px; color: var(--flx-base-500); font-family: var(--font-ui); }
+  .fx-card .cell { display: flex; gap: 8px; justify-content: space-between; overflow: hidden; }
+  .fx-card .cell > i { font-style: normal; color: var(--flx-base-500); }
+  .fx-card .vals { justify-content: flex-start; gap: 10px; margin-top: 2px; }
+  .fx-card .vals span { display: inline-flex; align-items: center; gap: 4px; }
+  .fx-card .dot { width: 7px; height: 7px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6); }
 </style>

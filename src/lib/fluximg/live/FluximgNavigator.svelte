@@ -106,13 +106,13 @@
 </div>
 
 <style>
-  .nav { position: relative; margin: 0 auto 8px; background: var(--c-bg); outline: 1px solid var(--c-line-strong); border-radius: var(--r-ui); overflow: hidden; user-select: none; touch-action: none; cursor: grab; }
+  .nav { position: relative; margin: 0 auto 8px; background: #070707; box-shadow: 0 0 0 1px rgba(255, 252, 240, 0.1); border-radius: 4px; overflow: hidden; user-select: none; touch-action: none; cursor: grab; }
   .nav.whole { cursor: var(--cursor-cross); }
   .nav.dragging { cursor: grabbing; }
   .nav img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
   .nav svg { position: absolute; inset: 0; display: block; pointer-events: none; }
-  .out { fill: #000; opacity: 0.5; }
-  .frame { fill: none; stroke: var(--c-accent-bright); stroke-width: 1; }
-  .nav.dragging .frame { stroke-width: 1.5; }
+  .out { fill: #000; opacity: 0.55; }
+  .frame { fill: color-mix(in oklab, var(--c-guide) 10%, transparent); stroke: var(--c-guide); stroke-width: 1.25; }
+  .nav.dragging .frame { stroke-width: 2; }
   .inset { fill: none; stroke: #fff; stroke-width: 1; stroke-dasharray: 3 2; opacity: 0.85; }
 </style>

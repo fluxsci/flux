@@ -1,6 +1,6 @@
 /**
- * The live view's transient state: which image is live, which zone of its panel is open, what the wheel drives,
- * and the one-undo-per-gesture edit session every control writes through.
+ * The live view's transient state: which image is live, what it has in hand (what the wheel and a drag on the
+ * image drive), and the one-undo-per-gesture edit session every control writes through.
  *
  * Nothing here is saved. The view recipe itself lives on the element in the ordinary project
  * (`ops.setFluximgView`), so undo, autosave, agents and exports see every change the live view makes.
@@ -15,21 +15,20 @@ import type { FluximgElement } from "../../types";
 import type { FluximgView } from "../view";
 import type { PlayMode } from "./rail";
 
-/** The panel's levels. `home` lists the zones; the others own the panel body until Esc backs out. */
-export type LiveZone = "home" | "channel" | "layers" | "frame" | "annotate";
-
 export interface FluximgLiveState {
   elementId: string;
-  zone: LiveZone;
-  /** The channel whose control is open (zone `channel`). */
+  /** The channel in hand: `black` / `white` / `gamma` / `window` are ITS points, and its strip is the lit one. */
   channel: number;
   /**
-   * What the wheel drives, as a row key: `pos:<dim>` (step planes), `black` / `white` / `gamma` (the open
-   * channel), `run:<dim>` (a projection's length), `zoom` (the frame), `layer:<id>` (a layer's opacity), or null.
+   * What is in hand, as a key: `pos:<dim>` (step planes), `run:<dim>` (a projection's length), `black` / `white` /
+   * `gamma` / `window` (the channel in hand), `zoom` (the frame: wheel zooms, drag moves), `inset` (the next drag
+   * on the image draws one), `layer:<id>` (a layer's opacity), or null. The wheel drives it; so does a drag on the image.
    */
   armed: string | null;
   /** Playback along one dimension, or null. */
   playing: { dim: string; fps: number; mode: PlayMode } | null;
+  /** Playback speed as a multiple of the dimension's own rate (1 = real time). Kept while the view is open. */
+  speed: number;
 }
 
 export const fluximgLive = writable<FluximgLiveState | null>(null);
@@ -44,8 +43,12 @@ export const fluximgLiveBusy = writable(false);
 export interface LiveHover { layerId: string; key: string; from: "image" | "list" }
 export const fluximgHover = writable<LiveHover | null>(null);
 
-/** Where the pointer is over the live image, in level-0 image pixels; null elsewhere. Read on demand (not a store). */
-export const livePointer: { at: { x: number; y: number } | null } = { at: null };
+/**
+ * Where the pointer is over the live image, in level-0 image pixels; null elsewhere. Read on demand (not a store).
+ * `at` follows the pointer once a frame; `locate` (set by the overlay while it is mounted) answers for any client
+ * point at once, which is what a wheel notch needs: the notch may come before the frame that would have updated `at`.
+ */
+export const livePointer: { at: { x: number; y: number } | null; locate: ((clientX: number, clientY: number) => { x: number; y: number } | null) | null } = { at: null, locate: null };
 
 /**
  * The pixels on screen, for "Auto": per shown channel, the plane the current frame drew and the rectangle of it
@@ -55,25 +58,33 @@ export interface LiveSample { channel: number; data: ArrayLike<number>; map: { m
 export const liveSampler: { read: (() => LiveSample[]) | null } = { read: null };
 
 /**
- * Who armed the row the wheel drives. The view arms its first rail by itself when it opens; that implicit arm
- * takes the wheel only over the image and its rails, so the canvas still pans everywhere else. A row the user
- * armed (its key, a click on it or on its rail) takes the wheel anywhere on screen, as an armed F-menu row does.
+ * Who put it in hand. The view takes its first rail by itself when it opens; that implicit hold answers the wheel
+ * only over the image and the board, so the canvas still pans everywhere else. Something the user took in hand
+ * (its key, a click on it) answers the wheel anywhere on screen.
  */
 export const liveArm = { explicit: false };
-/** Arm a row because the user asked for it. */
+/** Take something in hand because the user asked for it. */
 export function armLive(key: string | null): void {
   liveArm.explicit = key !== null;
   setLive({ armed: key });
 }
 
-/** What is under the pointer on the live image, in words: the panel shows it in a fixed strip. */
-export interface LiveReadout { where: string; values: Array<{ name: string; ink: string; text: string }>; object: string }
+/** What is under the pointer on the live image: the board shows it on its instruments. */
+export interface LiveReadout {
+  /** Where the pointer is, in words: ["x 12.40 µm", "y 8.25 µm"]. */
+  where: [string, string];
+  /** The value of each channel the frame on screen drew, by channel index. NaN = no data there. */
+  values: Array<{ channel: number; value: number; text: string }>;
+  /** The object under the pointer, if any. */
+  object: { layerId: string; key: string } | null;
+  /** The pointer in the element's box, as fractions of its width and height (0 .. 1). */
+  u: number; v: number;
+}
 export const fluximgReadout = writable<LiveReadout | null>(null);
-/** A problem the live canvas ran into (no WebGL, an unreadable plane): shown where the readout goes. */
+/** A problem the live canvas ran into (no WebGL, an unreadable plane): shown on the board's head. */
 export const fluximgLiveProblem = writable("");
-
-/** The screen box of the live image together with its rails (client px): the panel keeps clear of it. */
-export const fluximgLiveRect = writable<{ x: number; y: number; w: number; h: number } | null>(null);
+/** What the frame on screen is: bumped by the overlay every time a frame is presented. */
+export const fluximgFrame = writable<{ serial: number; sharp: boolean; pending: number }>({ serial: 0, sharp: true, pending: 0 });
 
 let session: ReturnType<typeof editSession> | null = null;
 let gesture = "";
@@ -153,7 +164,7 @@ export function openFluximgLive(id: string): boolean {
   if (fluximgLiveUnavailable(id)) return false;
   closeFluximgLive();
   selection.set(new Set([id]));
-  fluximgLive.set({ elementId: id, zone: "home", channel: 0, armed: null, playing: null });
+  fluximgLive.set({ elementId: id, channel: 0, armed: null, playing: null, speed: 1 });
   return true;
 }
 
@@ -161,8 +172,7 @@ export function closeFluximgLive(): void {
   if (!get(fluximgLive)) return;
   settleLiveEdit();
   fluximgHover.set(null);
-  fluximgLiveRect.set(null);
-  livePointer.at = null;
+  livePointer.at = null; livePointer.locate = null;
   liveSampler.read = null;
   liveArm.explicit = false;
   fluximgReadout.set(null);
@@ -170,11 +180,11 @@ export function closeFluximgLive(): void {
   fluximgLive.set(null);
 }
 
-/** Change panel state (zone, armed row, playback). Changing what is armed settles the open gesture. */
+/** Change what is in hand, or playback. Changing what is in hand settles the open gesture. */
 export function setLive(patch: Partial<Omit<FluximgLiveState, "elementId">>): void {
   const live = get(fluximgLive);
   if (!live) return;
-  if (("armed" in patch && patch.armed !== live.armed) || ("zone" in patch && patch.zone !== live.zone)) settleLiveEdit();
+  if (("armed" in patch && patch.armed !== live.armed) || ("channel" in patch && patch.channel !== live.channel)) settleLiveEdit();
   fluximgLive.set({ ...live, ...patch });
 }
 

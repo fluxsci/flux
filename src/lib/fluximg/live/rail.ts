@@ -47,15 +47,34 @@ export function niceStride(min: number): number {
 
 export interface RailTick { index: number; pos: number; label: string }
 
+/** The smallest of 1, 2, 5 x 10^n (n any integer) that is at least `min`. */
+export function niceStep(min: number): number {
+  if (!(min > 0) || !Number.isFinite(min)) return 1;
+  const p = Math.pow(10, Math.floor(Math.log10(min)));
+  for (const m of [1, 2, 5, 10]) if (m * p >= min * (1 - 1e-9)) return Number((m * p).toPrecision(12));
+  return 10 * p;
+}
+
 /**
- * Sparse, evenly spaced ticks: every `stride`-th index, with at least `minGap` px between labels. The label is
- * the physical position when the axis has one (the unit is printed once by the rail, not on every tick), the
- * position's name for a categorical dimension, else the 1-based plane number.
+ * Sparse, evenly spaced ticks with at least `minGap` px between labels. An evenly spaced physical axis is ticked at
+ * ROUND VALUES (0, 2, 4 s; never 1.25, 2.5, 3.75), each placed where that value falls along the track; the unit is
+ * printed once by the rail, not on every tick. Any other axis is ticked at every `stride`-th plane: by its
+ * position's name (a categorical dimension), its own coordinate, or its 1-based plane number.
  */
 export function railTicks(axis: FluximgAxis | undefined, length: number, extent: number, format: (v: number) => string, minGap = 54): RailTick[] {
   if (length <= 0 || !(extent > 0)) return [];
-  const stride = niceStride((length * minGap) / extent);
   const out: RailTick[] = [];
+  const scale = axis && !axis.labels && !axis.coords && typeof axis.scale === "number" ? axis.scale : 0;
+  if (scale && length > 1) {
+    const offset = axis!.offset ?? 0, step = niceStep((minGap / extent) * length * Math.abs(scale));
+    const lo = Math.min(offset, offset + scale * (length - 1)), hi = Math.max(offset, offset + scale * (length - 1));
+    for (let k = Math.ceil(lo / step - 1e-9); k * step <= hi * (1 + 1e-12) + 1e-12 && out.length < 400; k++) {
+      const v = Number((k * step).toPrecision(12)), at = (v - offset) / scale;
+      out.push({ index: Math.round(at), pos: ((at + 0.5) / length) * extent, label: format(v) });
+    }
+    return out;
+  }
+  const stride = niceStride((length * minGap) / extent);
   for (let i = 0; i < length; i += stride) {
     const v = axisValue(axis, i);
     const label = axis?.labels?.[i] ?? (v !== null ? format(v) : String(i + 1));
@@ -128,6 +147,20 @@ export function profileShape(values: ReadonlyArray<number | null>, extent: numbe
 }
 
 const r2 = (v: number): string => String(Math.round(v * 100) / 100);
+
+/**
+ * Where a profile's value at plane `i` sits ACROSS the rail (the same scale `profileShape` draws with), or null
+ * when that plane has no value: the dot that rides each channel's trace at the playhead.
+ */
+export function profileLevel(values: ReadonlyArray<number | null>, i: number, across: number, vertical: boolean, pad = 3): number | null {
+  const v = values[i];
+  if (v === null || v === undefined || !Number.isFinite(v)) return null;
+  let lo = Infinity, hi = -Infinity;
+  for (const u of values) if (u !== null && Number.isFinite(u)) { if (u < lo) lo = u; if (u > hi) hi = u; }
+  if (!(lo <= hi)) return null;
+  const t = (v - lo) / (hi - lo || 1), room = Math.max(1, across - 2 * pad);
+  return vertical ? pad + t * room : across - pad - t * room;
+}
 
 /** Step a position by wheel notches or arrow keys, staying inside the dimension. */
 export function stepIndex(i: number, steps: number, length: number): number {

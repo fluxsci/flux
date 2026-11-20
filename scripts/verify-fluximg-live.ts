@@ -1,17 +1,19 @@
-// fluximg live view, the pure half: navigator-rail geometry and playback (live/rail.ts), the channel
-// histogram's geometry, Auto ladder and wheel steps (live/histogram.ts), and the viewOps properties the live
-// panel relies on (a patch that restores a default leaves no key behind).
+// fluximg live view, the pure half: rail geometry and playback (live/rail.ts), the channel histogram's geometry,
+// the histogram of the pixels on screen, Auto ladder and wheel steps (live/histogram.ts), where the control board
+// stands round the image (live/boardLayout.ts), where new panels go (panelLayout.ts), and the viewOps properties
+// the board relies on (a patch that restores a default leaves no key behind).
 //
 // Pure tier. Hermetic: no files, no browser; stats are synthetic. Properties are checked over seeded random
 // inputs as well as at the edges, so a regression shows as a counter-example with its numbers.
 // Run: node --import tsx scripts/verify-fluximg-live.ts
 import { harness } from "./lib/harness.mjs";
 import {
-  axisValue, framePeriod, niceStride, playStep, profileShape, railIndex, railPos, railSpan, railTicks, resizeRun, slideRun, stepIndex,
+  axisValue, framePeriod, niceStep, niceStride, playStep, profileLevel, profileShape, railIndex, railPos, railSpan, railTicks, resizeRun, slideRun, stepIndex,
   type PlayMode, type PlayState,
 } from "../src/lib/fluximg/live/rail";
+import { BOARD, boardLayout, type Box } from "../src/lib/fluximg/live/boardLayout";
 import {
-  AUTO_STEPS, autoStepOf, autoWindow, clippedShares, formatShare, histDomain, histogramPath, moveWindow, nextAutoStep, nudgeStep, shareBelow, snapValue, transferPath, valueToX, xToValue,
+  AUTO_STEPS, autoStepOf, autoWindow, clippedShares, formatShare, histDomain, histogramPath, moveWindow, nextAutoStep, nudgeStep, shareBelow, snapValue, transferPath, valueToX, viewHistogram, xToValue,
 } from "../src/lib/fluximg/live/histogram";
 import { gridCells, insetLayout, splitLayout, type PanelBox } from "../src/lib/fluximg/panelLayout";
 import { patchView, resolveView } from "../src/lib/fluximg/viewOps";
@@ -77,7 +79,21 @@ h.section("rail: ticks");
   h.eq(t7.map((k) => k.label), ["1", "2", "3", "4", "5", "6", "7"], "a count axis labels planes 1-based");
   const zAxis = { unit: "µm", coords: [-61.5, -60.5, -59.5, -58.5, -57.5, -56.5, -55.5] };
   h.eq(railTicks(zAxis, 7, 330, (v) => String(v), 30).map((k) => k.label), zAxis.coords.map(String), "explicit coordinates label the ticks (the unit is printed once, not per tick)");
-  h.eq(railTicks({ unit: "s", scale: 0.0125 }, 24, 120, (v) => v.toFixed(3), 54).map((k) => k.label), ["0.000", "0.250"], "a scaled axis labels by value (24 planes on 120 px: every 20th)");
+  h.eq(railTicks({ unit: "s", scale: 0.0125 }, 24, 120, (v) => v.toFixed(3), 54).map((k) => k.label), ["0.000", "0.200"], "an evenly spaced axis is ticked at round values (0.2 s apart here, never every 20th frame = 0.25 s)");
+  h.eq(railTicks({ unit: "s", scale: 0.0125 }, 816, 574, String, 58).map((k) => k.label), ["0", "2", "4", "6", "8", "10"], "an 80 Hz movie of 10.2 s reads 0, 2, 4 … 10 s");
+  h.eq(railTicks({ unit: "µm", scale: 1.5, offset: -50.5 }, 21, 400, String, 30).map((k) => k.label), ["-50", "-45", "-40", "-35", "-30", "-25"], "an offset axis is ticked at round VALUES, not at the first plane");
+  h.eq(railTicks({ unit: "µm", scale: -2, offset: 10 }, 6, 300, String, 54).map((k) => k.label), ["0", "5", "10"], "a descending axis is ticked at round values too");
+  h.eq([niceStep(0.135), niceStep(1), niceStep(1.01), niceStep(0.0049), niceStep(37), niceStep(0)], [0.2, 1, 2, 0.005, 50, 1], "niceStep is the smallest 1-2-5 x 10^n at least the minimum, at any magnitude");
+  {
+    const bad = find(Array.from({ length: 300 }, () => ({ n: int(2, 5000), extent: int(60, 1400), scale: (R() < 0.2 ? -1 : 1) * Math.pow(10, R() * 6 - 4), offset: (R() - 0.5) * 100, gap: [30, 58][int(0, 1)] })), ({ n, extent, scale, offset, gap }) => {
+      const t = railTicks({ unit: "u", scale, offset }, n, extent, String, gap);
+      if (!t.length) return true;
+      const sorted = t.map((k) => k.pos).sort((a, b) => a - b);
+      for (let i = 1; i < sorted.length; i++) if (sorted[i] - sorted[i - 1] < gap - 1e-6) return true;
+      return sorted[0] < -1e-6 || sorted[sorted.length - 1] > extent + 1e-6;
+    });
+    h.ok(!bad, `round-value ticks are at least minGap apart and inside the track, for any scale, offset and direction${bad ? ` (counter-example ${show(bad)})` : ""}`);
+  }
   h.eq(railTicks({ labels: ["ctrl", "drug", "wash"] }, 3, 300, String, 54).map((k) => k.label), ["ctrl", "drug", "wash"], "a categorical dimension labels by name");
   h.eq([axisValue(undefined, 2), axisValue({ unit: "s", scale: 2, offset: 1 }, 3), axisValue({ coords: [5, 9] }, 1), axisValue({ labels: ["a"] }, 0)], [null, 7, 9, null], "axisValue: none, scale + offset, coords, categorical");
   h.eq(railTicks(undefined, 0, 300, String), [], "no planes, no ticks");
@@ -106,6 +122,13 @@ h.section("rail: the profile plot");
   h.eq((gapped.d.match(/Z/g) ?? []).length, 2, "a stretch of planes without data splits the envelope in two");
   const broken = profileShape([1, 2, null, 4, 5], 200, 26, false);
   h.eq((broken.d.match(/M/g) ?? []).length, 2, "a plane without data breaks the line");
+  // The dot that rides a trace at the playhead sits exactly on the trace.
+  {
+    const values = [3, 9, null, 5, 1], d = pairs(profileShape(values, 200, 30, false).d), dv = pairs(profileShape(values, 200, 30, true).d);
+    h.eq([0, 1, 3, 4].map((i) => profileLevel(values, i, 30, false)), d.map((q) => q[1]), "a lying rail's dot is at the trace's own height for that plane");
+    h.eq([0, 1, 3, 4].map((i) => profileLevel(values, i, 30, true)), dv.map((q) => q[0]), "a standing rail's dot is at the trace's own distance across the well");
+    h.eq([profileLevel(values, 2, 30, false), profileLevel([], 0, 30, false), profileLevel([null], 0, 30, false)], [null, null, null], "a plane without data has no dot");
+  }
   h.eq(profileShape([null, null], 200, 26, false).d, "", "no data at all: nothing drawn");
   h.eq(profileShape([], 200, 26, false).d, "", "no planes: nothing drawn");
   const one = profileShape([42], 200, 26, true);
@@ -393,6 +416,92 @@ h.section("viewOps: a patch that restores a default leaves no key");
   const out = find(cases, ({ f, src }) => { const a = 0.2 + R() * 4, l = insetLayout(f, src, a); return !within(f, l.box) || Math.abs(l.box.width / l.box.height - a) > 1e-6 * a || (l.place !== "inside" && overlap(l.box, src)); });
   h.ok(out === null, `an inset is always inside the figure, keeps its region's aspect, and covers its image only when it stands on it${out ? ` (counter-example ${show(out)})` : ""}`);
   h.ok(insetLayout(page, fitted, 6).box.width <= 324 + 1e-9, "a very wide inset on its image is never more than half the image's width");
+}
+
+// ---------------------------------------------------------------------------------------------
+// The histogram of the pixels on screen (what a channel strip draws in its colours)
+// ---------------------------------------------------------------------------------------------
+h.section("histogram: the pixels on screen");
+{
+  const W = 40, H = 30, data = new Float32Array(W * H);
+  for (let i = 0; i < data.length; i++) data[i] = i % 100; // every value 0 .. 99 twelve times
+  const id = (v: number): number => v, whole = { x: 0, y: 0, width: W, height: H };
+  const all = viewHistogram(data, W, H, whole, id, { lo: 0, hi: 100 }, 10)!;
+  h.eq(all.counts, new Array(10).fill(120), "ten bins over 0 .. 100 hold a tenth of the pixels each");
+  h.eq([all.lo, all.hi], [0, 100], "the histogram spans the control's own span (so it lines up with the handles)");
+  const part = viewHistogram(data, W, H, { x: 0, y: 0, width: W, height: 5 }, id, { lo: 0, hi: 100 }, 10)!;
+  h.eq(part.counts.reduce((a, b) => a + b, 0), 200, "only the pixels inside the frame are counted");
+  const top = viewHistogram(data, W, H, whole, id, { lo: 0, hi: 99 }, 10)!;
+  h.eq(top.counts.reduce((a, b) => a + b, 0), 1200, "a value exactly at the span's end is counted (in the last bin), never dropped");
+  const narrow = viewHistogram(data, W, H, whole, id, { lo: 20, hi: 30 }, 5)!;
+  h.eq(narrow.counts.reduce((a, b) => a + b, 0), 132, "values outside the span are left out, not piled onto its ends");
+  const holes = Float32Array.from(data, (v, i) => (i % 2 ? NaN : v));
+  h.eq(viewHistogram(holes, W, H, whole, id, { lo: 0, hi: 100 }, 10)!.counts.reduce((a, b) => a + b, 0), 600, "pixels without data are not counted");
+  h.eq(viewHistogram(data, W, H, whole, (v) => v * 2 + 1000, { lo: 1000, hi: 1200 }, 10)!.counts, new Array(10).fill(120), "stored samples are decoded to values before they are binned");
+  h.eq(viewHistogram(data, W, H, { x: 500, y: 500, width: 10, height: 10 }, id, { lo: 0, hi: 100 }), null, "a frame outside the plane has no histogram");
+  h.eq(viewHistogram(data, W, H, whole, id, { lo: 5, hi: 5 }), null, "an empty span has no histogram");
+  h.eq(viewHistogram(data, W, H, whole, id, { lo: 500, hi: 600 }), null, "nothing in view inside the span: no histogram (the strip falls back to the whole image's)");
+  const big = new Uint16Array(2048 * 2048).fill(7);
+  const thin = viewHistogram(big, 2048, 2048, { x: 0, y: 0, width: 2048, height: 2048 }, id, { lo: 0, hi: 10 }, 10, 120_000)!;
+  const seen = thin.counts.reduce((a, b) => a + b, 0);
+  h.ok(seen > 60_000 && seen <= 120_000 && thin.counts[7] === seen, `a 4-megapixel plane is thinned to at most the cap (${seen.toLocaleString("en-US")} samples), evenly`);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Where the control board stands (boardLayout.ts)
+// ---------------------------------------------------------------------------------------------
+h.section("the board: where its instruments stand round the image");
+{
+  const meets = (a: Box, b: Box): boolean => a.x < b.x + b.w - 1e-6 && b.x < a.x + a.w - 1e-6 && a.y < b.y + b.h - 1e-6 && b.y < a.y + a.h - 1e-6;
+  const insideHost = (host: { w: number; h: number }, b: Box): boolean => b.x >= BOARD.pad - 1e-6 && b.y >= BOARD.pad - 1e-6 && b.x + b.w <= host.w - BOARD.pad + 1e-6 && b.y + b.h <= host.h - BOARD.pad + 1e-6;
+  const CONSOLE = { w: 252, h: 380 }, LAYERS = { w: 228, h: 200 };
+  const host = { w: 1200, h: 900 };
+  // The board's own shape: a square stack in the middle of a roomy canvas.
+  const roomy = boardLayout({ host, image: { x: 400, y: 150, w: 400, h: 400 }, depth: true, rows: 1, console: CONSOLE, layers: LAYERS });
+  h.eq([roomy.depth?.side, roomy.console.side, roomy.layers?.side, roomy.rowsAt, roomy.over], ["left", "right", "left", "below", false], "with room all round: depth at the left like a y axis, time under like an x axis, the console at the right, layers outermost at the left");
+  h.eq([roomy.depth!.x + roomy.depth!.w, roomy.depth!.y, roomy.depth!.h], [400 - BOARD.gap, 150, 400], "the depth rail stands a gap from the image and is exactly as tall as it");
+  h.eq([roomy.rows[0].x, roomy.rows[0].w, roomy.rows[0].y], [400, 400, 550 + BOARD.gap], "the time rail lies a gap under the image and is exactly as wide as it");
+  h.eq([roomy.console.x, roomy.console.y], [800 + BOARD.gap, 150], "the console starts level with the image's top, a gap from its side");
+  h.ok(roomy.layers!.x + roomy.layers!.w === roomy.depth!.x - BOARD.gap, "layers stand outside the depth rail");
+
+  const noLeft = boardLayout({ host, image: { x: 20, y: 150, w: 400, h: 400 }, depth: true, rows: 0, console: CONSOLE, layers: null });
+  h.eq([noLeft.depth?.side, noLeft.console.side, noLeft.over], ["right", "right", false], "no room at the left: the depth rail stands at the right, between the image and the console");
+  h.ok(noLeft.depth!.x < noLeft.console.x, "…nearest the image");
+  const noRight = boardLayout({ host, image: { x: 700, y: 150, w: 400, h: 400 }, depth: true, rows: 0, console: CONSOLE, layers: null });
+  h.eq([noRight.console.side, noRight.over], ["left", false], "no room at the right: the console stands at the left");
+  const stacked = boardLayout({ host, image: { x: 100, y: 150, w: 800, h: 600 }, depth: false, rows: 0, console: CONSOLE, layers: LAYERS });
+  h.eq([stacked.console.side, stacked.layers?.under, stacked.over], ["right", true, false], "room for one column only: layers stand under the console");
+  h.ok(stacked.layers!.y === stacked.console.y + stacked.console.h + BOARD.gap && stacked.layers!.x === stacked.console.x, "…a gap below it, on its edge nearest the image");
+  const wide = boardLayout({ host, image: { x: 300, y: 150, w: 620, h: 143 }, depth: false, rows: 1, console: CONSOLE, layers: LAYERS });
+  h.eq([wide.console.side, wide.layers?.side, wide.over], ["below", "below", false], "a wide, low image (a line-scan movie) takes its console and layers under it");
+  h.ok(wide.console.y === wide.rows[0].y + wide.rows[0].h + BOARD.gap && wide.console.x === 300 && wide.layers!.x === 300 + CONSOLE.w + BOARD.gap, "…under its rail, from its left edge, side by side");
+  const full = boardLayout({ host, image: { x: -400, y: -300, w: 2400, h: 1800 }, depth: true, rows: 1, console: CONSOLE, layers: null });
+  h.eq([full.over, full.rowsAt], [true, "over"], "an image that fills the canvas: the instruments stand over its edges");
+  h.ok([full.depth!, full.console, ...full.rows].every((b) => insideHost(host, b)), "…wholly inside the canvas");
+  h.ok(!full.rows.some((r) => meets(r, full.console) || meets(r, full.depth!)), "…and the rail lying over its foot does not run under the instruments standing at its sides");
+  const tiny = boardLayout({ host, image: { x: 500, y: 300, w: 40, h: 30 }, depth: true, rows: 1, console: CONSOLE, layers: null });
+  h.eq([tiny.stage.w, tiny.stage.h, tiny.depth!.h, tiny.rows[0].w], [BOARD.rowMinW, BOARD.depthMinH, BOARD.depthMinH, BOARD.rowMinW], "a tiny image still gets rails long enough to use");
+  h.ok(tiny.console.x >= 500 + BOARD.rowMinW + BOARD.gap, "…and the console stands clear of the lengthened rail");
+
+  // Properties over random canvases, images and boards.
+  const cases = Array.from({ length: 600 }, () => {
+    const hw = int(900, 2400), hh = int(620, 1500), w = int(20, 1800), hgt = int(20, 1400);
+    return {
+      host: { w: hw, h: hh }, image: { x: int(-600, hw), y: int(-400, hh), w, h: hgt }, depth: R() < 0.6, rows: int(0, 2),
+      console: { w: 252, h: int(150, 560) }, layers: R() < 0.4 ? { w: 228, h: int(60, 520) } : null,
+    };
+  });
+  const parts = (l: ReturnType<typeof boardLayout>): Box[] => [l.console, ...(l.layers ? [l.layers] : []), ...(l.depth ? [l.depth] : []), ...l.rows];
+  const outside = find(cases, (c) => !parts(boardLayout(c)).every((b) => insideHost(c.host, b)));
+  h.ok(outside === null, `every instrument is wholly inside the canvas${outside ? ` (counter-example ${show(outside)})` : ""}`);
+  const covered = find(cases, (c) => { const l = boardLayout(c); return !l.over && parts(l).some((b) => meets(b, l.stage)); });
+  h.ok(covered === null, `no instrument covers the image unless the layout says the canvas had no room${covered ? ` (counter-example ${show(covered)})` : ""}`);
+  const piled = find(cases, (c) => { const l = boardLayout(c), all = parts(l); return !l.over && all.some((a, i) => all.some((b, k) => k > i && meets(a, b))); });
+  h.ok(piled === null, `instruments never overlap each other while there is room${piled ? ` (counter-example ${show(piled)})` : ""}`);
+  const lost = find(cases, (c) => { const l = boardLayout(c); return l.rows.length !== c.rows || !!l.depth !== c.depth || !!l.layers !== !!c.layers || parts(l).some((b) => !(b.w > 0) || !(b.h >= 0)); });
+  h.ok(lost === null, `every instrument asked for is given a place${lost ? ` (counter-example ${show(lost)})` : ""}`);
+  const same = find(cases, (c) => JSON.stringify(boardLayout(c)) !== JSON.stringify(boardLayout(structuredClone(c))));
+  h.ok(same === null, "the layout is a pure function of its inputs");
 }
 
 await h.done();
