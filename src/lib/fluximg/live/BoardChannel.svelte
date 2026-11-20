@@ -140,6 +140,8 @@
 
   // --- dragging the points ------------------------------------------------------------------------
   let svg = $state<SVGSVGElement>();
+  /** What takes the pointer: the plot and a margin round it, so a knob (which hangs half off the plot) is grabbed anywhere on it. */
+  let hit = $state<HTMLDivElement>();
   let drag = $state.raw<{ pointer: number; which: Point; x0: number; from: [number, number]; g0: number } | null>(null);
   let over = $state<Point | null>(null);
   const GRAB = 9;
@@ -151,12 +153,12 @@
     return db <= GRAB && db <= dw ? "black" : dw <= GRAB ? "white" : x > xb && x < xw ? "window" : db < dw ? "black" : "white";
   }
   function down(e: PointerEvent): void {
-    if (e.button !== 0 || !svg) return;
+    if (e.button !== 0 || !svg || !hit) return;
     e.preventDefault(); e.stopPropagation();
     const p = local(e), which = pointAt(p.x, p.y);
     held = { ...domain };
     drag = { pointer: e.pointerId, which, x0: p.x, from: [range[0], range[1]], g0: norm === "gamma" ? gamma : 1 };
-    svg.setPointerCapture(e.pointerId);
+    hit.setPointerCapture(e.pointerId);
     if (which === "gamma") ongamma(gammaAt(p.y), "start"); else onwindow(windowAt(p.x), "start");
   }
   function windowAt(x: number): [number, number] {
@@ -184,7 +186,7 @@
     const g = phase === "end" && d.which === "gamma" ? gammaAt(p.y) : d.g0;
     const range = phase === "end" && d.which !== "gamma" ? windowAt(p.x) : d.from;
     drag = null; held = null;
-    if (svg?.hasPointerCapture(e.pointerId)) svg.releasePointerCapture(e.pointerId);
+    if (hit?.hasPointerCapture(e.pointerId)) hit.releasePointerCapture(e.pointerId);
     if (d.which === "gamma") ongamma(g, phase); else onwindow(range, phase);
   }
   const lit = (p: Point): boolean => drag?.which === p || (!drag && (over === p || (inHand && (armed === p || armed === "window" && p !== "gamma"))));
@@ -215,7 +217,7 @@
       data-tip={shown ? "Hide · alt-click: only this one" : "Show"} data-hk={hotkey ? `⇧${hotkey}` : undefined}
       onpointerdown={(e) => e.stopPropagation()} onclick={(e) => { e.stopPropagation(); if (e.altKey) onsolo(); else ontoggle(); }}>{hotkey}</button>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <span class="name" onclick={() => ontake("white")} data-tip="Take in hand" data-hk={hotkey || undefined}>{name}</span>
+    <span class="name" onclick={() => ontake("white")} data-tip={inHand ? "Let go" : "Take in hand: the wheel and a drag on the image set its contrast"} data-hk={inHand ? "Esc" : hotkey || undefined}>{name}</span>
     <span class="keys">
       <PaperKey quiet size={20} glyph="auto" label="Auto contrast" hotkey={inHand ? "A" : ""} onpress={onauto} />
       <PaperKey quiet size={20} glyph={norm} label={norm === "linear" ? "Linear · click for log" : norm === "log" ? "Log · click for gamma" : "Gamma · click for linear"} on={norm !== "linear"} onpress={onnorm} />
@@ -236,10 +238,7 @@
   </div>
 
   <div class="wellbox" style={`width:${w}px;height:${h}px`}>
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <svg bind:this={svg} class="well" width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={`cursor:${cursor}`} data-fxb-well data-b={(xb / w).toFixed(4)} data-w={(xw / w).toFixed(4)}
-      onpointerdown={down} onpointermove={move} onpointerup={(e) => finish(e, "end")} onpointercancel={(e) => finish(e, "cancel")} onlostpointercapture={(e) => finish(e, "cancel")}
-      ondblclick={(e) => { e.stopPropagation(); onauto(); }}>
+    <svg bind:this={svg} class="well" width={w} height={h} viewBox={`0 0 ${w} ${h}`} data-fxb-well data-b={(xb / w).toFixed(4)} data-w={(xw / w).toFixed(4)}>
       <defs>
         <!-- The colour map laid from the black point to the white point: the fill IS the mapping. -->
         <linearGradient id={`${uid}-map`} gradientUnits="userSpaceOnUse" x1={xb} y1="0" x2={Math.max(xw, xb + 0.01)} y2="0">
@@ -273,6 +272,10 @@
       {#if bend && (busy || norm === "gamma")}<circle class="bend" class:lit={lit("gamma")} cx={bend.x} cy={bend.y} r={lit("gamma") ? 4.5 : 3.5} />{/if}
       {#if probeX !== null}<path class="probe" d={`M${probeX} 0V${h}M${probeX - 3.5} 0h7`} />{/if}
     </svg>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div bind:this={hit} class="hit" style={`cursor:${cursor}`} data-fxb-wellhit
+      onpointerdown={down} onpointermove={move} onpointerup={(e) => finish(e, "end")} onpointercancel={(e) => finish(e, "cancel")} onlostpointercapture={(e) => finish(e, "cancel")}
+      ondblclick={(e) => { e.stopPropagation(); onauto(); }}></div>
     <!-- The knobs hang on the plot's foot, half over its edge, so they never hide the histogram. -->
     <span class="knob" class:lit={lit("black")} class:held={drag?.which === "black" || drag?.which === "window"} style={`left:${xb}px`} data-fxb-knob="black"></span>
     <span class="knob" class:lit={lit("white")} class:held={drag?.which === "white" || drag?.which === "window"} style={`left:${xw}px`} data-fxb-knob="white"></span>
@@ -317,7 +320,8 @@
   .range.lo .num.b, .range.hi .num.w { color: var(--fxb-pink-hi); }
   .num.in { width: 74px; height: 16px; box-sizing: border-box; background: #000; color: var(--fxb-tx-hi); outline: 1px solid var(--fxb-pink); text-align: right; cursor: text; }
   .wellbox { position: relative; }
-  .well { display: block; border-radius: 4px; background: var(--fxb-well); box-shadow: inset 0 0 0 1px rgba(255, 252, 240, 0.07); touch-action: none; overflow: hidden; }
+  .well { display: block; border-radius: 4px; background: var(--fxb-well); box-shadow: inset 0 0 0 1px rgba(255, 252, 240, 0.07); overflow: hidden; pointer-events: none; }
+  .hit { position: absolute; inset: 0 -7px -8px -7px; touch-action: none; }
   .clip { opacity: 0.2; pointer-events: none; }
   .stack { fill: rgba(255, 252, 240, 0.09); pointer-events: none; }
   .stack.alone { fill: none; }

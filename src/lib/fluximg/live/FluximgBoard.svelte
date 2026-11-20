@@ -181,7 +181,9 @@
   }
   const full = $derived(ctx ? fullCrop(ctx.manifest) : null);
   const whole = $derived(!!ctx && !!full && ctx.crop.width >= full.width - 1e-6 && ctx.crop.height >= full.height - 1e-6);
-  function frameKey(): void { if (live?.armed === "zoom") { settleLiveEdit(); liveArm.explicit = false; setLive({ armed: defaultArmed() }); } else armLive("zoom"); }
+  /** Let go of what is in hand: the view holds its first rail by itself again. */
+  function letGo(): void { settleLiveEdit(); liveArm.explicit = false; setLive({ armed: defaultArmed() }); }
+  function frameKey(): void { if (live?.armed === "zoom") letGo(); else armLive("zoom"); }
   function insetKey(): void {
     if (live?.armed !== "inset") { armLive("inset"); return; }
     // Asked again: the frame as it is becomes the inset (when it is a region), and the image shows all of itself.
@@ -316,7 +318,7 @@
     if (over.startsWith("chan:")) {
       const i = Number(over.slice(5));
       // On the plot, the nearer of the two points; on the strip's head, the white point.
-      const well = target?.closest<SVGSVGElement>("[data-fxb-well]");
+      const well = target?.closest("[data-fxb-wellhit]") ? target.closest("[data-fxb-channel]")?.querySelector<SVGSVGElement>("[data-fxb-well]") ?? null : null;
       let which: 0 | 1 = 1;
       if (well) { const r = well.getBoundingClientRect(), u = (e.clientX - r.left) / Math.max(1, r.width); which = Math.abs(u - Number(well.dataset.b)) < Math.abs(u - Number(well.dataset.w)) ? 0 : 1; }
       if (live.channel === i && armed === "gamma" && !well) nudgeGamma(i, notches * coarse);
@@ -434,7 +436,7 @@
             wellH={ctx.view.channels.length > 4 ? 34 : 46} swatches={SWATCHES} current={swatchOf(c)}
             onwindow={(range, phase) => { if (phase === "cancel") cancelLiveEdit(); else { setWindow(i, range); if (phase === "end") settleLiveEdit(); } }}
             ongamma={(g, phase) => bend(i, g, phase)}
-            ontake={(point) => takeChannel(i, point)}
+            ontake={(point) => { if (live.channel === i && channelInHand(live.armed)) letGo(); else takeChannel(i, point); }}
             ontoggle={() => toggleChannel(i)} onsolo={() => soloChannel(i)} onauto={() => autoContrast(i)} onnorm={() => cycleNorm(i)}
             oncolor={(s) => { setChannel(i, s.color ? { color: s.color } : { lut: s.lut, color: null as unknown as undefined }); settleLiveEdit(); }}
             oninvert={() => { setChannel(i, { invert: c.invert ? (null as unknown as undefined) : true }); settleLiveEdit(); }}

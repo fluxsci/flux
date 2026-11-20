@@ -13666,7 +13666,7 @@ button", "less text and fields/boxes, more of a dynamic, responsive surface". Th
 histogram and layer-list components are gone. New: `FluximgBoard`, `BoardChannel`, `BoardRail`, `BoardLayers`,
 `PaperKey`, `glyphs.ts`, `boardLayout.ts`, `objectTables.ts`; `viewHistogram`, `niceStep`, round-value `railTicks`,
 `profileLevel`; `takeChannel`, `holdRail`, `stepSpeed`, `autoPlan`, `splitPlan`, `setFurnitureCorner`. Gates:
-`verify-fluximg-live` (184) and `verify-fluximg-live-gui` (382, rewritten; each section now places its own fixture
+`verify-fluximg-live` (184) and `verify-fluximg-live-gui` (389, rewritten; each section now places its own fixture
 and `FX_ONLY=<word>` runs one section).
 **Learnings:** (promoted to §4 "The live view is a CONTROL BOARD")
 - A component that reads its result AFTER clearing its drag state throws inside the pointerup handler, and the

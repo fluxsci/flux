@@ -146,7 +146,8 @@ scale is in the axis' own unit, at round values.
 
 - **Wheel** over the image or over the rail steps planes. **← / →** step along the rail under the
   image, **↑ / ↓** through depth (**Shift**: ten).
-- **Drag** along a rail to scrub. Resting on it names the plane under the pointer.
+- **Drag** along a rail, or drag the flag itself, to scrub. Resting on the rail names the plane
+  under the pointer.
 - The round **play** key, or **Space**, plays: at the real frame rate when the dimension is time
   in seconds, otherwise 12 planes a second. Its ring fills as the stack goes by. The small dial
   beside it is the **speed** (¼× to 4×): click it or roll the wheel over it.
@@ -185,8 +186,8 @@ outline behind it.
 - While you work a strip, the plot says what share of the channel's values the window clips at
   each end ("1.4 %"), estimated from the whole image's histogram.
 
-Press a channel's digit to take it **in hand**: the wheel then moves its white point from
-anywhere, and **dragging on the image** pulls its contrast (right narrows the window about its
+Press a channel's digit, or click its name, to take it **in hand** (click the name again, or
+**Escape**, to let it go): the wheel then moves its white point from anywhere, and **dragging on the image** pulls its contrast (right narrows the window about its
 centre, left widens it; up and down slide it brighter and darker). The window never leaves the
 channel's own range of values.
 

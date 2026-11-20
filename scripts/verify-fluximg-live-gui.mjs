@@ -424,6 +424,16 @@ h.ok(mid === 3 && (await idx(S, "z")) === 5, `dragging on the rail scrubs throug
 after = await model(S);
 h.eq(after.past - before.past, 1, "…and the whole scrub is ONE undo step");
 h.eq(after.explicit, false, "…and scrubbing with the mouse takes nothing in hand (the wheel off the image is still the canvas's)");
+// The flag is a handle too: take it and scrub.
+{
+  ph = await playhead("z");
+  const f = await rect("[data-fxb-rail='z'] [data-fxb-flag]"), to = at(ph.track, 2, ph.n), m0 = await model(S);
+  await drag({ x: f.cx, y: f.cy }, { x: f.cx, y: to.y });
+  h.eq(await idx(S, "z"), 2, "dragging the playhead's flag scrubs too");
+  h.eq((await model(S)).past - m0.past, 1, "…as one undo step");
+  await press("z", ["Control"]);
+  h.eq(await idx(S, "z"), 5, "(undone)");
+}
 // The rail names the plane under the pointer before you go there.
 {
   const p = at(ph.track, 1, ph.n);
@@ -596,6 +606,15 @@ h.ok(c1.range[1] < c0.range[1] && c1.range[0] === c0.range[0], `dragging the whi
 h.eq(after.past - before.past, 1, "…as one undo step");
 h.ok(!after.explicit && after.live.armed === "pos:z" && !(await strips())[0].hand, "…and the channel is not taken in hand: the wheel over the image still steps planes");
 h.eq((await strips())[0].range, c1.range.map((v) => String(v)), "the strip's numbers are the window");
+{
+  // A knob hangs half below the plot: it is grabbed anywhere on it, not only on the half inside the plot.
+  const wk = await rect(`${strip(0)} .knob[data-fxb-knob='white']`), well = await rect(`${strip(0)} svg.well`);
+  const r0 = (await chanOf(S, 0)).range;
+  await drag({ x: wk.cx, y: wk.bottom - 1.5 }, { x: wk.cx - 20, y: wk.bottom - 1.5 });
+  h.ok(wk.bottom - 1.5 > well.bottom && (await chanOf(S, 0)).range[1] < r0[1], `a knob is grabbed anywhere on it, also on the half that hangs below the plot (${r0[1]} -> ${(await chanOf(S, 0)).range[1]})`);
+  await press("z", ["Control"]);
+  h.eq((await chanOf(S, 0)).range, r0, "(undone)");
+}
 c0 = c1; before = after;
 {
   const well = await rect(`${strip(0)} svg.well`), bk = await rect(`${strip(0)} .knob[data-fxb-knob='black']`), wk = await rect(`${strip(0)} .knob[data-fxb-knob='white']`);
@@ -717,6 +736,16 @@ h.eq((await model(S)).live.armed, "white", "…and round to the white point");
 await press("Escape");
 m = await model(S);
 h.ok((await isOpen()) && m.live.armed === "pos:z" && !m.explicit && !(await strips())[0].hand, "Esc lets the channel go (the view stays open, the rail is the view's own hold again)");
+// A click on a channel's name takes it in hand; a click on the name of the one in hand lets it go.
+{
+  await page.click(`${strip(1)} .name`);
+  m = await model(S);
+  h.ok(m.live.channel === 1 && m.live.armed === "white" && m.explicit && (await strips())[1].hand, "a click on a channel's name takes it in hand");
+  await page.click(`${strip(1)} .name`);
+  m = await model(S);
+  h.ok(m.live.armed === "pos:z" && !m.explicit && !(await strips())[1].hand, "…and a click on it again lets it go");
+  await page.mouse.move(5, 940);
+}
 // The strip's own keys appear when it is wanted: the curve, the colour drawer, only-this.
 {
   const name = await rect(`${strip(0)} .name`);

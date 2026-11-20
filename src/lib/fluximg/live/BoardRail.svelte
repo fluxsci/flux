@@ -249,7 +249,8 @@
     <!-- The playhead reaches out of the well to its flag. -->
     {#if !band}<span class="stem" style={vertical ? `top:${head}px` : `left:${head}px`}></span>{/if}
     <!-- The flag: the plane on screen, in words, riding the playhead. -->
-    <span class="flag" class:atstart={!vertical && flagAt < 40} class:atend={!vertical && flagAt > extent - 40} data-fxb-flag style={vertical ? `top:${Math.min(extent - 12, Math.max(12, flagAt))}px` : `left:${flagAt}px`}>{#if here.tag}<em>{here.tag}</em>{/if}<b>{here.n}</b>{#if here.at}<i>{here.at}</i>{/if}</span>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <span class="flag grab" class:atstart={!vertical && flagAt < 40} class:atend={!vertical && flagAt > extent - 40} data-fxb-flag onpointerdown={down} style={vertical ? `top:${Math.min(extent - 12, Math.max(12, flagAt))}px` : `left:${flagAt}px`}>{#if here.tag}<em>{here.tag}</em>{/if}<b>{here.n}</b>{#if here.at}<i>{here.at}</i>{/if}</span>
   </div>
 
   <div class="ends z">
@@ -337,6 +338,8 @@
   .rail.vertical:not(.left) .flag { left: 0; align-items: flex-start; }
   .rail.vertical .flag b { font-size: 11px; }
   .rail.vertical .flag i { font-size: 9px; }
+  /* The flag is a handle: take it and scrub (a run's flag slides the run). */
+  .flag.grab { pointer-events: auto; cursor: grab; touch-action: none; }
   .flag.ghostflag { background: #343331; color: var(--fxb-tx-hi); box-shadow: none; }
   .flag.ghostflag i { color: var(--fxb-tx); }
   /* The chooser: what the planes of a run become. It lies over the scale while it is open. */
