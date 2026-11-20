@@ -10,8 +10,8 @@ import { findElement, mutate, project, selection } from "../../store";
 import { storeTenant } from "../../tenancy";
 import { editSession } from "../../interact/editSession";
 import { selectionTargets } from "../../interact/selectionTargets";
-import { setCrop, setFluximgView } from "../../ops";
-import type { CropRect, FluximgElement } from "../../types";
+import { setFluximgView } from "../../ops";
+import type { FluximgElement } from "../../types";
 import type { FluximgView } from "../view";
 import type { PlayMode } from "./rail";
 
@@ -124,13 +124,6 @@ export function liveView(key: string, patch: FluximgView, settleAfter = 0): void
   const live = get(fluximgLive);
   if (!live) return;
   run(key, settleAfter, () => mutate((p) => setFluximgView(p, live.elementId, patch)));
-}
-
-/** Set the live element's crop (image pixels; null = the whole image) as one step of gesture `key`. */
-export function liveCrop(key: string, crop: CropRect | null, settleAfter = 0): void {
-  const live = get(fluximgLive);
-  if (!live) return;
-  run(key, settleAfter, () => mutate((p) => { setCrop(p, live.elementId, crop); }));
 }
 
 /** Any other change to the project as one step of gesture `key` (split channels, make an inset). */

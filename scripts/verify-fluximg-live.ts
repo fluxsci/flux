@@ -345,10 +345,15 @@ h.section("viewOps: a patch that restores a default leaves no key");
   h.eq(clippedShares(flat, [0, 4095]), { black: 0, white: 0 }, "the full data range clips nothing");
   h.eq(clippedShares({ ...flat, hist: { lo: 0, hi: 0, counts: [] } }, [0, 1]), null, "no histogram: no share is claimed");
   h.eq([0, 0.0004, 0.004, 0.0149, 0.1234, 0.9995, 1].map(formatShare), ["0 %", "<0.1 %", "0.4 %", "1.5 %", "12 %", ">99.9 %", "100 %"], "shares print short: one decimal under ten percent, a bound at the extremes");
-  // The square-root scale (a channel row's small histogram) keeps a shape where the log scale is a block.
-  const spike: FluximgStats = { ...flat, hist: { lo: 100, hi: 1100, counts: Array.from({ length: 256 }, (_, i) => (i < 8 ? 100000 : 400)) } };
-  const tops = (scale: "log" | "sqrt"): number => { const ys = pairs(histogramPath(spike.hist, histDomain(spike, [100, 1100]), 256, 16, scale)).map((q) => q[1]); return ys[ys.length - 3]; };
-  h.ok(tops("sqrt") > tops("log") + 3, `the tail of a spiked histogram stands lower on the square-root scale than on the log scale (${tops("sqrt").toFixed(1)} vs ${tops("log").toFixed(1)} px from the top)`);
+  // The default scale spans the rarest occupied bin to the commonest: an image whose every bin holds thousands of
+  // pixels still has a shape (a plain log scale, measured from a count of 1, draws it as a block).
+  const dense: FluximgStats = { ...flat, hist: { lo: 100, hi: 1100, counts: Array.from({ length: 256 }, (_, i) => Math.round(400000 * Math.exp(-i / 90)) + 20000) } };
+  const tail = (scale: "span" | "log"): number => { const ys = pairs(histogramPath(dense.hist, histDomain(dense, [100, 1100]), 256, 100, scale)).map((q) => q[1]); return ys[ys.length - 3]; };
+  h.ok(tail("log") < 30 && tail("span") > 60, `a dense, decaying histogram keeps its shape: its tail stands ${(100 - tail("span")).toFixed(0)} px high of 100, where a plain log scale draws ${(100 - tail("log")).toFixed(0)} px`);
+  const flatTop = pairs(histogramPath(flat.hist, histDomain(flat, [100, 1100]), 256, 100)).map((q) => q[1]).slice(1, -1);
+  h.ok(flatTop.every((y) => Math.abs(y - flatTop[0]) < 1e-9) && flatTop[0] <= 2, "a flat histogram is drawn flat, at full height");
+  const holes = pairs(histogramPath({ lo: 0, hi: 4, counts: [1000, 0, 10, 0] }, { lo: 0, hi: 4 }, 4, 100)).map((q) => q[1]);
+  h.ok(holes[3] === 100 && holes[5] < 100 && holes[5] > 60, "an empty bin has no height; the rarest occupied bin still shows");
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -223,10 +223,6 @@
     <span class="dcell">{currentLayer.kind === "labels" ? "objects with outlines and a table" : currentLayer.kind === "vector" ? "vector shapes" : "an intensity image laid over the pixels"}</span>
   {/if}
 </div>
-<div class="foot2">
-  <span><b class="hk">↑↓</b> walk</span><span><b class="hk">x</b> show</span><span><b class="hk">e</b> opacity{armed?.startsWith("layer:") ? " ↕" : ""}</span><span><b class="hk">c</b> colour</span>
-  <span><b class="hk">q</b> names</span><span><b class="hk">⇧↑↓</b> reorder</span><span><b class="hk">esc</b> back</span>
-</div>
 
 <style>
   .hk { color: var(--c-accent); min-width: 17px; height: 16px; }
@@ -263,6 +259,4 @@
   .opt { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 6px 0 3px; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); background: var(--c-bg); color: var(--c-tx-2); cursor: var(--cursor-cross-hover); font: 11px var(--font-serif); white-space: nowrap; }
   .opt .ok { min-width: 14px; height: 13px; padding: 0 2px; font-size: 9px; line-height: 11px; }
   .opt.cur { background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
-  .foot2 { display: flex; flex-wrap: wrap; gap: 4px 12px; padding-top: 6px; font: 10.5px var(--font-ui); color: var(--c-tx-muted); }
-  .foot2 span { display: inline-flex; align-items: center; gap: 4px; }
 </style>

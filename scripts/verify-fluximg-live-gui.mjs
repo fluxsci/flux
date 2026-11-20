@@ -718,8 +718,28 @@ let e2 = (await model(L)).el;
 h.ok(e2.crop.x > e1.crop.x && e2.crop.y > e1.crop.y && Math.abs(e2.crop.width - e1.crop.width) < 1e-9, `dragging pans the image under the frame, following the hand (x ${e1.crop.x.toFixed(1)} -> ${e2.crop.x.toFixed(1)})`);
 h.eq([e2.x, e2.y, e2.width, e2.height], [e0.x, e0.y, e0.width, e0.height], "…and the box stays put");
 h.eq((await model(L)).past - before.past, 1, "…as one undo step");
+{
+  // The navigator: the whole image, small, with the frame on it; dragging the frame's rectangle moves the frame.
+  await waitFor(page, () => !!document.querySelector("[data-fluximg-navigator] img"), null, { label: "the navigator's picture", timeout: 5000 }).catch(() => {});
+  const nav = await rect("[data-fluximg-navigator]"), fr = await rect("[data-fluximg-navigator] .frame");
+  h.ok(!!nav && nav.w <= 277 && nav.h <= 151 && Math.abs(nav.w / nav.h - full.w / full.h) < 0.03 && !!(await page.$("[data-fluximg-navigator] img")), `the frame zone shows the whole image as a small map (${nav && [nav.w, nav.h].map((n) => n.toFixed(0)).join(" x ")} px)`);
+  h.ok(!!fr && Math.abs(fr.w / nav.w - e2.crop.width / full.w) < 0.02 && Math.abs((fr.x - nav.x) / nav.w - e2.crop.x / full.w) < 0.02, "…with the frame's rectangle where the frame is");
+  const m0 = await model(L);
+  const dxMap = Math.min(8, Math.floor(nav.right - fr.right) - 1), dyMap = Math.min(5, Math.floor(nav.bottom - fr.bottom) - 1);
+  await page.mouse.move(fr.cx, fr.cy); await page.mouse.down();
+  await page.mouse.move(fr.cx + dxMap / 2, fr.cy + dyMap / 2, { steps: 2 }); await page.mouse.move(fr.cx + dxMap, fr.cy + dyMap, { steps: 2 });
+  await page.mouse.up();
+  await waitForFrame(page);
+  const m1 = await model(L);
+  const wantX = e2.crop.x + (dxMap / nav.w) * full.w, wantY = e2.crop.y + (dyMap / nav.h) * full.h;
+  h.ok(dxMap > 0 && Math.abs(m1.el.crop.x - wantX) < 1 && Math.abs(m1.el.crop.y - wantY) < 1 && Math.abs(m1.el.crop.width - e2.crop.width) < 1e-9, `dragging the rectangle on the map moves the frame with it (x ${e2.crop.x.toFixed(1)} -> ${m1.el.crop.x.toFixed(1)}, wanted ${wantX.toFixed(1)})`);
+  h.eq([m1.el.x, m1.el.y, m1.el.width, m1.el.height], [e0.x, e0.y, e0.width, e0.height], "…the element's box stays put");
+  h.eq(m1.past - m0.past, 1, "…as one undo step");
+}
 await press("d");
 h.ok(!(await model(L)).el.crop, "d (Whole image) restores the whole frame");
+{ const b = (await model(L)).el; h.ok([b.x - e0.x, b.y - e0.y, b.width - e0.width, b.height - e0.height].every((d) => Math.abs(d) < 1e-6), `…in the box the image has: it neither moves nor grows on the figure (${[b.x, b.y, b.width, b.height].map((n) => n.toFixed(1)).join(", ")})`); }
+h.ok(!(await page.$("[data-fluximg-navigator] .frame")) && !!(await page.$("[data-fluximg-navigator]")), "on the whole image the map stays and carries no rectangle");
 await wheel(px, py, -100, 4);
 await settled();
 const frame = (await model(L)).el.crop;

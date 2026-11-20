@@ -25,9 +25,11 @@
   import FluximgHistogram from "./FluximgHistogram.svelte";
   import FluximgMiniHist from "./FluximgMiniHist.svelte";
   import FluximgLayerList from "./FluximgLayerList.svelte";
+  import FluximgNavigator from "./FluximgNavigator.svelte";
+  import { insetsOf } from "../static";
   import {
     LIVE_KEYS, PROJECTION_MODES, autoContrast, backOut, defaultArmed, dimKeys, dimLength, liveContext, makeInset, naturalRate, nudgeGamma,
-    nudgeLayerOpacity, nudgeWindow, railDims, resetChannel, resetFrame, resizeProjection, setChannel, setProjectionMode, setWindow, soloChannel,
+    nudgeLayerOpacity, nudgeWindow, panFrame, railDims, resetChannel, resetFrame, resizeProjection, setChannel, setProjectionMode, setWindow, soloChannel,
     splitChannels, stepPosition, toggleChannel, toggleFurniture, togglePlayback, toggleSmooth, zoomFrame, cycleFurnitureCorner,
   } from "./actions";
   import { clippedShares, formatShare } from "./histogram";
@@ -359,7 +361,9 @@
     if (!ctx) return null;
     const info = asset?.fluximg, px = info?.pixelSize;
     const pixel = px ? `${fmtPixel(px.x)}${px.y !== px.x ? ` × ${fmtPixel(px.y)}` : ""} ${px.unit ?? "units"} per pixel` : "";
-    return { name: ctx.element.name ?? asset?.name ?? "Image", about: info ? describeFluximg(info) : "", pixel };
+    // "2 channels · 816 t · 924 × 213 · compact 16-bit": the shape on the first line, the storage with the pixel on the second.
+    const parts = info ? describeFluximg(info).split(" · ") : [], stored = parts.length > 1 ? parts.pop()! : "";
+    return { name: ctx.element.name ?? asset?.name ?? "Image", about: parts.join(" · "), pixel: [stored, pixel].filter(Boolean).join(" · ") };
   });
   const fmtPixel = (v: number): string => formatNumber(Number(v.toPrecision(4)));
   const full = $derived(ctx ? fullCrop(ctx.manifest) : null);
@@ -367,7 +371,13 @@
     if (!ctx || !full) return "";
     const c = ctx.crop;
     if (c.width >= full.width - 1e-6 && c.height >= full.height - 1e-6) return "whole image";
-    return `${Math.round(c.width)} × ${Math.round(c.height)} of ${full.width} × ${full.height} px`;
+    return `${Math.round(c.width)} × ${Math.round(c.height)} px`;
+  });
+  /** The regions already pulled out of this image as insets (the navigator marks them). */
+  const frameInsets = $derived.by(() => {
+    if (!ctx || live?.zone !== "frame") return [];
+    const f = $project.figures.find((g) => g.elements.some((e) => e.id === ctx.element.id));
+    return f ? insetsOf(f.elements, ctx.element.id, ctx.element.assetId) : [];
   });
   const playing = $derived(live?.playing ?? null);
   const annotationWords = $derived.by(() => {
@@ -527,10 +537,18 @@
           <FluximgLayerList {ctx} armed={live.armed} />
         </div>
         {@render readoutStrip()}
+        <div class="foot">
+          <span><b class="hk">↑↓</b> walk</span><span><b class="hk">x</b> show</span><span><b class="hk">e</b> opacity{live.armed?.startsWith("layer:") ? " ↕" : ""}</span><span><b class="hk">c</b> colour</span>
+          <span><b class="hk">q</b> names</span><span><b class="hk">⇧↑↓</b> reorder</span><span><b class="hk">esc</b> back</span>
+        </div>
 
       {:else if live.zone === "frame"}
         <div class="body zone">
           <div class="cm-head"><span class="hk">{LIVE_KEYS.frame}</span> Frame<button class="back" onclick={home} title="Back to the image (Esc)">← back <span class="hk">esc</span></button></div>
+          {#if asset}
+            <FluximgNavigator {asset} manifest={ctx.manifest} view={ctx.element.view} resolved={ctx.view} crop={ctx.crop} insets={frameInsets}
+              onmove={(x, y, from, phase) => { if (phase === "cancel") cancelLiveEdit(); else { panFrame(x - from.x, y - from.y, "frame-pan", from); if (phase === "end") settleLiveEdit(); } }} />
+          {/if}
           <div class="row static"><span class="hk">↕</span><span class="label">Showing</span><span class="value">{frameWords}</span></div>
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
           <div class="row" data-key="d" onclick={resetFrame}><span class="hk">d</span><span class="label">Whole image</span><span class="value"></span></div>
@@ -540,7 +558,7 @@
           <div class="row" data-key={LIVE_KEYS.smooth} onclick={toggleSmooth}><span class="hk">{LIVE_KEYS.smooth}</span><span class="label">Pixels</span><span class="value">{ctx.view.smooth ? "smoothed" : "true"}</span></div>
         </div>
         {@render readoutStrip()}
-        <div class="foot">{#if live.armed === "inset"}<span>drag a rectangle</span><span><b class="hk">x</b> the frame as it is</span>{:else}<span><b class="hk">↕</b> zoom</span><span>drag moves</span>{/if}<span><b class="hk">esc</b> back</span></div>
+        <div class="foot">{#if live.armed === "inset"}<span>drag a rectangle</span><span><b class="hk">x</b> the frame as it is</span>{:else}<span><b class="hk">↕</b> zoom</span><span>drag: move</span>{/if}<span><b class="hk">esc</b> back</span></div>
 
       {:else if live.zone === "annotate"}
         <div class="body zone">
@@ -634,6 +652,6 @@
   .readout .bad { color: var(--c-danger); white-space: normal; }
   .readout .what { color: var(--c-tx-muted); overflow: hidden; text-overflow: ellipsis; }
   .minihist { display: inline-flex; align-items: center; }
-  .foot { display: flex; gap: 14px; min-height: 26px; align-items: center; padding: 0 10px; border-top: 1px solid var(--c-line); font: 11px var(--font-ui); color: var(--c-tx-muted); background: var(--c-bg-raised); flex: none; white-space: nowrap; overflow: hidden; }
+  .foot { display: flex; gap: 12px; min-height: 26px; align-items: center; padding: 0 10px; border-top: 1px solid var(--c-line); font: 11px var(--font-ui); color: var(--c-tx-muted); background: var(--c-bg-raised); flex: none; white-space: nowrap; overflow: hidden; }
   .foot span { display: inline-flex; align-items: center; gap: 4px; }
 </style>

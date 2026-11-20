@@ -17,7 +17,7 @@ import { insetLayout, splitLayout } from "../panelLayout";
 import { autoWindow, histDomain, moveWindow, nextAutoStep, nextSampleStep, nudgeStep, sampleWindow, snapValue, sortedSample } from "./histogram";
 import { framePeriod, playStep, resizeRun, slideRun, stepIndex, type PlayMode } from "./rail";
 import { selection } from "../../store";
-import { WHEEL_SETTLE_MS, cancelLiveEdit, closeFluximgLive, fluximgLive, liveCrop, liveElement, liveMutate, liveSampler, liveView, setLive, settleLiveEdit, liveArm } from "./session";
+import { WHEEL_SETTLE_MS, cancelLiveEdit, closeFluximgLive, fluximgLive, liveElement, liveMutate, liveSampler, liveView, setLive, settleLiveEdit, liveArm } from "./session";
 
 export interface LiveContext { element: FluximgElement; manifest: FluximgManifest; view: ResolvedView; crop: PixelRect }
 
@@ -372,7 +372,17 @@ function writeFrame(c: LiveContext, crop: PixelRect, key: string, settleAfter: n
 export function resetFrame(): void {
   const c = liveContext();
   if (!c || !c.element.crop) return;
-  liveCrop("frame-reset", null);
+  const full = fullCrop(c.manifest), id = c.element.id;
+  // NOT ops.setCrop(null): that keeps the content still and grows the box round it, so an image zoomed in to
+  // twice its size came back twice as large and somewhere else on the figure. The frame is a window: the box
+  // keeps its place and its width, and only its height follows when the frame had another aspect than the image.
+  liveMutate("frame-reset", (p) => {
+    const e = elementFigure(p, id)?.element;
+    if (!e) return;
+    delete e.crop;
+    const height = e.width * (full.height / full.width);
+    if (Math.abs(height - e.height) > 1e-6) e.height = height;
+  });
   settleLiveEdit();
 }
 
