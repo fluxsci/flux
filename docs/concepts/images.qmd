@@ -1,0 +1,222 @@
+---
+title: "Images and image stacks"
+subtitle: "Microscopy stacks, movies and photographs on a figure: the pixels stay as measured, everything you change is a view"
+---
+
+A **fluximg** is one scientific image saved together with what is known about it: its pixels in
+any number of dimensions (channels, depth, time, or a dimension of your own such as trial), the
+physical size of a pixel, the name and colour of each channel, and layers drawn on the same pixel
+grid (another image, segmented objects with a table, lines and circles). It is the image
+counterpart of a [semantic plot](semantic-plots.qmd).
+
+Flux stores the pixels once and never changes them. What you adjust (the plane you look at,
+contrast, colours, a projection, the region shown, a scale bar) is a **view**: a handful of
+numbers kept on the placed image. Two placements of one image can show different planes and
+contrast, an agent can read and set the same numbers, and you can always go back to the pixels
+as they were measured.
+
+# Saving an image from Python
+
+A fluximg is written by [fluxplot](https://github.com/fluxsci/fluxplot) (writing needs a zstd
+library: install the `fluxplot[images]` extra; Python 3.14 has one built in). It is a folder,
+`<name>.fluximg`, saved into your project's `plots/` folder like any plot.
+
+A confocal z-stack, two channels:
+
+```python
+import fluxplot as fp
+
+# stack: shape (2, 31, 1024, 1024) = channel, z, y, x
+fp.imsave("plots/neuron_stack", stack, dims=("c", "z", "y", "x"),
+          pixel_size=0.1, unit="µm", coords={"z": z_positions_um},
+          channels=[{"name": "membrane", "color": "#ff00ff"},
+                    {"name": "nuclei", "color": "#00ffff"}],
+          recipe=True)
+```
+
+A two-photon time-lapse, with the segmented cells and their table as a layer:
+
+```python
+img = fp.fluximg(movie, dims=("t", "c", "y", "x"), dt=0.5, pixel_size=0.4,
+                 channels=["GCaMP", "tdTomato"])
+img.add_labels("cells", cell_labels, table=cells, key="cell_id")   # one row per cell
+img.add_shapes("tracks", lines=track_paths, key="track_id")
+img.save("plots/timelapse", recipe=True)
+```
+
+A plain 2-D image needs no `dims`, and an RGB photograph is marked as one:
+
+```python
+fp.imsave("plots/field", field_image, pixel_size=0.65)
+fp.imsave("plots/specimen", photo, photometric="rgb")
+```
+
+`recipe=True` writes `<name>.recipe.json` beside the folder, so the image can be made again.
+`save` prints what it wrote and why.
+
+**How pixels are stored.** Integer data (8-, 16- or 32-bit) is always stored exactly. Float data
+is stored **compactly** (16-bit steps across each channel's own range; Flux shows it as "compact
+16-bit") when that is provably harmless: one step must be smaller than a tenth of the typical
+difference between neighbouring pixels, in every channel. Any real noisy image passes. When an
+image fails that test (a constant or piecewise-constant image, or a range stretched by a few
+extreme values), the writer keeps the floats exactly and its report says why. Pass
+`lossless=True` to keep floats exactly in every case. Large planes (over 1024 px on a side) are
+stored as tiles with smaller overview copies, so Flux can show them at once.
+
+# Putting it on a figure
+
+Image bundles appear in the **Plots** rail and the **Plot gallery** as one tile each, marked
+**▦** ("image stack"), with a picture and a line such as "2 channels · 31 z · 1,024 × 1,024 ·
+uint16". Double-click a tile, press **Enter**, or drag it onto a figure. You can also use
+**Import** (**Ctrl+Shift+K**) and choose the `fluximg.json` file inside the `.fluximg` folder (a
+file dialog cannot pick a folder), or drag the `.fluximg` folder in from your file manager.
+
+- Images need a saved Flux project. In an unsaved or older standalone figure, Flux says so
+  before copying anything.
+- Flux copies the folder into the project once (a copy-on-write clone where the file system
+  offers one, so even a large stack takes a fraction of a second). Placing the same image again,
+  however many times, shows the same copy.
+- An image has no printed size of its own: it lands at one image pixel per canvas pixel, scaled
+  down to the figure's width when it would be wider.
+- **It follows its source.** While the project is open, re-running the script that wrote the
+  folder replaces every placed copy with the new version. Each keeps its view and crop where
+  they still fit; if something had to change (fewer planes, a channel gone), a notice says what.
+  One **Ctrl+Z** brings back the previous version.
+
+# The live view
+
+Select an image and press **R**, or double-click it. The image stays where it is and becomes
+live: navigator rails appear beside it, a panel opens next to it, and a line below the image
+reads the position and each channel's value under the pointer. **R** again closes the view;
+**Escape** backs out one level at a time (a choice, then playback, then a zone, then the view).
+Clicking elsewhere on the canvas closes it too.
+
+Every gesture is **one undo step**: a drag, a typed value, or a run of wheel notches (it ends
+after a short pause). **Ctrl+Z** works while the view is open. Keys with **Ctrl** keep their
+usual meaning; plain keys belong to the panel. **F** opens the usual property menu.
+
+## The panel
+
+The panel lists the image's zones, each with a left-hand key:
+
+| Key | Row | What it does |
+|---|---|---|
+| **1**–**6** | a channel | Open that channel's contrast and colour (its eye shows or hides it) |
+| **a** | Auto contrast | Every channel at once; press again to tighten |
+| **x** | Split channels | One panel per channel to the right, each alone in gray with its name |
+| **t**, **z** | Time, Depth | Arm that rail: the mouse wheel then moves through it (other dimensions get **q** or **`**) |
+| **e** | Show | One plane, or a projection: max, mean, min, sum or std |
+| **d** | Layers & objects | The layers and the objects in them |
+| **v** | Frame | The region of the image the panel shows |
+| **n** | Pixels | True pixels or smoothed when magnified |
+| **b** | Scale bar | On or off (needs a pixel size: the row says "no pixel size" otherwise) |
+| **w** | Position stamp | Where along depth or time the picture is, printed on it |
+| **c** | Channel names | Each channel's name in its colour |
+| **g** | Calibration bar | Each shown channel's colours from its black point to its white point, with both values |
+
+The view opens with its first rail armed, so the wheel moves through the stack at once.
+
+## Moving through a stack
+
+Time (and any other dimension) has a rail **below** the image; depth stands **at its side**, so
+moving through z is moving up and down. Each rail plots each shown channel's mean signal per
+plane, with the current plane as a playhead.
+
+- **Wheel** over the image moves the armed rail; wheel down is the next plane. **Shift** moves
+  ten at a time.
+- **← / →** step along the rail below the image, **↑ / ↓** through depth (**Shift**: ten).
+- **Drag** along a rail to scrub. Its **play** button, or **Space**, plays along the armed rail:
+  at the real frame rate when the dimension is time in seconds, otherwise 12 planes a second.
+- A stack shows the right plane at once while you move, and sharpens a moment later.
+
+**Projections.** Press **e** and pick a statistic (**1**–**6**, or the arrows and **Enter**).
+It starts over the whole dimension, the usual maximum projection of a stack. The run is drawn
+as a band on the rail: drag its edges to resize it, drag inside to slide it, or **Shift**-drag
+on a rail to draw a new one; the wheel widens or narrows it around its middle. Choosing
+**plane** again returns to the plane in the middle of the run.
+
+## Contrast and colour
+
+Press a channel's number. Its zone shows the channel's histogram with the display window over
+it: drag the handles, or use the three fields (**q** black point, **w** white point, **e**
+gamma). The armed field follows the wheel (**Shift** ×10, **Alt** finer); a field also takes a
+typed value, **Enter** keeps it and **Escape** puts back what was there. **1**–**6** switch to
+another channel.
+
+| Key | Action |
+|---|---|
+| **a** | Auto for this channel |
+| **c** | Colour: gray, green, magenta, cyan, yellow, red, blue, or the viridis or magma colour maps |
+| **g** | Linear, Log, Gamma |
+| **z** | Invert |
+| **x** | Shown |
+| **v** | Solo: show only this channel (again: back to all of them) |
+| **d** | Reset to the image's own window and colour |
+
+**Auto** sets the window from percentiles the image carries, so it needs no pixels and is
+instant. Each press moves to the next window on a ladder: 0.1–99.9 %, 1–99.8 %, 1–99 %, then
+the full range, and round again. A new image starts at fluxplot's default window, 1–99.8 %.
+
+When gamma is not 1 the panel reminds you to say so in the legend; a log scale needs a black
+point above 0 and is drawn linear until it has one.
+
+## Layers and objects
+
+Press **d**. Each layer is a row, top of the stack first: an eye, what it holds (**image**,
+**objects** or **shapes**), how many objects, and its opacity. A layer of objects opens to list
+them by name with the columns of their table.
+
+| Key | Action |
+|---|---|
+| **↑ / ↓** | Walk the list (**Shift**: move the layer up or down the stack) |
+| **→ / ←** | Open or close a layer's objects |
+| **x** | Show or hide the layer |
+| **e** | Arm its opacity for the wheel |
+| **c** | Its colour |
+| **q** | Object names on the image |
+| **a** | Filter objects by name or value |
+
+Hovering a row outlines its object on the image, and hovering an object on the image finds its
+row. Long lists show the first 400 objects of a layer; filter to find the rest.
+
+## The frame and insets
+
+Press **v**. The frame is a window onto the whole image: the box stays where it is on the
+figure, and the wheel over the image zooms in on the spot under the pointer; drag the image to
+move it under the frame. **d** shows the whole image again. **x** pulls the current region out
+as an **inset**: a new panel beside the image shows the region with a scale bar, the original
+returns to the frame it had, and it outlines the inset's region.
+
+# The Inspector
+
+With an image selected, the Inspector shows the same settings as numbers, whether or not the
+live view is open: **Image** (what it is, the pixel size, how it is stored, where it came from,
+and a **Live view** button), **Channels** (Blend or Single, each channel's colour or colour map,
+scale, black, white and gamma, with **Auto**), **Position** (the plane along each dimension, a
+projection and its run), **Layers**, **Annotations** (scale bar length, thickness, text size,
+corner and colour; the stamp, channel names, calibration bar and object names) and **View**
+(true or smoothed pixels, background or transparent, and the region shown in image pixels).
+Setting a value back to its default removes it from the stored view.
+
+# What exports contain
+
+Exports (SVG, PNG, TIFF, PDF), figures in [Paper](../modes/paper.qmd) and headless renders
+(`flux render-figure`) draw each image's picture from the full-resolution pixels at the output's
+own resolution: 300 dpi at the image's printed size for SVG, PDF and Paper, the export's own
+resolution for PNG and TIFF, at most 4096 × 4096 pixels per image. Every output pixel is drawn, so no viewer can
+blur a magnified image. Layers of objects and shapes, object names, the scale bar, stamps and
+labels stay vectors. The picture on the canvas and the export come from one renderer, so they
+show the same pixels.
+
+# Limits of this first version
+
+- Images go on **figures** only. A slide refuses them for now ("keep them in a figure").
+- Only `.fluximg` folders can be placed. TIFF and other microscope files cannot be dragged in
+  yet: save them with fluxplot first.
+- There is no 3-D rendering. Depth is a dimension to step through or project.
+- Images are placed from the project's `plots/` folder; the global plot library does not list
+  them.
+- The live view reads whole planes at the resolution it needs. A very large mosaic zoomed in to
+  its own pixels is read whole, not tile by tile.
+- The live view shows at most six channels and three image layers at once; the picture at rest
+  and exports show them all.

@@ -378,6 +378,15 @@ the optional `fluxplot[mesh]` extra. Texture images are omitted and skinning is 
 Flux shows the stored mesh geometry, so bake a desired pose before exporting the GLB.
 Point and line primitives are refused; export triangle meshes.
 
+# Images and image stacks {#images}
+
+Microscopy stacks, movies and photographs saved with fluxplot as `.fluximg` folders appear in
+the Plots rail and the gallery marked **▦**. Place one like a plot; select it and press **R**
+(or double-click it) to step through depth and time, set contrast and colours, show a
+projection, look at its layers and objects, or pull out an inset. The pixels are never changed:
+everything you set is a view kept on the placed image. See
+[Images and image stacks](../concepts/images.qmd).
+
 # Selecting inside plots
 
 Selection follows Figma's logic, tuned for plots:
