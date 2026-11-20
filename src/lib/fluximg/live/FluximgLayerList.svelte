@@ -7,7 +7,9 @@
    * on the image finds its row. Type to filter. The list owns its keys while this zone is open.
    */
   import { tick } from "svelte";
+  import { get } from "svelte/store";
   import { project } from "../../store";
+  import { fluxFigMenuOpen } from "../../settings";
   import { yieldsToShellModal, isAnnotateChord } from "../../../shell/agent/annotationVisibility";
   import { fluximgBundle, fluximgLayerText, fluximgService, needLayerText } from "../store";
   import { objectIndex } from "../layers";
@@ -123,8 +125,14 @@
     void tick().then(() => listEl?.querySelector(`[data-rid="${CSS.escape(next.id)}"]`)?.scrollIntoView({ block: "nearest" }));
   }
 
+  // Capture phase: the list sees its keys BEFORE the panel's window handler, which would otherwise take Esc while a
+  // colour choice is open here and back out of the whole zone. What the list leaves alone (r, f, Esc) bubbles on.
+  $effect(() => {
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () => window.removeEventListener("keydown", onKey, { capture: true });
+  });
   function onKey(e: KeyboardEvent): void {
-    if (yieldsToShellModal(e) || isAnnotateChord(e) || e.ctrlKey || e.metaKey || e.defaultPrevented) return;
+    if (yieldsToShellModal(e) || isAnnotateChord(e) || e.ctrlKey || e.metaKey || e.defaultPrevented || get(fluxFigMenuOpen)) return;
     const typing = e.target === filterEl;
     const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
     const done = (): void => { e.preventDefault(); e.stopImmediatePropagation(); };
@@ -162,7 +170,6 @@
   }
 </script>
 
-<svelte:window onkeydown={onKey} />
 
 <div class="search-row" class:active={!!filter}>
   <span class="hk">a</span>

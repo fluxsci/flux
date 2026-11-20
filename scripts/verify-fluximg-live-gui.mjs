@@ -525,6 +525,10 @@ await waitFor(page, () => !!document.querySelector("[data-fluximg-live] [data-pa
 h.ok(await page.evaluate(() => document.querySelectorAll("[data-fluximg-live] [data-part='names'] text").length > 0), "…and draws the names on the image");
 await press("q");
 h.ok(await page.evaluate(() => !document.querySelector("[data-fluximg-live] [data-part='names']")), "q again removes them");
+await press("c");
+h.ok(await page.evaluate(() => !!document.querySelector(".fluximgPanel .detail .opts")), "c lays out the layer's colours");
+await press("Escape");
+h.ok((await model(L)).live?.zone === "layers" && (await page.evaluate(() => !document.querySelector(".fluximgPanel .detail .opts"))), "Esc closes the colour choice and stays in the layers zone");
 await press("Escape");
 h.eq((await model(L)).live?.zone, "home", "Esc leaves the layers zone for home");
 await closeLive();
