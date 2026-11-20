@@ -41,6 +41,7 @@ import * as fluximgStore from "../fluximg/store";
 import * as fluximgLiveSession from "../fluximg/live/session";
 import * as fluximgLiveActions from "../fluximg/live/actions";
 import * as fluximgPlace from "../fluximg/place";
+import * as fluximgSource from "../fluximg/sourceUpdate";
 import * as ops from "../ops";
 
 export interface FluxDevHandle {
@@ -49,7 +50,7 @@ export interface FluxDevHandle {
   imageDisplay: { display: typeof assetDisplay; revision: typeof displayRevision; stats: typeof imageDisplayStats; dev: typeof imageDisplayDev };
   /** fluximg: the window's service + stores, the live view's session and actions, and the asset-record helpers.
    *  Gates must use THESE instances: a second `import()` of a module with state is a different module after HMR. */
-  fluximg: { store: typeof fluximgStore; live: typeof fluximgLiveSession; actions: typeof fluximgLiveActions; place: typeof fluximgPlace };
+  fluximg: { store: typeof fluximgStore; live: typeof fluximgLiveSession; actions: typeof fluximgLiveActions; place: typeof fluximgPlace; source: typeof fluximgSource };
   /** The pure figure ops (addFluximg, setFluximgView, setCrop, …), for seeding a model inside `fig.commit`. */
   ops: typeof ops;
   /** Snapshot any Svelte store: `__flux.get(__flux.fig.project)`. */
@@ -138,7 +139,7 @@ export function installDevHandle(): void {
     presets,
     atlas: { ...atlasDev, details: figureDetails },
     imageDisplay: { display: assetDisplay, revision: displayRevision, stats: imageDisplayStats, dev: imageDisplayDev },
-    fluximg: { store: fluximgStore, live: fluximgLiveSession, actions: fluximgLiveActions, place: fluximgPlace },
+    fluximg: { store: fluximgStore, live: fluximgLiveSession, actions: fluximgLiveActions, place: fluximgPlace, source: fluximgSource },
     ops,
   } satisfies FluxDevHandle;
 }
