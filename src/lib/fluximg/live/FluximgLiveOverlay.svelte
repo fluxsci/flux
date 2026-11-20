@@ -7,7 +7,7 @@
    * (edits go through `actions.ts`), and when the live view closes the element's still, drawn by the reference
    * renderer from the same recipe, is what remains.
    */
-  import { onDestroy } from "svelte";
+  import { onDestroy, tick } from "svelte";
   import { project } from "../../store";
   import { yieldsToShellModal, isAnnotateChord } from "../../../shell/agent/annotationVisibility";
   import { fluximgBundle, fluximgManifests, fluximgService, needLuts, resolveLut } from "../store";
@@ -19,7 +19,7 @@
   import FluximgRail from "./FluximgRail.svelte";
   import { dimKeys, dimLength, panFrame, railDims, setPosition, setRun, togglePlayback } from "./actions";
   import { LiveDriver, type FrameInfo } from "./driver";
-  import { cancelLiveEdit, fluximgHover, fluximgLive, fluximgLiveRect, livePointer, liveSampler, setLive, settleLiveEdit } from "./session";
+  import { armLive, cancelLiveEdit, fluximgHover, fluximgLive, fluximgLiveProblem, fluximgLiveRect, fluximgReadout, livePointer, liveSampler, settleLiveEdit } from "./session";
 
   let { element, left, top, zoom, beginPan }: { element: FluximgElement; left: number; top: number; zoom: number; beginPan: () => void } = $props();
 
@@ -135,7 +135,8 @@
     const p = rv.projection;
     // "z 12/25 · −13 µm" without its leading dimension letter: the key cap already says it.
     const words = p && p.dim === dim ? describeProjection(manifest, p) : describePosition(manifest, dim, rv.index[dim] ?? 0);
-    return p && p.dim === dim ? words : words.replace(new RegExp(`^${dim}\\s+`), "");
+    // …and a projection reads "max 1–7 · −61.5 to −55.5 µm", for the same reason.
+    return p && p.dim === dim ? words.replace(new RegExp(`\\s${dim}\\s`), " ") : words.replace(new RegExp(`^${dim}\\s+`), "");
   }
   function scrub(dim: string, index: number, phase: "start" | "move" | "end" | "cancel"): void {
     if (phase === "cancel") { cancelLiveEdit(); return; }
@@ -149,10 +150,12 @@
     setRun(dim, from, to);
     if (phase === "end") settleLiveEdit();
   }
-  const arm = (dim: string): void => setLive({ armed: `pos:${dim}` });
+  const arm = (dim: string): void => armLive(`pos:${dim}`);
 
   // Layout around the element's ROTATED screen bounds (rails are never rotated or mirrored).
-  const GAP = 12, ROW = 50, CAP = 26, VRAIL = 86;
+  // ROW: a horizontal rail with its ticks. CAP: its key cap and gap. HTAIL: its position and play button.
+  // VW: a depth rail with its tick labels. VHEAD: the line above a depth rail (key, play, position).
+  const GAP = 10, ROW = 52, CAP = 31, HTAIL = 140, VW = 78, VHEAD = 74;
   const bounds = $derived.by(() => {
     const a = (element.rotation * Math.PI) / 180;
     const w = Math.abs(bw * Math.cos(a)) + Math.abs(bh * Math.sin(a)), h = Math.abs(bw * Math.sin(a)) + Math.abs(bh * Math.cos(a));
@@ -166,47 +169,41 @@
     const length = Math.min(Math.max(min, hi - lo), Math.max(40, limit - before - after));
     return { start: Math.min(Math.max(before, lo), Math.max(before, limit - after - length)), length };
   }
-  const vRail = $derived.by(() => {
-    const s = span(bounds.y, bounds.y + bounds.h, host.h, 30, 44);
-    const x = Math.min(bounds.x + bounds.w + GAP, host.w - VRAIL - 6);
-    return { x, y: s.start - 23, extent: s.length };
-  });
-  /** The depth rail's box runs past the image's foot (its readout sits under the track): measured, else its usual size. */
-  let vBoxH = $state(0);
-  const vBottom = $derived(vDim ? vRail.y + (vBoxH || vRail.extent + 66) : -Infinity);
-  const hRail = $derived.by(() => {
-    const s = span(bounds.x, bounds.x + bounds.w, host.w, CAP + 8, 150);
-    const rows = hDims.length, stripH = 20, x = s.start - CAP;
-    let y = bounds.y + bounds.h + GAP;
-    // A horizontal rail's readout reaches under the depth rail: when they would meet, the row starts below that box
-    // (otherwise the depth rail's box covered the time readout whenever an image had both t and z).
-    if (vDim && rows && x + CAP + s.length + 150 > vRail.x && y < vBottom + 4) y = vBottom + 4;
-    return { x, y: Math.min(y, host.h - rows * ROW - stripH - 6), extent: s.length };
-  });
-  /** Everything right of the image that belongs to it: its rails' far edge. */
-  const railsRight = $derived(Math.max(bounds.x + bounds.w, vDim ? vRail.x + VRAIL : -Infinity, hDims.length ? hRail.x + CAP + hRail.extent + 150 : -Infinity));
-  const STRIP_MIN = 290;
   /**
-   * The readout strip, under the rails. Beside a depth rail it either fits left of it (and is capped there) or drops
-   * below its box: it covered the depth rail's track and readout on any image narrower than the strip. The choice
-   * depends on geometry only, never on the text, so hovering never makes it jump; it never runs past the rails.
+   * Depth stands at the image's right. When the right has no room it stands at its left; only when neither side
+   * has room (the image fills the canvas) does it stand over the image's right edge. Rails never cover pixels
+   * while there is anywhere else to be.
    */
-  const stripPos = $derived.by(() => {
-    const x = Math.max(8, Math.min(bounds.x, host.w - 320));
-    let y = hRail.y + hDims.length * ROW, max = Math.max(STRIP_MIN, railsRight - x);
-    if (vDim && y < vBottom + 4) {
-      if (x + STRIP_MIN > vRail.x - 6) y = Math.min(vBottom + 4, host.h - 28);
-      else max = vRail.x - 6 - x;
-    }
-    return { x, y, max };
+  const vRail = $derived.by(() => {
+    const s = span(bounds.y, bounds.y + bounds.h, host.h, VHEAD + 8, 12);
+    const right = bounds.x + bounds.w + GAP, leftSide = bounds.x - GAP - VW;
+    const x = right + VW <= host.w - 4 ? right : leftSide >= 4 ? leftSide : Math.max(4, host.w - VW - 4);
+    return { x, y: s.start - VHEAD, extent: s.length };
+  });
+  /** Time (and any other dimension) lies under the image; above it when there is no room below; over its foot last. */
+  const hRail = $derived.by(() => {
+    const s = span(bounds.x, bounds.x + bounds.w, host.w, CAP + 8, HTAIL + 8);
+    const height = hDims.length * ROW;
+    const below = bounds.y + bounds.h + GAP, above = bounds.y - GAP - height;
+    const y = below + height <= host.h - 4 ? below : above >= 4 ? above : Math.max(4, host.h - height - 4);
+    return { x: s.start - CAP, y, extent: s.length };
   });
 
-  // The panel keeps clear of the image AND its rails AND the readout.
+  // The panel keeps clear of the image AND its rails: measured from what is on screen, after it is laid out.
+  let railBoxes = $state<HTMLElement[]>([]);
   $effect(() => {
-    const x0 = Math.min(bounds.x, hDims.length ? hRail.x : bounds.x, stripPos.x), y0 = Math.min(bounds.y, vDim ? vRail.y : bounds.y);
-    const x1 = Math.max(railsRight, stripPos.x + STRIP_MIN);
-    const y1 = Math.max(bounds.y + bounds.h, vBottom, stripPos.y + 22);
-    fluximgLiveRect.set({ x: host.x + x0, y: host.y + y0, w: x1 - x0, h: y1 - y0 });
+    void hRail; void vRail; void hDims; void vDim; void rv;
+    const image = { x: host.x + bounds.x, y: host.y + bounds.y, w: bounds.w, h: bounds.h };
+    void tick().then(() => {
+      let x0 = image.x, y0 = image.y, x1 = image.x + image.w, y1 = image.y + image.h;
+      for (const box of railBoxes) {
+        if (!box?.isConnected) continue;
+        const r = box.getBoundingClientRect();
+        if (!r.width) continue;
+        x0 = Math.min(x0, r.left); y0 = Math.min(y0, r.top); x1 = Math.max(x1, r.right); y1 = Math.max(y1, r.bottom);
+      }
+      fluximgLiveRect.set({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+    });
   });
 
   // --- pointer: readout, hover, panning inside the frame -----------------------------------------
@@ -300,13 +297,25 @@
 
   const prefix = $derived(`fxl-${element.id.replace(/[^A-Za-z0-9_-]/g, "_")}-`);
   const ax = $derived(manifest?.axes?.x), ay = $derived(manifest?.axes?.y);
-  const where = $derived.by(() => {
-    if (!under) return "";
-    const one = (v: number, a: typeof ax, name: string): string =>
-      a && typeof a.scale === "number" && a.unit ? `${name} ${formatNumber(Number(((a.offset ?? 0) + a.scale * v).toPrecision(5)))} ${a.unit}` : `${name} ${Math.floor(v)}`;
-    return `${one(under.x, ax, "x")}   ${one(under.y, ay, "y")}`;
+  /** A position in the axis' unit, with the decimals one pixel step needs (0.25 µm pixels read "15.75 µm", never "5.2499"). */
+  function place(v: number, a: typeof ax, name: string): string {
+    if (!a || typeof a.scale !== "number" || !a.unit) return `${name} ${Math.floor(v)}`;
+    // The pixel under the pointer, named by its centre.
+    const value = (a.offset ?? 0) + a.scale * (Math.floor(v) + 0.5);
+    const decimals = Math.min(6, Math.max(0, Math.ceil(-Math.log10(Math.abs(a.scale) / 2) - 1e-9)));
+    return `${name} ${value.toFixed(decimals).replace("-", "−")} ${a.unit}`;
+  }
+  const fmtValue = (v: number): string => (Number.isNaN(v) ? "–" : formatNumber(Number(v.toPrecision(4))));
+  // What is under the pointer goes to the panel's readout strip (one fixed place, so nothing floats over the figure).
+  $effect(() => {
+    const object = $fluximgHover?.key ?? "";
+    fluximgReadout.set(under ? {
+      where: `${place(under.x, ax, "x")}   ${place(under.y, ay, "y")}`,
+      values: shownChannels.map((c, i) => ({ name: c.name, ink: inkOf(c), text: fmtValue(under!.values[i] ?? NaN) })),
+      object,
+    } : null);
   });
-  const fmtValue = (v: number): string => (Number.isNaN(v) ? "–" : formatNumber(Number(v.toPrecision(5))));
+  $effect(() => { fluximgLiveProblem.set(problem); });
 
   const boxStyle = $derived(`left:${left}px;top:${top}px;width:${bw}px;height:${bh}px;transform:rotate(${element.rotation}deg) scale(${element.flipX ? -1 : 1},${element.flipY ? -1 : 1});opacity:${element.opacity ?? 1}`);
   onDestroy(() => { if (moveQueued) cancelAnimationFrame(moveQueued); hot?.classList.remove("fx-hot"); });
@@ -327,7 +336,7 @@
 
 {#if manifest && rv}
   {#each hDims as dim, i (dim)}
-    <div class="fx-railpos" style={`left:${hRail.x}px;top:${hRail.y + i * ROW}px`}>
+    <div class="fx-railpos" bind:this={railBoxes[i]} style={`left:${hRail.x}px;top:${hRail.y + i * ROW}px`}>
       <FluximgRail {dim} hotkey={keys[dim] ?? ""} length={dimLength(manifest, dim)} index={rv.index[dim] ?? 0}
         run={rv.projection?.dim === dim ? rv.projection : null} profiles={profilesOf(dim)} axis={manifest.axes?.[dim]} extent={hRail.extent}
         armed={live?.armed === `pos:${dim}` || live?.armed === `run:${dim}`} readout={readoutOf(dim)} unit={manifest.axes?.[dim]?.unit ?? ""} format={formatNumber}
@@ -336,7 +345,7 @@
     </div>
   {/each}
   {#if vDim}
-    <div class="fx-railpos v" style={`left:${vRail.x}px;top:${vRail.y}px`} bind:offsetHeight={vBoxH}>
+    <div class="fx-railpos v" bind:this={railBoxes[hDims.length]} style={`left:${vRail.x}px;top:${vRail.y}px`}>
       <FluximgRail dim={vDim} hotkey={keys[vDim] ?? ""} vertical length={dimLength(manifest, vDim)} index={rv.index[vDim] ?? 0}
         run={rv.projection?.dim === vDim ? rv.projection : null} profiles={profilesOf(vDim)} axis={manifest.axes?.[vDim]} extent={vRail.extent}
         armed={live?.armed === `pos:${vDim}` || live?.armed === `run:${vDim}`} readout={readoutOf(vDim)} unit={manifest.axes?.[vDim]?.unit ?? ""} format={formatNumber}
@@ -344,19 +353,6 @@
         onscrub={(index, phase) => scrub(vDim, index, phase)} onrun={(from, to, phase) => runTo(vDim, from, to, phase)} onarm={() => arm(vDim)} />
     </div>
   {/if}
-  <div class="fx-strip" style={`left:${stripPos.x}px;top:${stripPos.y}px;max-width:${Math.min(720, stripPos.max)}px`} data-fluximg-readout>
-    {#if problem}
-      <span class="bad">{problem}</span>
-    {:else if under}
-      <span class="pos">{where}</span>
-      {#each shownChannels as c, i (c.index)}
-        <span class="val"><i style={`background:${inkOf(c)}`}></i>{c.name} <b>{fmtValue(under.values[i] ?? NaN)}</b></span>
-      {/each}
-      {#if $fluximgHover}<span class="obj">{$fluximgHover.key}</span>{/if}
-    {:else}
-      <span class="hint">Hover the image to read position and values</span>
-    {/if}
-  </div>
 {/if}
 
 <style>
@@ -370,15 +366,6 @@
   /* Objects answer the pointer over their whole interior, drawn or not, so a thin outline is easy to find. */
   .vec :global([data-key]) { pointer-events: all; }
   .vec :global(.fx-hot) { stroke: var(--c-accent-bright) !important; stroke-width: 2px !important; vector-effect: non-scaling-stroke; fill: var(--c-accent-bright) !important; fill-opacity: 0.18 !important; }
-  /* Rails and the readout sit on their own surface: behind them is white paper or dark pasteboard, never known. */
-  .fx-railpos { position: absolute; z-index: 2; padding: 5px 8px 16px 4px; background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-panel); box-shadow: var(--elev-1, 0 1px 3px rgba(0, 0, 0, 0.35)); }
-  .fx-railpos.v { padding: 4px 6px 6px 6px; }
-  .fx-strip { position: absolute; z-index: 2; display: flex; align-items: center; gap: 14px; height: 22px; max-width: 720px; padding: 0 8px; background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-panel); overflow: hidden; white-space: nowrap; font: 10.5px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--c-tx-2); pointer-events: none; }
-  .fx-strip .pos { color: var(--c-tx-hi); }
-  .fx-strip .val { display: inline-flex; align-items: center; gap: 5px; }
-  .fx-strip .val i { width: 8px; height: 8px; border-radius: var(--r-ui); border: 1px solid color-mix(in oklab, var(--c-tx-hi) 22%, transparent); box-sizing: border-box; }
-  .fx-strip .val b { font-weight: 500; color: var(--c-tx-hi); }
-  .fx-strip .obj { color: var(--c-accent-bright); }
-  .fx-strip .hint { color: var(--c-tx-muted); }
-  .fx-strip .bad { color: var(--c-danger, #d14d41); }
+  /* Rails are drawn straight on the canvas (no card of their own): see FluximgRail. */
+  .fx-railpos { position: absolute; z-index: 2; }
 </style>

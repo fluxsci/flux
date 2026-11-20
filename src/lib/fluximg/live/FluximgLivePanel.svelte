@@ -29,7 +29,7 @@
     nudgeLayerOpacity, nudgeWindow, railDims, resetChannel, resetFrame, resizeProjection, setChannel, setProjectionMode, setWindow, soloChannel,
     splitChannels, stepPosition, toggleChannel, toggleFurniture, togglePlayback, toggleSmooth, zoomFrame,
   } from "./actions";
-  import { cancelLiveEdit, closeFluximgLive, fluximgLive, fluximgLiveRect, livePointer, setLive, settleLiveEdit } from "./session";
+  import { armLive, cancelLiveEdit, closeFluximgLive, fluximgLive, fluximgLiveProblem, fluximgLiveRect, fluximgReadout, liveArm, livePointer, setLive, settleLiveEdit } from "./session";
 
   const live = $derived($fluximgLive);
   // Reading the project and manifests keeps the panel's values live through edits, undo and playback.
@@ -39,16 +39,6 @@
   const asset = $derived(ctx ? $project.assets.find((a) => a.id === ctx.element.assetId) : undefined);
   const integer = $derived(!!ctx && ctx.manifest.pixels.encoding.kind === "exact" && !ctx.manifest.pixels.dtype.startsWith("float"));
   $effect(() => { if (live) void needLuts(); });
-  // The view opens with its first rail armed, so the wheel moves through the stack at once (the manifest may arrive
-  // a moment after the view opens; an image without rails arms nothing and the wheel stays the canvas's).
-  let armedFor = "";
-  $effect(() => {
-    if (!live) { armedFor = ""; return; }
-    if (!ctx || armedFor === live.elementId) return;
-    armedFor = live.elementId;
-    if (live.zone === "home" && live.armed === null) setLive({ armed: defaultArmed() });
-  });
-
   const DIM_NAMES: Record<string, string> = { t: "Time", z: "Depth" };
   const dimName = (d: string): string => DIM_NAMES[d] ?? d.charAt(0).toUpperCase() + d.slice(1);
   const channel = $derived(ctx && live ? ctx.view.channels[Math.min(live.channel, ctx.view.channels.length - 1)] : null);
@@ -80,13 +70,14 @@
   const projectionDim = $derived(ctx ? (ctx.view.projection?.dim ?? (live?.armed?.startsWith("pos:") ? live.armed.slice(4) : dims[0])) : undefined);
   const projectionOptions = $derived([{ label: "off", mode: null }, ...PROJECTION_MODES.map((m) => ({ label: m, mode: m }))]);
 
-  function openZone(zone: "channel" | "layers" | "frame", index = 0): void {
+  function openZone(zone: "channel" | "layers" | "frame" | "annotate", index = 0): void {
+    liveArm.explicit = true; // a zone's armed row is the user's choice: it takes the wheel anywhere
     picking = null; draft = null;
     if (zone === "channel") setLive({ zone, channel: index, armed: "white" });
     else if (zone === "frame") { frameBefore = ctx ? (ctx.element.crop ? { ...ctx.element.crop } : null) : null; setLive({ zone, armed: "zoom" }); }
     else setLive({ zone, armed: null });
   }
-  function home(): void { picking = null; draft = null; setLive({ zone: "home", armed: defaultArmed() }); }
+  function home(): void { picking = null; draft = null; liveArm.explicit = false; setLive({ zone: "home", armed: defaultArmed() }); }
   // A view that just opened arms its first rail, exactly as backing out of a zone does: without it the wheel over
   // the image panned the canvas until some zone had been opened and closed. (The session cannot do this itself:
   // which rail comes first is the actions' knowledge, and the manifest may arrive a moment after the open.)
@@ -109,7 +100,7 @@
     setProjectionMode(projectionDim, o.mode);
     settleLiveEdit();
     picking = null;
-    if (o.mode) setLive({ armed: `run:${projectionDim}` });
+    if (o.mode) armLive(`run:${projectionDim}`);
   }
   function pickColor(i: number): void {
     const o = COLORS[i];
@@ -163,6 +154,7 @@
     if (live.zone === "home") return void (homeKey(k) && done());
     if (live.zone === "channel") return void (channelKey(k) && done());
     if (live.zone === "frame") return void (frameKey(k) && done());
+    if (live.zone === "annotate") return void (annotateKey(k) && done());
     // The layers zone handles its own keys (FluximgLayerList); everything else is swallowed here.
     if (live.zone !== "layers") done();
   }
@@ -179,35 +171,40 @@
   function homeKey(k: string): boolean {
     if (!ctx) return false;
     if (/^[1-6]$/.test(k) && Number(k) <= ctx.view.channels.length) { openZone("channel", Number(k) - 1); return true; }
-    for (const d of dims) if (keys[d] === k) { setLive({ armed: `pos:${d}` }); return true; }
+    for (const d of dims) if (keys[d] === k) { armLive(`pos:${d}`); return true; }
     switch (k) {
       case LIVE_KEYS.auto: autoContrast("all"); return true;
-      case LIVE_KEYS.split: splitChannels(); return true;
       case LIVE_KEYS.projection: if (dims.length) { picking = "projection"; optIndex = Math.max(0, projectionOptions.findIndex((o) => o.mode === (ctx.view.projection?.mode ?? null))); } return true;
       case LIVE_KEYS.layers: if (ctx.manifest.layers.length) openZone("layers"); return true;
       case LIVE_KEYS.frame: openZone("frame"); return true;
-      case LIVE_KEYS.smooth: toggleSmooth(); return true;
-      case LIVE_KEYS.scalebar: toggleScalebar(); return true;
-      case LIVE_KEYS.stamp: toggleFurniture("stamp"); return true;
-      case LIVE_KEYS.channelNames: toggleFurniture("channelLabels"); return true;
-      case LIVE_KEYS.colorbar: toggleFurniture("colorbar"); return true;
+      case LIVE_KEYS.annotations: openZone("annotate"); return true;
     }
     return true; // the panel owns unmodified keys: nothing leaks to canvas shortcuts (no stray Delete or nudge)
+  }
+  function annotateKey(k: string): boolean {
+    switch (k) {
+      case LIVE_KEYS.scalebar: toggleScalebar(); break;
+      case LIVE_KEYS.stamp: if (dims.length) toggleFurniture("stamp"); break;
+      case LIVE_KEYS.channelNames: toggleFurniture("channelLabels"); break;
+      case LIVE_KEYS.colorbar: toggleFurniture("colorbar"); break;
+    }
+    return true;
   }
   function channelKey(k: string): boolean {
     if (!ctx || !live) return false;
     const i = live.channel;
     if (/^[1-6]$/.test(k) && Number(k) <= ctx.view.channels.length) { setLive({ channel: Number(k) - 1 }); return true; }
     switch (k) {
-      case "q": setLive({ armed: "black" }); break;
-      case "w": setLive({ armed: "white" }); break;
-      case "e": setLive({ armed: "gamma" }); break;
+      case "q": armLive("black"); break;
+      case "w": armLive("white"); break;
+      case "e": armLive("gamma"); break;
+      case LIVE_KEYS.split: splitChannels(); break;
       case "a": autoContrast(i); break;
       case "c": picking = "color"; optIndex = Math.max(0, COLORS.findIndex((o) => (o.color ?? null) === channel?.color && (o.lut ?? null) === channel?.lut)); break;
       case "x": toggleChannel(i); break;
       case "v": soloChannel(i); break;
       case "g": cycleNorm(); break;
-      case "z": setChannel(i, { invert: !channel?.invert }); settleLiveEdit(); break;
+      case "z": setChannel(i, { invert: channel?.invert ? (null as unknown as undefined) : true }); settleLiveEdit(); break;
       case "d": resetChannel(i); break;
     }
     return true;
@@ -223,6 +220,7 @@
     switch (k) {
       case "d": resetFrame(); break;
       case "x": if (makeInset(frameBefore)) home(); break;
+      case LIVE_KEYS.smooth: toggleSmooth(); break;
     }
     return true;
   }
@@ -236,6 +234,9 @@
     const inPanel = e.target instanceof Node && !!panelEl?.contains(e.target);
     if (!armed) { if (!inPanel) return; return; }
     if (inPanel && e.target instanceof Element && e.target.closest(".scrolls") && !armed.startsWith("layer:")) return;
+    // The rail the view armed by itself answers the wheel over the image and its rails only: everywhere else the
+    // wheel is still the canvas's (and the panel's own, when it scrolls). A row YOU armed answers anywhere.
+    if (!liveArm.explicit && !(e.target instanceof Element && e.target.closest("[data-fluximg-live], .fx-railpos"))) return;
     e.preventDefault(); e.stopPropagation();
     const notches = stepper.steps({ deltaY: wheelDelta(e), deltaMode: e.deltaMode, time: e.timeStamp });
     if (!notches) return;
@@ -340,10 +341,31 @@
     return `${Math.round(c.width)} × ${Math.round(c.height)} of ${full.width} × ${full.height} px`;
   });
   const playing = $derived(live?.playing ?? null);
+  const annotationWords = $derived.by(() => {
+    if (!ctx) return "";
+    const f = ctx.view.furniture, on: string[] = [];
+    if (f.scalebar) on.push("scale bar");
+    if (f.stamp) on.push("stamp");
+    if (f.channelLabels) on.push("names");
+    if (f.colorbar) on.push("calibration");
+    return on.length ? on.join(" · ") : "none";
+  });
   const objectCount = $derived(ctx ? ctx.manifest.layers.reduce((n, l) => n + (l.kind === "intensity" ? 0 : l.count ?? 0), 0) : 0);
 </script>
 
 <svelte:window onkeydown={onKey} onkeyup={onKeyUp} onpointerdowncapture={cancelTap} onblur={cancelTap} onpointermove={(e) => { pointer.x = e.clientX; pointer.y = e.clientY; }} onresize={replace} />
+
+<!-- What is under the pointer on the image: always in this one place, always this tall, so nothing jumps. -->
+{#snippet readoutStrip()}
+  <div class="readout" data-fluximg-readout>
+    {#if $fluximgLiveProblem}
+      <span class="bad">{$fluximgLiveProblem}</span>
+    {:else if $fluximgReadout}
+      <span class="where">{$fluximgReadout.where}{#if $fluximgReadout.object}<span class="obj">{$fluximgReadout.object}</span>{/if}</span>
+      <span class="vals">{#each $fluximgReadout.values as v (v.name)}<span class="val"><i style={`background:${v.ink}`}></i>{v.name} <b>{v.text}</b></span>{/each}</span>
+    {/if}
+  </div>
+{/snippet}
 
 {#if live && ctx && head}
   <div class="fxwrap">
@@ -354,91 +376,63 @@
         <span class="mark" aria-hidden="true"><Logomark size={14} /></span>
         <span class="vsep" aria-hidden="true"></span>
         <span class="ttl">{head.name}</span>
-        <span class="ctx">image</span>
+        <span class="ctx">{head.about}</span>
         <button class="xbtn" onclick={close} aria-label="Close the image view">×</button>
       </header>
 
       {#if live.zone === "home"}
-        {#if head.about}<p class="about">{head.about}</p>{/if}
         <div class="body">
-          <div class="group">
-            <div class="gtitle">Channels</div>
-            {#each ctx.view.channels as c, i (c.index)}
-              {@const shown = ctx.view.composite === "single" ? ctx.view.solo === i : c.visible}
-              <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-              <div class="row chan" class:off={!shown} data-key={String(i + 1)} onclick={() => openZone("channel", i)}>
-                <span class="hk">{i < 6 ? i + 1 : "·"}</span>
-                <span class="sw" style={swatch(c)}></span>
-                <span class="label">{c.name}</span>
-                <button class="eye" onclick={(e) => { e.stopPropagation(); toggleChannel(i); }} title={shown ? "Hide this channel" : "Show this channel"} aria-label={shown ? `Hide ${c.name}` : `Show ${c.name}`}>{shown ? "◉" : "○"}</button>
-                <span class="value">{fmt(c.range[0])} – {fmt(c.range[1])}{c.norm === "gamma" && c.gamma !== 1 ? ` · γ ${fmt(c.gamma)}` : c.norm === "log" ? " · log" : ""}</span>
-              </div>
-            {/each}
+          {#each ctx.view.channels as c, i (c.index)}
+            {@const shown = ctx.view.composite === "single" ? ctx.view.solo === i : c.visible}
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-            <div class="row" data-key={LIVE_KEYS.auto} onclick={() => autoContrast("all")}><span class="hk">{LIVE_KEYS.auto}</span><span class="label">Auto contrast</span><span class="value dim">from the pixels in view</span></div>
-            {#if ctx.view.channels.length > 1}
-              <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-              <div class="row" data-key={LIVE_KEYS.split} onclick={splitChannels}><span class="hk">{LIVE_KEYS.split}</span><span class="label">Split channels</span><span class="value dim">one panel each</span></div>
-            {/if}
-          </div>
-
+            <div class="row chan" class:off={!shown} data-key={i < 6 ? String(i + 1) : undefined} onclick={() => openZone("channel", i)}>
+              <span class="hk">{i < 6 ? i + 1 : "·"}</span>
+              <span class="sw" style={swatch(c)}></span>
+              <span class="label">{c.name}</span>
+              <button class="eye" onclick={(e) => { e.stopPropagation(); toggleChannel(i); }} title={shown ? "Hide this channel" : "Show this channel"} aria-label={shown ? `Hide ${c.name}` : `Show ${c.name}`}>{shown ? "◉" : "○"}</button>
+              <span class="value">{fmt(c.range[0])} – {fmt(c.range[1])}{c.norm === "gamma" && c.gamma !== 1 ? ` · γ ${fmt(c.gamma)}` : c.norm === "log" ? " · log" : ""}</span>
+            </div>
+          {/each}
+          {#if dims.length}<div class="sep"></div>{/if}
+          {#each dims as d (d)}
+            {@const armed = live.armed === `pos:${d}` || live.armed === `run:${d}`}
+            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+            <div class="row" class:armed data-key={keys[d]} onclick={() => armLive(`pos:${d}`)}>
+              <span class="hk">{keys[d]}</span><span class="label">{dimName(d)}</span>
+              <span class="value">{ctx.view.projection?.dim === d ? describeProjection(ctx.manifest, ctx.view.projection).replace(new RegExp(`\\s${d}\\s`), " ") : describePosition(ctx.manifest, d, ctx.view.index[d] ?? 0).replace(new RegExp(`^${d}\\s+`), "")}</span>
+            </div>
+          {/each}
           {#if dims.length}
-            <div class="group">
-              <div class="gtitle">Position</div>
-              {#each dims as d (d)}
-                {@const armed = live.armed === `pos:${d}` || live.armed === `run:${d}`}
-                <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-                <div class="row" class:armed data-key={keys[d]} onclick={() => setLive({ armed: `pos:${d}` })}>
-                  <span class="hk">{keys[d]}</span><span class="label">{dimName(d)}</span>
-                  <span class="value">{ctx.view.projection?.dim === d ? describeProjection(ctx.manifest, ctx.view.projection).replace(new RegExp(`\\s${d}\\s`), " ") : describePosition(ctx.manifest, d, ctx.view.index[d] ?? 0).replace(new RegExp(`^${d}\\s+`), "")}</span>
-                </div>
-              {/each}
-              <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-              <div class="row" class:armed={picking === "projection"} class:tall={picking === "projection"} data-key={LIVE_KEYS.projection} onclick={() => { if (picking !== "projection") { picking = "projection"; optIndex = 0; } }}>
-                <span class="hk">{LIVE_KEYS.projection}</span><span class="label">Projection</span>
-                {#if picking === "projection"}
-                  <span class="opts" role="listbox" aria-label="Plane or projection">
-                    {#each projectionOptions as o, i (o.label)}
-                      <!-- svelte-ignore a11y_click_events_have_key_events -->
-                      <span class="opt" class:cur={i === optIndex} role="option" tabindex="-1" aria-selected={i === optIndex} onpointerenter={() => (optIndex = i)} onclick={(e) => { e.stopPropagation(); pickProjection(i); }}><span class="ok hk">{i + 1}</span>{o.label}</span>
-                    {/each}
-                  </span>
-                {:else}
-                  <span class="value">{ctx.view.projection ? `${ctx.view.projection.mode} over ${ctx.view.projection.to - ctx.view.projection.from} planes` : "off · one plane"}</span>
-                {/if}
-              </div>
+            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+            <div class="row" class:armed={picking === "projection"} class:tall={picking === "projection"} data-key={LIVE_KEYS.projection} onclick={() => { if (picking !== "projection") { picking = "projection"; optIndex = 0; } }}>
+              <span class="hk">{LIVE_KEYS.projection}</span><span class="label">Projection</span>
+              {#if picking === "projection"}
+                <span class="opts" role="listbox" aria-label="Projection">
+                  {#each projectionOptions as o, i (o.label)}
+                    <!-- svelte-ignore a11y_click_events_have_key_events -->
+                    <span class="opt" class:cur={i === optIndex} role="option" tabindex="-1" aria-selected={i === optIndex} onpointerenter={() => (optIndex = i)} onclick={(e) => { e.stopPropagation(); pickProjection(i); }}><span class="ok hk">{i + 1}</span>{o.label}</span>
+                  {/each}
+                </span>
+              {:else}
+                <span class="value">{ctx.view.projection ? `${ctx.view.projection.mode} over ${ctx.view.projection.to - ctx.view.projection.from} planes` : "off"}</span>
+              {/if}
             </div>
           {/if}
-
-          <div class="group">
-            <div class="gtitle">View</div>
-            {#if ctx.manifest.layers.length}
-              <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-              <div class="row" data-key={LIVE_KEYS.layers} onclick={() => openZone("layers")}><span class="hk">{LIVE_KEYS.layers}</span><span class="label">Layers &amp; objects</span><span class="value">{ctx.manifest.layers.length} {ctx.manifest.layers.length === 1 ? "layer" : "layers"}{objectCount ? ` · ${objectCount.toLocaleString("en-US")} objects` : ""} ›</span></div>
-            {/if}
+          <div class="sep"></div>
+          {#if ctx.manifest.layers.length}
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-            <div class="row" data-key={LIVE_KEYS.frame} onclick={() => openZone("frame")}><span class="hk">{LIVE_KEYS.frame}</span><span class="label">Frame</span><span class="value">{frameWords} ›</span></div>
-            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-            <div class="row" data-key={LIVE_KEYS.smooth} onclick={toggleSmooth}><span class="hk">{LIVE_KEYS.smooth}</span><span class="label">Pixels</span><span class="value">{ctx.view.smooth ? "smoothed" : "true pixels"}</span></div>
-          </div>
-
-          <div class="group">
-            <div class="gtitle">Annotations</div>
-            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-            <div class="row" data-key={LIVE_KEYS.scalebar} onclick={toggleScalebar}><span class="hk">{LIVE_KEYS.scalebar}</span><span class="label">Scale bar</span><span class="value" class:on={!!ctx.view.furniture.scalebar}>{ctx.view.furniture.scalebar ? "on" : ctx.manifest.axes?.x?.unit ? "off" : "no pixel size"}</span></div>
-            {#if dims.length}
-              <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-              <div class="row" data-key={LIVE_KEYS.stamp} onclick={() => toggleFurniture("stamp")}><span class="hk">{LIVE_KEYS.stamp}</span><span class="label">Position stamp</span><span class="value" class:on={!!ctx.view.furniture.stamp}>{ctx.view.furniture.stamp ? "on" : "off"}</span></div>
-            {/if}
-            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-            <div class="row" data-key={LIVE_KEYS.channelNames} onclick={() => toggleFurniture("channelLabels")}><span class="hk">{LIVE_KEYS.channelNames}</span><span class="label">Channel names</span><span class="value" class:on={!!ctx.view.furniture.channelLabels}>{ctx.view.furniture.channelLabels ? "on" : "off"}</span></div>
-            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-            <div class="row" data-key={LIVE_KEYS.colorbar} onclick={() => toggleFurniture("colorbar")}><span class="hk">{LIVE_KEYS.colorbar}</span><span class="label">Calibration bar</span><span class="value" class:on={!!ctx.view.furniture.colorbar}>{ctx.view.furniture.colorbar ? "on" : "off"}</span></div>
-          </div>
+            <div class="row" data-key={LIVE_KEYS.layers} onclick={() => openZone("layers")}><span class="hk">{LIVE_KEYS.layers}</span><span class="label">Layers &amp; objects</span><span class="value">{ctx.manifest.layers.length}{objectCount ? ` · ${objectCount.toLocaleString("en-US")} objects` : ""} ›</span></div>
+          {/if}
+          <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+          <div class="row" data-key={LIVE_KEYS.frame} onclick={() => openZone("frame")}><span class="hk">{LIVE_KEYS.frame}</span><span class="label">Frame</span><span class="value">{frameWords} ›</span></div>
+          <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+          <div class="row" data-key={LIVE_KEYS.annotations} onclick={() => openZone("annotate")}><span class="hk">{LIVE_KEYS.annotations}</span><span class="label">Annotations</span><span class="value">{annotationWords} ›</span></div>
         </div>
+        {@render readoutStrip()}
         <div class="foot">
-          {#if live.armed?.startsWith("pos:")}<span><b class="hk">↕</b> wheel moves {dimName(live.armed.slice(4)).toLowerCase()}</span>{:else if live.armed?.startsWith("run:")}<span><b class="hk">↕</b> wheel widens the run</span>{/if}
+          {#if live.armed?.startsWith("pos:")}<span><b class="hk">↕</b> {dimName(live.armed.slice(4)).toLowerCase()}</span>{:else if live.armed?.startsWith("run:")}<span><b class="hk">↕</b> run</span>{/if}
           {#if dims.length}<span><b class="hk">␣</b> {playing ? "stop" : "play"}</span>{/if}
+          <span><b class="hk">{LIVE_KEYS.auto}</b> auto</span>
           <span><b class="hk">r</b> <b class="hk">esc</b> close</span>
         </div>
 
@@ -451,14 +445,14 @@
           </div>
           <FluximgHistogram stats={ctx.manifest.channels[channel.index].stats} range={channel.range} norm={channel.norm} gamma={channel.gamma} {table} width={436}
             armed={live.armed} {integer} format={fmt}
-            onarm={(which) => setLive({ armed: which })}
+            onarm={(which) => armLive(which)}
             onwindow={(range, phase) => { if (phase === "cancel") cancelLiveEdit(); else { setWindow(live.channel, range); if (phase === "end") settleLiveEdit(); } }} />
           <div class="fields">
             {#each [["q", "black", "Black point"], ["w", "white", "White point"], ["e", "gamma", "Gamma"]] as [k, id, label] (id)}
               <label class="field" class:editing={live.armed === id} data-key={k}>
                 <span class="fhead"><span class="hk">{k}</span><span class="flabel">{label}</span></span>
                 <input class="nin" type="text" inputmode="decimal" spellcheck="false" value={fieldValue(id)}
-                  onfocus={() => setLive({ armed: id })} onblur={() => { draft = null; }} oninput={(e) => applyField(id, e.currentTarget.value)} onkeydown={(e) => onField(e, id)} />
+                  onfocus={() => armLive(id)} onblur={() => { draft = null; }} oninput={(e) => applyField(id, e.currentTarget.value)} onkeydown={(e) => onField(e, id)} />
               </label>
             {/each}
           </div>
@@ -476,13 +470,15 @@
               <button class="act" onclick={() => autoContrast(live.channel)}><span class="hk">a</span>Auto</button>
               <button class="act" onclick={() => { picking = "color"; optIndex = 0; }}><span class="hk">c</span>Colour</button>
               <button class="act" onclick={cycleNorm}><span class="hk">g</span>{channel.norm === "linear" ? "Linear" : channel.norm === "log" ? "Log" : "Gamma"}</button>
-              <button class="act" class:on={channel.invert} onclick={() => { setChannel(live.channel, { invert: !channel.invert }); settleLiveEdit(); }}><span class="hk">z</span>Invert</button>
+              <button class="act" class:on={channel.invert} onclick={() => { setChannel(live.channel, { invert: channel.invert ? (null as unknown as undefined) : true }); settleLiveEdit(); }}><span class="hk">z</span>Invert</button>
               <button class="act" class:on={ctx.view.composite === "single" ? ctx.view.solo === live.channel : channel.visible} onclick={() => toggleChannel(live.channel)}><span class="hk">x</span>Shown</button>
               <button class="act" class:on={ctx.view.composite === "single" && ctx.view.solo === live.channel} onclick={() => soloChannel(live.channel)}><span class="hk">v</span>Solo</button>
               <button class="act" onclick={() => resetChannel(live.channel)}><span class="hk">d</span>Reset</button>
+              {#if ctx.view.channels.length > 1}<button class="act" onclick={splitChannels}><span class="hk">{LIVE_KEYS.split}</span>Split channels</button>{/if}
             {/if}
           </div>
         </div>
+        {@render readoutStrip()}
         <div class="foot">
           <span><b class="hk">↕</b> wheel moves the {live.armed === "black" ? "black point" : live.armed === "gamma" ? "gamma" : live.armed === "window" ? "window" : "white point"}</span>
           <span><b class="hk">⇧</b> ×10</span>
@@ -499,14 +495,33 @@
       {:else if live.zone === "frame"}
         <div class="body zone">
           <div class="cm-head"><span class="hk">{LIVE_KEYS.frame}</span> Frame<button class="back" onclick={home} title="Back to the image (Esc)">← back <span class="hk">esc</span></button></div>
-          <p class="lead">The frame is a window onto the whole image. Roll the wheel over the image to zoom in on that spot; drag the image to move it under the frame.</p>
-          <div class="row static"><span class="hk">·</span><span class="label">Showing</span><span class="value">{frameWords}</span></div>
+          <div class="row static"><span class="hk">↕</span><span class="label">Showing</span><span class="value">{frameWords}</span></div>
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-          <div class="row" data-key="d" onclick={resetFrame}><span class="hk">d</span><span class="label">Whole image</span><span class="value dim">reset the frame</span></div>
+          <div class="row" data-key="d" onclick={resetFrame}><span class="hk">d</span><span class="label">Whole image</span><span class="value"></span></div>
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-          <div class="row" data-key="x" onclick={() => { if (makeInset(frameBefore)) home(); }}><span class="hk">x</span><span class="label">Pull out as an inset</span><span class="value dim">a new panel beside it</span></div>
+          <div class="row" data-key="x" onclick={() => { if (makeInset(frameBefore)) home(); }}><span class="hk">x</span><span class="label">Pull out as an inset</span><span class="value"></span></div>
+          <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+          <div class="row" data-key={LIVE_KEYS.smooth} onclick={toggleSmooth}><span class="hk">{LIVE_KEYS.smooth}</span><span class="label">Pixels</span><span class="value">{ctx.view.smooth ? "smoothed" : "true"}</span></div>
         </div>
-        <div class="foot"><span><b class="hk">↕</b> wheel zooms</span><span><b class="hk">⇧</b> faster</span><span><b class="hk">esc</b> back</span></div>
+        {@render readoutStrip()}
+        <div class="foot"><span><b class="hk">↕</b> zoom</span><span>drag moves</span><span><b class="hk">esc</b> back</span></div>
+
+      {:else if live.zone === "annotate"}
+        <div class="body zone">
+          <div class="cm-head"><span class="hk">{LIVE_KEYS.annotations}</span> Annotations<button class="back" onclick={home} title="Back to the image (Esc)">← back <span class="hk">esc</span></button></div>
+          <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+          <div class="row" data-key={LIVE_KEYS.scalebar} onclick={toggleScalebar}><span class="hk">{LIVE_KEYS.scalebar}</span><span class="label">Scale bar</span><span class="value" class:on={!!ctx.view.furniture.scalebar}>{ctx.view.furniture.scalebar ? "on" : ctx.manifest.axes?.x?.unit ? "off" : "no pixel size"}</span></div>
+          {#if dims.length}
+            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+            <div class="row" data-key={LIVE_KEYS.stamp} onclick={() => toggleFurniture("stamp")}><span class="hk">{LIVE_KEYS.stamp}</span><span class="label">Position stamp</span><span class="value" class:on={!!ctx.view.furniture.stamp}>{ctx.view.furniture.stamp ? "on" : "off"}</span></div>
+          {/if}
+          <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+          <div class="row" data-key={LIVE_KEYS.channelNames} onclick={() => toggleFurniture("channelLabels")}><span class="hk">{LIVE_KEYS.channelNames}</span><span class="label">Channel names</span><span class="value" class:on={!!ctx.view.furniture.channelLabels}>{ctx.view.furniture.channelLabels ? "on" : "off"}</span></div>
+          <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+          <div class="row" data-key={LIVE_KEYS.colorbar} onclick={() => toggleFurniture("colorbar")}><span class="hk">{LIVE_KEYS.colorbar}</span><span class="label">Calibration bar</span><span class="value" class:on={!!ctx.view.furniture.colorbar}>{ctx.view.furniture.colorbar ? "on" : "off"}</span></div>
+        </div>
+        {@render readoutStrip()}
+        <div class="foot"><span><b class="hk">esc</b> back</span></div>
       {/if}
     </div>
   </div>
@@ -525,15 +540,12 @@
   .mark { display: inline-flex; width: 14px; height: 14px; flex-shrink: 0; }
   .vsep { width: 1px; height: 14px; background: var(--c-line-strong); flex-shrink: 0; }
   .ttl { font: 600 13px var(--font-serif); color: var(--c-tx-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 40px; flex: 0 1 auto; }
-  .ctx { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-tx-muted); font-size: 11px; }
-  .about { margin: 0; padding: 5px 12px 4px; border-bottom: 1px solid var(--c-line); color: var(--c-tx-muted); font: 10.5px var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none; }
+  .ctx { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-tx-muted); font: 10.5px var(--font-mono); }
   .xbtn { width: 22px; height: 22px; padding: 0; background: none; border: 0; color: var(--c-tx-muted); font-size: 16px; cursor: var(--cursor-cross-hover); border-radius: var(--r-ui); flex: none; }
   .xbtn:hover { color: var(--c-tx-hi); background: var(--c-surface-2); }
   .hk { color: var(--c-accent); min-width: 17px; height: 16px; }
   .body { overflow-y: auto; padding: 4px 8px 8px; min-height: 0; }
   .body.zone { padding: 8px 10px 10px; }
-  .group { padding: 2px 0 4px; }
-  .gtitle { font: 600 10px var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--c-tx-muted); padding: 6px 4px 3px; border-bottom: 1px solid var(--c-line); margin-bottom: 2px; }
   /* One line per row: key, name, and its current value in mono at the right (the F-menu's search-result row). */
   .row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 8px; align-items: center; min-height: 26px; padding: 0 6px 0 4px; cursor: var(--cursor-cross-hover); }
   .row.chan { grid-template-columns: 18px 16px minmax(0, 1fr) 18px auto; gap: 7px; }
@@ -546,7 +558,6 @@
   .row.chan.off .label, .row.chan.off .value { color: var(--c-tx-muted); }
   .row.chan.off .sw { opacity: 0.35; }
   .value { font: 11px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--c-tx-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; text-align: right; }
-  .value.dim { color: var(--c-tx-faint); font-family: var(--font-ui); font-size: 10.5px; }
   .value.on { color: var(--c-tx-hi); }
   .sw { display: inline-block; width: 14px; height: 14px; border-radius: var(--r-ui); border: 1px solid color-mix(in oklab, var(--c-tx-hi) 18%, transparent); box-sizing: border-box; flex: none; }
   .eye { width: 18px; height: 20px; padding: 0; border: 0; background: none; color: var(--c-tx-2); font: 12px var(--font-mono); cursor: var(--cursor-cross-hover); }
@@ -575,7 +586,15 @@
   .act.on { background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
   .act .hk { min-width: 15px; height: 14px; font-size: 9px; }
   .note { margin: 6px 2px 0; font: 11px var(--font-ui); color: var(--c-warning); }
-  .lead { margin: 0 2px 8px; font-size: 12px; line-height: 1.45; color: var(--c-tx-2); }
+  .sep { height: 1px; margin: 4px 4px; background: var(--c-line); }
+  .readout { display: flex; flex-direction: column; justify-content: center; gap: 1px; height: 36px; padding: 0 12px; border-top: 1px solid var(--c-line); font: 10.5px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--c-tx-2); white-space: nowrap; overflow: hidden; flex: none; }
+  .readout .where { color: var(--c-tx-hi); overflow: hidden; text-overflow: ellipsis; }
+  .readout .obj { margin-left: 12px; color: var(--c-accent-bright); }
+  .readout .vals { display: flex; gap: 12px; overflow: hidden; }
+  .readout .val { display: inline-flex; align-items: center; gap: 5px; }
+  .readout .val i { width: 8px; height: 8px; border-radius: var(--r-ui); border: 1px solid color-mix(in oklab, var(--c-tx-hi) 22%, transparent); box-sizing: border-box; }
+  .readout .val b { font-weight: 500; color: var(--c-tx-hi); }
+  .readout .bad { color: var(--c-danger); white-space: normal; }
   .foot { display: flex; gap: 14px; min-height: 26px; align-items: center; padding: 0 10px; border-top: 1px solid var(--c-line); font: 11px var(--font-ui); color: var(--c-tx-muted); background: var(--c-bg-raised); flex: none; white-space: nowrap; overflow: hidden; }
   .foot span { display: inline-flex; align-items: center; gap: 4px; }
 </style>

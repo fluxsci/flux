@@ -16,7 +16,7 @@ import type { FluximgView } from "../view";
 import type { PlayMode } from "./rail";
 
 /** The panel's levels. `home` lists the zones; the others own the panel body until Esc backs out. */
-export type LiveZone = "home" | "channel" | "layers" | "frame";
+export type LiveZone = "home" | "channel" | "layers" | "frame" | "annotate";
 
 export interface FluximgLiveState {
   elementId: string;
@@ -53,6 +53,24 @@ export const livePointer: { at: { x: number; y: number } | null } = { at: null }
  */
 export interface LiveSample { channel: number; data: ArrayLike<number>; map: { mul: number; add: number; sub: number; nodata: number | null } | null; width: number; height: number; rect: { x: number; y: number; width: number; height: number } }
 export const liveSampler: { read: (() => LiveSample[]) | null } = { read: null };
+
+/**
+ * Who armed the row the wheel drives. The view arms its first rail by itself when it opens; that implicit arm
+ * takes the wheel only over the image and its rails, so the canvas still pans everywhere else. A row the user
+ * armed (its key, a click on it or on its rail) takes the wheel anywhere on screen, as an armed F-menu row does.
+ */
+export const liveArm = { explicit: false };
+/** Arm a row because the user asked for it. */
+export function armLive(key: string | null): void {
+  liveArm.explicit = key !== null;
+  setLive({ armed: key });
+}
+
+/** What is under the pointer on the live image, in words: the panel shows it in a fixed strip. */
+export interface LiveReadout { where: string; values: Array<{ name: string; ink: string; text: string }>; object: string }
+export const fluximgReadout = writable<LiveReadout | null>(null);
+/** A problem the live canvas ran into (no WebGL, an unreadable plane): shown where the readout goes. */
+export const fluximgLiveProblem = writable("");
 
 /** The screen box of the live image together with its rails (client px): the panel keeps clear of it. */
 export const fluximgLiveRect = writable<{ x: number; y: number; w: number; h: number } | null>(null);
@@ -153,6 +171,9 @@ export function closeFluximgLive(): void {
   fluximgLiveRect.set(null);
   livePointer.at = null;
   liveSampler.read = null;
+  liveArm.explicit = false;
+  fluximgReadout.set(null);
+  fluximgLiveProblem.set("");
   fluximgLive.set(null);
 }
 

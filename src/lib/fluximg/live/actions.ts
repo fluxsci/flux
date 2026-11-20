@@ -44,12 +44,16 @@ export function railDims(m: FluximgManifest): string[] {
  * else a spare.
  */
 export const LIVE_KEYS = {
-  auto: "a", split: "x", projection: "e", layers: "d", frame: "v", smooth: "n", scalebar: "b", stamp: "w", channelNames: "c", colorbar: "g",
+  // Home: the zones. `annotations` opens the zone whose rows are scalebar / stamp / channelNames / colorbar.
+  auto: "a", projection: "e", layers: "d", frame: "v", annotations: "b",
+  // Inside a zone (keys repeat across zones; each zone is its own small keyboard).
+  split: "b", smooth: "n", scalebar: "b", stamp: "w", channelNames: "c", colorbar: "g",
 } as const;
 const RAIL_SPARE = ["q", "`"];
 
 export function dimKeys(m: FluximgManifest): Record<string, string> {
-  const taken = new Set<string>(["r", "s", "f", ...Object.values(LIVE_KEYS)]);
+  // Only the home zone's keys compete with a rail's letter.
+  const taken = new Set<string>(["r", "s", "f", LIVE_KEYS.auto, LIVE_KEYS.projection, LIVE_KEYS.layers, LIVE_KEYS.frame, LIVE_KEYS.annotations]);
   const out: Record<string, string> = {};
   for (const d of railDims(m)) {
     const own = d[0]?.toLowerCase() ?? "";
