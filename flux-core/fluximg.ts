@@ -132,7 +132,7 @@ export async function placeImage(root: string, figureId: string, bundlePath: str
   const st = await fs.stat(source).catch(() => null);
   if (!st) throw new NotFoundError(`Image bundle not found: ${bundlePath}`);
   if (!st.isDirectory() || !(await fs.stat(path.join(source, "fluximg.json")).catch(() => null))?.isFile())
-    throw new ValidationError(`${bundlePath} is not a fluximg bundle (a folder holding fluximg.json); write one with fluxplot or \`flux\`'s fixtures first`);
+    throw new ValidationError(`${bundlePath} is not a fluximg bundle (a folder holding fluximg.json); write one with fluxplot first (fp.imsave)`);
   for (const [k, v] of Object.entries({ x: options.x, y: options.y, width: options.width })) {
     if (v !== undefined && !(typeof v === "number" && Number.isFinite(v))) throw new ValidationError(`${k} must be a finite number`);
   }

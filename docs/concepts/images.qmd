@@ -102,14 +102,14 @@ The panel lists the image's zones, each with a left-hand key:
 | Key | Row | What it does |
 |---|---|---|
 | **1**–**6** | a channel | Open that channel's contrast and colour (its eye shows or hides it) |
-| **a** | Auto contrast | Every channel at once; press again to tighten |
+| **a** | Auto contrast | Every channel at once, from the pixels in view; press again to tighten |
 | **x** | Split channels | One panel per channel to the right, each alone in gray with its name |
 | **t**, **z** | Time, Depth | Arm that rail: the mouse wheel then moves through it (other dimensions get **q** or **`**) |
-| **e** | Show | One plane, or a projection: max, mean, min, sum or std |
+| **e** | Projection | Off (one plane), or max, mean, min, sum or std over a run of planes |
 | **d** | Layers & objects | The layers and the objects in them |
 | **v** | Frame | The region of the image the panel shows |
 | **n** | Pixels | True pixels or smoothed when magnified |
-| **b** | Scale bar | On or off (needs a pixel size: the row says "no pixel size" otherwise) |
+| **b** | Scale bar | On or off (it needs a pixel size: without one the row says "no pixel size" and pressing it tells you so) |
 | **w** | Position stamp | Where along depth or time the picture is, printed on it |
 | **c** | Channel names | Each channel's name in its colour |
 | **g** | Calibration bar | Each shown channel's colours from its black point to its white point, with both values |
@@ -153,9 +153,10 @@ another channel.
 | **v** | Solo: show only this channel (again: back to all of them) |
 | **d** | Reset to the image's own window and colour |
 
-**Auto** sets the window from percentiles the image carries, so it needs no pixels and is
-instant. Each press moves to the next window on a ladder: 0.1–99.9 %, 1–99.8 %, 1–99 %, then
-the full range, and round again. A new image starts at fluxplot's default window, 1–99.8 %.
+**Auto** sets the window from the pixels in view: the plane (or projection) on screen, inside
+the frame. Each press moves to the next window on a ladder: 0.1–99.9 %, 1–99.8 %, 1–99 % of
+those pixels, then their full range, and round again. The Inspector's Auto uses the percentiles
+the whole image carries instead, so it gives the same window on every plane.
 
 When gamma is not 1 the panel reminds you to say so in the legend; a log scale needs a black
 point above 0 and is drawn linear until it has one.
@@ -186,6 +187,14 @@ figure, and the wheel over the image zooms in on the spot under the pointer; dra
 move it under the frame. **d** shows the whole image again. **x** pulls the current region out
 as an **inset**: a new panel beside the image shows the region with a scale bar, the original
 returns to the frame it had, and it outlines the inset's region.
+
+## Linked panels
+
+Panels made by **Split channels** or pulled out as an inset stay linked to the image they came
+from: move one to another plane, change its projection, or drag a channel's black or white
+point, and the others follow. What each panel shows stays its own (which channels, their
+colours, its frame, its annotations). The Inspector says how many panels a panel moves with,
+and **Unlink** sets it free.
 
 # The Inspector
 

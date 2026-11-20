@@ -237,7 +237,8 @@ These three are outside the core MCP toolset: in core mode call them through `fl
   `strokeWidth` (screen px) and `fillOpacity`; image layers `lut` and `range` instead.
 - `furniture`: `scalebar` (`length` in the x unit, `corner`, `color`, `label`, `thickness` and
   `fontSize` in pt), `stamp` (`dims`, `corner`, `color`, `fontSize`), `channelLabels`
-  (`corner`, `fontSize`), `names` (`layers`, `fontSize`). `{}` turns one on with defaults,
+  (`corner`, `fontSize`), `names` (`layers`, `fontSize`), `colorbar` (the intensity
+  calibration bar: `corner`, `color`, `fontSize`). `{}` turns one on with defaults,
   `false` or `null` turns it off. Corners: `bottom-right bottom-left top-right top-left`.
 - **`--crop`**: `{"x", "y", "width", "height"}` in full-resolution image pixels, inside the
   image. It keeps the content pinned on the canvas (the box changes, as cropping a picture does).

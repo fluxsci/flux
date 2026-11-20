@@ -48,7 +48,8 @@ export function startProjectWatch(root: string | null): void {
   if (!root || !fig?.watchRoot || !fig?.onFsChanged) return;
   void fig.watchRoot(root);
   // Placed images follow their source bundles under plots/ from the moment the project opens (idempotent).
-  void import("../fluximg/sourceUpdate").then((m) => m.ensureFluximgSourceWatch()).catch((e) => console.warn("Image source watch did not start", e));
+  // …and catch up once with bundles that changed while the app was closed.
+  void import("../fluximg/sourceUpdate").then((m) => { m.ensureFluximgSourceWatch(); return m.scanFluximgSources(); }).catch((e) => console.warn("Image source watch did not start", e));
   const generation = watchGeneration;
   const refreshSources = () => {
     void import("./sourceBridge").then((m) => m.syncProjectSources(root, { isCurrent: () => generation === watchGeneration }))

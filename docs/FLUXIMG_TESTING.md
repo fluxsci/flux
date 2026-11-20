@@ -105,7 +105,7 @@ and one large one (2048 × 2048 or more, tens of planes).
     **one undo step for the run.**
 30. Type the image's default window back: **the key disappears from the stored view** (an
     all-default view leaves the element with no `view` in `fig/canvases/*.json`).
-31. Position: change the plane; choose Maximum and a From/To run; toggle scale bar, stamp,
+31. Position: change the plane; choose max and a From/To run; toggle scale bar, stamp,
     channel names, calibration bar; Pixels True/Smoothed; Background Transparent; Region shown
     X/Y/W/H. **Each shows at once; the live view (if open) agrees.**
 32. **Live view R** button in the Image header **opens the live view**; on a locked element it

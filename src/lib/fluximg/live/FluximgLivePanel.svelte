@@ -16,6 +16,7 @@
   import { anchorPanel, reanchorPanel, type Point, type Rect } from "../../ui/anchor";
   import { WheelStepper, wheelDelta } from "../../interact/wheelLaw";
   import { evalExpr } from "../../num";
+  import { pushToast } from "../../toast";
   import { channelTable } from "../lut";
   import { describeFluximg } from "../place";
   import { fluximgLutsReady, fluximgManifests, needLuts, resolveLut } from "../store";
@@ -87,6 +88,16 @@
   }
   function home(): void { picking = null; draft = null; setLive({ zone: "home", armed: defaultArmed() }); }
   function close(): void { closeFluximgLive(); }
+
+  /** A scale bar needs to know how big a pixel is; without that, say so instead of switching on nothing. */
+  function toggleScalebar(): void {
+    const ax = ctx?.manifest.axes?.x;
+    if (!ctx?.view.furniture.scalebar && !(ax && typeof ax.scale === "number" && ax.scale > 0 && ax.unit)) {
+      pushToast("info", "This image does not say how big a pixel is, so it cannot draw a scale bar", { detail: "Save it with pixel_size= and a unit (fp.imsave), then it will." });
+      return;
+    }
+    toggleFurniture("scalebar");
+  }
 
   function pickProjection(i: number): void {
     const o = projectionOptions[i];
@@ -161,7 +172,7 @@
       case LIVE_KEYS.layers: if (ctx.manifest.layers.length) openZone("layers"); return true;
       case LIVE_KEYS.frame: openZone("frame"); return true;
       case LIVE_KEYS.smooth: toggleSmooth(); return true;
-      case LIVE_KEYS.scalebar: toggleFurniture("scalebar"); return true;
+      case LIVE_KEYS.scalebar: toggleScalebar(); return true;
       case LIVE_KEYS.stamp: toggleFurniture("stamp"); return true;
       case LIVE_KEYS.channelNames: toggleFurniture("channelLabels"); return true;
       case LIVE_KEYS.colorbar: toggleFurniture("colorbar"); return true;
@@ -341,7 +352,7 @@
               {@const shown = ctx.view.composite === "single" ? ctx.view.solo === i : c.visible}
               <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
               <div class="row chan" class:off={!shown} data-key={String(i + 1)} onclick={() => openZone("channel", i)}>
-                <span class="hk">{i + 1}</span>
+                <span class="hk">{i < 6 ? i + 1 : "·"}</span>
                 <span class="sw" style={swatch(c)}></span>
                 <span class="label">{c.name}</span>
                 <button class="eye" onclick={(e) => { e.stopPropagation(); toggleChannel(i); }} title={shown ? "Hide this channel" : "Show this channel"} aria-label={shown ? `Hide ${c.name}` : `Show ${c.name}`}>{shown ? "◉" : "○"}</button>
@@ -397,9 +408,9 @@
           </div>
 
           <div class="group">
-            <div class="gtitle">Annotate</div>
+            <div class="gtitle">Annotations</div>
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-            <div class="row" data-key={LIVE_KEYS.scalebar} onclick={() => toggleFurniture("scalebar")}><span class="hk">{LIVE_KEYS.scalebar}</span><span class="label">Scale bar</span><span class="value" class:on={!!ctx.view.furniture.scalebar}>{ctx.view.furniture.scalebar ? "on" : ctx.manifest.axes?.x?.unit ? "off" : "no pixel size"}</span></div>
+            <div class="row" data-key={LIVE_KEYS.scalebar} onclick={toggleScalebar}><span class="hk">{LIVE_KEYS.scalebar}</span><span class="label">Scale bar</span><span class="value" class:on={!!ctx.view.furniture.scalebar}>{ctx.view.furniture.scalebar ? "on" : ctx.manifest.axes?.x?.unit ? "off" : "no pixel size"}</span></div>
             {#if dims.length}
               <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
               <div class="row" data-key={LIVE_KEYS.stamp} onclick={() => toggleFurniture("stamp")}><span class="hk">{LIVE_KEYS.stamp}</span><span class="label">Position stamp</span><span class="value" class:on={!!ctx.view.furniture.stamp}>{ctx.view.furniture.stamp ? "on" : "off"}</span></div>

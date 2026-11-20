@@ -49,7 +49,7 @@
   });
   const DIM_NAMES: Record<string, string> = { t: "Time", z: "Depth" };
   const dimName = (d: string): string => DIM_NAMES[d] ?? d.charAt(0).toUpperCase() + d.slice(1);
-  const MODES: ReadonlyArray<[FluximgProjectionMode, string]> = [["max", "Maximum"], ["mean", "Mean"], ["min", "Minimum"], ["sum", "Sum"], ["std", "Std. deviation"]];
+  const MODES: ReadonlyArray<[FluximgProjectionMode, string]> = [["max", "max"], ["mean", "mean"], ["min", "min"], ["sum", "sum"], ["std", "std"]];
   /** The dimension a projection is chosen along while none is on (with one, its own). */
   let alongPick = $state("");
   const along = $derived(rv?.projection?.dim ?? (dims.includes(alongPick) ? alongPick : dims[0] ?? ""));
@@ -77,7 +77,7 @@
     if (info.encoding === "linear16") return `Stored compactly: 16-bit steps of the ${from ?? "original"} values`;
     return from && from !== info.dtype ? `Stored exactly (${from} as ${info.dtype})` : `Stored exactly (${info.dtype})`;
   });
-  const KIND_WORDS: Record<string, string> = { intensity: "intensity", labels: "outlines", vector: "shapes" };
+  const KIND_WORDS: Record<string, string> = { intensity: "image", labels: "objects", vector: "shapes" };
 
   /** A channel's colour map as a small ramp (its colour as a plain chip). */
   function ramp(c: ResolvedChannel): string {
@@ -264,10 +264,10 @@
             </div>
           {/if}
         {/each}
-        <div class="choice"><span>Show</span><div class="selects">
+        <div class="choice"><span>Projection</span><div class="selects">
           <select aria-label="Projection" data-fluximg-projection value={v.projection?.mode ?? ""}
             onchange={(e) => { const mode = selectValue(e); view(projectionPatch(m, v, along, mode ? (mode as FluximgProjectionMode) : null)); }}>
-            <option value="">One plane</option>
+            <option value="">off · one plane</option>
             {#each MODES as [mode, label] (mode)}<option value={mode}>{label}</option>{/each}
           </select>
           {#if dims.length > 1}

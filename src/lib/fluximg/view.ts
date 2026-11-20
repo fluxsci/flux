@@ -73,7 +73,7 @@ export interface FluximgStampView {
 
 export interface FluximgFurnitureView {
   scalebar?: FluximgScalebarView | false;
-  /** The depth / time stamp ("z −50.5 µm", "t 3.20 s", "max z 8–15"). */
+  /** The depth / time stamp ("z −50.5 µm", "t 3.20 s", "max z 3–6"): where the picture is along each dimension. */
   stamp?: FluximgStampView | false;
   /** Channel names, each in its channel's colour. */
   channelLabels?: { corner?: FurnitureCorner; fontSize?: number } | false;

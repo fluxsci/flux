@@ -38,8 +38,10 @@ export function railDims(m: FluximgManifest): string[] {
 }
 
 /**
- * The panel's keys, all under the left hand (the right stays on the mouse). `r` closes the view, `f` and `s`
- * stay Flux-wide (properties, search). A dimension's rail takes its own letter when it is free (t, z), else a spare.
+ * The panel's keys, all under the left hand (the right stays on the mouse). `r` closes the view and `f` opens the
+ * properties menu as everywhere; every other unmodified key is the panel's own (so none is given to `r`, `f`, or
+ * to `s`, which the open choices use to step). A dimension's rail takes its own letter when it is free (t, z),
+ * else a spare.
  */
 export const LIVE_KEYS = {
   auto: "a", split: "x", projection: "e", layers: "d", frame: "v", smooth: "n", scalebar: "b", stamp: "w", channelNames: "c", colorbar: "g",

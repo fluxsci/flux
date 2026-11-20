@@ -139,9 +139,9 @@ export function checkViewPatch(manifest: FluximgManifest, patch: unknown, option
 
   const fur = patch.furniture;
   if (fur !== undefined && fur !== null) {
-    if (!isObj(fur)) problems.push(`furniture: an object with scalebar, stamp, channelLabels, names (each false/null for off, {} for on)`);
+    if (!isObj(fur)) problems.push(`furniture: an object with scalebar, stamp, channelLabels, names, colorbar (each false/null for off, {} for on)`);
     else {
-      keysOk("furniture", fur, ["scalebar", "stamp", "channelLabels", "names"]);
+      keysOk("furniture", fur, ["scalebar", "stamp", "channelLabels", "names", "colorbar"]);
       const item = (k: string, allowed: string[]): Record<string, unknown> | null => {
         const v = fur[k];
         if (v === undefined || v === null || v === false) return null;
@@ -167,6 +167,7 @@ export function checkViewPatch(manifest: FluximgManifest, patch: unknown, option
       }
       if (st && !dims.length) warnings.push(`furniture.stamp: this image has no depth or time dimension, so the stamp is empty`);
       item("channelLabels", ["corner", "fontSize"]);
+      item("colorbar", ["corner", "color", "fontSize"]);
       const nm = item("names", ["layers", "fontSize"]);
       if (nm && nm.layers !== undefined) {
         const objects = manifest.layers.filter((l) => l.kind !== "intensity").map((l) => l.id);

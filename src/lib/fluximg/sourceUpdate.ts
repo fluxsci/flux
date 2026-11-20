@@ -78,6 +78,29 @@ export function ensureFluximgSourceWatch(): void {
   }) ?? null;
 }
 
+/**
+ * Catch up after the app was closed: for every bundle a placed image follows, ask whether it still is what was
+ * placed (two small manifest reads per bundle, never the pixels) and bring the ones that changed up to date, the
+ * same way a change seen by the watcher would. Called when a project's watch starts. Nothing is touched when
+ * everything is current, and a missing source is left alone (the placed copy stays).
+ */
+export async function scanFluximgSources(): Promise<number> {
+  if (storeTenant() !== "figure") return 0;
+  const first = new Map<string, FluximgElement>();
+  for (const f of get(project).figures) for (const e of f.elements) {
+    if (e.type !== "fluximg" || !e.source?.bundlePath || e.source.frozen || e.source.external) continue;
+    const key = norm(e.source.bundlePath);
+    if (!first.has(key)) first.set(key, e);
+  }
+  let changed = 0;
+  for (const [bundlePath, el] of first) {
+    let state: FluximgSourceState;
+    try { state = await fluximgSourceState(el); } catch { continue; }
+    if (state === "changed") { schedule(bundlePath); changed++; }
+  }
+  return changed;
+}
+
 /** Stop watching (tests; a window that closes takes its subscription with it). */
 export function stopFluximgSourceWatch(): void {
   unwatch?.(); unwatch = null;
