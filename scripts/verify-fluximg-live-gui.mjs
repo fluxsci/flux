@@ -312,4 +312,181 @@ await press("ArrowRight");
 h.eq([await idx(TRI, "t"), await idx(TRI, "trial")], [1, 0], "arrows are spatial: left / right step the first horizontal rail (time)");
 await closeLive();
 
+// =====================================================================================================
+h.section("channels");
+const chanOf = async (id, i) => page.evaluate(({ id, i }) => { const c = window.__flux.fluximg.actions.liveContext(); return c && c.element.id === id ? structuredClone(c.view.channels[i]) : null; }, { id, i });
+const compOf = () => page.evaluate(() => { const v = window.__flux.fluximg.actions.liveContext().view; return { composite: v.composite, solo: v.solo }; });
+await openLive(S);
+image = await rect("[data-fluximg-live]");
+await press("1");
+await waitFor(page, () => !!document.querySelector(".fluximgPanel .hist svg.plot"), null, { label: "channel 1's zone" });
+h.ok(true, "key 1 opens channel 1's zone with its histogram");
+h.eq((await model(S)).live.armed, "white", "…with the white point armed for the wheel");
+let c0 = await chanOf(S, 0);
+before = await model(S);
+await wheel(image.cx, image.cy, -100, 3);
+await settled();
+let c1 = await chanOf(S, 0);
+h.ok(c1.range[1] > c0.range[1] && c1.range[0] === c0.range[0], `wheel up raises the white point (${c0.range[1]} -> ${c1.range[1]}), the black point stays`);
+after = await model(S);
+h.eq(after.past - before.past, 1, "…and the run of notches commits ONE undo step");
+// Drag the black handle to the right.
+const histBox = await rect(".fluximgPanel .hist svg.plot");
+const marks = await rects(".fluximgPanel .hist .mark");
+c0 = await chanOf(S, 0); before = await model(S);
+await page.mouse.move(marks[0].x + marks[0].w / 2, histBox.cy); await page.mouse.down();
+await page.mouse.move(marks[0].x + marks[0].w / 2 + 30, histBox.cy, { steps: 4 });
+await page.mouse.move(marks[0].x + marks[0].w / 2 + 60, histBox.cy, { steps: 4 }); await page.mouse.up();
+await waitForFrame(page);
+c1 = await chanOf(S, 0); after = await model(S);
+h.ok(c1.range[0] > c0.range[0] && c1.range[1] === c0.range[1], `dragging the black handle raises the black point (${c0.range[0]} -> ${c1.range[0]})`);
+h.eq(after.past - before.past, 1, "…as one undo step");
+// Auto walks its ladder: every press changes the window, and it comes round again.
+const ladder = [];
+for (let i = 0; i < 5; i++) { await press("a"); ladder.push((await chanOf(S, 0)).range.join("..")); }
+h.ok(new Set(ladder.slice(0, 4)).size === 4 && ladder[4] === ladder[0], `a cycles the Auto ladder (${ladder.join(" | ")})`);
+// Hide / solo / invert / colour change the model and the picture.
+let g = await glStats();
+await press("x");
+h.eq((await chanOf(S, 0)).visible, false, "x hides the channel in the model");
+await waitForFrame(page); await waitForFrame(page);
+let g2 = await glStats();
+h.ok(differs(g, g2), "…and in the picture");
+await press("x");
+h.eq((await chanOf(S, 0)).visible, true, "x again shows it");
+await waitForFrame(page); await waitForFrame(page);
+g = await glStats();
+await press("v");
+h.eq(await compOf(), { composite: "single", solo: 0 }, "v solos the channel");
+await sharpFrame(); await waitForFrame(page); await waitForFrame(page);
+g2 = await glStats();
+h.ok(differs(g, g2), "…and the picture shows that channel alone");
+await press("v");
+h.eq((await compOf()).composite, "blend", "v again returns to the composite");
+await waitForFrame(page); await waitForFrame(page);
+g = await glStats();
+await press("z");
+h.eq((await chanOf(S, 0)).invert, true, "z inverts the channel");
+await waitForFrame(page); await waitForFrame(page);
+g2 = await glStats();
+h.ok(differs(g, g2), "…and the picture changes");
+await press("z");
+g = await glStats();
+await press("c");
+h.ok(await page.evaluate(() => !!document.querySelector(".fluximgPanel .acts .opts [role=option]")), "c lays out the colours");
+await press("4"); // cyan
+h.eq((await chanOf(S, 0)).color, "#00ffff", "a colour's number picks it");
+await waitForFrame(page); await waitForFrame(page);
+g2 = await glStats();
+h.ok(differs(g, g2), "…and the picture takes the new colour");
+// Typed values: Enter commits, Esc reverts, and the keys work again afterwards.
+c0 = await chanOf(S, 0); before = await model(S);
+await page.click(".fluximgPanel .field[data-key='q'] input", { count: 3 });
+await page.keyboard.type("500");
+h.eq((await chanOf(S, 0)).range[0], 500, "typing a black point previews it live");
+await press("Enter");
+after = await model(S);
+h.ok((await chanOf(S, 0)).range[0] === 500 && after.past - before.past === 1, "Enter commits the typed value as one undo step");
+h.ok(await page.evaluate(() => !(document.activeElement instanceof HTMLInputElement)), "…and hands the keyboard back (no field keeps focus)");
+c0 = await chanOf(S, 0); before = await model(S);
+await page.click(".fluximgPanel .field[data-key='w'] input", { count: 3 });
+await page.keyboard.type("999");
+h.eq((await chanOf(S, 0)).range[1], 999, "typing a white point previews it");
+await press("Escape");
+after = await model(S);
+h.ok((await chanOf(S, 0)).range[1] === c0.range[1] && after.past === before.past, "Esc reverts the typed value (no undo step)");
+h.ok(await isOpen() && (await model(S)).live.zone === "channel", "Esc in a field leaves the zone open");
+h.ok(await page.evaluate(() => !(document.activeElement instanceof HTMLInputElement)), "…and no field keeps focus");
+await press("q");
+h.eq((await model(S)).live.armed, "black", "keys work again after a field (q arms the black point)");
+await press("Escape");
+h.eq((await model(S)).live.zone, "home", "Esc returns to the home zone, not out of the view");
+await closeLive();
+
+// =====================================================================================================
+h.section("float windows and the layers zone (mean_f64_layers)");
+await page.evaluate(() => { const F = window.__flux; F.fig.commit((p) => { p.figures[0].elements = p.figures[0].elements.filter((e) => e.type !== "fluximg"); }); F.fig.resetHistory(); });
+const L = await placeFixture("mean_f64_layers", { x: 80, y: 60 }, { width: 360 });
+await waitStill(L);
+await openLive(L);
+image = await rect("[data-fluximg-live]");
+// The black point wheeled up into the white point stops below it; the window never collapses (an empty window is
+// invalid, and the view fell back to the default window: the picture jumped and the next notch started from there).
+await press("1");
+await waitFor(page, () => !!document.querySelector(".fluximgPanel .hist"), null, { label: "channel zone" });
+await page.click(".fluximgPanel .field[data-key='q'] input", { count: 3 });
+const white0 = (await chanOf(L, 0)).range[1];
+await page.keyboard.type(String(Math.floor((white0 - 0.08) * 100) / 100));
+await press("Enter");
+await press("q");
+await wheel(image.cx, image.cy, -100, 3);
+await settled();
+c1 = await chanOf(L, 0);
+h.ok(c1.range[0] < c1.range[1] && c1.range[0] > white0 - 0.1 && c1.range[1] === white0, `float data: wheeling the black point into the white point stops just below it (${c1.range.join(" .. ")}; white ${white0})`);
+await press("Escape");
+// Layers.
+await press("d");
+await waitFor(page, () => !!document.querySelector(".fluximgPanel .list"), null, { label: "layers zone" });
+const layerIds = await page.evaluate(() => window.__flux.fluximg.actions.liveContext().manifest.layers.map((l) => l.id));
+const rowIds = () => page.evaluate(() => [...document.querySelectorAll(".fluximgPanel .lrow[data-rid]")].map((e) => e.getAttribute("data-rid")));
+let rows = await rowIds();
+h.ok(layerIds.every((id) => rows.includes(`layer:${id}`)), `a row for every layer (${layerIds.join(", ")})`);
+h.ok(!rows.some((r) => r.startsWith("obj:")), "object layers start closed (several of them)");
+await page.click(".fluximgPanel .lrow[data-rid='layer:footprints']");
+await waitFor(page, () => document.querySelectorAll(".fluximgPanel .lrow[data-rid^='obj:footprints/']").length > 0, null, { label: "footprints open" });
+rows = await rowIds();
+const objRows = rows.filter((r) => r.startsWith("obj:footprints/"));
+h.ok(objRows.length >= 3, `opening an object layer lists its objects (${objRows.length})`);
+await waitFor(page, () => [...document.querySelectorAll(".fluximgPanel .lrow.obj .cellk")].length > 0, null, { label: "table columns", timeout: 5000 }).catch(() => {});
+const cols = await page.evaluate(() => [...new Set([...document.querySelectorAll(".fluximgPanel .lrow.obj .cellk")].map((e) => e.textContent.trim()))]);
+h.ok(cols.length >= 1, `…with the columns of their table (${cols.join(", ")})`);
+// Row -> image: hovering a row outlines the object on the image.
+const firstObj = objRows[0], firstKey = firstObj.split("/").slice(1).join("/");
+const rowBox = await rect(`.fluximgPanel .lrow[data-rid='${firstObj}']`);
+await page.mouse.move(rowBox.cx, rowBox.cy);
+await waitFor(page, () => !!document.querySelector("[data-fluximg-live] .fx-hot"), null, { label: "outline on the image", timeout: 3000 }).catch(() => {});
+const hot = await page.evaluate(() => document.querySelector("[data-fluximg-live] .fx-hot")?.getAttribute("data-key") ?? null);
+h.eq(hot, firstKey, "hovering an object's row outlines that object on the image");
+// Image -> row: hovering the object on the image marks its row.
+const other = objRows[objRows.length - 1], otherKey = other.split("/").slice(1).join("/");
+await page.mouse.move(5, 5);
+const shapeAt = await page.evaluate((k) => { const s = [...document.querySelectorAll("[data-fluximg-live] [data-layer='footprints'] [data-key], [data-fluximg-live] [data-key]")].find((e) => e.getAttribute("data-key") === k && e.closest("[data-layer]")?.getAttribute("data-layer") === "footprints"); if (!s) return null; const r = s.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, hit: document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.getAttribute("data-key") ?? null }; }, otherKey);
+if (shapeAt) {
+  await page.mouse.move(shapeAt.x, shapeAt.y, { steps: 3 });
+  await waitFor(page, (rid) => !!document.querySelector(`.fluximgPanel .lrow.hot[data-rid='${rid}']`), other, { label: "row marked", timeout: 3000 }).catch(() => {});
+  h.ok(await page.evaluate((rid) => !!document.querySelector(`.fluximgPanel .lrow.hot[data-rid='${rid}']`), other), `hovering an object on the image marks its row (${otherKey}; hit-test found ${shapeAt.hit})`);
+  h.ok(await page.evaluate(() => /footprints/.test(document.querySelector("[data-fluximg-readout]")?.textContent ?? "") || !!document.querySelector("[data-fluximg-readout] .obj")), "…and the readout names it");
+} else h.fail(`the object ${otherKey} is drawn on the live image`);
+await page.mouse.move(rowBox.cx, rowBox.cy);
+// The filter narrows.
+await press("a");
+h.ok(await page.evaluate(() => document.activeElement?.classList.contains("search-in")), "a focuses the filter");
+await page.keyboard.type(firstKey);
+await waitForFrame(page);
+rows = await rowIds();
+const objAfter = rows.filter((r) => r.startsWith("obj:"));
+h.ok(objAfter.length >= 1 && objAfter.length < objRows.length && objAfter.includes(firstObj), `the filter narrows the list (${objAfter.length} objects match '${firstKey}')`);
+await press("Enter");
+h.ok(await page.evaluate(() => !(document.activeElement instanceof HTMLInputElement)), "Enter hands the keyboard back from the filter");
+await page.evaluate(() => { const i = document.querySelector(".fluximgPanel .search-in"); i.value = ""; i.dispatchEvent(new Event("input", { bubbles: true })); });
+await waitForFrame(page);
+// x toggles the current row's layer; q toggles its names.
+await page.click(".fluximgPanel .lrow[data-rid='layer:footprints']");
+await page.click(".fluximgPanel .lrow[data-rid='layer:footprints']"); // (click toggles open; twice = back as it was, cursor on it)
+const visOf = (id) => page.evaluate((id) => window.__flux.fluximg.actions.liveContext().view.layers.find((l) => l.id === id).visible, id);
+const v0 = await visOf("footprints");
+await press("x");
+h.eq(await visOf("footprints"), !v0, "x toggles the layer's visibility in the model");
+h.ok(await page.evaluate((on) => !!document.querySelector("[data-fluximg-live] [data-layer='footprints']") === on, !v0), "…and on the live image");
+await press("x");
+await press("q");
+h.ok(await page.evaluate(() => (window.__flux.fluximg.actions.liveContext().view.furniture.names?.layers ?? []).includes("footprints")), "q turns the layer's names on in the model");
+await waitFor(page, () => !!document.querySelector("[data-fluximg-live] [data-part='names'] text"), null, { label: "names drawn", timeout: 3000 }).catch(() => {});
+h.ok(await page.evaluate(() => document.querySelectorAll("[data-fluximg-live] [data-part='names'] text").length > 0), "…and draws the names on the image");
+await press("q");
+h.ok(await page.evaluate(() => !document.querySelector("[data-fluximg-live] [data-part='names']")), "q again removes them");
+await press("Escape");
+h.eq((await model(L)).live?.zone, "home", "Esc leaves the layers zone for home");
+await closeLive();
+
 await h.done(async () => { await browser.close(); rmSync(scratch, { recursive: true, force: true }); });

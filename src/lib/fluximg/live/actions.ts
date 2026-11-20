@@ -148,7 +148,13 @@ export function nudgeWindow(i: number, which: 0 | 1 | 2, steps: number, fine = 1
   const stats = c.manifest.channels[i].stats, d = histDomain(stats, ch.range), integer = integerData(c.manifest);
   const step = nudgeStep(d, integer) * fine;
   const moved = moveWindow(ch.range, which, steps * step, integer ? 1 : step / 100);
-  setChannel(i, { range: [snapValue(moved[0], d, integer && fine >= 1), snapValue(moved[1], d, integer && fine >= 1)] }, `window:${i}:${which}`, WHEEL_SETTLE_MS);
+  // Snap only the point that moved (the other one stays exactly where it was), and never let snapping close the
+  // window: an empty window is invalid, the view fell back to the channel's default window, and the picture jumped.
+  const snap = (v: number): number => snapValue(v, d, integer && fine >= 1);
+  let lo = which === 1 ? moved[0] : snap(moved[0]), hi = which === 0 ? moved[1] : snap(moved[1]);
+  if (!(hi > lo)) [lo, hi] = moved;
+  if (lo === ch.range[0] && hi === ch.range[1]) return;
+  setChannel(i, { range: [lo, hi] }, `window:${i}:${which}`, WHEEL_SETTLE_MS);
 }
 
 /** Set a channel's window outright (a handle drag). Keeps black below white. */
