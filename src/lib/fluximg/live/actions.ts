@@ -15,7 +15,7 @@ import type { FluximgChannelView, FluximgFurnitureView, FluximgLayerView, Fluxim
 import { positionDims, resolveView } from "../viewOps";
 import { autoWindow, histDomain, moveWindow, nextAutoStep, nextSampleStep, nudgeStep, sampleWindow, snapValue, sortedSample } from "./histogram";
 import { framePeriod, playStep, resizeRun, slideRun, stepIndex, type PlayMode } from "./rail";
-import { WHEEL_SETTLE_MS, cancelLiveEdit, fluximgLive, liveCrop, liveElement, liveMutate, liveSampler, liveView, setLive, settleLiveEdit } from "./session";
+import { WHEEL_SETTLE_MS, cancelLiveEdit, fluximgLive, liveCrop, liveElement, liveMutate, liveSampler, liveView, setLive, settleLiveEdit, liveArm } from "./session";
 
 export interface LiveContext { element: FluximgElement; manifest: FluximgManifest; view: ResolvedView; crop: PixelRect }
 
@@ -497,7 +497,8 @@ export function backOut(): boolean {
   const live = get(fluximgLive);
   if (!live) return false;
   if (live.playing) { stopPlayback(); return true; }
-  if (live.zone !== "home") { cancelLiveEdit(); setLive({ zone: "home", armed: defaultArmed() }); return true; }
+  // Back home the first rail is the VIEW's arm again (wheel over the image only), not the zone row the user armed.
+  if (live.zone !== "home") { cancelLiveEdit(); liveArm.explicit = false; setLive({ zone: "home", armed: defaultArmed() }); return true; }
   return false;
 }
 
