@@ -160,6 +160,11 @@ The established shared cores — extend these, don't duplicate them:
 | 3D camera, fields, shape weights and effective semantic parts | `model3d/viewOps.ts`, `semanticOps.ts`, `parts.ts` | `verify-model3d-{view-ops,semantics}.ts`, `verify-model3d-{orbit,xray}-gui.mjs` |
 | 3D file/live agent command policy | `model3d/commandOps.ts`, shared view/semantic ops and source-bound metadata readers | `verify-model3d-verbs.ts`, `verify-model3d-verbs-gui.mjs`, `verify-model3d-verbs-electron.cjs` |
 | Static 3D Figure/Paper composition | `model3d/static.ts` with explicit poster inputs; browser/Node IO adapters | `verify-model3d-headless.ts` (Paper/Node byte parity), `verify-model3d-export.mjs` |
+| fluximg/1 on-disk contract (manifest types, the Zarr profile, value maps, reference reader and writer, label outlines, validator) | `src/lib/fluximg/{types,zarr,encoding,reader,writer,outlines,validate}.ts`; Node IO + zstd in `flux-core/fluximgIo.ts`; fluxplot's Python writer is the other producer | `verify-fluximg-format.ts`; `scripts/fluximg-validate.ts` + `scripts/fluximg-fixtures.ts` (fluxplot's contract tests run these two) |
+| fluximg views and their pixels (resolve, the ONE merge law `patchView`, plane requests, the pixel key, colour tables, projections, the reference renderer, the one still function) | `fluximg/viewOps.ts`, `lut.ts`, `project.ts`, `render.ts`, `still.ts` (`renderStill`: the window's workers, flux-core, in-app export and Paper all call it); `gl/liveRenderer.ts` is a fast path held to `renderView` | `verify-fluximg-render.ts`, `verify-fluximg-gl.ts` (every component of every pixel within 1/255) |
+| fluximg static composition (layer sanitizing and placement, object names, furniture, the element's SVG, export still requests, the stand-in) | `fluximg/layers.ts`, `furniture.ts`, `static.ts`, `exportStatic.ts`, `placeholder.ts`; IO adapters `exportWindow.ts` (worker pool) and `flux-core/fluximgRender.ts` (Node) | `verify-fluximg-static.ts` (incl. resvg pixels), `verify-fluximg-export.ts`, `verify-fluximg-export-gui.ts` (in-app ≡ Paper ≡ flux-core markup and decoded still pixels) |
+| fluximg file side (import by clone or copy, the content id, ranged reads, discard, request validation and its words) | `electron/fluximgRules.js` (dependency-free ESM, also imported by `project/memBridge.ts`) + `electron/fluximgFiles.cjs` (also flux-core's `place-image`) | `verify-fluximg-files.ts` (native module, IPC family, memory bridge: same refusals, same content id) |
+| fluximg placement, dedupe by content id, view carry on a changed source, strict agent view patches | `fluximg/importCore.ts`, `place.ts`, `viewCheck.ts`; `ops.addFluximg` / `ops.setFluximgView` | `verify-fluximg-import.ts`, `verify-fluximg-model.ts`, `verify-fluximg-export.ts` §A–B, `verify-fluximg-place-gui.mjs` |
 | Reference query grammar | `src/lib/references/query.ts` | `verify-organize.ts` |
 | Enrichment shapes/projection | `src/lib/references/enrich.ts` | `verify-enrich-grid.ts` |
 | PDF identification + the `_unresolved/` sidecar | `src/lib/references/pdfIdentify.ts` | `verify-pdfidentify.ts` |
@@ -669,6 +674,38 @@ Persistence invariants (all machine-checked — do not weaken):
   changed**; **Update from source** appends a new asset in one Undo step and keeps the old
   file. Linked-file grants are exact read/watch capabilities, never recipe execution grants.
   See [linked sources](model3d/SOURCE.md).
+- **fluximg is an asset + element kind whose pixels never enter JSON, undo, journals or large IPC.**
+  A placed bundle is the immutable directory `fig/assets/<assetId>.fluximg/` (Asset `kind:
+  "fluximg"`, `path` `assets/<id>.fluximg`); the asset keeps a manifest digest (`FluximgInfo`:
+  dims, shape, dtype, encoding, channel names, levels, layers, pixel size) so lists, the
+  Inspector and agents never open the bundle. `Asset.sha256` is the CONTENT ID: SHA-256 over the
+  sorted list of (path, file SHA-256) pairs (`fluximgRules.fluximgContentIdText`), computed by
+  the file side while it copies. The same content placed again (GUI, batch, `place-image`) is ONE
+  asset; a fresh copy whose content id the project already holds is discarded. Bytes are read in
+  ranged pieces (`FileBridge.readFluximg`, at most `FLUXIMG_READ_LIMIT` = 32 MiB per call), never
+  as a data URL; `elementAssetRefs` lists the directory for GC and nothing asks for its bytes
+  (`verify-fluximg-model` arms `fs` to throw). A bundle is never edited in place, by anyone.
+- **A fluximg view is a sparse recipe with ONE merge law.** `FluximgElement.view` (`fluximg/view.ts`)
+  holds only what differs from the defaults (absent = the manifest's value, or the documented
+  default); renderers, furniture and UI read `viewOps.resolveView`'s result, never the recipe.
+  Every write goes through `viewOps.patchView` (`ops.setFluximgView` is its only caller): `index`,
+  `layers` and `furniture` merge per key, `channels` per index (a null or absent entry keeps that
+  channel), a `null` value anywhere clears what it names, furniture `false` is off (the default),
+  `undefined` is ignored, setting `color` clears `lut` and vice versa, and empty objects are
+  dropped so an all-default view is `{}` (and the element then has no `view`). `crop` keeps the
+  `CropRect` meaning (level-0 image pixels). `resolveView` is lenient (clamps, ignores) so old or
+  hand-edited views still draw; `viewCheck.checkViewPatch` is strict and is what agent verbs run
+  first, naming every problem. `viewOps.pixelKey` is the still cache key: everything that changes
+  the PIXELS and nothing else (furniture, vector layers, names and `insetOf` are not pixels).
+- **Placed images follow their source bundle, in one undo step.** `element.source` records
+  `bundlePath` (project-relative under `plots/`, absolute + `external` outside), the source's
+  content id at import and a recipe beside it. While a project is open, `fluximg/sourceUpdate.ts`
+  watches `plots/` (event-driven only: nothing is compared at open), waits for 400 ms of quiet and
+  for `fluximg.json` (written last), imports the new content under a new asset id and moves every
+  following, unfrozen element in ONE commit, carrying view and crop where they still fit
+  (`importCore.carryFluximgView`, with a toast naming what changed). The old asset stays
+  registered for undo and is collected with other unused assets. Gated by `verify-fluximg-import`
+  and `verify-fluximg-place-gui`.
 - **Project-owned plot source paths are PROJECT-RELATIVE** — `SemanticPlotElement.source.svgPath` /
   `manifestPath` / `recipePath`. This is a *silent* invariant: the SVG bytes live in
   `fig/assets/`, so a wrong source path renders and exports fine and only stops the things
@@ -3934,6 +3971,85 @@ thread fallback); a 20k-line run costs ~85–115 ms in the worker (context scan 
 It renders ≤50 rows per pack until asked. Dev telemetry: `window.__flux.manuscriptCheck`
 (`runs`, `lastMs`, `lastMode`).
 
+### fluximg: N-dimensional images (2026-11-19)
+
+The on-disk contract is `docs/fluximg/SPEC.md` (fluximg/1); every module under `src/lib/fluximg/`
+opens with a header that states its law. Read those before changing one. The parts:
+
+- **One definition of a view's pixels.** `render.ts` `renderView` is THE LAW: values (the value
+  map, no data), geometry (nearest when magnifying or 1:1, the mean of valid values when
+  minifying, bilinear on values when `smooth`), colour (Flux's colour law from
+  `plot/colorscale.ts`, 256 slots; `blend` adds RGB and clamps), then intensity layers laid
+  "over" in straight alpha. `still.ts` `renderStill` is the ONE function from (bundle, view, crop,
+  output size) to RGBA: it picks the stored level, reads only the crop's rectangle, projects when
+  asked and calls `renderView`. The window's decode workers, flux-core, the in-app export and
+  Paper all call it; only the PNG encoding differs (the browser's canvas, `flux-core/fluximgPng.ts`
+  on `node:zlib`). No Electron is spawned for a headless render.
+- **The GL parity law.** `gl/liveRenderer.ts` (WebGL2) is a fast path for `renderView`, never a
+  second definition: `verify-fluximg-gl` holds every component of every pixel within 1/255 over a
+  matrix of cases. It gets there by keeping samples in their stored type on the GPU, computing
+  where each output row and column samples on the CPU in float64, and reducing window, norm and
+  gamma on the CPU to each channel's 255 slot edges (the shader only compares keys). Beyond an
+  8 × 8 footprint the live view's mean is a regular subset (an estimate); the still at rest
+  averages everything.
+- **The service** (`service.ts`, `fluximg.worker.ts`; `store.ts` binds one to the open project):
+  min(4, cores − 1) module workers. The main thread only relays byte ranges from the file bridge
+  (buffers transferred) and keeps what comes back: manifests, stills as PNG data URLs, planes,
+  all under byte budgets, least recently used first. Requests sharing a `slot` replace each other.
+  Stores hold manifests, layer SVG text and a revision counter, never pixels.
+- **At rest** (`FluximgElement.svelte` + `FluximgVectors.svelte`) an image is a still plus vectors:
+  an `<image>` whose `href` is a PNG data URL (never `blob:`: it must survive serialization and
+  the zoom proxy) and inline SVG for layers, names and furniture. No WebGL there (the component is
+  mounted twice during resize previews). Still sizes walk a TIER LADDER
+  (`still.tieredStillSize`: 1, 3/4, 1/2, 3/8, … of the crop's own pixels, the smallest tier that
+  covers the need, at most 4 MP) at a base of 2 still px per canvas px; the density follows the
+  SETTLED zoom (260 ms) one octave at a time up to the image's own pixels. `image-rendering:
+  pixelated` only when the still is the crop's true pixels and `smooth` is off. **Draft still**:
+  a first still longer than 640 px is preceded by a 384 px draft, drawn from the stored overview
+  in tens of milliseconds and replaced when the full still lands. The old still stays up until
+  the new one arrives (nothing flashes). While the live view streams a gesture
+  (`fluximgLiveBusy`) the element's request waits, so the workers serve the live view first. New
+  pixels bump `fluximgStillRevision` (cached scene pictures retake); a sharper copy of the same
+  look does not.
+- **The live view** (`live/`). `session.ts`: which element is live, the panel zone (`home`,
+  `channel`, `layers`, `frame`), the armed row the wheel drives, playback, and ONE `editSession`
+  per gesture key (a new key settles the previous one; wheel runs settle after 420 ms of quiet);
+  a selection change or the element's disappearance closes the view. `actions.ts`: every change
+  (panel rows, rails, wheel, keys, `LIVE_KEYS`) is one function there. `FluximgLivePanel.svelte`
+  (mounted in FigureMode) owns unmodified keys and, while open, a capture-phase non-passive
+  window wheel listener; Ctrl/Cmd chords stay Flux-wide. `FluximgLiveOverlay.svelte` (mounted in
+  `Canvas.svelte`) puts a canvas snapped inward to whole device pixels exactly over the element's
+  visible part, the element's vectors on top, the rails (time and other dimensions below, `z` at
+  the side) and the readout. R (`keyboard.ts` `openSelectedFluximgLive`) and double-click
+  (`Canvas.svelte`) open it through `fluximgLiveUnavailable` (figures only, unlocked and shown).
+- **The live driver** (`live/driver.ts`). It asks for planes at TWO qualities: the stored level
+  that matches the screen and the coarsest overview (a few hundred px, about a millisecond to
+  decode), coarse first. A frame is drawn from the best quality that is complete for EVERY
+  contributing channel (channels never mix planes). It keeps the last six targets and draws the
+  NEWEST COMPLETE one, never one older than what is on screen, so playback and fast scrubbing show
+  each plane as it lands; with nothing ready the previous frame stays. DECODE-AHEAD: a walk along
+  one dimension (wheel, arrows, a rail drag, playback) prefetches the next planes that way (8, 6
+  or 3 ahead for planes up to 0.3 MP, 1.2 MP, larger; Shift strides ask for the planes they will
+  land on). ONE DRAW PER SCREEN FRAME: the rAF callback stays armed for a few frames while
+  targets stream, so a target set during a frame is drawn in that frame (§9). At most six
+  channels and three intensity layers are drawn live.
+- **Exports** (`exportStatic.ts`): `prepareFluximgContext` (async, IO injected) decides each
+  visible element's still request (raster outputs N dpi → N/96 still px per canvas px; SVG, PDF,
+  Paper and `fig/renders` 300 dpi; `magnify: true` draws every requested pixel; at most
+  4096 × 4096) and its layer files; `fluximgElementMarkup` (sync) wraps `static.fluximgStaticSvg`
+  in the element's box. A missing or unreadable bundle draws the stand-in (`placeholder.ts`) and
+  becomes a render warning, never a failed figure.
+- **Import** (`import.ts`, `importCore.ts`, `electron/fluximgFiles.cjs`, IPC `fluximg:*`): the
+  `Incoming` protocol of `io.ts`. A deck refuses before anything else, then an unsaved or legacy
+  standalone figure (`FLUXIMG_NEEDS_PROJECT`: its save would look for the bundle in `assets/`).
+  Each file is a copy-on-write clone where the filesystem can (`COPYFILE_FICLONE_FORCE`), else a
+  copy, never a hard link (an in-place edit of the source would change the asset); hashed and
+  fsynced. A dialog cannot pick a folder on Linux or Windows, so Import offers the bundle's
+  `fluximg.json`; an OS drop goes through `fluximg:importDropped`. "Importing image…" shows only
+  after a second.
+- **Dev handles**: `window.__flux.fluximg.{store,live,actions,place}` and `window.__flux.ops`.
+  Gates go through these, never through their own `import()` of a stateful module (§9).
+
 ## 5. Hard rules — do not do these
 
 1. **Never regress out of the instantaneous class (§6).** Responsiveness outranks every other
@@ -4064,6 +4180,13 @@ zoom-out / drag / nudge 520–1,033 ms → none (largest frame gap in the 3.5 s 
 task), gestures at 16.7–16.8 ms p95 throughout, and a 26-notch zoom to 1,532 % shows the image's own pixels
 through a detail with no long task. The open is still over the 1 s navigation budget: §10.
 
+fluximg, measured by the lead on 2026-11-19 on this workstation with real stacks that are not in the repository
+(headless, through the scratch drivers; no scale gate pins these yet): a step through a stack to the frame on screen
+~17 ms on an 800 × 1280 × 21 z-stack and ~12 ms on a 2048 × 2048 × 3 × 25 confocal stack, with decode-ahead; playback
+of an 80 Hz movie at 60 fps (it read 30 fps before the driver drew the newest complete target in the frame it was set);
+the first picture of a large stack 49 ms through the draft still; import 80–250 ms by reflink clone. The live view's
+interactions are direct manipulation (≤ 100 ms); opening an image and import are navigations (≤ 1 s).
+
 The native `scripts/perf/input-probe.cjs` defaults to diagnostic mode: it disables
 background throttling and schedules measurement RAF callbacks. Such a run is not
 production qualification. Its historical display summaries stay rounded to 0.1 ms;
@@ -4103,7 +4226,9 @@ turns that into an ordinary red check using the runner's own validator. Tiers:
   mimic unrelated editor regressions. After ANY edit under `src/`, restart the dev server
   before running a UI gate: HMR leaves the page on one module instance and a gate's own
   `import('/src/…')` on another, so store reads come back empty and fixtures report "no
-  semantic part hit" / "Demo project — annotations are not saved" with nothing wrong.
+  semantic part hit" / "Demo project — annotations are not saved" with nothing wrong. A gate that
+  needs a stateful module goes through the dev handle (`window.__flux.fluximg.*`, `__flux.ops`)
+  instead of its own `import()` (§9).
   Before a view-only before/after snapshot that includes dirty state, await autosave for
   preceding edits. Otherwise a legitimate true → false dirty transition can falsely blame
   the preview or navigation being tested; retain the full state-preservation assertion.
@@ -4168,7 +4293,7 @@ turns that into an ordinary red check using the runner's own validator. Tiers:
   not alphabetical; a sort is a 3,500-line diff). Never run gates against a worktree whose dev server
   is serving a merge in progress: conflict markers break "entered Slide mode" in every UI gate and
   the reds are artifacts. `pkill -f <pattern>` matches the shell running it (like `pgrep -f`): kill by
-  the port owner (`ss -ltnp`) instead.
+  the port owner (`ss -ltnp`) instead, or write the pattern with a bracket (`pkill -f 'fx-e2[e]'`).
   Merging two branches' manifests: resolve `verify-manifest.json` structurally (three-way,
   keyed by script name and `glob`) and keep each side's new pathMap rules anchored to their
   shared neighbours; appending one side's rules after the other's lets a broad rule shadow a
@@ -4187,6 +4312,22 @@ turns that into an ordinary red check using the runner's own validator. Tiers:
   worktrees, set `FLUX_URL`; `driver.mjs` remaps legacy `gotoApp(...:1420...)` calls to that
   configured origin, but new gates should still use `APP_URL` and direct `page.goto` calls must
   never hardcode the default port.
+
+**fluximg gates** (2026-11-19): `group:fluximg` (all eleven), `group:fluximg-pure` and
+`group:fluximg-ui`. Pure tier: `verify-fluximg-format` (contract, reader ≡ writer ≡ fixtures,
+validator), `-render` (resolve / patch / pixel key, colour law against `plot/colorscale.ts`,
+geometry, projections incl. block summaries, histograms, Auto), `-static` (layer sanitizer,
+furniture, the element SVG, resvg pixels), `-files` (native module, IPC checks, memory bridge),
+`-model` (asset + element kind, byte-identical saves on both engines, GC, ops), `-gl` (headless
+Chrome, the parity law, `exclusive`), `-import` (index rules, placement, dedupe, view carry, the
+watcher hot swap, one-step undo, slide refusal) and `-export` (`place-image` / `set-image-view` /
+`image-info`, embedded stills ≡ `renderStill`). ui tier (dev server): `verify-fluximg-place-gui`
+(rail tile → placed element → hot swap → Ctrl+Z), `verify-fluximg-export-gui` (in-app export ≡
+Paper ≡ flux-core) and `verify-fluximg-inspector` (sections, one undo per edit, defaults clear
+their keys). From a worktree: start your own dev server with a config whose watcher does not
+ignore `**/flux-wt/**` (§9), on a port of your own, and pass `FLUX_URL`:
+`FLUX_URL=http://127.0.0.1:<port>/ node scripts/run-verifies.mjs --group fluximg-ui`. There is no
+live-view UI gate and no live-view frame-rate gate yet (§10).
 
 Native IPC behavior can be probed through the real preload (`window.fig.*`) with
 `executeJavaScript`; a user-interaction claim still needs actual native input and output.
@@ -4420,6 +4561,34 @@ match (LF/trailing-whitespace normalized), and authored content is preserved. Us
 `verify-oneoff-migration.ts` exercises it only in child processes with scratch HOME/roots,
 including real Git tracking, read-only failure, cross-device failure and interrupted rename.
 Run it through the hermetic runner; never validate a migration on real projects.
+
+**Add a view property to fluximg** (a new channel, layer or furniture setting, or a top-level
+key). Trace every file; skipping one gives a setting that works in one surface and is silently
+refused or dropped in another:
+
+1. `fluximg/view.ts`: the sparse field on `FluximgView` (optional, absent = default) and the
+   resolved field on the matching `Resolved*` type.
+2. `viewOps.ts`: the default in `resolveView` (lenient: clamp or ignore bad values); a nested
+   object needs its merge rule in `patchView` (null clears, empty objects dropped); a setting
+   that changes PIXELS goes into `pixelKey`, one that does not must stay out of it.
+3. `viewCheck.ts`: add the key to the `keysOk` allow-list of its level and validate its value.
+   Agents' patches are refused here first. (Forgotten for `furniture.colorbar`: the app sets it,
+   `set-image-view` refuses it.)
+4. `project/schemas.ts` (`FLUXIMG_VIEW`, no `minLength`, §9), then `node scripts/gen-validators.mjs`.
+5. Drawing it: pixels → `render.ts` (the law) AND `gl/liveRenderer.ts` (the parity law) and, if
+   it changes which planes are read, `viewOps.planeRequests` / `still.ts`; vectors →
+   `furniture.ts` / `layers.ts` / `static.ts` (explicit sizes, no render-time text measurement,
+   no `vector-effect`: Chromium and resvg must draw the same) and `FluximgVectors.svelte`.
+6. Editing it: `live/actions.ts` (+ `LIVE_KEYS` if it gets a key; `dimKeys` keeps rail letters
+   clear of them) and `live/FluximgLivePanel.svelte`; `inspectorEdits.ts` (a value equal to its
+   default is written as null) and `FluximgInspector.svelte`.
+7. Agents: the `set_image_view` summary in `flux-core/fluximgVerbs.ts` (its first sentence is in
+   the 20 kB `flux_verbs` index, §9), `resources/flux-context/CLI-REFERENCE.md` (then
+   `node scripts/gen-flux-context.mjs`), and `flux-core/fluximg.ts` `describeView` if it changes
+   what an image shows in words.
+8. Users: `docs/concepts/images.qmd` and `docs/FLUXIMG_TESTING.md`.
+9. Gates: `verify-fluximg-render` (resolve / patch / pixel key), `-static` or `-gl`, `-export`
+   (the verb accepts it; still pixels), `-model` (schema round trip), `-inspector`.
 
 ## 9. Known traps (each of these cost real time)
 
@@ -4709,7 +4878,8 @@ days (probe geometry like `width` instead).
   FLUX_ELECTRON_NO_SANDBOX=1` against an `electron-builder --linux dir` build. Add `taskset -c
   0,1` plus two busy loops to reach CI's starvation; that reproduced the lease and video failures
   that clean runs on this 128-core box never showed. Never `pkill -f` a pattern from the same
-  shell command (it matches, and kills, that shell).
+  shell command (it matches, and kills, that shell); write the pattern with a bracket
+  (`pkill -f 'fx-e2[e]'`), which no longer matches its own command line.
 - **Pure-tier timing budgets are relative to an in-process control** (2026-10-03). The
   shared 4-vCPU runner at `--jobs 4` measured 107 ms for a 25 ms plan and 8 ms p95 for
   0.9 ms. `verify-correspondence` bounds a cache-miss plan at 8 × its unavoidable
@@ -5110,7 +5280,8 @@ outside this PNG packaging change.
   `require("ajv/dist/runtime/ucs2length")` for it, and `validators.gen.js` is an ES module, so
   every importer dies with "require is not defined in ES module scope" (it looks like a broken
   gate run, not a schema edit). Express "non-empty string" as `pattern: "[\\s\\S]"` (as
-  `ghostFrom` does) and grep the regenerated file for `require(` before committing.
+  `ghostFrom` does, and the fluximg schemas' `NON_EMPTY`, 2026-11-19) and grep the regenerated
+  file for `require(` before committing.
 - **`page.evaluate` of a callback with named inner functions fails under tsx** with
   "__name is not defined": tsx keeps function names through an injected `__name` helper the
   page lacks. Define it on the page once (`page.evaluate("globalThis.__name = (fn) => fn")`)
@@ -6007,9 +6178,48 @@ therefore re-runs per keystroke. Read `host.commentThreads` (threads only) and `
 `installDevHandle` rebuilds `window.__flux` wholesale at startup (keeping only `editors`), so a
 module that publishes dev telemetry at import time loses it — publish lazily (on first use).
 
+**fluximg (2026-11-19):**
+
+- **A Vite dev server started inside a `flux-wt/` worktree serves stale modules.** The repo's
+  `vite.config.ts` watcher ignores `**/flux-wt/**` (so the main checkout does not watch the
+  worktrees); from inside a worktree that pattern matches every file, nothing is watched, and an
+  edited module keeps being served as it was. Use a scratch config that spreads the repo's and
+  drops that one pattern (`server.watch.ignored` without `**/flux-wt/**`), on a port of your own.
+- **In a headless page, a second `import()` of a stateful module after HMR is a different module
+  instance**: its stores are empty and its session is not the app's. Gates reach state through
+  `window.__flux.fluximg.{store,live,actions,place}` and `window.__flux.ops`.
+- **An isolated `XDG_CONFIG_HOME` makes Electron's "downloads" folder resolve to `$HOME`**, so the
+  capture watcher's `<downloads>/flux` is the repository checkout itself (`~/flux`): it watches
+  the whole repo recursively until inotify runs out ("Library file-watch stopped … ENOSPC").
+  A harness that launches the app with its own config seeds `captureDir` (a scratch folder) in
+  that config's `preferences.json` (`electron/ipc/capture.cjs` reads it first).
+- **Svelte 5 runes components: `<!-- svelte-ignore a, b -->` needs comma-separated codes**
+  (space-separated, the second code is not honoured), and a `<svelte:window onwheel>` handler is
+  PASSIVE, so its `preventDefault` silently does nothing (the canvas pans as well). Register the
+  listener yourself in an `$effect`: `window.addEventListener("wheel", f, { capture: true,
+  passive: false })` and remove it in the cleanup (`FluximgLivePanel.svelte`).
+- **A requestAnimationFrame draw loop scheduled only when its input changes draws every OTHER
+  frame** when that input changes once per frame from another rAF callback (playback): the
+  input arrives after this frame's callbacks ran, so it is drawn a frame late and the loop goes
+  idle in between: 30 fps on an 80 Hz movie. Keep the callback armed for a few frames while
+  inputs stream (`live/driver.ts` `schedule`).
+- **A path built from `__dirname` for a dynamic `import()` breaks inside the bundled CLI** (the
+  packaged CLI is one esbuild file; the path points beside the bundle, where nothing is). Use a
+  literal specifier, which the bundler follows: `import("./fluximgRules.js")`.
+- **An export still drawn at fewer pixels than the output is smoothed by the viewer.** A PDF
+  viewer or browser interpolates a magnified `<image>`, so true pixels turn to blur. Exports
+  draw every requested pixel (`stillSize(..., { magnify: true })`); only the editor draws the
+  crop's own pixels and magnifies them with `image-rendering: pixelated`, and only when the still
+  is exactly those pixels and `smooth` is off (a scaled-down tier would alias).
+- Also met this session and recorded in place: `pkill -f` matching its own shell (bracket the
+  pattern, §7 and above), Ajv's `minLength` in the fluximg schemas (above), and the compact
+  `flux_verbs` index (below).
+
 **The `flux_verbs` compact index is nearly full** (2026-11-08): `verify-mcp-launcher` caps the
 no-query index at 20,000 bytes and it read 19,998 after `check_manuscript` landed. Each verb costs
-its name plus the FIRST SENTENCE of its summary (≤120 chars), so a new verb's first sentence should
+its name plus the FIRST SENTENCE of its summary, cut at 110 characters since 2026-11-19
+(`flux-core/registry.ts` `firstSentence`; it was 120, and the three fluximg verbs brought the
+index to 19,592 bytes with the shorter cut), so a new verb's first sentence should
 be a few words ("Manuscript Check."), detail after it. The gate reads the BUNDLED server — run
 `npm run build:cli` before re-measuring, or it reports the previous build's size.
 
@@ -6042,6 +6252,19 @@ be a few words ("Manuscript Check."), detail after it. The gate reads the BUNDLE
   attempted. Slides support model camera/shape Changes, Turntable, semantic-part
   appearances, Ghost and model transitions through the existing animation engine;
   PDF/PPTX use documented mesh/furniture stills rather than live 3D.
+- **fluximg stage 1 is figures and `.fluximg` bundles only (2026-11-19).** Deliberately deferred,
+  each with a clear refusal or a stated limit: Slides (every deck chokepoint refuses with
+  `policy.FLUXIMG_NOT_IN_SLIDES`; a slide embed draws the stand-in); TIFF / microscope-file import
+  (stage 2: the TS reference writer exists for it); tiles read on demand for huge planes (the
+  live driver reads whole planes of a level, so a very large mosaic zoomed to its own pixels is
+  read whole); block-summary projections in the live view (`project.buildBlocks` /
+  `projectRange` exist and are gated, nothing calls them yet: a projection reads every plane of
+  its run); style-by-column on layers and Become / animation of images; 3-D rendering of
+  volumes; `world.matrix` (kept verbatim, not interpreted); image bundles in the global plot
+  library. Not yet built: a headless update for a changed bundle (`sync-figure` skips images),
+  catching a bundle that changed while the app was closed, a UI for
+  `sourceUpdate.updateFluximgFromSource` / `fluximgSourceState` and for freezing an image, a
+  live-view UI gate and a live-view frame-rate gate.
 
 - **Agent registration:** automatic setup supports Claude Code and Codex. Other
   vendors receive the MCP spec and launcher instructions; automatic integration
@@ -13326,3 +13549,25 @@ and on the old renderer (the GUI reply is erased).
 **Learnings:** (promoted: §2 rows for the route table and the comment merge; §9 trap on routed-but-unwatched paths)
 - A full-app Electron gate needs no display on Linux: pass `--ozone-platform=headless` on argv and delete `DISPLAY`
   and `WAYLAND_DISPLAY` from the child env; `webContents.sendInputEvent` and `insertText` drive real input there.
+
+### 2026-11-19 — fluximg built: N-dimensional images on Figure canvases (Claude Fable 5.2 lead + Opus 5.5 workers, `fluximg`)
+**Work:** The proposal of the entry above, built (stages 0 and 1) on the integration branch `fluximg` from frozen
+contract c1dd8470: the contract (spec, reference reader / writer / validator, fixtures; tiles above 1024 px) by the
+lead; W1 renderer, W2 static vectors, W3 data model, W4 file bridge, W7 GL parity, then W5 import and source
+following, W6 flux-core render, in-app export, Paper and the three agent verbs, the Inspector, and the lead's still
+renderer, worker service, element, live view (R panel, rails, histogram, layers list, playback, insets, split
+channels, calibration bar), draft still and live driver; fluxplot's writer and reader on its own `fluximg` branch.
+Measured (§6): a step to the frame on screen ~17 ms (800 × 1280 × 21) and ~12 ms (2048 × 2048 × 3 × 25) with
+decode-ahead, an 80 Hz movie at 60 fps, the first picture of a large stack 49 ms via the draft still, import
+80–250 ms by reflink. Decided (ledger judgment calls 1–13): clone, never hard-link; bytes over ranged IPC, no URL
+scheme; one image pixel per canvas pixel at placement, narrowed to the figure; no JSON Schema for the manifest (the
+validator is the contract); slides refused; one merge law; the still tier ladder; plain keys belong to the panel;
+wheel down = next plane; a projection starts over the whole dimension. Deferred: §10.
+**Learnings:** (promoted: §2 five shared-core rows; §3 asset kind, the view's merge law, source following; §4 the
+fluximg subsection; §6 the measurements; §7 the gates; §8 "Add a view property to fluximg"; §9 seven fluximg traps,
+plus the bracketed `pkill` pattern, Ajv `minLength` again and the 110-character `flux_verbs` cut, edited in place;
+§10 the stage-1 deferrals)
+- One pure renderer that every engine calls (`renderStill`) and a GPU path held to it pixel for pixel made the
+  twin-engine rule cheap: parity gates compare decoded pixels, not PNG bytes (the two engines encode differently).
+- A view setting has nine places to land (§8); the strict agent check is the one most easily missed, and was:
+  `furniture.colorbar` draws and is editable in the app but `set-image-view` refuses it at this commit.
