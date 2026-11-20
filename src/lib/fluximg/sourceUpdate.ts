@@ -101,6 +101,25 @@ export async function scanFluximgSources(): Promise<number> {
   return changed;
 }
 
+// The catch-up runs once per opened project, as soon as its figures are in the store: the watch starts when the
+// project root is known, which is BEFORE the figures are read (a scan at that moment found nothing to follow).
+let scannedRoot: string | null = null;
+let scanArmed = false;
+function scanWhenLoaded(): void {
+  const root = rootNow();
+  if (!root || scannedRoot === root || storeTenant() !== "figure") return;
+  let any = false;
+  for (const f of get(project).figures) { for (const e of f.elements) if (e.type === "fluximg" && e.source?.bundlePath && !e.source.frozen && !e.source.external) { any = true; break; } if (any) break; }
+  if (!any) return;
+  scannedRoot = root;
+  void scanFluximgSources().catch(() => {});
+}
+/** Arrange for the catch-up scan of the open project (idempotent; one cheap check per project change until it ran). */
+export function armFluximgSourceScan(): void {
+  if (!scanArmed) { scanArmed = true; project.subscribe(() => scanWhenLoaded()); }
+  scanWhenLoaded();
+}
+
 /** Stop watching (tests; a window that closes takes its subscription with it). */
 export function stopFluximgSourceWatch(): void {
   unwatch?.(); unwatch = null;
