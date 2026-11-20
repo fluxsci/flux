@@ -24,6 +24,8 @@
   /** Still pixels per canvas pixel at rest: sharp up to 2x zoom (or a 2x display at 1x). Zooming further in asks for
    *  a denser still, one octave at a time, up to the image's own pixels. */
   const BASE_SCALE = 2;
+  /** A first still larger than this (px on its longer side) is preceded by a draft this large. */
+  const DRAFT_ABOVE = 640, DRAFT_SIDE = 384;
   // The density follows the zoom only once it has SETTLED: a zoom gesture must not order a still per wheel notch.
   let density = $state(BASE_SCALE);
   $effect(() => {
@@ -54,7 +56,7 @@
   });
 
   // --- the still -------------------------------------------------------------------------------
-  let shown = $state<{ href: string; key: string; look: string; native: boolean } | null>(null);
+  let shown = $state<{ href: string; key: string; look: string; native: boolean; draft?: boolean } | null>(null);
   let failed = $state("");
   // Each mounted copy asks in its own slot: a resize preview's twin must not cancel this one's request.
   const slot = `el:${Math.random().toString(36).slice(2)}`;
@@ -71,10 +73,24 @@
       crop: { ...crop }, outWidth: size.width, outHeight: size.height, slot,
     }));
     const native = size.native, wantedLook = look;
+    // Nothing on screen yet and the still is large: draw a small draft first. It comes from the stored overview in
+    // a few tens of milliseconds, so a big stack shows its picture at once and sharpens when the real still lands.
+    if (!untrack(() => shown) && manifest && rv && Math.max(size.width, size.height) > DRAFT_ABOVE) {
+      const k = DRAFT_SIDE / Math.max(size.width, size.height);
+      const dw = Math.max(1, Math.round(size.width * k)), dh = Math.max(1, Math.round(size.height * k));
+      const draftKey = `${fluximgIdentity(asset)}|${pixelKey(manifest, rv, crop, dw, dh)}`;
+      fluximgService().still(draftKey, { ...request, outWidth: dw, outHeight: dh, slot: `${slot}:draft` }).then((href) => {
+        if (closed || untrack(() => shown)) return;
+        shown = { href, key: draftKey, look: wantedLook, native: false, draft: true };
+        void tick().then(() => { if (!closed) fluximgStillRevision.update((n) => n + 1); });
+      }, () => {});
+    }
     fluximgService().still(wanted, request).then(
       (href) => {
         if (closed) return;
-        const changed = untrack(() => shown?.look) !== wantedLook;
+        const before = untrack(() => shown);
+        // A draft being replaced is news too: a cached picture of the scene must not keep the soft copy.
+        const changed = before?.look !== wantedLook || !!before?.draft;
         shown = { href, key: wanted, look: wantedLook, native }; failed = "";
         // After different pixels are in the DOM, any cached picture of the scene is out of date. A sharper copy of
         // the same picture is not news (it arrives because of a zoom, and must not retake the scene mid-view).
