@@ -477,6 +477,27 @@ await press("Escape");
 h.ok((await isOpen()) && !(await page.$("[data-fxb-chooser]")), "the projection key opens the chooser too; Esc closes the chooser, not the view");
 await press("e"); await press("1");
 h.eq((await resolved(S)).view.projection, null, "e then 1 returns from the projection to one plane");
+// Picked with the mouse, nothing is taken in hand; the wheel over the run's band sizes it, off the band it slides it.
+{
+  await page.click(key("project:z"));
+  await waitFor(page, () => !!document.querySelector("[data-fxb-rail='z'] [data-fxb-chooser] .chip"), null, { label: "chooser" });
+  await page.click("[data-fxb-rail='z'] [data-fxb-chooser] .chip:nth-child(2)");
+  await sharpFrame();
+  m = await model(S);
+  proj = (await resolved(S)).view.projection;
+  h.ok(proj?.mode === "max" && proj.from === 0 && proj.to === 7 && !m.explicit && m.live.armed === "pos:z", "a chip clicked with the mouse projects the whole dimension and takes nothing in hand");
+  const tr = await rect("[data-fxb-rail='z'] svg[data-fxb-track]");
+  await wheel(tr.cx, tr.cy, 100, 1);
+  await settled();
+  proj = (await resolved(S)).view.projection;
+  h.eq([proj.from, proj.to], [1, 6], "the wheel over the run's band sizes the run about its middle");
+  await wheel(tr.cx, tr.y + (0.5 / 7) * tr.h, 100, 1);
+  await settled();
+  proj = (await resolved(S)).view.projection;
+  h.eq([proj.from, proj.to], [2, 7], "…and off the band, on the same rail, it slides the run");
+  await press("e"); await press("1");
+  h.eq((await resolved(S)).view.projection, null, "(back to one plane)");
+}
 h.ok(!!(await page.$(key("play:z"))), "…and the play key is back");
 await closeLive();
 
@@ -931,8 +952,13 @@ if (shapeAt) {
 }
 // The keyboard: d hands the card the keys; it walks, toggles, names; Esc takes them back.
 await page.mouse.move(5, 940);
-await press("Escape"); // (a click in the card had already given it the keys: hand them back first)
-h.ok((await isOpen()) && !(await page.$("[data-fxb-layers].keys")), "Esc takes the keys back from the card without closing the view");
+h.ok(!(await page.$("[data-fxb-layers].keys")), "working the card with the mouse never takes the keyboard from the board");
+{
+  const on0 = await page.evaluate(() => !!window.__flux.fluximg.actions.liveContext().view.furniture.scalebar);
+  await press("b");
+  h.ok((await page.evaluate(() => !!window.__flux.fluximg.actions.liveContext().view.furniture.scalebar)) !== on0, "…so after a click on a lamp the board's keys still work (b: the scale bar)");
+  await press("b");
+}
 await press("d");
 h.ok(!!(await page.$("[data-fxb-layers].keys")), "d hands the layers card the keyboard (it is outlined pink)");
 {

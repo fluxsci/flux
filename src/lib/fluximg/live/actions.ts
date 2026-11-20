@@ -628,7 +628,7 @@ const POINTS = ["white", "black", "gamma"] as const;
 /** Let the view hold a rail by itself (a gesture on it began): the wheel over the image follows it; elsewhere the canvas still pans. */
 export function holdRail(dim: string): void {
   const live = get(fluximgLive);
-  if (!live || live.armed === `run:${dim}`) return;
+  if (!live || (live.armed === `run:${dim}` && liveArm.explicit)) return;
   liveArm.explicit = false;
   setLive({ armed: `pos:${dim}` });
 }

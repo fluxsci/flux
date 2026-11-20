@@ -158,8 +158,10 @@ scale is in the axis' own unit, at round values.
 min, sum, std; **1**–**6**, or the arrows and **Enter**). It starts over the whole dimension,
 the usual maximum projection of a stack. The run is a pink band on the rail with a grip at each
 end: drag a grip to resize it, drag inside to slide it, or **Shift**-drag on a rail to draw a new
-one. The wheel then widens or narrows it around its middle. Choosing **off** returns to the
-plane in the middle of the run.
+one. The wheel over the band widens or narrows the run around its middle; over the rest of the
+rail, or over the image, it slides the run. (Picked by its number, the run is in hand: the wheel
+sizes it from anywhere until **Escape**.) Choosing **off** returns to the plane in the middle of
+the run.
 
 ## Contrast and colour
 
@@ -236,8 +238,8 @@ is its opacity (roll the wheel over it, or drag it sideways), and two small keys
 object names on the image and open its colours. Type in the field at the top to filter by name
 or value. Long lists show the first 300 objects of a layer; filter to find the rest.
 
-Press **d** (or click in the card) to give the card the keyboard; it is outlined pink while it
-has it, and **Escape** gives the keys back to the board.
+Press **d** to give the card the keyboard; it is outlined pink while it has it, and **Escape**
+gives the keys back to the board. Working the card with the mouse never takes the keyboard.
 
 | Key | Action |
 |---|---|

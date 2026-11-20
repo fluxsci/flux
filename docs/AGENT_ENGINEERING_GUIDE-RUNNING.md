@@ -4051,10 +4051,13 @@ opens with a header that states its law. Read those before changing one. The par
   thing the USER took (a digit `takeChannel`, a rail's key, `v`, `x`) answers anywhere. Working
   an instrument with the mouse takes nothing in hand (a rail gesture only `holdRail`s it, not
   explicitly): the owner's wheel over the image must keep stepping planes after they dragged a
-  handle. `backOut` (Esc) stops playback, then lets go of what was taken (it SETTLES the open
+  handle. Prefer WHERE the pointer is to a mode: over a run's band the wheel sizes the run, off
+  the band it slides it; a projection picked with the mouse takes nothing in hand (picked by its
+  number, `run:<dim>` is in hand until Esc). `backOut` (Esc) stops playback, then lets go of what was taken (it SETTLES the open
   gesture: a wheel run just made is kept), then closes. Keys are the same everywhere on the board
   (`LIVE_KEYS`, all left-hand; digits by `e.code`, so Shift + digit toggles and Alt + digit
-  solos); the layers card takes the keyboard only while it has it (`d`, a click in it).
+  solos); the layers card takes the keyboard only after `d` (never from a click in it: the board's keys
+  must keep working after the owner clicks a lamp).
   **One `editSession` per gesture key** (a new key settles the previous one; wheel runs settle
   after 420 ms of quiet); a selection change or the element's disappearance closes the view.
   `actions.ts`: every change is one function there; crops are written by `writeFrame` /
@@ -13663,7 +13666,7 @@ button", "less text and fields/boxes, more of a dynamic, responsive surface". Th
 histogram and layer-list components are gone. New: `FluximgBoard`, `BoardChannel`, `BoardRail`, `BoardLayers`,
 `PaperKey`, `glyphs.ts`, `boardLayout.ts`, `objectTables.ts`; `viewHistogram`, `niceStep`, round-value `railTicks`,
 `profileLevel`; `takeChannel`, `holdRail`, `stepSpeed`, `autoPlan`, `splitPlan`, `setFurnitureCorner`. Gates:
-`verify-fluximg-live` (184) and `verify-fluximg-live-gui` (377, rewritten; each section now places its own fixture
+`verify-fluximg-live` (184) and `verify-fluximg-live-gui` (382, rewritten; each section now places its own fixture
 and `FX_ONLY=<word>` runs one section).
 **Learnings:** (promoted to §4 "The live view is a CONTROL BOARD")
 - A component that reads its result AFTER clearing its drag state throws inside the pointerup handler, and the

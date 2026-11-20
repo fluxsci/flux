@@ -5,8 +5,9 @@
    * Every layer is a row with a lamp in its own colour (click: show or hide), its name and how many objects it
    * holds; a layer of objects opens to list them by name with the first columns of their table. Hovering a row
    * lights the object on the image, and hovering an object on the image finds its row. A layer's opacity is the
-   * small dial on its row (roll the wheel over it, or drag it sideways). Type in the field to filter. The card walks by keyboard once it has the keys (`d`,
-   * or a click in it): the board hands them over and takes them back.
+   * small dial on its row (roll the wheel over it, or drag it sideways). Type in the field to filter. The card
+   * walks by keyboard once it has the keys (`d`): the board hands them over and takes them back. Working it with
+   * the mouse never takes the keyboard (the board's keys must keep working after a click on a lamp).
    */
   import { tick } from "svelte";
   import { get } from "svelte/store";
@@ -193,7 +194,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="layers" class:keys style={`width:${width}px;max-height:${maxHeight}px`} data-fxb-layers onpointerdowncapture={() => { if (!keys) onkeys(true); }}>
+<div class="layers" class:keys style={`width:${width}px;max-height:${maxHeight}px`} data-fxb-layers>
   {#if hasObjects}
     <label class="find" class:active={!!filter}>
       <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.2" /><path d="M10.2 10.2l3.6 3.6" /></svg>

@@ -149,13 +149,15 @@
     choosing = dim;
     choice = Math.max(0, modes.findIndex((m) => m.on));
   }
-  function pickMode(i: number): void {
+  /** Picked by its number, the run is taken in hand (the wheel anywhere sizes it); picked with the mouse, nothing is. */
+  function pickMode(i: number, byKey = false): void {
     const dim = choosing, o = modes[i];
     choosing = null;
     if (!dim || !o) return;
     setProjectionMode(dim, o.mode);
     settleLiveEdit();
-    armLive(o.mode ? `run:${dim}` : `pos:${dim}`);
+    if (byKey && o.mode) armLive(`run:${dim}`);
+    else { liveArm.explicit = false; setLive({ armed: `pos:${dim}` }); }
   }
   $effect(() => { if (!live) choosing = null; });
 
@@ -228,10 +230,10 @@
     }
     if (choosing) {
       const n = modes.length;
-      if (/^[1-9]$/.test(k) && Number(k) <= n) { done(); pickMode(Number(k) - 1); return; }
+      if (/^[1-9]$/.test(k) && Number(k) <= n) { done(); pickMode(Number(k) - 1, true); return; }
       if (k === "ArrowRight" || k === "ArrowDown") { done(); choice = (choice + 1) % n; return; }
       if (k === "ArrowLeft" || k === "ArrowUp") { done(); choice = (choice + n - 1) % n; return; }
-      if (k === "Enter" || k === " ") { done(); pickMode(choice); return; }
+      if (k === "Enter" || k === " ") { done(); pickMode(choice, true); return; }
       if (k === LIVE_KEYS.projection) { done(); choosing = null; return; }
       done(); return; // an open choice swallows stray keys rather than firing some other key
     }
@@ -322,7 +324,18 @@
       return;
     }
     // Wheel DOWN moves forward through a stack (the next plane), as every stack viewer does; values go UP with wheel up.
-    if (over.startsWith("rail:")) { const d = over.slice(5); if (armed === `run:${d}`) resizeProjection(notches * coarse); else stepPosition(d, -notches * coarse); return; }
+    if (over.startsWith("rail:")) {
+      // Over a run's band the wheel sizes the run; anywhere else on the rail it steps (a run slides).
+      const d = over.slice(5), p = ctx.view.projection, railEl = target?.closest<HTMLElement>("[data-fxb-rail]"), track = railEl?.querySelector<SVGSVGElement>("[data-fxb-track]");
+      let onRun = armed === `run:${d}`;
+      if (!onRun && p && p.dim === d && track && railEl) {
+        const r = track.getBoundingClientRect(), n = dimLength(ctx.manifest, d);
+        const f = railEl.classList.contains("vertical") ? (e.clientY - r.top) / Math.max(1, r.height) : (e.clientX - r.left) / Math.max(1, r.width);
+        onRun = f >= p.from / n && f <= p.to / n;
+      }
+      if (onRun) resizeProjection(notches * coarse); else stepPosition(d, -notches * coarse);
+      return;
+    }
     if (over.startsWith("speed:")) { stepSpeed(Math.sign(notches)); return; }
     if (over === "map") { zoomFrame(Math.pow(1.12, notches * coarse * fine), null); return; }
     if (over.startsWith("layer:")) { nudgeLayerOpacity(over.slice(6), notches * coarse); return; }
