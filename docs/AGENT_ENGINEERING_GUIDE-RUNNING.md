@@ -4013,16 +4013,40 @@ opens with a header that states its law. Read those before changing one. The par
   pixels bump `fluximgStillRevision` (cached scene pictures retake); a sharper copy of the same
   look does not.
 - **The live view** (`live/`). `session.ts`: which element is live, the panel zone (`home`,
-  `channel`, `layers`, `frame`), the armed row the wheel drives, playback, and ONE `editSession`
-  per gesture key (a new key settles the previous one; wheel runs settle after 420 ms of quiet);
-  a selection change or the element's disappearance closes the view. `actions.ts`: every change
-  (panel rows, rails, wheel, keys, `LIVE_KEYS`) is one function there. `FluximgLivePanel.svelte`
-  (mounted in FigureMode) owns unmodified keys and, while open, a capture-phase non-passive
-  window wheel listener; Ctrl/Cmd chords stay Flux-wide. `FluximgLiveOverlay.svelte` (mounted in
+  `channel`, `layers`, `frame`, `annotate`), the armed row the wheel drives, playback, and ONE
+  `editSession` per gesture key (a new key settles the previous one; wheel runs settle after
+  420 ms of quiet); a selection change or the element's disappearance closes the view.
+  `liveArm.explicit` says who armed the row: the view's own first-rail arm takes the wheel only
+  over the image and its rails, a row the user armed takes it anywhere; `backOut` (Esc) clears it
+  whenever it returns the wheel to the default rail (leaving a zone, or disarming a channel's
+  white point armed by the wheel over its home row). `actions.ts`: every change (panel rows,
+  rails, wheel, keys, `LIVE_KEYS`, the contrast drag `dragContrast`, `cycleFurnitureCorner`) is
+  one function there; crops are written by `writeFrame` / `resetFrame` (there is no `liveCrop`
+  any more). **`resetFrame` must not go through `ops.setCrop(null)`**: that keeps the content
+  still and grows the box round it, so an image zoomed in came back larger and elsewhere on the
+  figure; it deletes the crop and keeps the box's place and width (only the height follows the
+  image's aspect). `FluximgLivePanel.svelte` (mounted in FigureMode) owns unmodified keys and,
+  while open, a capture-phase non-passive window wheel listener; Ctrl/Cmd chords stay Flux-wide.
+  It also holds the readout strip (`fluximgReadout`, written by the overlay; the image's shape
+  and storage when nothing is under the pointer). `FluximgLiveOverlay.svelte` (mounted in
   `Canvas.svelte`) puts a canvas snapped inward to whole device pixels exactly over the element's
-  visible part, the element's vectors on top, the rails (time and other dimensions below, `z` at
-  the side) and the readout. R (`keyboard.ts` `openSelectedFluximgLive`) and double-click
-  (`Canvas.svelte`) open it through `fluximgLiveUnavailable` (figures only, unlocked and shown).
+  visible part, the element's vectors on top, and the rails (time and other dimensions below,
+  `z` at the side); a press on the image pans the frame, draws an inset rectangle (`armed ===
+  "inset"`) or pulls contrast, by zone. R (`keyboard.ts` `openSelectedFluximgLive`) and
+  double-click (`Canvas.svelte`) open it through `fluximgLiveUnavailable` (figures only, unlocked
+  and shown). The Frame zone's map (`FluximgNavigator.svelte`) takes its picture from the one
+  still function (`fluximgService().still`, slot `live-navigator`, keyed by the resolved view,
+  never by the crop, so panning and zooming ask for nothing) and waits while `fluximgLiveBusy`.
+  `histogramPath` defaults to the `span` scale: the log of the count between the rarest occupied
+  bin and the commonest (a plain log from a count of 1 draws a dense channel as a solid block).
+- **Where new panels go** (`panelLayout.ts`, pure, gated in `verify-fluximg-live`). A figure clips
+  what lies outside it, so the law is: a panel an image gives rise to goes BESIDE the image when
+  the figure has room, otherwise INSIDE the image's own footprint; nothing else moves and the
+  figure never resizes. `splitLayout`: channels to the right, each the image's size, else image
+  and channels share the image's box as a grid (`gridCells`, image first). `insetLayout`: right at
+  the image's height, else below, else in the image's top-right corner at 0.4 of its height (at
+  most half its width); an inset on the image lies under the live picture, so `makeInset` closes
+  the view and selects it. Split and inset toasts say which case happened.
 - **The live driver** (`live/driver.ts`). It asks for planes at TWO qualities: the stored level
   that matches the screen and the coarsest overview (a few hundred px, about a millisecond to
   decode), coarse first. A frame is drawn from the best quality that is complete for EVERY
@@ -4314,7 +4338,7 @@ turns that into an ordinary red check using the runner's own validator. Tiers:
   configured origin, but new gates should still use `APP_URL` and direct `page.goto` calls must
   never hardcode the default port.
 
-**fluximg gates** (2026-11-19): `group:fluximg` (all eleven), `group:fluximg-pure` and
+**fluximg gates** (2026-11-19): `group:fluximg` (all thirteen), `group:fluximg-pure` and
 `group:fluximg-ui`. Pure tier: `verify-fluximg-format` (contract, reader ≡ writer ≡ fixtures,
 validator), `-render` (resolve / patch / pixel key, colour law against `plot/colorscale.ts`,
 geometry, projections incl. block summaries, histograms, Auto), `-static` (layer sanitizer,
@@ -4327,8 +4351,11 @@ watcher hot swap, one-step undo, slide refusal) and `-export` (`place-image` / `
 Paper ≡ flux-core) and `verify-fluximg-inspector` (sections, one undo per edit, defaults clear
 their keys). From a worktree: start your own dev server with a config whose watcher does not
 ignore `**/flux-wt/**` (§9), on a port of your own, and pass `FLUX_URL`:
-`FLUX_URL=http://127.0.0.1:<port>/ node scripts/run-verifies.mjs --group fluximg-ui`. There is no
-live-view UI gate and no live-view frame-rate gate yet (§10).
+`FLUX_URL=http://127.0.0.1:<port>/ node scripts/run-verifies.mjs --group fluximg-ui`. The live
+view has a pure gate, `verify-fluximg-live` (rails, histograms, Auto, `panelLayout`), and a ui
+gate, `verify-fluximg-live-gui` (`exclusive`; zones, keys, wheel ownership, the contrast drag,
+the map, insets, Split, playback, still ≡ last live frame, and a wheel notch to a new frame within
+250 ms). There is no sustained live-view frame-rate gate yet (§10).
 
 Native IPC behavior can be probed through the real preload (`window.fig.*`) with
 `executeJavaScript`; a user-interaction claim still needs actual native input and output.
@@ -6263,9 +6290,12 @@ be a few words ("Manuscript Check."), detail after it. The gate reads the BUNDLE
   its run); style-by-column on layers and Become / animation of images; 3-D rendering of
   volumes; `world.matrix` (kept verbatim, not interpreted); image bundles in the global plot
   library. Not yet built: a headless update for a changed bundle (`sync-figure` skips images),
-  catching a bundle that changed while the app was closed, a UI for
-  `sourceUpdate.updateFluximgFromSource` / `fluximgSourceState` and for freezing an image, a
-  live-view UI gate and a live-view frame-rate gate.
+  a UI for freezing an image against its source (the Inspector shows the source's state and
+  offers Update; a bundle that changed while the app was closed is caught when the project opens,
+  `armFluximgSourceScan`), an outline / colour option for insets and their region box (white,
+  dashed), a play-speed control (a movie plays at its real rate, other stacks at 12 planes a
+  second), and a sustained live-view frame-rate gate (the ui gate times one wheel notch to a
+  frame, not playback's rate).
 
 - **Agent registration:** automatic setup supports Claude Code and Codex. Other
   vendors receive the MCP spec and launcher instructions; automatic integration
@@ -13572,3 +13602,13 @@ plus the bracketed `pkill` pattern, Ajv `minLength` again and the 110-character 
   twin-engine rule cheap: parity gates compare decoded pixels, not PNG bytes (the two engines encode differently).
 - A view setting has nine places to land (§8); the strict agent check is the one most easily missed, and was:
   `furniture.colorbar` draws and is editable in the app but `set-image-view` refuses it at this commit.
+
+### 2026-11-19 — fluximg live view, second design pass: docs brought in line (Claude Opus 5.5, `fluximg`)
+**Work:** The second design pass of the live view (row histograms, wheel over a channel row, the contrast drag on the
+image, clip shares, the Frame zone's map, drawn insets, corner walking, the rails' axis cursor, `panelLayout.ts`)
+landed through 6c86e626; this session updated `docs/concepts/images.qmd`, the shortcuts row, `FLUXIMG_TESTING.md`
+(live-view steps 10–33, later steps renumbered), the CHANGELOG entry and this guide to match the code.
+**Learnings:** (promoted: §4 the live-view paragraph — `annotate` zone, `liveArm.explicit` and `backOut`, the
+`resetFrame` trap, the navigator's still slot, `histogramPath`'s `span` scale — and a new §4 "Where new panels go"
+row for `panelLayout.ts`; §7 the two live-view gates; §10 the deferral list no longer claims there is no live-view
+UI gate)

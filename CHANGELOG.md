@@ -43,13 +43,18 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   copy, keeping each one's view; one Undo goes back.
 - **The live view: press R on an image, or double-click it.** Step through depth (a rail at the
   side) and time (a rail below) with the wheel, the arrows or a drag, and play a movie at its
-  own frame rate. Set each channel's contrast on its histogram or by typing values, with Auto
-  that tightens on each press; change colours and colour maps, log or gamma scales, solo a
-  channel or split the channels into panels. Show a maximum, mean, minimum, sum or standard
-  deviation projection over a run of planes you can drag. Look at layers and the objects in
-  them (hover an object to find its row, filter by name or value), zoom and move the region
-  shown, pull it out as an inset, and add a scale bar, a position stamp, channel names, object
-  names and a calibration bar. Every gesture is one undo step.
+  own frame rate; hovering a rail names the plane under the pointer. Each channel's row shows
+  its histogram, and the wheel over the row moves its white point. Set contrast on the
+  channel's histogram, by typing values (each point says what share of the channel it clips) or
+  by dragging on the image, with Auto that tightens on each press; change colours and colour
+  maps, log or gamma scales, solo a channel or split the channels into panels. Show a maximum,
+  mean, minimum, sum or standard deviation projection over a run of planes you can drag. Look
+  at layers and the objects in them (hover an object to find its row, filter by name or value).
+  Zoom and move the region shown, with a small map of the whole image, and draw a rectangle to
+  pull it out as an inset. Split panels and insets go beside the image when the figure has room
+  and share the image's place when it has not. Add a scale bar, a position stamp, channel
+  names and a calibration bar (Shift walks each round the corners), and object names. Every
+  gesture is one undo step.
 - **The Inspector shows the same settings as numbers**, with or without the live view open.
 - **Exports, Paper and headless renders** draw each image from its full-resolution pixels at
   the output's own resolution (300 dpi for SVG, PDF and Paper), with layers, names and the

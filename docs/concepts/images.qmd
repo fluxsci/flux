@@ -86,10 +86,13 @@ file dialog cannot pick a folder), or drag the `.fluximg` folder in from your fi
 # The live view
 
 Select an image and press **R**, or double-click it. The image stays where it is and becomes
-live: navigator rails appear beside it and a small panel opens next to it. The foot of the
-panel reads the position and each channel's value under the pointer. **R** again closes the view;
-**Escape** backs out one level at a time (a choice, then playback, then a zone, then the view).
-Clicking elsewhere on the canvas closes it too.
+live: navigator rails appear beside it and a small panel opens next to it, headed by the image's
+name. The strip at the foot of the panel says what the image is (its shape, how it is stored, the
+size of a pixel); while the pointer is over the image it reads the position and each channel's
+value there instead. **R** again closes the view; **Escape** backs out one level at a time (a
+choice, then playback, then a zone or an armed channel, then the view). Clicking elsewhere on the
+canvas closes it too. Placing the first image of a session shows a message saying how to open
+the live view.
 
 Every gesture is **one undo step**: a drag, a typed value, or a run of wheel notches (it ends
 after a short pause). **Ctrl+Z** works while the view is open. Keys with **Ctrl** keep their
@@ -112,13 +115,21 @@ row has a left-hand key. Nothing more appears until you ask for it.
 **a** sets every channel's contrast automatically from the pixels in view (press again to
 tighten). It has no row of its own; the panel's footer names it.
 
+Each channel's row carries a small histogram of the channel with its display window marked. The
+wheel over a channel's row arms that channel's white point: the first notch only arms it, the
+next ones move it. **Escape** gives the wheel back to the rail without closing the view. While a
+projection is on, its dimension's row says over which planes (the run and its range) and the
+Projection row says what ("max · 7 planes").
+
 The view opens with its first rail armed for the wheel **over the image and its rails**, so you
 can move through the stack at once while the wheel still pans the canvas everywhere else. Press
 a rail's key (or click the rail) and the wheel moves it from anywhere on screen.
 
 ## Annotations
 
-Press **b**. Each row is one annotation, drawn as vectors on the image:
+Press **b**. Each row is one annotation, drawn as vectors on the image. A row says the corner its
+annotation sits in ("bottom right"), or "off". **Shift** with an annotation's key moves it to the
+next corner.
 
 | Key | Annotation |
 |---|---|
@@ -136,6 +147,8 @@ plane, with the current plane as a playhead.
 - **Wheel** over the image moves the armed rail; wheel down is the next plane. **Shift** moves
   ten at a time.
 - **← / →** step along the rail below the image, **↑ / ↓** through depth (**Shift**: ten).
+- **Hover** a rail and it names the plane under the pointer and its position where the ticks
+  are ("4 · −58.5 µm"); a click goes there.
 - **Drag** along a rail to scrub. Its **play** button, or **Space**, plays along the armed rail:
   at the real frame rate when the dimension is time in seconds, otherwise 12 planes a second.
 - A stack shows the right plane at once while you move, and sharpens a moment later.
@@ -148,11 +161,16 @@ on a rail to draw a new one; the wheel widens or narrows it around its middle. C
 
 ## Contrast and colour
 
-Press a channel's number. Its zone shows the channel's histogram with the display window over
-it: drag the handles, or use the three fields (**q** black point, **w** white point, **e**
-gamma). The armed field follows the wheel (**Shift** ×10, **Alt** finer); a field also takes a
-typed value, **Enter** keeps it and **Escape** puts back what was there. **1**–**6** switch to
-another channel.
+Press a channel's number. Its zone shows the channel's histogram (log-scaled) with the display
+window over it: drag the handles, or use the three fields (**q** Black, **w** White, **e**
+Gamma). Black and White each say what share of the channel's values they clip ("clips 1.4 %"),
+estimated from the whole image's histogram. The armed field follows the wheel (**Shift** ×10,
+**Alt** finer); a field also takes a typed value, **Enter** keeps it and **Escape** puts back
+what was there. **1**–**6** switch to another channel.
+
+While the zone is open, **dragging on the image** pulls the contrast: right narrows the window
+about its centre (more contrast), left widens it; up and down slide it (brighter, darker). The
+window never leaves the channel's own range of values, and one drag is one undo step.
 
 | Key | Action |
 |---|---|
@@ -163,7 +181,7 @@ another channel.
 | **x** | Shown |
 | **v** | Solo: show only this channel (again: back to all of them) |
 | **d** | Reset to the image's own window and colour |
-| **b** | Split channels: one panel per channel to the right, each alone in gray with its name |
+| **b** | Split channels: one panel per channel, each alone in gray with its name (see below) |
 
 **Auto** sets the window from the pixels in view: the plane (or projection) on screen, inside
 the frame. Each press moves to the next window on a ladder: 0.1–99.9 %, 1–99.8 %, 1–99 % of
@@ -172,6 +190,11 @@ the whole image carries instead, so it gives the same window on every plane.
 
 When gamma is not 1 the panel reminds you to say so in the legend; a log scale needs a black
 point above 0 and is drawn linear until it has one.
+
+**Split channels** puts the channel panels to the image's right, each the image's size, when the
+figure has room for them. Otherwise the image and its channels share the image's own box as a
+grid, the image first: a figure clips what lies outside it, so panels past its edge could not be
+seen. Nothing else on the figure moves.
 
 ## Layers and objects
 
@@ -196,10 +219,21 @@ row. Long lists show the first 400 objects of a layer; filter to find the rest.
 
 Press **v**. The frame is a window onto the whole image: the box stays where it is on the
 figure, and the wheel over the image zooms in on the spot under the pointer; drag the image to
-move it under the frame. **d** shows the whole image again; **n** switches between true pixels
-and smoothing when the image is magnified. **x** pulls the current region out
-as an **inset**: a new panel beside the image shows the region with a scale bar, the original
-returns to the frame it had, and it outlines the inset's region.
+move it under the frame. A small map at the top of the zone shows the whole image with the
+frame's rectangle on it, and the regions already pulled out as insets dashed: drag the rectangle,
+or press anywhere on the map, to move the frame there. **d** shows the whole image again in the
+box the image has (it keeps its place and width); **n** switches between true pixels and
+smoothing when the image is magnified.
+
+**x** makes an **inset**, a new panel showing one region of the image with a scale bar; the image
+outlines the region. After **x**, drag a rectangle on the image: on release it becomes the inset
+and the image keeps its frame. Press **x** again (or **Enter**) instead to pull out the frame as
+it is; the image then returns to the frame it had when the zone opened.
+
+An inset goes beside the image when the figure has room: to the right at the image's height,
+else below it, no wider than the image. Otherwise it stands on the image, in its top-right
+corner at two fifths of its height, and the live view closes with the inset selected so you can
+drag it where you want. A message says where it went.
 
 ## Linked panels
 

@@ -50,82 +50,123 @@ and one large one (2048 × 2048 or more, tens of planes).
 
 ## The live view
 
-10. Select a `stack_u16` element, press **R**. **Rails appear (Depth at the image's right side),
-    a panel opens beside the image, and a readout line sits below it.** The Depth row is armed.
+10. Select a `stack_u16` element, press **R**. **Depth stands as a rail at the image's right, and
+    a panel opens beside the image with only the image's name in its header.** Each channel row
+    carries a small histogram with its window marked; the Depth row is armed. The strip at the
+    panel's foot says what the image is: "2 channels · 7 z · 64 × 48" over "uint16 · 0.25 µm per
+    pixel".
 11. Double-click the other `stack_u16` element. **Its live view opens** (the first one closes).
 12. Roll the wheel over the image. **Wheel down moves to the next plane**; the rail's playhead,
-    the panel's Depth row ("4/7 · −58.5 µm") and the picture follow at once. **Shift+wheel** moves
+    the panel's Depth row ("5/7 · −57.5 µm") and the picture follow at once. **Shift+wheel** moves
     ten (clamped to the stack). **↑ / ↓** step through depth.
-13. Drag along the Depth rail. **The picture scrubs**; release, then **Ctrl+Z**: **the whole drag
+13. Hover the Depth rail without pressing. **A label beside the rail names the plane under the
+    pointer and its position ("4 · −58.5 µm")**; a click there goes to that plane.
+14. Drag along the Depth rail. **The picture scrubs**; release, then **Ctrl+Z**: **the whole drag
     undoes as one step.** A run of wheel notches is one step too.
-14. Hover the image. **The readout shows x and y in µm and each channel's value under the
-    pointer.**
-15. Press **e**, then **2** (max). **A maximum projection over all 7 planes**; the rail shows a
-    band and the panel "max over 7 planes". Roll the wheel: **the run narrows / widens around its
-    middle.** Drag the band's edges and its inside; **Shift**-drag elsewhere on the rail draws a
-    new run. **e**, **1** (plane): **back to the plane in the middle of the run.**
-16. Press **1** (channel structure). **The channel zone opens with its histogram and three
-    fields.** Drag the white handle: **the picture brightens/darkens live.** Type `2000` in White
-    point, **Enter**: kept. Type `5`, **Escape**: the previous value comes back.
-17. Press **a** repeatedly in the channel zone. **The window steps 1–99 %, full range, 0.1–99.9 %,
-    1–99.8 % and round** (the image starts at 1–99.8 %).
-18. **c** then a colour; **g** cycles Linear → Log → Gamma (**a gamma note appears**; with Log and
+15. Hover the image. **The strip at the panel's foot shows x and y in µm and each channel's value
+    under the pointer.** Move off the image: **it says what the image is again.**
+16. Press **e**, then **2** (max). **A maximum projection over all 7 planes**; the rail shows a
+    band, the Depth row reads "1–7 · −61.5 to −55.5 µm" and the Projection row "max · 7 planes".
+    Roll the wheel: **the run narrows / widens around its middle.** Drag the band's edges and its
+    inside; **Shift**-drag elsewhere on the rail draws a new run. **e**, **1** (plane): **back to
+    the plane in the middle of the run.**
+17. Roll the wheel one notch over the structure channel's row. **Nothing changes, but the row is
+    armed and the footer says "↕ white point".** Further notches, anywhere on screen: **the white
+    point moves, and the row's histogram mark with it.** **Escape**: **the view stays open, and
+    the wheel over the image moves through depth again.**
+18. Press **1** (channel structure). **The channel zone opens with its histogram and three fields,
+    Black, White and Gamma; Black and White each say what share of the channel they clip
+    ("clips … %").** Drag the white handle: **the picture brightens/darkens live and the White
+    share changes.** Type `2000` in White, **Enter**: kept. Type `5`, **Escape**: the previous
+    value comes back.
+19. Still in the channel zone, drag on the image. **Dragging right narrows the window about its
+    centre (more contrast), left widens it; up brightens, down darkens**, and the window stops at
+    the channel's own lowest and highest values. Release, then **Ctrl+Z**: **the whole drag undoes
+    as one step.**
+20. Press **a** repeatedly in the channel zone. **The window steps through 0.1–99.9 %, 1–99.8 %
+    and 1–99 % of the pixels in view, then their full range, and round** (a step that would give
+    the window already on screen is skipped).
+21. **c** then a colour; **g** cycles Linear → Log → Gamma (**a gamma note appears**; with Log and
     a black point at 0, **a note says it is drawn linear**); **z** inverts; **x** hides the
     channel; **v** solos it (again: back to both); **d** resets it.
-19. **Escape**: back to the panel's home. **a**: Auto for every channel.
-20. **x** at home: **two new panels to the right, one per channel, each in gray with its name**;
-    one **Ctrl+Z** removes both.
-21. **b**, **w**, **c**, **g**: **scale bar (bottom right), position stamp ("z …",
-    top left), channel names (top right), calibration bar (bottom left) appear and go.**
-22. **n**: the Pixels row toggles **true pixels / smoothed**; zoom the canvas in to see it.
-23. **v** (Frame): roll the wheel over the image: **the image zooms inside its box around the
-    pointer; the box does not move.** Drag: **the image moves under the frame.** **x**: **an
-    inset panel appears to the right with a scale bar, the original returns to its earlier frame
-    and outlines the inset's region.** **d** in the Frame zone: whole image again.
-24. Place `movie_f32`, press **R**. **Time is a rail below the image.** **Space**: **plays in real
-    time, 80 planes a second** (a 60 Hz screen shows 60 of them; the rail's ▶ does the same); **Escape** stops it. **← / →** step.
-25. Place `mean_f64_layers`, **R**, then **d**. **Layers & objects lists five layers, top
-    first.** On the synapse footprints row, **→ opens its objects with their table columns.** Hover a row: **its
-    object is outlined on the image.** Hover an object on the image: **its row is found.**
+22. **b** (Split channels). **Two new panels to the right of the image, one per channel, each in
+    gray with its name**; one **Ctrl+Z** removes both.
+23. **Escape**: back to the panel's home. **a**: Auto for every channel.
+24. **b** opens Annotations; then **b**, **w**, **c**, **g**: **scale bar (bottom right), position
+    stamp ("z …", top left), channel names (top right), calibration bar (bottom left) appear and
+    go**, and each row says its corner while it is on, "off" otherwise. With the scale bar on,
+    **Shift+b** four times: **it walks to bottom left, top left, top right and back to bottom
+    right.** **Escape**.
+25. **v** (Frame). **A small map of the whole image, with no rectangle on it.** Roll the wheel up
+    over the image: **the image zooms inside its box around the pointer; the box does not move;
+    the map shows the frame as a rectangle and dims the rest.** Drag on the image: **the image
+    moves under the frame.** Drag the rectangle on the map, or press elsewhere on the map: **the
+    frame moves there.** **n**: the Pixels row toggles **true pixels / smoothed** (zoom the
+    canvas in to see it). **d**: **the whole image again, and the box keeps its place and
+    width.**
+26. Press **x**. **The Inset row says "draw it on the image"; nothing is made yet.** Drag a
+    rectangle on the image: **a dashed guide follows the drag; on release an inset panel with a
+    scale bar appears beside the image (to the right, or below when the right has no room), the
+    image keeps its frame and outlines the inset's region, the map shows the region dashed, and a
+    message says where the inset went.**
+27. Zoom in with the wheel, then press **x** twice (or **x**, **Enter**). **An inset of the frame
+    as it is appears; the image returns to the frame it had when the zone opened, and the panel
+    goes back home.**
+28. Place `mid_tiled_u16` on a narrow figure (as in step 5, so it is as wide as the figure), press
+    **R**, **1**, **b**. **The image and its two channel panels share the image's own box as a
+    grid, the image first; nothing lies outside the figure**, and the message says they share its
+    place. **Ctrl+Z**.
+29. On the same image, with the figure no taller than the image (no room below either):
+    **Escape**, **v**, **x**, and draw a rectangle. **The inset stands on the image in its
+    top-right corner at two fifths of the image's height; the live view closes with the inset
+    selected, and the message says "Inset placed on the image".**
+30. Place `movie_f32`, press **R**. **Time is a rail below the image.** **Space**: **plays in real
+    time, 80 planes a second** (a 60 Hz screen shows 60 of them; the rail's ▶ does the same);
+    **Escape** stops it. **← / →** step. Hover the rail: **the label gives the frame and its time
+    in s.**
+31. Place `mean_f64_layers`, **R**, then **d**. **Layers & objects lists five layers, top
+    first**, with the readout strip and the key hints at the panel's foot as in the other zones.
+    On the synapse footprints row, **→ opens its objects with their table columns.** Hover a row:
+    **its object is outlined on the image.** Hover an object on the image: **its row is found.**
     **a** and type part of a name or value: **the list filters.** **x** shows/hides,
     **e** then the wheel changes opacity, **c** colours, **q** turns object names on,
     **Shift+↑ / ↓** reorders.
-26. **R** closes the view; so does clicking elsewhere on the canvas, or **Escape** from home.
+32. **R** closes the view; so does clicking elsewhere on the canvas, or **Escape** from home.
     **The element keeps exactly what was set** (its still matches the last live frame).
-27. While the view is open, **Ctrl+Z / Ctrl+Shift+Z** step through the gestures; plain keys never
+33. While the view is open, **Ctrl+Z / Ctrl+Shift+Z** step through the gestures; plain keys never
     reach canvas shortcuts (no nudge, no delete).
 
 ## The Inspector
 
-28. Select a `stack_u16` element (no live view). **Sections Image, Channels, Position,
+34. Select a `stack_u16` element (no live view). **Sections Image, Channels, Position,
     Annotations and View** (Layers only for an image with layers). Image says the size per
     pixel, "Stored exactly (uint16)" and the source path; on `movie_f32` it says "Stored
     compactly: 16-bit steps of the float32 values".
-29. Type a White value: **the picture changes; one undo step.** Scrub a field with the wheel:
+35. Type a White value: **the picture changes; one undo step.** Scrub a field with the wheel:
     **one undo step for the run.**
-30. Type the image's default window back: **the key disappears from the stored view** (an
+36. Type the image's default window back: **the key disappears from the stored view** (an
     all-default view leaves the element with no `view` in `fig/canvases/*.json`).
-31. Position: change the plane; choose max and a From/To run; toggle scale bar, stamp,
+37. Position: change the plane; choose max and a From/To run; toggle scale bar, stamp,
     channel names, calibration bar; Pixels True/Smoothed; Background Transparent; Region shown
     X/Y/W/H. **Each shows at once; the live view (if open) agrees.**
-32. **Live view R** button in the Image header **opens the live view**; on a locked element it
+38. **Live view R** button in the Image header **opens the live view**; on a locked element it
     is disabled with "Unlock and show the image to open it".
 
 ## Exports and other outputs
 
-33. Export the figure as SVG and PDF. **Each image is drawn at 300 dpi at its printed size;
+39. Export the figure as SVG and PDF. **Each image is drawn at 300 dpi at its printed size;
     zoom in on a small image in a PDF viewer: sharp pixels, not blur. Layers, names, scale bar
     and stamps are vectors** (selectable text in the SVG).
-34. Export PNG at a high dpi. **The image is drawn at that dpi from the full-resolution pixels**
+40. Export PNG at a high dpi. **The image is drawn at that dpi from the full-resolution pixels**
     (for `mid_tiled_u16`, not from its overview).
-35. Embed the figure in a Paper document. **The images show there**, with the same view.
-36. Headless: `flux render-figure <figId> --png --out /tmp/f.png`. **Same picture as the app.**
-37. Move a placed bundle's asset folder away and render: **a dark stand-in with the image's name,
+41. Embed the figure in a Paper document. **The images show there**, with the same view.
+42. Headless: `flux render-figure <figId> --png --out /tmp/f.png`. **Same picture as the app.**
+43. Move a placed bundle's asset folder away and render: **a dark stand-in with the image's name,
     and a warning naming the reason**; the figure still renders.
 
 ## Update from source
 
-38. With the project open, replace `plots/stack_u16.fluximg` with new content (re-run a fluxplot
+44. With the project open, replace `plots/stack_u16.fluximg` with new content (re-run a fluxplot
     script that writes it, or copy another bundle to a temporary name and rename it into
     place). **Every element placed from it updates within about a second and keeps its view.**
     If the new image has fewer planes or channels, **a notice says what was adjusted.** One
@@ -133,10 +174,10 @@ and one large one (2048 × 2048 or more, tens of planes).
 
 ## Agents
 
-39. `flux image-info <elementId>`: **dims with units and positions, channels with percentiles,
+45. `flux image-info <elementId>`: **dims with units and positions, channels with percentiles,
     layers, and the element's view in words ("z 4/7 · −58.5 µm").**
-40. `flux set-image-view <elementId> --view '{"projection":{"dim":"z","mode":"max","from":0,"to":7}}'`
+46. `flux set-image-view <elementId> --view '{"projection":{"dim":"z","mode":"max","from":0,"to":7}}'`
     with the app open: **the element shows the projection at once.** A bad key (`{"index":{"t":0}}`
     on the z-stack): **refused, naming the problem; nothing written.**
-41. `flux place-image <figId> plots/stack_u16.fluximg`: **placed, `reused: true`** (same content
+47. `flux place-image <figId> plots/stack_u16.fluximg`: **placed, `reused: true`** (same content
     already in the project).
