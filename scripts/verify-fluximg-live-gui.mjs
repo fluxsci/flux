@@ -698,10 +698,27 @@ image = await rect("[data-fluximg-live]");
 const playing = () => page.evaluate(() => structuredClone(window.__flux.get(window.__flux.fluximg.live.fluximgLive)?.playing ?? null));
 const pastNow = () => page.evaluate(() => window.__flux.fig.historyStats().past);
 const past0 = await pastNow();
+// Space+drag over the live image pans the canvas (as everywhere in Flux) and plays nothing.
+const vpNow = () => page.evaluate(() => structuredClone(window.__flux.get(window.__flux.fig.viewport)));
+let vpa = await vpNow();
+await page.mouse.move(image.cx, image.cy);
 await page.keyboard.down(" ");
 for (let i = 0; i < 5; i++) { await page.keyboard.down(" "); await sleep(20); } // auto-repeat, as a held key sends // debounce: 20 ms between repeats
-h.ok(!!(await playing()), "Space plays, and a held Space (auto-repeat) does not toggle it on and off");
+await page.mouse.down(); await page.mouse.move(image.cx + 30, image.cy + 20, { steps: 4 }); await page.mouse.up();
 await page.keyboard.up(" ");
+await waitForFrame(page);
+let vpb = await vpNow();
+h.ok(vpb.panX - vpa.panX === 30 && vpb.panY - vpa.panY === 20, `Space+drag over the live image pans the canvas (${vpb.panX - vpa.panX}, ${vpb.panY - vpa.panY})`);
+h.ok(!(await playing()), "…and starts no playback");
+await page.evaluate(() => window.__flux.fig.viewport.set({ panX: 240, panY: 110, zoom: 1 }));
+await waitForFrame(page);
+image = await rect("[data-fluximg-live]");
+await page.keyboard.down(" ");
+for (let i = 0; i < 5; i++) { await page.keyboard.down(" "); await sleep(20); } // debounce: 20 ms between repeats
+h.ok(!(await playing()), "a held Space (auto-repeat) toggles nothing while held");
+await page.keyboard.up(" ");
+await waitForFrame(page);
+h.ok(!!(await playing()), "a Space tap plays");
 const steady = await page.evaluate(async () => {
   const out = [], t0 = performance.now();
   const r = (s) => { const e = document.querySelector(s); if (!e) return "none"; const b = e.getBoundingClientRect(); return [b.left, b.top, b.width, b.height].map((v) => Math.round(v * 10) / 10).join(","); };

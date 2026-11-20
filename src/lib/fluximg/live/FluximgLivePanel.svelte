@@ -155,8 +155,9 @@
     if (k === " " && live.zone !== "layers") {
       const d = live.armed?.startsWith("pos:") ? live.armed.slice(4) : dims[0];
       done();
-      // A held Space (Space+drag pans the canvas) auto-repeats: only the first press plays or stops.
-      if (d && !e.repeat) togglePlayback(d);
+      // Space is a TAP for play / stop and a HOLD for Space+drag panning, as everywhere in Flux: the movie toggles when
+      // the key comes up without the pointer having gone down meanwhile (and auto-repeat never toggles it).
+      if (d && !e.repeat) spaceTap = d;
       return;
     }
     if (live.zone === "home") return void (homeKey(k) && done());
@@ -165,6 +166,15 @@
     // The layers zone handles its own keys (FluximgLayerList); everything else is swallowed here.
     if (live.zone !== "layers") done();
   }
+
+  let spaceTap: string | null = null;
+  function onKeyUp(e: KeyboardEvent): void {
+    if (e.key !== " " || !spaceTap) return;
+    const d = spaceTap;
+    spaceTap = null;
+    if (live && ctx) togglePlayback(d);
+  }
+  const cancelTap = (): void => { spaceTap = null; };
 
   function homeKey(k: string): boolean {
     if (!ctx) return false;
@@ -333,7 +343,7 @@
   const objectCount = $derived(ctx ? ctx.manifest.layers.reduce((n, l) => n + (l.kind === "intensity" ? 0 : l.count ?? 0), 0) : 0);
 </script>
 
-<svelte:window onkeydown={onKey} onpointermove={(e) => { pointer.x = e.clientX; pointer.y = e.clientY; }} onresize={replace} />
+<svelte:window onkeydown={onKey} onkeyup={onKeyUp} onpointerdowncapture={cancelTap} onblur={cancelTap} onpointermove={(e) => { pointer.x = e.clientX; pointer.y = e.clientY; }} onresize={replace} />
 
 {#if live && ctx && head}
   <div class="fxwrap">

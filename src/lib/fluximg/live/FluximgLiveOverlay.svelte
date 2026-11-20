@@ -278,10 +278,16 @@
   }
   function onKey(e: KeyboardEvent): void {
     if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
-    // Space held = pan the canvas, as everywhere else. While the live view's panel has a rail to play, Space is
-    // its play key and this never sees a held Space over the image; a pointer press checks `space` either way.
-    if (e.code === "Space") { space = e.type === "keydown"; if (space && !$fluximgLive) beginPan(); }
+    // Space held = pan the canvas, as everywhere else (a Space TAP is the panel's play key: it acts on key-up).
+    if (e.code === "Space") { space = e.type === "keydown"; if (space) beginPan(); }
   }
+  // Capture phase: the panel's own window handler takes Space (play / stop) and stops it there, and this overlay,
+  // mounted after the panel, never saw it: Space+drag over the live image did not pan the canvas.
+  $effect(() => {
+    window.addEventListener("keydown", onKey, { capture: true });
+    window.addEventListener("keyup", onKey, { capture: true });
+    return () => { window.removeEventListener("keydown", onKey, { capture: true }); window.removeEventListener("keyup", onKey, { capture: true }); };
+  });
 
   // The hovered object (from the image or from the list) is outlined on the image.
   let hot: Element | null = null;
@@ -306,7 +312,6 @@
   onDestroy(() => { if (moveQueued) cancelAnimationFrame(moveQueued); hot?.classList.remove("fx-hot"); });
 </script>
 
-<svelte:window onkeydown={onKey} onkeyup={onKey} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div bind:this={wrapper} class="fx-live" class:framing={live?.zone === "frame"} class:panning={!!pan} style={boxStyle}
