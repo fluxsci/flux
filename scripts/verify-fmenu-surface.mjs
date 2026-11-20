@@ -99,11 +99,15 @@ try {
   ok(mr?.armed === null, "Space applies and returns to hotkey mode");
   m = await model();
   ok(m.h.past === 1, `the whole wheel edit is ONE undo entry (past=${m.h.past})`);
-  const afterWheel = m.rect.opacity;
-  for (let i = 0; i < 2; i++) { await page.mouse.wheel({ deltaY: -100 }); await sleep(30); } // hover-wheel in hotkey mode on a non-field spot: no change
+  const afterWheel = JSON.stringify(m.rect);
+  // Hover-wheel in hotkey mode on a spot that is no row. Since the 2026-11-20 redesign the menu is one line per
+  // property and its middle IS a row, so the spot is the head (the old two-line rows left the middle between rows).
+  const noRow = await page.evaluate(() => { const r = document.querySelector(".fluxFigMenu .menu-head .ttl").getBoundingClientRect(); return { x: r.left + 4, y: r.top + r.height / 2 }; });
+  await page.mouse.move(noRow.x, noRow.y);
+  for (let i = 0; i < 2; i++) { await page.mouse.wheel({ deltaY: -100 }); await sleep(30); }
   await sleep(120);
   m = await model();
-  ok(m.rect.opacity === afterWheel, "wheel over no row changes nothing in hotkey mode");
+  ok(JSON.stringify(m.rect) === afterWheel && m.h.past === 1 && (await menuRect())?.armed === null, "wheel over no row changes nothing and arms nothing in hotkey mode");
 
   // --- 3. typed digits replace; Enter applies; Escape reverts --------------------------
   await page.keyboard.press("w");
@@ -173,7 +177,18 @@ try {
   ok(m.text.align === "right", `3 picks the third option (align=${m.text.align})`);
   mr = await menuRect();
   ok(mr?.armed === null, "…and returns to hotkey mode");
-  ok(mr && mr.cols !== "auto", `groups lay out in columns (${mr?.cols})`);
+  // The menu never scrolls: its groups lay out in columns as the lines need them. Since the 2026-11-20 redesign
+  // (one line per property) a text object's lines fit ONE column; more lines, or a short window, take a second.
+  const fit = await page.evaluate(() => { const b = document.querySelector(".fluxFigMenu .body"); return { cols: getComputedStyle(b).columnCount, scrolls: b.scrollHeight > b.clientHeight + 1 }; });
+  ok(fit.cols === "auto" && !fit.scrolls, `a text object's properties fit one column without scrolling (${JSON.stringify(fit)})`);
+  await page.keyboard.press("Escape");
+  await waitForGone(page, ".fluxFigMenu");
+  await page.evaluate(() => { const F = window.__flux.fig; F.selection.set(new Set(["fm-rect", "fm-text"])); });
+  await sleep(200);
+  await page.keyboard.press("f");
+  await waitFor(page, () => !!document.querySelector(".fluxFigMenu.placed"), null, { label: "menu (rect + text)" });
+  const two = await page.evaluate(() => { const b = document.querySelector(".fluxFigMenu .body"); return { cols: getComputedStyle(b).columnCount, scrolls: b.scrollHeight > b.clientHeight + 1, inView: document.querySelector(".fluxFigMenu").getBoundingClientRect().bottom <= innerHeight }; });
+  ok(two.cols === "2" && !two.scrolls && two.inView, `more lines lay out in columns instead of scrolling (${JSON.stringify(two)})`);
 
   // --- 5. colour: hover previews, Escape reverts, click commits ---------------------------
   await page.keyboard.press("Escape");

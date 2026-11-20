@@ -229,4 +229,31 @@
   .cur-name b { color: var(--c-tx-hi); font-weight: 600; }
   .hint { font-size: 10.5px; color: var(--c-tx-muted); }
   .hint b { color: var(--c-tx-2); font-weight: 600; }
+
+  /* Inside the property menu (2026-11-20): the menu's look on the same list and the same hands. Rows keep their
+     22 px. Scoped to the menu: the Inspector and the X-ray keep the look above. */
+  :global(.fluxFigMenu) .cmp:focus-visible { outline: none; }
+  :global(.fluxFigMenu) .tabs { gap: 3px; border-bottom: 0; padding-bottom: 0; }
+  :global(.fluxFigMenu) .tab { border: 0; border-radius: 5px; color: var(--fm-tx); box-shadow: inset 0 0 0 1px transparent; }
+  :global(.fluxFigMenu) .tab:hover { color: var(--fm-tx-hi); background: var(--fm-well); box-shadow: inset 0 0 0 1px var(--fm-line-2); }
+  /* The collections of maps are the second row of chips: lit by a ring, under the picker's own lit chip. */
+  :global(.fluxFigMenu) .tab.on { background: var(--fm-tint); box-shadow: inset 0 0 0 1px var(--fm-blue); color: var(--fm-tx-hi); }
+  :global(.fluxFigMenu) .tabhint { font-size: 10px; color: var(--fm-tx-dim); }
+  :global(.fluxFigMenu) .tabhint b { color: var(--fm-blue-hi); font-weight: 600; }
+  :global(.fluxFigMenu) .list { padding: 4px 6px 6px; border-radius: 6px; background: var(--fm-well); box-shadow: inset 0 0 0 1px var(--fm-line); }
+  :global(.fluxFigMenu) .gtitle { border-bottom: 0; color: var(--fm-tx-dim); }
+  :global(.fluxFigMenu) .cm { border-radius: 5px; }
+  :global(.fluxFigMenu) .cm:hover { background: rgba(255, 252, 240, 0.05); }
+  :global(.fluxFigMenu) .cm.cur { background: var(--fm-tint); box-shadow: inset 2px 0 0 var(--fm-blue); }
+  :global(.fluxFigMenu) .bar { border: 0; border-radius: 4px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6); }
+  :global(.fluxFigMenu) .nm { color: var(--fm-tx-hi); }
+  :global(.fluxFigMenu) .foot { border-top: 0; padding-top: 2px; gap: 6px; }
+  :global(.fluxFigMenu) .pick { height: 16px; border: 0; border-radius: 6px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 0 2px rgba(255, 252, 240, 0.1); }
+  :global(.fluxFigMenu) .glabel { font: 12.5px var(--font-serif); color: var(--fm-tx); margin-right: 4px; }
+  :global(.fluxFigMenu) .gbtn { height: 20px; padding: 0 8px; border-radius: 5px; background: var(--fm-paper); color: var(--fm-blue-deep); border: 1px solid color-mix(in oklab, var(--fm-blue) 45%, transparent); box-shadow: 0 1.5px 2.5px rgba(0, 0, 0, 0.5); font: 600 10.5px var(--font-mono); }
+  :global(.fluxFigMenu) .gbtn b { color: var(--fm-blue-deep); }
+  :global(.fluxFigMenu) .gbtn:hover { background: color-mix(in oklab, var(--fm-blue) 16%, var(--fm-paper)); border-color: var(--fm-blue); color: var(--fm-blue-deep); }
+  :global(.fluxFigMenu) .gbtn:active { transform: translateY(1px); box-shadow: 0 0 1px rgba(0, 0, 0, 0.6); }
+  :global(.fluxFigMenu) .hint { font: 10px/1.6 var(--font-mono); color: var(--fm-tx-dim); }
+  :global(.fluxFigMenu) .hint b { color: var(--fm-blue-hi); font-weight: 600; }
 </style>

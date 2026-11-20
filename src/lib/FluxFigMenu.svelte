@@ -24,6 +24,18 @@
   //
   // The field model (labels, hotkeys, readers, live appliers, ranges) lives in
   // interact/propertyMenu.ts, shared with the Inspector's part section.
+  //
+  // THE LOOK (2026-11-20, owner's pick from a click-to-try viewer: "B Compact"): the menu is an
+  // instrument, like the image live view's board. One plate, a card per group, one LINE per
+  // property and no boxes at rest: a number gets its well under the pointer or in hand. Position
+  // and size pair up (x | width, y | height); on/off properties are small paper keys on their
+  // group's head, lit when on; a number that has a natural picture is drawn by it (opacity: a
+  // fader over the object's own colour; rotation: a dial; corner radius: a corner; stroke width:
+  // a sample of the line), and faders, tracks and the dial can be dragged. One hint line at the
+  // foot says what the hand can do with what is under it. A geometric row in hand is measured on
+  // the object itself (interact/measure.ts). interact/menuLook.ts holds the layout and the marks.
+  // Every hook the gates and the keyboard rely on is unchanged: `.field[data-key]`, `.label` with
+  // the field's full label, `.hk`, `.nin` / `.tin`, `.toggle`, `.colorbtn`, `.selbtn`, `.opts .opt`.
   import { onDestroy, tick } from "svelte";
   import { get } from "svelte/store";
   import { editSession } from "./interact/editSession";
@@ -40,7 +52,10 @@
   import { gradientCss, gradientLabel } from "./color/gradient";
   import { fluxFigMenuOpen } from "./settings";
   import ColorPicker from "./ColorPicker.svelte";
-  import Logomark from "../shell/Logomark.svelte";
+  import { logoImageUrl } from "../shell/logoImage";
+  import { fluxAiMarkElement } from "../shell/agent/fluxAiMark";
+  import { looksOf, menuLines, menuColumns, menuWidth, instrumentOf, measureOf, shortNum, valueAtFraction, toggleGlyph, toggleWord, actionGlyph, MENU_GLYPHS, type Instrument } from "./interact/menuLook";
+  import { fluxFigMeasure } from "./interact/measure";
   import { elementLabel } from "./xray/buildXrayTree";
   import { semanticPartIndex } from "./plot/partStyle";
   import { scene3dManifests } from "./model3d/store";
@@ -50,6 +65,17 @@
   // the way "color" gives it to the colour picker.
   type Mode = "hotkey" | "field" | "option" | "color" | "search" | "wide";
 
+  // The Flux mark, as one image (decoded when this module loads, long before the first f).
+  const MARK = logoImageUrl();
+  // The Flux AI mark on the Ask key, still: built once by the mark's own builder and cloned in at each open
+  // (a mounted component per open would be effects and style bindings for a mark that never moves here).
+  let aiMarkStill: HTMLElement | null = null;
+  function aiMark(node: HTMLElement) {
+    aiMarkStill ??= fluxAiMarkElement(document, 14, "ready", true);
+    node.prepend(aiMarkStill.cloneNode(true));
+  }
+  /** A row's standing classes, by its place: a full row, the left cell of a pair, the right cell. */
+  const ROW_CLASS = ["field", "field half", "field half right"] as const;
   const session = editSession();
   onDestroy(() => session.finish());
 
@@ -71,19 +97,14 @@
   // data changes (the global style library too — it feeds the style fields).
   $: fields = $fluxFigMenuOpen ? buildMenuFields($project, $selection, $partSelections, $plotManifests, $globalTextStyles, $scene3dManifests) : [];
   $: groups = groupFields(fields);
-  // Columns by row count, plus one more whenever the rows (~46px each) would not
-  // fit the window's height — as far as the window's width allows.
-  $: cols = menuColumns(fields.length, vw, vh);
-  function menuColumns(n: number, w: number, h: number): 1 | 2 | 3 {
-    const byCount = n > 18 ? 3 : n > 8 ? 2 : 1;
-    const byHeight = Math.ceil((n * 46) / Math.max(200, h - 160));
-    const fit = w >= 680 ? 3 : w >= 468 ? 2 : 1;
-    return Math.min(fit, Math.max(byCount, byHeight)) as 1 | 2 | 3;
-  }
-  // The panel sizes to what it shows — a column per ~8 rows, the colour picker's
-  // 620, the colour-scale view's 780 (controls beside an always-open palette
+  // Columns by the lines the layout takes, plus one more whenever they would not
+  // fit the window's height — as far as the window's width allows (menuLook.menuColumns).
+  $: looks = looksOf(groups);
+  $: cols = menuColumns(menuLines(looks), looks.length, vw, vh);
+  // The panel sizes to what it shows — its columns, the colour picker's
+  // 648, the colour-scale view's 808 (controls beside an always-open palette
   // list) — and never past the window (owner inbox 2026-09-30).
-  $: width = Math.max(240, Math.min(mode === "color" ? 620 : mode === "wide" ? 780 : cols === 3 ? 664 : cols === 2 ? 452 : 240, vw - 16));
+  $: width = Math.max(240, Math.min(mode === "color" ? 648 : mode === "wide" ? 808 : menuWidth(cols), vw - 16));
   $: sQ = search.trim().toLowerCase();
   $: sResults = sQ ? fields.filter((f) => `${f.label} ${f.group} ${f.key}`.toLowerCase().includes(sQ)) : fields;
   $: if (sIndex >= sResults.length) sIndex = Math.max(0, sResults.length - 1);
@@ -93,6 +114,10 @@
   // file name, a custom name — and for a part the plot › part; `.ctx` carries
   // the kind or the plural count so the plural pick still reads "2 plot parts".
   $: head = describeHead($selection, $partSelections, $project, $plotManifests, $scene3dManifests);
+  // "plot › X axis › Tick labels": the place (which gives way first in a narrow head) and the name.
+  $: nameCut = head.name.lastIndexOf(" › ");
+  $: namePath = nameCut >= 0 ? head.name.slice(0, nameCut + 3) : "";
+  $: nameLast = nameCut >= 0 ? head.name.slice(nameCut + 3) : head.name;
   function describeHead(
     sel: Set<string>,
     parts: { elementId: string; partId: string }[],
@@ -289,6 +314,7 @@
       return;
     }
     if (f.kind === "toggle" || f.kind === "action") {
+      strike(f.key);
       applyField(f, true);
       session.finish();
       return;
@@ -511,6 +537,126 @@
     const v = Number(f.get());
     return numericFraction(v, r.min, r.max, f.factor) * 100;
   };
+
+  // --- the look: what is under the pointer, the instruments, the measure ------------------------
+  // The paints the instruments are drawn in: an opacity fades the object's own colour, a stroke
+  // width is a sample of the object's own line.
+  $: fillField = fields.find((f) => f.kind === "color" && f.target === "fill") ?? null;
+  $: strokeField = fields.find((f) => f.kind === "color" && f.target === "stroke") ?? null;
+  $: dashedField = fields.find((f) => f.kind === "toggle" && f.label === "dashed stroke") ?? null;
+  /** A colour field's paint as CSS (a gradient for a colormap), or null for none. No name lookup: this is read on every render. */
+  const paintOf = (f: Field | null): string | null => {
+    if (!f) return null;
+    const g = f.target ? currentGradient(f.target) : null;
+    const css = g ? gradientCss(g) : null;
+    if (css) return css;
+    const hex = String(f.get());
+    return hex === "none" ? null : hex;
+  };
+  $: fillInk = paintOf(fillField);
+  $: strokeInk = paintOf(strokeField);
+  const faderPaint = (f: Field, fill: string | null, stroke: string | null): string =>
+    (f.prop === "strokeOpacity" ? stroke : f.prop === "fillOpacity" ? fill : (fill ?? stroke)) ?? "var(--fm-tx)";
+  /** A corner as round as the value says (it stops growing where a picture this small stops telling). */
+  const cornerPath = (v: number): string => {
+    const r = +(Math.max(0, Math.min(1, v / 40)) * 11).toFixed(2);
+    return `M3.5 16V${3.5 + r}a${r} ${r} 0 0 1 ${r} ${-r}H16`;
+  };
+  /** A fader, a track or the dial under the hand: the value follows the pointer, as one undo
+   *  entry, and nothing stays in hand afterwards (the same contract as dragging a name). */
+  function instrument(node: Element, params: { f: Field; kind: Instrument }) {
+    let p = params, pointer: number | null = null;
+    const valueAt = (e: PointerEvent): number | null => {
+      const r = node.getBoundingClientRect();
+      if (p.kind === "dial") {
+        const a = Math.round((Math.atan2(e.clientX - (r.left + r.width / 2), -(e.clientY - (r.top + r.height / 2))) * 180) / Math.PI);
+        return e.shiftKey ? Math.round(a / 15) * 15 : a;
+      }
+      const range = fieldRange(p.f);
+      return range && r.width > 0 ? valueAtFraction((e.clientX - r.left) / r.width, range.min, range.max, p.f.step ?? 1, p.f.factor) : null;
+    };
+    const follow = (e: PointerEvent) => {
+      let v = valueAt(e);
+      if (v == null) return;
+      if (p.f.min != null) v = Math.max(p.f.min, v);
+      if (p.f.max != null) v = Math.min(p.f.max, v);
+      draft = fmtNum(v);
+      applyField(p.f, v);
+    };
+    const down = (ev: Event) => {
+      const e = ev as PointerEvent;
+      if (e.button !== 0 || pointer !== null || (p.kind !== "dial" && !fieldRange(p.f))) return;
+      e.preventDefault();
+      e.stopPropagation();
+      pointer = e.pointerId;
+      try { node.setPointerCapture(e.pointerId); } catch { /* a synthetic pointer */ }
+      enterField(p.f);
+      follow(e);
+    };
+    const move = (ev: Event) => { const e = ev as PointerEvent; if (e.pointerId === pointer) follow(e); };
+    const end = (cancel: boolean) => (ev: Event) => {
+      if ((ev as PointerEvent).pointerId !== pointer) return;
+      pointer = null;
+      if (cancel) session.cancel();
+      blurField(p.f);
+    };
+    const up = end(false), cancel = end(true);
+    node.addEventListener("pointerdown", down);
+    node.addEventListener("pointermove", move);
+    node.addEventListener("pointerup", up);
+    node.addEventListener("pointercancel", cancel);
+    return {
+      update(next: { f: Field; kind: Instrument }) { p = next; },
+      destroy() {
+        node.removeEventListener("pointerdown", down);
+        node.removeEventListener("pointermove", move);
+        node.removeEventListener("pointerup", up);
+        node.removeEventListener("pointercancel", cancel);
+      },
+    };
+  }
+  // The row under the pointer, for the hint line and the measure; and the paper label of a key
+  // that is only a mark. One delegated listener: nothing here runs unless the pointer moves onto
+  // a different row.
+  let hoverKey: string | null = null;
+  let tip: { text: string; key: string; x: number; y: number; below: boolean } | null = null;
+  $: hoverField = hoverKey ? (fields.find((f) => f.key === hoverKey) ?? null) : null;
+  function onPanelOver(e: PointerEvent) {
+    const t = e.target as HTMLElement | null;
+    const key = t?.closest<HTMLElement>(".field[data-key]")?.dataset.key ?? null;
+    if (key !== hoverKey) hoverKey = key;
+    const named = t?.closest<HTMLElement>("[data-tip]") ?? null;
+    // A name says itself; its label is only for when it does not fit.
+    const cut = named && named.dataset.tipCut !== undefined ? [...named.children].some((c) => c.scrollWidth > c.clientWidth + 1) : true;
+    if (!named || !panelEl || !cut) { if (tip) tip = null; return; }
+    const a = named.getBoundingClientRect(), b = panelEl.getBoundingClientRect();
+    const text = named.dataset.tip ?? "", hk = named.dataset.hk ?? "";
+    if (tip && tip.text === text && tip.key === hk) return;
+    const half = (text.length * 6.4 + (hk ? 34 : 18)) / 2;
+    // Over a key near the menu's top the label stands under it: the menu clips what leaves it.
+    const below = a.top - b.top < 30;
+    tip = { text, key: hk, x: Math.max(half + 2, Math.min(b.width - half - 2, a.left - b.left + a.width / 2)), y: below ? a.bottom - b.top + 6 : a.top - b.top - 6, below };
+  }
+  function onPanelLeave() {
+    hoverKey = null;
+    tip = null;
+  }
+  $: if (!$fluxFigMenuOpen) { hoverKey = null; tip = null; }
+  // A key pressed from the keyboard goes down like one pressed by the hand.
+  // (Set on the key's own element: a binding on every row for a 130 ms flourish would be paid at every open.)
+  let struckTimer: ReturnType<typeof setTimeout> | undefined;
+  function strike(key: string) {
+    const el = panelEl?.querySelector<HTMLElement>(`.field[data-key="${CSS.escape(key)}"]`);
+    if (!el) return;
+    el.classList.add("struck");
+    clearTimeout(struckTimer);
+    struckTimer = setTimeout(() => el.classList.remove("struck"), 130);
+  }
+  onDestroy(() => clearTimeout(struckTimer));
+  // The measure on the object: the geometric row in hand, else the one under the pointer.
+  $: measured = $fluxFigMenuOpen && (mode === "hotkey" || mode === "field") ? measureOf(mode === "field" ? active : hoverField) : null;
+  $: fluxFigMeasure.set(measured);
+  onDestroy(() => fluxFigMeasure.set(null));
 </script>
 
 <svelte:window bind:innerWidth={vw} bind:innerHeight={vh} on:keydown={onWin} on:pointermove={onPointerMove} on:resize={resizePlacement} on:wheel|capture|nonpassive={onWinWheel} />
@@ -530,41 +676,44 @@
       style={`left:${pos.x}px; top:${pos.y}px; width:${width}px;`}
       on:pointerdown|stopPropagation
       on:wheel|nonpassive={onWheel}
+      on:pointerover={onPanelOver}
+      on:pointerleave={onPanelLeave}
     >
       <div class="fcontent">
-        <header class="menu-head">
-          <span class="mark" aria-hidden="true"><Logomark size={14} /></span>
+        <!-- The head names the THING: the Flux mark, then the name the Layers rail shows. A part's place leads its
+             name and gives way first; what kind of thing (or how many) is the line under it. -->
+        <header class="menu-head card" class:two={!!head.ctx}>
+          <img class="mark" src={MARK} width="14" height="14" alt="" draggable="false" />
           <span class="vsep" aria-hidden="true"></span>
-          <span class="ttl">{head.name}</span>
+          <span class="ttl" data-tip={head.name} data-tip-cut>{#if namePath}<span class="tpath">{namePath}</span>{/if}<span class="tlast">{nameLast}</span></span>
+          <button class="hkey askbtn" type="button" use:aiMark data-tip="ask about this (read-only)" aria-label="Ask about this" on:click={() => { close(); void import("../shell/agent/askChord").then((m) => m.requestAsk()); }}>Ask</button>
+          <button class="hkey xbtn" type="button" data-tip="close" data-hk="f" on:click={close} aria-label="Close properties">×</button>
           {#if head.ctx}<span class="ctx">{head.ctx}</span>{/if}
-          <button class="askbtn" on:click={() => { close(); void import("../shell/agent/askChord").then((m) => m.requestAsk()); }} title="Ask about this — read-only" aria-label="Ask about this">✦ Ask</button>
-          <button class="xbtn" on:click={close} aria-label="Close properties">×</button>
         </header>
-        <div class="search-row" class:active={mode === "search"}>
-          <span class="hk">s</span>
-          {#if mode === "search"}
+        {#if mode === "search"}
+          <div class="search-row active">
+            <svg viewBox="0 0 16 16" aria-hidden="true">{@html MENU_GLYPHS.search}</svg>
             <input bind:this={searchEl} bind:value={search} class="search-in" placeholder="Search properties & actions…" spellcheck="false" on:keydown={onSearchKey} />
-          {:else}
-            <button class="search-fake" on:click={enterSearch}>Search properties & actions…</button>
-          {/if}
-        </div>
+            <span class="scount">{sResults.length}</span>
+          </div>
+        {/if}
 
         {#if fields.some(f => f.hint)}<p class="part-mode-note">{fields.find(f => f.hint)?.hint}</p>{/if}
-        <div class="body" class:cols2={mode !== "color" && mode !== "wide" && cols === 2} class:cols3={mode !== "color" && mode !== "wide" && cols === 3}>
+        <div class="body" class:cols2={mode === "hotkey" || mode === "field" || mode === "option" ? cols === 2 : false} class:cols3={mode === "hotkey" || mode === "field" || mode === "option" ? cols === 3 : false}>
           {#if mode === "wide" && wideField?.colorScale}
-            <div class="color-mode wide-mode">
-              <div class="cm-head"><span class="hk">{wideField.key}</span> {wideField.label}<button class="back" on:click={backToHotkey} title="Back to the properties (Esc)">← back <span class="hk">esc</span></button></div>
+            <div class="color-mode wide-mode card">
+              <div class="cm-head"><span class="hk lit">{wideField.key}</span> {wideField.label}<button class="back" on:click={backToHotkey} title="Back to the properties (Esc)"><svg viewBox="0 0 16 16" aria-hidden="true">{@html MENU_GLYPHS.back}</svg> back <span class="hk">esc</span></button></div>
               {#await import("./plot/ColorScaleControls.svelte") then module}
                 <svelte:component this={module.default} elementId={wideField.colorScale.elementId} compact layout="wide" onClose={backToHotkey} />
               {/await}
             </div>
           {:else if mode === "color" && colorField}
-            <div class="color-mode">
-              <div class="cm-head"><span class="hk">{colorField.key}</span> {colorField.label}</div>
+            <div class="color-mode card">
+              <div class="cm-head"><span class="hk lit">{colorField.key}</span> {colorField.label}<button class="back" on:click={backToHotkey} title="Back to the properties (Esc)"><svg viewBox="0 0 16 16" aria-hidden="true">{@html MENU_GLYPHS.back}</svg> back <span class="hk">esc</span></button></div>
               <ColorPicker target={colorField.target ?? "fill"} allowNone={colorField.label !== "text color" && colorField.label !== "text colour"} onDone={backToHotkey} onCancel={backToHotkey} />
             </div>
           {:else if mode === "search"}
-            <div class="results">
+            <div class="results card">
               {#each sResults as f, i (f.group + f.key)}
                 <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
                 <div class="res" class:active={i === sIndex} on:pointerenter={() => (sIndex = i)} on:click={() => { mode = "hotkey"; activate(f); }}>
@@ -576,205 +725,374 @@
               {#if sResults.length === 0}<div class="empty">No matching property</div>{/if}
             </div>
           {:else}
-            {#each groups as grp (grp.name)}
-              <div class="group">
-                <div class="gtitle">{grp.name}</div>
-                {#each grp.fields as f (f.key)}
-                  {@const armed = activeKey === f.key && mode !== "hotkey"}
-                  {@const range = fieldRange(f)}
-                  <div class="field" class:editing={armed} class:opts-open={armed && f.kind === "select"} data-key={f.key}>
-                    <div class="fhead">
-                    <span class="hk">{f.key}</span>
-                    {#if f.kind === "number"}
-                      <span class="label scrubbable" use:scrub={{ get: () => Number(f.get()), step: f.step ?? 1, factor: f.factor, min: f.min ?? null, max: f.max ?? null, onStart: () => enterField(f), onStep: (v) => { draft = String(v); applyField(f, v); }, onEnd: () => blurField(f), onCancel: () => { session.cancel(); blurField(f); } }}>{f.label}</span>
-                    {:else}
-                      <span class="label">{f.label}</span>
+            {#each looks as grp (grp.name)}
+              <div class="group card" class:bare={grp.bare}>
+                {#if !grp.bare}
+                  <div class="gtitle">
+                    <span class="gname">{grp.name}</span>
+                    {#if grp.keys.length}
+                      <span class="gkeys">
+                        {#each grp.keys as f (f.key)}
+                          {@const on = Boolean(f.get())}
+                          {@const g = toggleGlyph(f.label)}
+                          <!-- An on/off property: a paper key on its group's head, lit when on. It is still a field (same key, same label). -->
+                          <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+                          <div class="field tkey" class:on data-key={f.key} data-tip={f.label} data-hk={f.key} on:click={() => activate(f)}>
+                            <span class="hk">{f.key}</span>
+                            <button class="toggle" class:on type="button" tabindex="-1" aria-pressed={on} aria-label={f.label}>{#if g}<svg viewBox="0 0 16 16" aria-hidden="true">{@html MENU_GLYPHS[g]}</svg>{:else}<b class="tword">{toggleWord(f.label)}</b>{/if}<i>{on ? "on" : "off"}</i></button>
+                            <span class="label vh">{f.label}</span>
+                          </div>
+                        {/each}
+                      </span>
                     {/if}
-                    </div>
-                    <span class="control">
-                      {#if f.kind === "color"}
-                        {@const cd = colorDisplay(f)}
-                        <button class="colorbtn" on:click={() => activate(f)} title="Palette (hover previews, click applies)">
-                          <span class="dot" class:isnone={cd.hex === "none"} style={cd.hex === "none" ? "" : `background:${cd.hex}`}></span>
-                          <span class="cname">{cd.name}</span>
-                        </button>
-                      {:else if f.kind === "toggle"}
-                        <button class="toggle" class:on={Boolean(f.get())} on:click={() => activate(f)}>{f.get() ? "on" : "off"}</button>
-                      {:else if f.kind === "axisView" && f.axisView}
-                        {#if armed}
-                          {#await import("./plot/AxisView.svelte") then module}
-                            <svelte:component this={module.default} {...f.axisView} autofocus armed onDone={confirmField} />
-                          {/await}
-                        {:else}<button class="actbtn" on:click={() => activate(f)}>Edit…</button>{/if}
-                      {:else if f.kind === "colorScale" && f.colorScale}
-                        <button class="actbtn" on:click={() => activate(f)}>Edit…</button>
-                      {:else if f.kind === "action"}
-                        <button class="actbtn" on:click={() => activate(f)}>run</button>
-                      {:else if f.kind === "select"}
-                        {@const opts = f.options ?? []}
-                        {@const cur = String(f.get())}
-                        {#if armed}
-                          <span class="opts" role="listbox" aria-label={f.label}>
-                            {#each opts as o, i (o.value)}
-                              <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-                              <span class="opt" class:cur={i === optIndex} role="option" tabindex="-1" aria-selected={i === optIndex}
-                                on:pointerenter={() => previewOption(f, i)} on:click={() => pickOption(f, i)}>
-                                {#if i < 9}<span class="ok hk">{i + 1}</span>{/if}{o.label}
-                              </span>
-                            {/each}
-                          </span>
-                        {:else}
-                          <button class="selbtn" on:click={() => activate(f)} title="Choose (wheel, w·a·s·d, 1–9)">{opts.find((o) => o.value === cur)?.label ?? (cur || "—")}<span class="chev">▾</span></button>
-                        {/if}
-                      {:else if f.kind === "text"}
-                        <input
-                          bind:this={inputs[f.key]}
-                          class="tin"
-                          value={activeKey === f.key ? draft : String(f.get())}
-                          spellcheck="false"
-                          on:focus={() => enterField(f)}
-                          on:blur={() => blurField(f)}
-                          on:input={(e) => { draft = e.currentTarget.value; applyField(f, draft); }}
-                          on:keydown={(e) => onFieldKey(e, f)}
-                        />
+                  </div>
+                {/if}
+                  {#each grp.rows as r (r.f.key)}
+                    {@const f = r.f}
+                    {@const armed = activeKey === f.key && mode !== "hotkey"}
+                    <div class={ROW_CLASS[r.half] + (f.kind === "text" ? " wide" : "")} class:editing={armed} class:opts-open={armed && (f.kind === "select" || f.kind === "axisView")} data-key={f.key}>
+                      <span class="hk">{f.key}</span>
+                      {#if f.kind === "number"}
+                        <span class="label scrubbable" data-lead={r.lead} use:scrub={{ get: () => Number(f.get()), step: f.step ?? 1, factor: f.factor, min: f.min ?? null, max: f.max ?? null, onStart: () => enterField(f), onStep: (v) => { draft = String(v); applyField(f, v); }, onEnd: () => blurField(f), onCancel: () => { session.cancel(); blurField(f); } }}>{f.label}</span>
                       {:else}
-                        <span class="numwrap" class:ranged={!!range}>
+                        <span class="label">{f.label}</span>
+                      {/if}
+                      <span class="control">
+                        {#if f.kind === "color"}
+                          {@const cd = colorDisplay(f)}
+                          <button class="colorbtn" on:click={() => activate(f)} title="Palette (hover previews, click applies)">
+                            <span class="dot" class:isnone={cd.hex === "none"} style={cd.hex === "none" ? "" : `background:${cd.hex}`}></span>
+                            <span class="cname">{cd.name}</span>
+                          </button>
+                        {:else if f.kind === "axisView" && f.axisView}
+                          {#if armed}
+                            <span class="under">
+                              {#await import("./plot/AxisView.svelte") then module}
+                                <svelte:component this={module.default} {...f.axisView} autofocus armed onDone={confirmField} />
+                              {/await}
+                            </span>
+                          {:else}<button class="actbtn pk" on:click={() => activate(f)}>Edit…</button>{/if}
+                        {:else if f.kind === "colorScale" && f.colorScale}
+                          <button class="actbtn pk" on:click={() => activate(f)}>Edit…</button>
+                        {:else if f.kind === "action"}
+                          <button class="actbtn pk" on:click={() => activate(f)} aria-label={f.label} data-tip="run" data-hk={f.key}><svg viewBox="0 0 16 16" aria-hidden="true">{@html MENU_GLYPHS[actionGlyph(f.label)]}</svg><span class="vh">run</span></button>
+                        {:else if f.kind === "select"}
+                          {@const opts = f.options ?? []}
+                          {@const cur = String(f.get())}
+                          <button class="selbtn" class:open={armed} on:click={() => activate(f)} title="Choose (wheel, w·a·s·d, 1–9)">{opts.find((o) => o.value === cur)?.label ?? (cur || "—")}<span class="chev" aria-hidden="true"></span></button>
+                          {#if armed}
+                            <span class="opts" role="listbox" aria-label={f.label}>
+                              {#each opts as o, i (o.value)}
+                                <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+                                <span class="opt" class:cur={i === optIndex} role="option" tabindex="-1" aria-selected={i === optIndex}
+                                  on:pointerenter={() => previewOption(f, i)} on:click={() => pickOption(f, i)}>
+                                  {#if i < 9}<span class="ok hk">{i + 1}</span>{/if}{o.label}
+                                </span>
+                              {/each}
+                            </span>
+                          {/if}
+                        {:else if f.kind === "text"}
                           <input
                             bind:this={inputs[f.key]}
-                            class="nin"
-                            type="text"
-                            inputmode="decimal"
+                            class="tin"
+                            value={activeKey === f.key ? draft : String(f.get())}
                             spellcheck="false"
-                            placeholder={f.mixed ? "Mixed" : ""}
-                            title={f.count && $selection.size > 1 ? `Applies to ${f.count} of ${$selection.size} selected objects` : f.label}
-                            value={activeKey === f.key ? draft : f.mixed ? "" : fmtNum(Number(f.get()))}
                             on:focus={() => enterField(f)}
                             on:blur={() => blurField(f)}
-                            on:input={(e) => { draft = e.currentTarget.value; const v = evalExpr(draft); if (v != null) applyField(f, v); }}
+                            on:input={(e) => { draft = e.currentTarget.value; applyField(f, draft); }}
                             on:keydown={(e) => onFieldKey(e, f)}
                           />
-                          {#if range}<span class="track" aria-hidden="true"><span class="fill" style={`width:${pct(f)}%`}></span></span>{/if}
-                        </span>
-                      {/if}
-                    </span>
-                  </div>
-                {/each}
+                        {:else if f.kind === "number"}
+                          {@const viz = instrumentOf(f)}
+                          {#if viz === "fader"}
+                            <span class="fader" style={`--c:${faderPaint(f, fillInk, strokeInk)}`} use:instrument={{ f, kind: viz }}><i class="knob" style={`left:${pct(f)}%`}></i></span>
+                          {:else if viz === "dial"}
+                            <svg class="dial" viewBox="0 0 20 20" aria-hidden="true" use:instrument={{ f, kind: viz }}><circle class="ring" cx="10" cy="10" r="8.6" /><path class="zero" d="M10 1.4v2.2M18.6 10h-2.2M10 18.6v-2.2M1.4 10h2.2" /><path class="hand" d="M10 10V3.6" transform={`rotate(${Number(f.get()) || 0} 10 10)`} /><circle class="hub" cx="10" cy="10" r="1.5" /></svg>
+                          {:else if viz === "corner"}
+                            <svg class="corner" viewBox="0 0 18 18" aria-hidden="true"><path class="box" d="M3.5 16V3.5H16" /><path d={cornerPath(Number(f.get()) || 0)} /></svg>
+                          {:else if viz === "weight"}
+                            {@const dashed = !!dashedField && Boolean(dashedField.get())}
+                            <span class="weight" class:none={strokeField != null && !strokeInk}><i style={`height:${Math.max(0.5, Math.min(10, Number(f.get()) || 0))}px;background:${dashed && strokeInk && !strokeInk.includes("gradient") ? `repeating-linear-gradient(90deg, ${strokeInk} 0 6px, transparent 6px 10px)` : (strokeInk ?? "#222222")}`}></i></span>
+                          {:else if viz === "track"}
+                            <span class="gtrack" use:instrument={{ f, kind: viz }}><i class="fill" style={`width:${pct(f)}%`}></i><i class="knob" style={`left:${pct(f)}%`}></i></span>
+                          {/if}
+                          <input
+                              bind:this={inputs[f.key]}
+                              class="nin"
+                              type="text"
+                              inputmode="decimal"
+                              spellcheck="false"
+                              placeholder={f.mixed ? "Mixed" : ""}
+                              title={f.count && $selection.size > 1 ? `Applies to ${f.count} of ${$selection.size} selected objects` : f.label}
+                              value={activeKey === f.key ? draft : f.mixed ? "" : shortNum(Number(f.get()))}
+                              on:focus={() => enterField(f)}
+                              on:blur={() => blurField(f)}
+                              on:input={(e) => { draft = e.currentTarget.value; const v = evalExpr(draft); if (v != null) applyField(f, v); }}
+                              on:keydown={(e) => onFieldKey(e, f)}
+                          />{#if f.prop === "rotation" && activeKey !== f.key && !f.mixed}<span class="unit" aria-hidden="true">°</span>{/if}
+                        {/if}
+                      </span>
+                    </div>
+                  {/each}
               </div>
             {/each}
           {/if}
         </div>
 
+        <!-- One line: what the hand can do with what is under it; and search, at its end. -->
         <div class="foot">
+          <span class="hints">
           {#if mode === "wide"}
             <span><b class="hk">↑↓</b> walk palettes</span>
             <span><b class="hk">↵</b> applies</span>
             <span><b class="hk">r</b> reverse</span>
             <span><b class="hk">esc</b> back</span>
             <span><b class="hk">f</b> close</span>
+          {:else if mode === "color"}
+            <span><b class="hk">esc</b> back to the properties</span>
+          {:else if mode === "search"}
+            <span><b class="hk">↑↓</b> walk</span>
+            <span><b class="hk">↵</b> go</span>
+            <span><b class="hk">esc</b> back</span>
+          {:else if mode === "option"}
+            <span><b class="hk">1–9</b> pick</span>
+            <span><b class="hk">↕</b> walk</span>
+            <span><b class="hk">esc</b> revert</span>
+          {:else if mode === "field" && active?.kind === "axisView"}
+            <span><b class="hk">esc</b> <b class="hk">f</b> done</span>
+          {:else if mode === "field"}
+            <span class="what">type or roll</span>
+            <span><b class="hk">␣</b> apply</span>
+            <span><b class="hk">esc</b> revert</span>
+          {:else if hoverField?.kind === "number"}
+            <span class="what"><b class="hk">↕</b> {hoverField.factor && hoverField.factor > 1 ? `×${hoverField.factor}` : `±${hoverField.step ?? 1}`}</span>
+            <span><b class="hk">⇧</b> ×10</span>
+            <span><b class="hk">alt</b> ×0.1</span>
+          {:else if hoverField}
+            <span class="what">{hoverField.label}</span>
+            <span><b class="hk">{hoverField.key}</b> or click</span>
           {:else}
-            <span><b class="hk">s</b> search</span>
             <span><b class="hk">f</b> <b class="hk">esc</b> close</span>
             <span><b class="hk">↕</b> wheel adjusts</span>
-            <span><b class="hk">␣</b> applies</span>
+          {/if}
+          </span>
+          {#if mode !== "color" && mode !== "wide"}
+            <button class="hkey skey" class:on={mode === "search"} type="button" data-tip="search properties & actions" data-hk="s" aria-label="Search properties and actions" on:click={() => (mode === "search" ? backToHotkey() : enterSearch())}><span class="hk">s</span><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.2" /><path d="M10.2 10.2 13.6 13.6" /></svg></button>
           {/if}
         </div>
       </div>
+      {#if tip}<div class="fm-tip" class:below={tip.below} style={`left:${tip.x}px; top:${tip.y}px;`} aria-hidden="true">{tip.text}{#if tip.key}<kbd>{tip.key}</kbd>{/if}</div>{/if}
     </div>
   </div>
 {/if}
 
 <style>
-  .part-mode-note { color: var(--c-tx-muted); font-size: 11px; margin: 4px 12px; }
   /* Transparent catcher: a surface, not a modal — clicking elsewhere closes. */
   .fbackdrop { position: fixed; inset: 0; background: transparent; z-index: 300; }
   .fwrap { position: fixed; inset: 0; z-index: 301; pointer-events: none; }
+  /* The menu is an instrument, like the image board: dark by nature in every theme, so it reads the raw ramp. One
+     plate, a card per group. What the hand works is the menu's own blue; what it presses is paper. The pickers it
+     hosts (colour, colour scale, axis view) read the same ramp through the semantic tokens re-pointed here. */
   .fluxFigMenu {
+    --fm-plate: #0b0b0a; --fm-card: #1a1918; --fm-well: #070707; --fm-line: rgba(255, 252, 240, 0.09); --fm-line-2: rgba(255, 252, 240, 0.16); --fm-lift: inset 0 1px 0 rgba(255, 252, 240, 0.05);
+    --fm-tx: var(--flx-base-200); --fm-tx-hi: var(--flx-paper); --fm-tx-dim: var(--flx-base-500); --fm-paper: var(--flx-paper);
+    --fm-blue: var(--flx-blue-400); --fm-blue-hi: var(--flx-blue-300); --fm-blue-deep: var(--flx-blue-600); --fm-tint: color-mix(in oklab, var(--flx-blue-400) 17%, transparent);
+    --c-bg: var(--fm-well); --c-bg-raised: var(--fm-card); --c-surface: var(--fm-card); --c-surface-2: #262523; --c-line: var(--fm-line); --c-line-strong: var(--fm-line-2);
     pointer-events: auto;
     position: absolute;
     visibility: hidden;
     display: flex;
     flex-direction: column;
+    box-sizing: border-box;
     max-width: calc(100vw - 16px);
     max-height: calc(100vh - 16px);
-    color: var(--c-tx);
+    padding: 4px;
+    color: var(--fm-tx);
     font-family: var(--font-serif); /* Flux's classic face for the menu's words; values stay mono */
     font-size: 12.5px;
-    background: var(--c-surface);
-    border: 1px solid var(--c-line-strong);
-    border-radius: var(--r-panel);
-    box-shadow: var(--elev-2);
+    background: var(--fm-plate);
+    border: 1px solid var(--fm-line);
+    border-radius: 12px;
+    box-shadow: 0 10px 26px -10px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.4);
     outline: none;
     overflow: hidden;
   }
   .fluxFigMenu.placed { visibility: visible; animation: fm-in 70ms var(--ease-standard) 1; }
   @media (prefers-reduced-motion: reduce) { .fluxFigMenu.placed { animation: none; } }
   @keyframes fm-in { from { opacity: 0; } to { opacity: 1; } }
-  .fcontent { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; opacity: 1; }
-  .menu-head { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 6px 0 10px; border-bottom: 1px solid var(--c-line); background: var(--c-bg-raised); }
-  .mark { display: inline-flex; width: 14px; height: 14px; flex-shrink: 0; }
-  .vsep { width: 1px; height: 14px; background: var(--c-line-strong); flex-shrink: 0; }
-  .ttl { font: 600 13px var(--font-serif); color: var(--c-tx-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  .ctx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-tx-muted); font-size: 11px; }
-  .xbtn { width: 22px; height: 22px; padding: 0; background: none; border: 0; color: var(--c-tx-muted); font-size: 16px; cursor: var(--cursor-cross-hover); border-radius: var(--r-ui); }
-  .xbtn:hover { color: var(--c-tx-hi); background: var(--c-surface-2); }
-  .askbtn { height: 22px; padding: 0 8px; background: none; border: 1px solid var(--c-line); border-radius: var(--r-ui); color: var(--c-tx-muted); font-size: 11px; }
-  .askbtn:hover { color: var(--c-tx-hi); background: var(--c-surface-2); }
-  /* Hotkeys are key caps (app.css draws the box); the menu's keys keep their accent, and an
-     ARMED key (editing field, active search row or result) adds the accent tint behind it. */
-  .hk { color: var(--c-accent); min-width: 17px; height: 16px; }
-  .field.editing .hk, .res.active .hk, .search-row.active .hk { background: var(--c-accent-tint); }
-  .search-row { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border-bottom: 1px solid var(--c-line); }
-  .search-row.active { box-shadow: inset 0 -1px 0 var(--c-accent); }
-  .search-fake { flex: 1; text-align: left; background: none; border: none; color: var(--c-tx-muted); font: 12.5px var(--font-serif); cursor: text; padding: 0; }
-  .search-in { flex: 1; background: none; border: none; outline: none; color: var(--c-tx); font: 12.5px var(--font-serif); padding: 0; }
-  .body { overflow-y: auto; padding: 6px 8px 8px; }
-  .body.cols2 { columns: 2; column-gap: 8px; }
-  .body.cols3 { columns: 3; column-gap: 8px; }
-  .group { break-inside: avoid; padding: 4px 0 6px; }
-  .gtitle { font: 600 10px var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--c-tx-muted); padding: 6px 4px 3px; border-bottom: 1px solid var(--c-line); margin-bottom: 3px; }
-  /* A row is two lines — the key + name above, the control below — so a column
-     is 200 px wide and the whole menu stays narrow enough to sit beside things. */
-  .field { display: flex; flex-direction: column; gap: 2px; padding: 3px 4px 4px; border-radius: var(--r-0); }
-  .field.editing { background: var(--c-accent-tint); box-shadow: inset 2px 0 0 var(--c-accent); }
-  .fhead { display: flex; align-items: center; gap: 6px; min-height: 16px; }
-  .field.opts-open .control { padding: 1px 0 2px; }
-  .label { font-size: 12.5px; color: var(--c-tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fcontent { display: flex; flex-direction: column; gap: 4px; flex: 1 1 auto; min-height: 0; opacity: 1; }
+  .card { box-sizing: border-box; border-radius: 8px; background: var(--fm-card); border: 1px solid var(--fm-line); box-shadow: var(--fm-lift); }
+  .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  svg { display: block; }
+
+  /* the head: the mark, the thing's name, three quiet keys */
+  .menu-head { flex: none; display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto; align-items: center; column-gap: 8px; grid-template-rows: 30px; padding: 0 5px 0 9px; }
+  .menu-head.two { grid-template-rows: 28px 15px; padding-bottom: 4px; }
+  .mark { display: block; width: 14px; height: 14px; flex-shrink: 0; }
+  .vsep { width: 1px; height: 14px; background: var(--fm-line-2); flex-shrink: 0; }
+  .ttl { display: flex; align-items: baseline; min-width: 0; font: 600 13.5px var(--font-serif); color: var(--fm-tx-hi); white-space: nowrap; }
+  .tpath { flex: 0 1 auto; min-width: 2ch; overflow: hidden; text-overflow: ellipsis; white-space: pre; font-weight: 400; color: var(--fm-tx); }
+  .tlast { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .tpath + .tlast { flex-shrink: 0.2; min-width: 6ch; }
+  .xbtn { margin-left: -6px; font: 17px/1 var(--font-ui); color: var(--fm-tx); }
+  .ctx { grid-row: 2; grid-column: 3 / -1; align-self: start; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fm-tx-dim); font: 10px/15px var(--font-mono); }
+  .hkey { flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 22px; min-width: 22px; padding: 0 5px; background: transparent; border: 1px solid transparent; border-radius: 5px;
+    color: var(--fm-tx-dim); font: 11px var(--font-ui); cursor: var(--cursor-cross-hover); transition: background-color 80ms linear, color 80ms linear, border-color 80ms linear; }
+  .hkey svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.35; stroke-linecap: round; stroke-linejoin: round; }
+  .hkey .hk { border: 0; min-width: 0; height: auto; padding: 0; background: none; color: var(--fm-blue-hi); font: 600 10px/1 var(--font-mono); }
+  .askbtn { color: var(--fm-tx); }
+  .hkey:hover { background: var(--fm-paper); border-color: color-mix(in oklab, var(--fm-blue) 45%, transparent); color: var(--fm-blue-deep); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }
+  .hkey:hover .hk { color: var(--fm-blue-deep); }
+  .hkey:active { transform: translateY(1px); box-shadow: none; }
+  .hkey.on, .hkey.on:hover { background: var(--fm-blue); border-color: transparent; color: var(--fm-paper); box-shadow: none; }
+  .hkey.on .hk { color: var(--fm-paper); }
+
+  /* Hotkeys are key caps (app.css draws the box); the menu's keys keep their blue, and the key of
+     the row in hand (an editing field, the active result) is lit. */
+  .hk { color: var(--c-accent); min-width: 17px; height: 16px; flex: none; }
+  .field.editing > .hk, .res.active .hk, .hk.lit { background: var(--fm-blue); border-color: var(--fm-blue); color: var(--fm-paper); }
+  .field.struck > .hk { transform: translateY(1px); }
+
+  /* search: a well under the head while it is in use */
+  .search-row { flex: none; display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 9px; border-radius: 8px; background: var(--fm-well); box-shadow: inset 0 0 0 1px var(--fm-blue); color: var(--fm-blue-hi); }
+  .search-row svg { flex: none; width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; }
+  .search-in { flex: 1; min-width: 0; background: none; border: none; outline: none; color: var(--fm-tx-hi); font: 12.5px var(--font-serif); padding: 0; }
+  .search-in::placeholder { color: var(--fm-tx-dim); }
+  .scount { font: 10px var(--font-mono); color: var(--fm-tx-dim); }
+  .part-mode-note { color: var(--fm-tx-dim); font-size: 11px; margin: 2px 9px; }
+
+  /* the body: a card per group, in as many columns as the lines need (never a scroll) */
+  .body { overflow-y: auto; scrollbar-width: thin; margin-bottom: -4px; }
+  .body.cols2 { columns: 2; column-gap: 4px; }
+  .body.cols3 { columns: 3; column-gap: 4px; }
+  .group { break-inside: avoid; margin-bottom: 4px; padding: 1px 0 4px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .group.bare { padding: 3px 0; }
+  .gtitle { grid-column: 1 / -1; display: flex; align-items: center; height: 22px; padding: 0 5px 0 9px; font: 600 9.5px var(--font-mono); letter-spacing: 0.09em; text-transform: uppercase; color: var(--fm-tx-dim); }
+  .gname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gkeys { display: inline-flex; gap: 4px; }
+
+  /* a row: its key, its name, its instrument */
+  .field { position: relative; grid-column: 1 / -1; display: grid; grid-template-columns: 17px minmax(0, 1fr) auto; align-items: center; column-gap: 7px; min-height: 24px; padding: 0 6px 0 7px; margin: 0 2px; border-radius: 5px; }
+  .field.half { grid-column: auto; margin: 0 0 0 2px; padding-right: 5px; }
+  .field.half.right { margin: 0 2px 0 0; }
+  .field.wide { grid-template-columns: 17px auto minmax(0, 1fr); }
+  .field:hover { background: rgba(255, 252, 240, 0.04); }
+  .field.editing { background: var(--fm-tint); }
+  .field.editing::before { content: ""; position: absolute; left: 0; top: 4px; bottom: 4px; width: 2px; border-radius: 1px; background: var(--fm-blue); }
+  .label { font-size: 12.5px; line-height: 1.3; color: var(--fm-tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .field:hover > .label, .field.editing > .label { color: var(--fm-tx-hi); }
+  /* A paired cell shows the leading word ("x"); the whole label is still there to be read. */
+  .field.half > .label[data-lead] { font-size: 0; }
+  .field.half > .label[data-lead]::before { content: attr(data-lead); font-size: 12.5px; }
   .scrubbable { cursor: ew-resize; }
-  .control { display: flex; justify-content: flex-start; width: 100%; min-width: 0; }
-  .numwrap { position: relative; width: 100%; }
-  .nin, .tin { width: 100%; height: 22px; background: var(--c-bg); border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); color: var(--c-tx); padding: 0 6px; font: 12px var(--font-mono); font-variant-numeric: tabular-nums; outline: none; box-sizing: border-box; text-align: right; }
-  .tin { font-family: var(--font-ui); text-align: left; }
-  .nin:focus, .tin:focus { border-color: var(--c-accent); }
-  .track { position: absolute; left: 4px; right: 4px; bottom: 2px; height: 2px; background: color-mix(in oklab, var(--c-line-strong) 70%, transparent); pointer-events: none; }
-  .track .fill { display: block; height: 100%; background: var(--c-tx-muted); }
-  .field.editing .track .fill { background: var(--c-accent); }
-  .colorbtn { display: flex; align-items: center; gap: 6px; justify-content: flex-start; width: 100%; padding: 0 4px; height: 22px; background: none; border: 1px solid transparent; border-radius: var(--r-ui); color: var(--c-tx); cursor: var(--cursor-cross-hover); font: 12px var(--font-ui); padding: 0 4px; }
-  .colorbtn:hover { border-color: var(--c-line-strong); }
-  .dot { width: 14px; height: 14px; border-radius: var(--r-ui); border: 1px solid color-mix(in oklab, var(--c-tx-hi) 14%, transparent); flex: none; }
-  .dot.isnone { background: repeating-linear-gradient(-45deg, transparent 0 3px, var(--c-line-strong) 3px 4px); }
-  .cname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-tx-2); font-family: var(--font-mono); font-size: 11px; }
-  .toggle, .actbtn, .selbtn { height: 22px; background: transparent; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); color: var(--c-tx-2); padding: 0 8px; cursor: var(--cursor-cross-hover); font: 12px var(--font-serif); }
-  .toggle:hover, .actbtn:hover, .selbtn:hover { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
-  .toggle { min-width: 44px; }
-  .toggle.on { background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
-  .selbtn { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 6px; overflow: hidden; white-space: nowrap; }
-  .selbtn .chev { color: var(--c-tx-muted); font-size: 9px; }
-  .opts { display: flex; flex-wrap: wrap; gap: 3px; }
-  .opt { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 7px 0 4px; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); background: var(--c-bg); color: var(--c-tx-2); cursor: var(--cursor-cross-hover); font-size: 12px; white-space: nowrap; }
+  .control { display: flex; align-items: center; justify-content: flex-end; gap: 7px; min-width: 0; }
+
+  /* a number: no box until the hand is on it */
+  .nin { field-sizing: content; min-width: 2ch; max-width: 11ch; height: 18px; padding: 0 4px; margin: 0; background: transparent; border: 0; border-radius: 4px; color: var(--fm-tx-hi);
+    font: 12px/18px var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; outline: none; box-sizing: content-box; }
+  .nin::placeholder { color: var(--fm-tx-dim); font-style: italic; }
+  .field:hover .nin { background: var(--fm-well); box-shadow: inset 0 0 0 1px rgba(255, 252, 240, 0.12); }
+  .nin:focus, .field.editing .nin { background: var(--fm-well); box-shadow: inset 0 0 0 1px var(--fm-blue); }
+  .unit { margin-left: -10px; padding-right: 3px; font: 12px/18px var(--font-mono); color: var(--fm-tx-hi); pointer-events: none; }
+  .tin { width: 100%; height: 20px; padding: 0 6px; background: transparent; border: 0; border-radius: 4px; color: var(--fm-tx-hi); font: 12px var(--font-ui); outline: none; box-sizing: border-box; box-shadow: inset 0 0 0 1px var(--fm-line-2); }
+  .field:hover .tin { background: var(--fm-well); }
+  .tin:focus { background: var(--fm-well); box-shadow: inset 0 0 0 1px var(--fm-blue); }
+
+  /* the instruments: each draws the property it sets */
+  .fader { position: relative; flex: none; width: 72px; height: 10px; border-radius: 5px; cursor: ew-resize; touch-action: none;
+    background: linear-gradient(90deg, transparent, var(--c)), repeating-conic-gradient(#fffcf0 0 25%, #cecdc3 0 50%) 0 0 / 10px 10px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 0 2px rgba(255, 252, 240, 0.07); }
+  .fader .knob, .gtrack .knob { position: absolute; top: -3px; width: 5px; height: 16px; margin-left: -2.5px; border-radius: 2.5px; background: var(--fm-paper); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 1px 2px rgba(0, 0, 0, 0.6); }
+  .field:hover .knob, .field.editing .knob { box-shadow: 0 0 0 1.5px var(--fm-blue), 0 1px 2px rgba(0, 0, 0, 0.6); }
+  .gtrack { position: relative; flex: none; width: 60px; height: 14px; cursor: ew-resize; touch-action: none; }
+  .gtrack::before { content: ""; position: absolute; left: 0; right: 0; top: 6px; height: 2px; border-radius: 1px; background: rgba(255, 252, 240, 0.14); }
+  .gtrack .fill { position: absolute; left: 0; top: 6px; height: 2px; border-radius: 1px; background: var(--fm-tx-dim); }
+  .gtrack .knob { top: 1px; width: 4px; height: 12px; margin-left: -2px; border-radius: 2px; }
+  .field:hover .gtrack .fill, .field.editing .gtrack .fill { background: var(--fm-blue); }
+  .dial { flex: none; width: 22px; height: 22px; cursor: grab; color: var(--flx-base-300); touch-action: none; }
+  .dial .ring { fill: var(--fm-well); stroke: rgba(255, 252, 240, 0.22); stroke-width: 1; }
+  .dial .zero { fill: none; stroke: var(--flx-base-600); stroke-width: 1; }
+  .dial .hand { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
+  .dial .hub { fill: currentColor; }
+  .field:hover .dial, .field.editing .dial { color: var(--fm-blue-hi); }
+  .field:hover .dial .ring, .field.editing .dial .ring { stroke: var(--fm-blue); }
+  .corner { flex: none; width: 18px; height: 18px; color: var(--flx-base-300); }
+  .corner path { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
+  .corner .box { stroke: rgba(255, 252, 240, 0.14); stroke-width: 1; stroke-dasharray: 2 2; }
+  .field:hover .corner, .field.editing .corner { color: var(--fm-blue-hi); }
+  .weight { flex: none; display: grid; place-items: center; width: 40px; height: 14px; border-radius: 4px; background: var(--fm-paper); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 0 2px rgba(255, 252, 240, 0.07); overflow: hidden; }
+  .weight i { display: block; width: 30px; }
+  .weight.none i { width: 100%; height: 100% !important; background: repeating-linear-gradient(-45deg, transparent 0 3px, var(--flx-base-300) 3px 4px) !important; }
+
+  /* a colour: its chip and its name */
+  .colorbtn { display: flex; align-items: center; justify-content: flex-end; gap: 8px; max-width: 100%; height: 20px; padding: 0 0 0 2px; background: none; border: 0; color: var(--fm-tx); cursor: var(--cursor-cross-hover); min-width: 0; }
+  .dot { width: 40px; height: 14px; border-radius: 4px; flex: none; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 0 2px rgba(255, 252, 240, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.18); }
+  .dot.isnone { background: var(--fm-paper) repeating-linear-gradient(-45deg, transparent 0 3px, var(--flx-base-300) 3px 4px); }
+  .colorbtn:hover .dot, .field.editing .dot { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 0 2.5px var(--fm-blue), inset 0 1px 0 rgba(255, 255, 255, 0.18); }
+  .cname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; color: var(--fm-tx-dim); font: 11px var(--font-mono); }
+  .field:hover .cname { color: var(--fm-tx); }
+
+  /* A paper key: the Crystallize key in the menu's blue. It stands a little proud and goes down when pressed;
+     a key that is ON is lit: the face takes the blue and the mark takes the paper. */
+  .pk, .field.tkey { display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex: none; box-sizing: border-box; height: 20px; min-width: 22px; padding: 0 5px; margin: 0; border-radius: 5px;
+    background: var(--fm-paper); color: var(--fm-blue-deep); border: 1px solid color-mix(in oklab, var(--fm-blue) 45%, transparent); box-shadow: 0 1.5px 2.5px rgba(0, 0, 0, 0.5);
+    font: 600 10.5px/1 var(--font-mono); letter-spacing: 0; text-transform: none; cursor: var(--cursor-cross-hover); transition: background-color 80ms linear, border-color 80ms linear, color 80ms linear; }
+  .pk svg, .tkey svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.35; stroke-linecap: round; stroke-linejoin: round; }
+  .pk :global(svg .f), .tkey :global(svg .f) { fill: currentColor; stroke: none; }
+  .pk:hover, .field.tkey:hover { background: color-mix(in oklab, var(--fm-blue) 16%, var(--fm-paper)); border-color: var(--fm-blue); }
+  .pk:active, .field.tkey:active, .field.tkey.struck, .field.struck .pk { transform: translateY(1px); box-shadow: 0 0 1px rgba(0, 0, 0, 0.6); background: color-mix(in oklab, var(--fm-blue) 30%, var(--fm-paper)); }
+  .field.tkey.on { background: var(--fm-blue); border-color: color-mix(in oklab, var(--fm-paper) 60%, var(--fm-blue)); color: var(--fm-paper); }
+  .field.tkey.on:hover { background: color-mix(in oklab, var(--fm-paper) 14%, var(--fm-blue)); }
+  .field.tkey { grid-column: auto; min-height: 0; }
+  .field.tkey::before { content: none; }
+  .field.tkey > .hk { border: 0; min-width: 0; height: auto; padding: 0 0 0 1px; background: none; color: inherit; font: 600 10px/1 var(--font-mono); transform: none; }
+  /* The button says "on" / "off" to whoever reads it; the eye reads the lit key. */
+  .toggle { display: inline-flex; align-items: center; min-width: 0; height: 14px; padding: 0; margin: 0; background: none; border: 0; color: inherit; cursor: inherit; font: inherit; }
+  .toggle > i { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .tword { font-weight: 600; white-space: nowrap; }
+
+  /* a choice: its value, and its options under it while it is in hand */
+  .selbtn { display: inline-flex; align-items: center; gap: 4px; max-width: 150px; height: 20px; padding: 0 3px 0 7px; background: transparent; border: 0; border-radius: 5px; color: var(--fm-tx-hi); font: 12px var(--font-serif);
+    box-shadow: inset 0 0 0 1px var(--fm-line-2); cursor: var(--cursor-cross-hover); overflow: hidden; white-space: nowrap; }
+  .selbtn:hover, .selbtn.open { background: var(--fm-well); box-shadow: inset 0 0 0 1px var(--fm-blue); }
+  .selbtn .chev { flex: none; width: 6px; height: 6px; margin: -3px 3px 0 2px; border: solid var(--fm-tx-dim); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); }
+  /* A row in hand that opens (a choice, an axis view): its control's children stand in the row's own grid, the
+     value at the line's end and what opened under the line. */
+  .field.opts-open > .control { display: contents; }
+  .field.opts-open .selbtn { justify-self: end; }
+  .opts { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 0 6px 24px; }
+  .opt { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 7px 0 3px; border-radius: 5px; background: var(--fm-well); box-shadow: inset 0 0 0 1px var(--fm-line-2); color: var(--fm-tx); cursor: var(--cursor-cross-hover); font-size: 12px; white-space: nowrap; }
   .opt .ok { min-width: 15px; height: 14px; padding: 0 3px; font-size: 9px; line-height: 12px; }
-  .opt.cur { background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
-  .opt.cur .ok { color: var(--c-accent); }
-  .color-mode { padding: 6px 4px 8px; }
-  .cm-head { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--c-tx); margin-bottom: 8px; }
-  .cm-head .back { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 6px; background: none; border: 1px solid transparent; border-radius: var(--r-ui); color: var(--c-tx-muted); font: 11px var(--font-ui); cursor: var(--cursor-cross-hover); }
-  .cm-head .back:hover { color: var(--c-tx-hi); border-color: var(--c-line-strong); }
-  .results { padding: 2px 0 6px; }
-  .res { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; align-items: center; height: 26px; padding: 0 6px; cursor: var(--cursor-cross-hover); }
-  .res.active { background: var(--c-accent-tint); box-shadow: inset 2px 0 0 var(--c-accent); color: var(--c-tx-hi); }
-  .rlabel { font: 12.5px var(--font-serif); }
-  .rgrp { font: 10px var(--font-mono); color: var(--c-tx-muted); text-transform: uppercase; letter-spacing: 0.06em; }
-  .empty { color: var(--c-tx-muted); padding: 12px; text-align: center; }
-  .foot { display: flex; gap: 14px; height: 26px; align-items: center; padding: 0 10px; border-top: 1px solid var(--c-line); font: 11px var(--font-ui); color: var(--c-tx-muted); background: var(--c-bg-raised); }
-  .foot span { display: inline-flex; align-items: center; gap: 4px; }
-  .foot .hk { margin-right: 1px; }
+  .opt.cur { background: var(--fm-blue); box-shadow: none; color: var(--fm-paper); }
+  .opt.cur .ok { color: var(--fm-paper); border-color: color-mix(in oklab, var(--fm-paper) 60%, transparent); }
+  .under { grid-column: 1 / -1; padding: 2px 0 6px; min-width: 0; }
+
+  /* the pickers the menu hosts */
+  .color-mode { padding: 4px 8px 8px; margin-bottom: 4px; }
+  .cm-head { display: flex; align-items: center; gap: 8px; height: 24px; font-size: 12.5px; color: var(--fm-tx-hi); margin-bottom: 4px; }
+  .cm-head .back { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 5px; background: none; border: 1px solid transparent; border-radius: 5px; color: var(--fm-tx-dim); font: 11px var(--font-ui); cursor: var(--cursor-cross-hover); }
+  .cm-head .back svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .cm-head .back .hk { color: inherit; }
+  .cm-head .back:hover { color: var(--fm-tx-hi); border-color: var(--fm-line-2); }
+  .results { padding: 3px 0 4px; margin-bottom: 4px; }
+  .res { position: relative; display: grid; grid-template-columns: 17px 1fr auto; gap: 7px; align-items: center; height: 24px; padding: 0 8px 0 7px; margin: 0 2px; border-radius: 5px; cursor: var(--cursor-cross-hover); }
+  .res.active { background: var(--fm-tint); color: var(--fm-tx-hi); }
+  .res.active::before { content: ""; position: absolute; left: 0; top: 4px; bottom: 4px; width: 2px; border-radius: 1px; background: var(--fm-blue); }
+  .rlabel { font: 12.5px var(--font-serif); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rgrp { font: 600 9px var(--font-mono); color: var(--flx-base-600); text-transform: uppercase; letter-spacing: 0.08em; }
+  .empty { color: var(--fm-tx-dim); padding: 12px; text-align: center; }
+
+  /* the foot: one line of what the hand can do now */
+  .foot { flex: none; display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 1px 0 8px; font: 10px var(--font-mono); color: var(--fm-tx-dim); white-space: nowrap; }
+  .hints { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; overflow: hidden; }
+  .hints span { flex: none; display: inline-flex; align-items: center; gap: 4px; }
+  .hints span.what { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .foot .skey { height: 20px; }
+  .hints .hk { min-width: 14px; height: 13px; padding: 0 3px; font-size: 9px; line-height: 10px; color: var(--fm-tx-dim); margin-right: 1px; }
+  .hints .what, .hints .what .hk { color: var(--fm-blue-hi); }
+
+  /* the paper label of a key that is only a mark */
+  .fm-tip { position: absolute; z-index: 5; display: inline-flex; align-items: center; gap: 7px; height: 21px; padding: 0 9px; border-radius: 11px; background: var(--fm-paper); border: 1px solid color-mix(in oklab, var(--fm-blue) 45%, transparent);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45); color: var(--fm-blue-deep); font: 600 10.5px var(--font-mono); white-space: nowrap; pointer-events: none; transform: translate(-50%, -100%); }
+  .fm-tip.below { transform: translate(-50%, 0); }
+  .fm-tip kbd { min-width: 14px; height: 14px; padding: 0 3px; border-color: color-mix(in oklab, var(--fm-blue-deep) 45%, transparent); border-radius: 3px; color: var(--fm-blue-deep); font: 600 9.5px/11px var(--font-mono); }
 </style>

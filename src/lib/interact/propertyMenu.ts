@@ -65,6 +65,9 @@ export interface Field {
   mixed?: boolean;
   count?: number;
   hint?: string;
+  /** The numeric property behind a number field ("rotation", "fillOpacity", a part's "strokeWidth"): what the
+   *  menu's look (interact/menuLook.ts) and the canvas's measure read to draw it. */
+  prop?: string;
 }
 
 export interface MenuGroup {
@@ -177,6 +180,7 @@ export function buildPartFields(
       label,
       group: G,
       kind: "number",
+      prop,
       step,
       ...range,
       mixed: n > 1 && mixedOn(prop),
@@ -344,6 +348,7 @@ export function buildElementFields(p: Project, sel: Set<string>, lib: TextStyle[
       label: d.label,
       group: d.group,
       kind: "number",
+      prop: name,
       step: d.step,
       factor: d.factor,
       min: d.min,

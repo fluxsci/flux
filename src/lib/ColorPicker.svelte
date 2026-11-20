@@ -406,7 +406,7 @@
         on:input={(e) => onHue(e, false)} on:change={(e) => onHue(e, true)} on:keydown={onRangeKey} />
     </div>
     {#if editable.length}
-      <label class="erow"><span>{opacityLabel}</span><input type="range" min="0" max="1" step="0.01" value={opacity} aria-label={opacityLabel} aria-valuetext={mixedOpacity ? "Mixed" : `${Math.round(opacity * 100)}%`} on:input={(e) => session.run(() => setAlpha(parseFloat(e.currentTarget.value)))} on:change={() => session.finish()} on:keydown={onRangeKey} /><output>{mixedOpacity ? "mixed" : `${Math.round(opacity * 100)}%`}</output></label>
+      <label class="erow"><span>{opacityLabel}</span><input type="range" min="0" max="1" step="0.01" value={opacity} style={shownHex !== "none" ? `--cp-ink:${shownHex}` : ""} aria-label={opacityLabel} aria-valuetext={mixedOpacity ? "Mixed" : `${Math.round(opacity * 100)}%`} on:input={(e) => session.run(() => setAlpha(parseFloat(e.currentTarget.value)))} on:change={() => session.finish()} on:keydown={onRangeKey} /><output>{mixedOpacity ? "mixed" : `${Math.round(opacity * 100)}%`}</output></label>
     {/if}
     <div class="hint"><b>hover</b> preview · <b>click</b>/<b>space</b> apply · <b>wasd</b>/arrows walk · <b>#</b> type a hex · <b>esc</b> revert</div>
   </div>
@@ -464,4 +464,48 @@
   .hint { font-size: 10.5px; color: var(--c-tx-muted); }
   .hint b { color: var(--c-tx-2); font-weight: 600; }
   .empty { padding: 12px; color: var(--c-tx-muted); font-size: 12px; }
+
+  /* Inside the property menu (2026-11-20) the picker wears the menu's look: the same contents and the same hands
+     (collections, colormaps, the grid, the dropper, hex and spectrum), as chips, wells and paper keys on the menu's
+     plate. Scoped to the menu: the Inspector's popover keeps the look above. */
+  :global(.fluxFigMenu) .tabs { gap: 3px; border-bottom: 0; padding-bottom: 2px; }
+  :global(.fluxFigMenu) .tab { height: 22px; padding: 0 9px; border: 0; border-radius: 5px; color: var(--fm-tx); font: 12px var(--font-serif); box-shadow: inset 0 0 0 1px transparent; transition: background-color 80ms linear, color 80ms linear; }
+  :global(.fluxFigMenu) .tab:hover { color: var(--fm-tx-hi); background: var(--fm-well); box-shadow: inset 0 0 0 1px var(--fm-line-2); }
+  :global(.fluxFigMenu) .tab.on { background: var(--fm-blue); color: var(--fm-paper); box-shadow: none; }
+  :global(.fluxFigMenu) .tabsep { background: var(--fm-line-2); }
+  :global(.fluxFigMenu) .tabhint { font-size: 10px; color: var(--fm-tx-dim); }
+  :global(.fluxFigMenu) .tabhint b { color: var(--fm-blue-hi); font-weight: 600; }
+  :global(.fluxFigMenu) .grid { gap: 4px; padding: 6px 7px; border-radius: 6px; background: var(--fm-well); box-shadow: inset 0 0 0 1px var(--fm-line); }
+  :global(.fluxFigMenu) .grid:focus-visible { outline: none; box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--fm-blue) 70%, transparent); border-radius: 6px; }
+  :global(.fluxFigMenu) .plabel { color: var(--fm-tx-dim); }
+  :global(.fluxFigMenu) .sw { width: 18px; height: 18px; border: 0; border-radius: 4px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.14); }
+  :global(.fluxFigMenu) .sw:hover { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 0 2.5px var(--fm-blue-hi); }
+  :global(.fluxFigMenu) .sw.none { background: var(--fm-paper); }
+  :global(.fluxFigMenu) .sw.live { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 0 2px var(--fm-paper); }
+  :global(.fluxFigMenu) .sw.cur { outline: 0; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 0 2.5px var(--fm-blue-hi); }
+  :global(.fluxFigMenu) .sw.cur.live { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 0 2px var(--fm-paper), 0 0 0 3.5px var(--fm-blue-hi); }
+  :global(.fluxFigMenu) .dot { width: 40px; height: 14px; border: 0; border-radius: 4px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 0 2px rgba(255, 252, 240, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.18); }
+  :global(.fluxFigMenu) .dot.isnone { background: var(--fm-paper) repeating-linear-gradient(-45deg, transparent 0 3px, var(--flx-base-300) 3px 4px); }
+  :global(.fluxFigMenu) .bar { gap: 9px; padding-left: 2px; }
+  :global(.fluxFigMenu) .cname { font: 12.5px var(--font-serif); color: var(--fm-tx-hi); }
+  :global(.fluxFigMenu) .hex { height: 24px; border: 0; border-radius: 5px; background: var(--fm-well); color: var(--fm-tx-hi); box-shadow: inset 0 0 0 1px var(--fm-line-2); }
+  :global(.fluxFigMenu) .hex:focus { box-shadow: inset 0 0 0 1px var(--fm-blue); }
+  :global(.fluxFigMenu) .hex[aria-invalid="true"] { box-shadow: inset 0 0 0 1px var(--c-danger); }
+  /* the dropper is something you press: a paper key */
+  :global(.fluxFigMenu) .drop { width: 26px; height: 24px; border-radius: 5px; background: var(--fm-paper); color: var(--fm-blue-deep); border: 1px solid color-mix(in oklab, var(--fm-blue) 45%, transparent); box-shadow: 0 1.5px 2.5px rgba(0, 0, 0, 0.5);
+    transition: background-color 80ms linear, border-color 80ms linear; }
+  :global(.fluxFigMenu) .drop:hover { background: color-mix(in oklab, var(--fm-blue) 16%, var(--fm-paper)); border-color: var(--fm-blue); color: var(--fm-blue-deep); }
+  :global(.fluxFigMenu) .drop:active { transform: translateY(1px); box-shadow: 0 0 1px rgba(0, 0, 0, 0.6); }
+  :global(.fluxFigMenu) .drop:disabled { opacity: 0.4; box-shadow: none; }
+  :global(.fluxFigMenu) .sv { border: 0; border-radius: 6px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 0 2px rgba(255, 252, 240, 0.1); }
+  :global(.fluxFigMenu) .hue { height: 10px; border: 0; border-radius: 5px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 0 2px rgba(255, 252, 240, 0.07); }
+  :global(.fluxFigMenu) .hue::-webkit-slider-thumb { width: 5px; height: 16px; border: 0; border-radius: 2.5px; background: var(--fm-paper); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 1px 2px rgba(0, 0, 0, 0.6); }
+  /* its opacity is the menu's fader: the colour over paper, a paper knob */
+  :global(.fluxFigMenu) .erow { gap: 9px; font: 12.5px var(--font-serif); color: var(--fm-tx); }
+  :global(.fluxFigMenu) .erow input[type="range"] { appearance: none; -webkit-appearance: none; height: 10px; margin: 0; border-radius: 5px; background: linear-gradient(90deg, transparent, var(--cp-ink, var(--fm-tx))), repeating-conic-gradient(#fffcf0 0 25%, #cecdc3 0 50%) 0 0 / 10px 10px;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 0 2px rgba(255, 252, 240, 0.07); }
+  :global(.fluxFigMenu) .erow input[type="range"]::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 5px; height: 16px; border-radius: 2.5px; background: var(--fm-paper); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 1px 2px rgba(0, 0, 0, 0.6); }
+  :global(.fluxFigMenu) .erow output { color: var(--fm-tx-hi); font-size: 11px; }
+  :global(.fluxFigMenu) .hint { font: 10px/1.6 var(--font-mono); color: var(--fm-tx-dim); }
+  :global(.fluxFigMenu) .hint b { color: var(--fm-blue-hi); font-weight: 600; }
 </style>

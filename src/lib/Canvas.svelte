@@ -73,6 +73,8 @@
   import { snap, boxSnapTargets } from "./interact/snap";
   import ArrangeGapOverlay from "./ArrangeGapOverlay.svelte";
   import CrystallizeOverlay from "./CrystallizeOverlay.svelte";
+  import MeasureOverlay from "./MeasureOverlay.svelte";
+  import { fluxFigMeasure } from "./interact/measure";
   import { alignArrange, arrangementPreview, passiveArrangement, crystallizeOffer, crystallizeNotice } from "./interact/alignArrange";
   import type { Element, Figure, FluximgElement, ImageElement, LineElement, PathElement, Project, SemanticPlotElement, VectorNode } from "./types";
   import { get, derived, writable } from "svelte/store";
@@ -6158,6 +6160,10 @@
     <!-- Crystallize (Shift+A): the offer beside a loose selection, and what it recognized. -->
     {#if paneActive && af && !$alignArrange && (!gesture || gesture.kind === "pan") && !nodeDrag && !bendDrag && ($crystallizeOffer?.figureId === af.id || $crystallizeNotice?.figureId === af.id)}
       <CrystallizeOverlay viewport={$viewport} figureX={af.x} figureY={af.y} width={hostW} height={hostH} />
+    {/if}
+    <!-- The property menu's measure of the selected object: the one dimension its row has in hand. -->
+    {#if paneActive && af && $fluxFigMeasure}
+      <MeasureOverlay viewport={$viewport} figureX={af.x} figureY={af.y} elements={af.elements} />
     {/if}
   </svg>
 

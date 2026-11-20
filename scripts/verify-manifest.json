@@ -491,7 +491,8 @@
       "verify-fluximg-gl.ts",
       "verify-fluximg-import.ts",
       "verify-fluximg-export.ts",
-      "verify-fluximg-live.ts"
+      "verify-fluximg-live.ts",
+      "verify-fmenu-look.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -609,6 +610,7 @@
       "verify-slide-video-clips-gui.mjs",
       "verify-gallery-workflow.mjs",
       "verify-fmenu-surface.mjs",
+      "verify-fmenu-look-gui.mjs",
       "verify-xray-multi-gui.mjs",
       "verify-xray-context-gui.mjs",
       "verify-render-optimizations.mjs",
@@ -4398,7 +4400,7 @@
     },
     {
       "$why": "2026-09-15 surface redesign — the property menu, the X-ray (multi-select, multi-plot roots, Animate selected), the shared anchoring law and the shared animate core have their own gates; the old pathMap had no entry for FluxFigMenu at all.",
-      "glob": "{src/lib/FluxFigMenu.svelte,src/lib/ColorPicker.svelte,src/lib/NumberField.svelte,src/lib/Xray.svelte,src/lib/xray/**,src/lib/ui/anchor.ts,src/lib/interact/propertyMenu.ts,src/lib/interact/wheelLaw.ts,src/lib/interact/elementProperties.ts,src/lib/slide/animateSelection.ts,src/lib/Inspector.svelte}",
+      "glob": "{src/lib/FluxFigMenu.svelte,src/lib/ColorPicker.svelte,src/lib/ColormapPicker.svelte,src/lib/NumberField.svelte,src/lib/Xray.svelte,src/lib/xray/**,src/lib/ui/anchor.ts,src/lib/interact/propertyMenu.ts,src/lib/interact/menuLook.ts,src/lib/interact/measure.ts,src/lib/MeasureOverlay.svelte,src/shell/logoImage.ts,src/lib/interact/wheelLaw.ts,src/lib/interact/elementProperties.ts,src/lib/slide/animateSelection.ts,src/lib/Inspector.svelte}",
       "run": [
         "verify-colorpicker-narrow.mjs",
         "verify-surface-anchor.ts",
@@ -4410,7 +4412,9 @@
         "verify-wheel-law.ts",
         "verify-xray-tree.ts",
         "verify-xray-context.ts",
+        "verify-fmenu-look.ts",
         "verify-fmenu-surface.mjs",
+        "verify-fmenu-look-gui.mjs",
         "verify-xray-multi-gui.mjs",
         "verify-xray-context-gui.mjs",
         "verify-xray-theme.mjs",
