@@ -351,6 +351,27 @@ h.ok(await page.evaluate(() => [...document.querySelectorAll("[data-fxb], [data-
   h.ok(await page.evaluate(() => document.querySelector("[data-fxb-key='scalebar']").classList.contains("on")), "…which stays lit while its annotation is shown");
   await press("b");
 }
+// A press on the frame's corner marks, or in the narrow gap between the image and an instrument, is the board's:
+// it must not fall through to the canvas, which would take it for a click elsewhere and close the view.
+{
+  const bb = await board(), mark = await rect("[data-fxb-frame] .c.tl");
+  await page.mouse.click(mark.x + 2, mark.y + 2);
+  h.ok(await isOpen(), "a press on a corner mark of the frame does not close the view");
+  await page.mouse.click((bb.image.right + bb.console.x) / 2, bb.image.y + 40);
+  h.ok(await isOpen(), "…nor does one in the narrow gap between the image and the console");
+  await page.mouse.click((bb.rails.z.right + bb.image.x) / 2, bb.image.y + 40);
+  h.ok(await isOpen(), "…or between the rail and the image");
+  const z0 = await idx(S, "z");
+  await wheel((bb.image.right + bb.console.x) / 2, bb.image.y + 40, 100, 1);
+  await settled();
+  h.eq(await idx(S, "z"), z0 + 1, "the wheel in that gap still steps planes");
+  await press("z", ["Control"]);
+  await page.mouse.click(bb.image.cx ?? (bb.image.x + bb.image.w / 2), bb.image.bottom + 200);
+  await waitForFrame(page);
+  h.ok(!(await isOpen()), "a click well away from the board, on the canvas, still closes the view");
+  await openLive(S);
+  await page.mouse.move(5, 940);
+}
 await shot(page, "fluximg-live-board");
 await closeLive();
 await page.evaluate((id) => window.__flux.fig.selectOnly(id), S);

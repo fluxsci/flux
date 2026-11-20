@@ -442,7 +442,9 @@
 <!-- The viewfinder: a pink hairline with corner marks says this image is live, and the marks thicken into handles
      when the frame is in hand. Ticks on its edges follow the pointer across the image. -->
 <div class="fx-frame" class:hand={live?.armed === "zoom"} class:inset={mode === "inset"} style={frameStyle} aria-hidden="true" data-fxb-frame>
-  <i class="c tl"></i><i class="c tr"></i><i class="c bl"></i><i class="c br"></i>
+  <!-- The corner marks look like something to press: a press on one is the board's (it does nothing), never the
+       canvas's (which would take it for a click elsewhere and close the view). -->
+  {#each ["tl", "tr", "bl", "br"] as k (k)}<!-- svelte-ignore a11y_no_static_element_interactions --><i class={`c ${k}`} onpointerdown={(e) => { e.preventDefault(); e.stopPropagation(); }} ondblclick={(e) => e.stopPropagation()}></i>{/each}
   {#if under && !pan && !pull && !drawn}
     <i class="t x" style={`left:${under.u * 100}%`}></i><i class="t x b" style={`left:${under.u * 100}%`}></i>
     <i class="t y" style={`top:${under.v * 100}%`}></i><i class="t y r" style={`top:${under.v * 100}%`}></i>
@@ -513,7 +515,7 @@
 
   .fx-frame { position: absolute; z-index: 2; transform-origin: center; pointer-events: none; box-shadow: 0 0 0 1px color-mix(in oklab, var(--c-guide) 62%, transparent); animation: fx-frame-in 150ms linear backwards; }
   @keyframes fx-frame-in { from { opacity: 0; } to { opacity: 1; } }
-  .c { position: absolute; width: 11px; height: 11px; border: 0 solid var(--c-guide); transition: width 90ms linear, height 90ms linear, border-width 90ms linear; }
+  .c { position: absolute; width: 11px; height: 11px; pointer-events: auto; border: 0 solid var(--c-guide); transition: width 90ms linear, height 90ms linear, border-width 90ms linear; }
   .c.tl { left: -4px; top: -4px; border-left-width: 2px; border-top-width: 2px; }
   .c.tr { right: -4px; top: -4px; border-right-width: 2px; border-top-width: 2px; }
   .c.bl { left: -4px; bottom: -4px; border-left-width: 2px; border-bottom-width: 2px; }

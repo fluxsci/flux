@@ -4035,7 +4035,11 @@ opens with a header that states its law. Read those before changing one. The par
   sides swap as the canvas gets tight; only an image that fills the canvas has instruments over
   its edges. Law: nothing covers the image while there is room, nothing covers anything else,
   everything is inside the canvas. The console's height is measured (`bind:offsetHeight`), the
-  layers card reports the height it would like (`onnatural`).
+  layers card reports the height it would like (`onnatural`). A click on the canvas closes the
+  view (the selection moves), so everything that LOOKS like part of the board must swallow its
+  presses: the gaps of up to 24 px between the image and the instrument beside it (`.bridge`),
+  the frame's corner marks, and a handle's whole visible shape (a contrast knob hangs half off
+  its plot: the plot's `.hit` reaches round it).
   **The look is its own, not the 2026-09-15 surface contract's**: dark instrument cards read the
   raw ramp (`--fxb-*`, set on `.fxb`; dark in every theme, like the X-ray screen), everything
   the hand grabs is the guides' pink (`--c-guide`), and keys and flags are Flux's paper with the
@@ -13666,7 +13670,7 @@ button", "less text and fields/boxes, more of a dynamic, responsive surface". Th
 histogram and layer-list components are gone. New: `FluximgBoard`, `BoardChannel`, `BoardRail`, `BoardLayers`,
 `PaperKey`, `glyphs.ts`, `boardLayout.ts`, `objectTables.ts`; `viewHistogram`, `niceStep`, round-value `railTicks`,
 `profileLevel`; `takeChannel`, `holdRail`, `stepSpeed`, `autoPlan`, `splitPlan`, `setFurnitureCorner`. Gates:
-`verify-fluximg-live` (184) and `verify-fluximg-live-gui` (389, rewritten; each section now places its own fixture
+`verify-fluximg-live` (184) and `verify-fluximg-live-gui` (394, rewritten; each section now places its own fixture
 and `FX_ONLY=<word>` runs one section).
 **Learnings:** (promoted to §4 "The live view is a CONTROL BOARD")
 - A component that reads its result AFTER clearing its drag state throws inside the pointerup handler, and the

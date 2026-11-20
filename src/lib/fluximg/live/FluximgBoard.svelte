@@ -371,6 +371,31 @@
     layers: hasLayers ? { w: LAYERS_W, h: Math.min(layersH || 160, 520) } : null,
   }));
   const at = (b: Box): string => `left:${Math.round(b.x)}px;top:${Math.round(b.y)}px`;
+  /**
+   * The narrow gaps between the image and the instruments that stand next to it belong to the board: a press that
+   * lands in one (on the way from the image to a handle) must not fall through to the canvas, which would take it
+   * for a click elsewhere and close the view. Only real gaps (up to 24 px): never a wide stretch of the figure.
+   */
+  const bridges = $derived.by((): Box[] => {
+    if (layout.over) return [];
+    const out: Box[] = [], ix0 = image.x, ix1 = image.x + image.w, iy0 = image.y, iy1 = image.y + image.h;
+    const span = (a0: number, a1: number, b0: number, b1: number): [number, number] => [Math.max(a0, b0), Math.min(a1, b1)];
+    for (const b of [layout.depth, layout.console.side === "below" ? null : layout.console, layout.layers && layout.layers.side !== "below" && !layout.layers.under ? layout.layers : null]) {
+      if (!b) continue;
+      const [y0, y1] = span(b.y, b.y + b.h, iy0, iy1);
+      if (b.x + b.w <= ix0) out.push({ x: b.x + b.w, y: y0, w: ix0 - (b.x + b.w), h: y1 - y0 });
+      else if (b.x >= ix1) out.push({ x: ix1, y: y0, w: b.x - ix1, h: y1 - y0 });
+    }
+    let foot = iy1;
+    for (const r of layout.rowsAt === "below" ? layout.rows : []) {
+      const [x0, x1] = span(r.x, r.x + r.w, ix0, ix1);
+      out.push({ x: x0, y: foot, w: x1 - x0, h: r.y - foot });
+      foot = r.y + r.h;
+    }
+    if (layout.rowsAt === "above") for (const r of layout.rows.slice(-1)) { const [x0, x1] = span(r.x, r.x + r.w, ix0, ix1); out.push({ x: x0, y: r.y + r.h, w: x1 - x0, h: iy0 - (r.y + r.h) }); }
+    if (layout.console.side === "below") out.push({ x: layout.console.x, y: foot, w: layout.console.w, h: layout.console.y - foot });
+    return out.filter((b) => b.w > 0.5 && b.h > 0.5 && Math.min(b.w, b.h) <= 24);
+  });
 
   // --- the head ---------------------------------------------------------------------------------------
   const head = $derived.by(() => {
@@ -410,6 +435,10 @@
 {#if live && ctx && head}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="fxb" bind:this={rootEl} data-fxb data-armed={live.armed ?? ""} onpointerover={showTip} onpointerout={hideTip} onpointerdowncapture={hideTip}>
+    {#each bridges as g, i (i)}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="bridge" style={`${at(g)};width:${Math.round(g.w)}px;height:${Math.round(g.h)}px`} onpointerdown={(e) => { e.preventDefault(); e.stopPropagation(); }} ondblclick={stop}></div>
+    {/each}
     <!-- ------------------------------------------------------------------ the console -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="console" style={`${at(layout.console)};width:${CONSOLE_W}px;max-height:${layout.console.h}px`} data-fxb-console data-side={layout.console.side} onpointerdown={stop} ondblclick={stop}>
@@ -529,6 +558,7 @@
   .fxb { --fxb-plate: #0b0b0a; --fxb-card: #1a1918; --fxb-well: #070707; --fxb-line: rgba(255, 252, 240, 0.09); --fxb-lift: inset 0 1px 0 rgba(255, 252, 240, 0.05); --fxb-paper: var(--flx-paper); --fxb-pink: var(--c-guide); --fxb-pink-hi: #ff7ab0;
     --fxb-tx: var(--flx-base-200); --fxb-tx-hi: var(--flx-paper); --fxb-tx-dim: var(--flx-base-500); --fxb-shadow: 0 10px 26px -10px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.4);
     position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 3; color: var(--fxb-tx); font: 12px var(--font-ui); }
+  .bridge { position: absolute; }
   .part, .console { position: absolute; animation: fxb-in 150ms linear backwards; }
   /* The console is one plate with its modules set into it. */
   .console { box-sizing: border-box; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; border-radius: 12px; background: var(--fxb-plate); border: 1px solid var(--fxb-line); box-shadow: var(--fxb-shadow); animation-delay: 30ms; }
