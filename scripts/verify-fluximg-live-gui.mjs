@@ -1,10 +1,12 @@
-// fluximg live view on the real canvas (Figure): select an image, press R. Pins how it opens and closes, the
-// panel in the F-menu's manner (beside the image, never on it, zones only on request, left-hand keys, nothing
-// animating at rest), the navigator rails (depth vertical at the side, time and extra dimensions horizontal
-// below), the channel zone's histogram control, layers and objects with their two-way hover, the frame as a
-// viewport onto the image (and pulling an inset out of it), the annotations in both the live overlay and the
-// element at rest, undo / redo through live gestures, and that the still at rest shows the last live state.
-// Records real frame timings (`flux-fluximg-frame` events) on the tiled fixtures; asserts generous ceilings only.
+// fluximg live view on the real canvas (Figure): select an image, press R. Pins how it opens and closes; the short
+// entry panel in the F-menu's manner (exactly its rows, beside the image, never on it, zones only on request,
+// left-hand keys, nothing animating at rest) with the hover readout inside it; the navigator rails (depth at the
+// side, time and extra dimensions below; changing side at the canvas's edges, never on the image or each other);
+// the wheel's scope (the view's own rail arm answers over the image only, a row armed by hand anywhere); the
+// channel zone's histogram control, Auto from the pixels in view, Split into LINKED panels; layers and objects with
+// their two-way hover; the frame as a viewport (and pulling an inset out of it); the Annotations zone, drawn alike in
+// the live overlay and at rest; undo / redo through live gestures; playback; leaks; and that the still at rest shows
+// the last live state. Records real frame timings (`flux-fluximg-frame`); asserts generous ceilings only.
 //
 // UI tier, runtime tsx (it writes the synthetic bundles with scripts/lib/fluximgFixtures.ts). Real keys and the
 // real wheel throughout (page.keyboard / page.mouse), condition-based waits.
@@ -184,18 +186,37 @@ await page.evaluate((id) => { const F = window.__flux; F.fig.commit((p) => { p.f
 h.section("the panel, in the F-menu's manner");
 await openLive(S);
 await sleep(200); // debounce: the surface contract measures "nothing animating" about 200 ms after open
-let panel = await rect(".fluximgPanel"), image = await rect("[data-fluximg-live]"), rails = await rects(".fx-railpos"), strip = await rect(".fx-strip");
+let panel = await rect(".fluximgPanel"), image = await rect("[data-fluximg-live]"), rails = await rects(".fx-railpos .rail");
 h.ok(!overlaps(panel, image), "the panel does not overlap the image");
 h.ok(rails.length > 0 && rails.every((r) => !overlaps(panel, r)), "…nor its rails");
-h.ok(!overlaps(panel, strip), "…nor the readout strip");
 h.ok(panel.x >= 0 && panel.y >= 0 && panel.right <= W && panel.bottom <= H, "the panel is inside the viewport");
+// The entry panel is short: one row per channel, one per rail, Projection, (Layers), Frame, Annotations. Nothing else.
+const entryRows = () => page.evaluate(() => [...document.querySelectorAll(".fluximgPanel .body > *")].filter((e) => !e.classList.contains("sep")).map((e) => `${e.getAttribute("data-key") ?? "?"}:${(e.querySelector(".label")?.textContent ?? e.textContent).trim()}`));
+h.eq(await entryRows(), ["1:structure", "2:signal", "z:Depth", "e:Projection", "v:Frame", "b:Annotations"], "the entry panel lists exactly: channels, the rail, Projection, Frame, Annotations (in that order)");
+h.ok(panel.h < 320, `…and is short (${Math.round(panel.h)} px for a two-channel z-stack)`);
+h.ok(await page.evaluate(() => !document.querySelector(".fluximgPanel .gtitle, .fluximgPanel .about, .fluximgPanel .value.dim, .fluximgPanel .lead")), "…with no group titles, about row or helper text");
+h.ok(await page.evaluate(() => /a\s*auto/.test(document.querySelector(".fluximgPanel .foot")?.textContent ?? "")), "Auto is a key named in the footer");
+// The readout lives inside the panel: a fixed strip, empty until the pointer is over the image.
+const readout = () => page.evaluate(() => { const r = document.querySelector(".fluximgPanel .readout[data-fluximg-readout]"); return r ? { text: r.textContent.trim(), h: r.getBoundingClientRect().height } : null; });
+let ro = await readout();
+h.ok(!!ro && ro.text === "" && Math.abs(ro.h - 36) < 1.5, "the readout strip is in the panel, 36 px tall and empty before hovering");
+h.ok(!(await page.$(".fx-strip")), "…and nothing floats over the figure");
+const panelH0 = panel.h;
+await page.mouse.move(image.x + image.w * 0.4, image.y + image.h * 0.5);
+await waitFor(page, () => (document.querySelector(".fluximgPanel .readout[data-fluximg-readout]")?.textContent ?? "").trim().length > 0, null, { label: "readout filled" });
+ro = await readout();
+h.ok(/x .*µm.*y .*µm/.test(ro.text) && /structure/.test(ro.text) && /signal/.test(ro.text), `hovering the image fills it (${ro.text.replace(/\s+/g, " ").slice(0, 70)})`);
+h.ok(Math.abs((await rect(".fluximgPanel")).h - panelH0) < 0.5, "…and the panel's height does not change");
+await page.mouse.move(5, 940);
+await waitFor(page, () => (document.querySelector(".fluximgPanel .readout[data-fluximg-readout]")?.textContent ?? "x").trim() === "", null, { label: "readout empty again" });
+h.ok(true, "…and empties when the pointer leaves the image");
 h.ok(await page.evaluate(() => !document.querySelector(".fluximgPanel .hist") && !document.querySelector(".fluximgPanel svg.plot")), "zones are not shown until asked: no histogram in the DOM at open");
 h.eq(await page.evaluate(() => document.getAnimations().length), 0, "nothing animates ~200 ms after open");
-h.ok(await page.evaluate(() => [document.querySelector(".fluximgPanel"), ...document.querySelectorAll(".fluximgPanel *, .fx-railpos, .fx-railpos *, .fx-strip")].every((e) => { const s = getComputedStyle(e); return (s.backdropFilter === "none" || !s.backdropFilter) && (s.filter === "none" || !s.filter); })), "no backdrop-filter or filter anywhere in the panel, rails or readout");
+h.ok(await page.evaluate(() => [document.querySelector(".fluximgPanel"), ...document.querySelectorAll(".fluximgPanel *, .fx-railpos, .fx-railpos *")].every((e) => { const s = getComputedStyle(e); return (s.backdropFilter === "none" || !s.backdropFilter) && (s.filter === "none" || !s.filter); })), "no backdrop-filter or filter anywhere in the panel, rails or readout");
 const LEFT = new Set([..."123456qwertasdfgzxcvb`", "h", "n"]);
 const keyCaps = () => page.evaluate(() => [...document.querySelectorAll(".fluximgPanel [data-key]")].map((e) => e.getAttribute("data-key")));
 let caps = await keyCaps();
-h.ok(caps.length >= 8 && caps.every((k) => LEFT.has(k)), `home hotkeys are left-hand keys (${caps.join(" ")})`);
+h.ok(caps.length >= 6 && caps.every((k) => LEFT.has(k)), `home hotkeys are left-hand keys (${caps.join(" ")})`);
 h.eq(caps.length, new Set(caps).size, "…and unique within the zone");
 const railCaps = await page.evaluate(() => [...document.querySelectorAll("[data-fluximg-rail] .cap .hk")].map((e) => e.textContent.trim()));
 h.ok(railCaps.every((k) => LEFT.has(k) && !caps.filter((c) => c !== k).includes(k) || caps.includes(k)), `rail key caps are left-hand keys shared with their Position row (${railCaps.join(" ")})`);
@@ -256,6 +277,32 @@ h.eq(after.past - before.past, 1, "…and the run of notches is ONE undo step");
 h.ok(!!(await rect("[data-fluximg-live]")) && JSON.stringify(await rect("[data-fluximg-live]")) === JSON.stringify(image), "the image does not move or change size while stepping planes");
 ph = await playhead("z");
 h.ok(Math.abs(ph.want - ph.got) <= 1.5, "the playhead follows the wheel");
+// Wheel scope: the rail the view armed by itself answers over the image and rails only; elsewhere the canvas pans.
+const vpNow0 = () => page.evaluate(() => structuredClone(window.__flux.get(window.__flux.fig.viewport)));
+const zBefore = await idx(S, "z"), vp0 = await vpNow0();
+await wheel(image.cx, image.bottom + 260, 100, 1);
+await waitForFrame(page);
+const vp1 = await vpNow0();
+h.ok(vp1.panY !== vp0.panY && (await idx(S, "z")) === zBefore, `with the rail armed by the view, the wheel over empty canvas pans the canvas (panY ${vp0.panY} -> ${vp1.panY}) and leaves the plane`);
+await page.evaluate((v) => window.__flux.fig.viewport.set(v), vp0);
+await waitForFrame(page);
+const panelBox = await rect(".fluximgPanel");
+await wheel(panelBox.cx, panelBox.y + 60, 100, 1);
+h.eq(await idx(S, "z"), zBefore, "…and over the panel too");
+await press("z");
+await settled().catch(() => {});
+await wheel(image.cx, image.bottom + 260, 100, 1);
+await settled();
+h.ok((await idx(S, "z")) === Math.min(6, zBefore + 1) && JSON.stringify(await vpNow0()) === JSON.stringify(vp0), "after pressing the rail's key, the wheel anywhere steps the plane (and the canvas stays)");
+await press("z", ["Control"]);
+// A zone's row is the user's arm; backing out of the zone gives the wheel back to the view's own arm.
+await press("1"); await press("Escape");
+const zHome = await idx(S, "z"), vpHome = await vpNow0();
+await wheel(image.cx, image.bottom + 260, 100, 1);
+await waitForFrame(page);
+h.ok((await idx(S, "z")) === zHome && (await vpNow0()).panY !== vpHome.panY, "after backing out of a zone, the wheel over empty canvas pans the canvas again");
+await page.evaluate((v) => window.__flux.fig.viewport.set(v), vpHome);
+await waitForFrame(page);
 // Dragging the playhead scrubs: one undo step.
 before = await model(S);
 const at = (t, i, n) => (t.v ? { x: t.x + t.w / 2, y: t.y + ((i + 0.5) / n) * t.h } : { x: t.x + ((i + 0.5) / n) * t.w, y: t.y + t.h / 2 });
@@ -336,6 +383,15 @@ const chanOf = async (id, i) => page.evaluate(({ id, i }) => { const c = window.
 const compOf = () => page.evaluate(() => { const v = window.__flux.fluximg.actions.liveContext().view; return { composite: v.composite, solo: v.solo }; });
 await openLive(S);
 image = await rect("[data-fluximg-live]");
+// Auto reads the pixels in view: two planes of different brightness give two different windows.
+const windows = async () => page.evaluate(() => window.__flux.fluximg.actions.liveContext().view.channels.map((c) => c.range.join("..")).join(" | "));
+await press("ArrowUp", ["Shift"]); await settled(); await sharpFrame();
+await press("a");
+const autoTop = await windows();
+await press("ArrowDown"); await press("ArrowDown"); await press("ArrowDown"); await settled(); await sharpFrame(); await waitForFrame(page);
+await press("a");
+const autoMid = await windows();
+h.ok(autoTop !== autoMid, `Auto takes its window from the pixels in view (plane 1: ${autoTop}; plane 4: ${autoMid})`);
 await press("1");
 await waitFor(page, () => !!document.querySelector(".fluximgPanel .hist svg.plot"), null, { label: "channel 1's zone" });
 h.ok(true, "key 1 opens channel 1's zone with its histogram");
@@ -422,42 +478,71 @@ await press("q");
 h.eq((await model(S)).live.armed, "black", "keys work again after a field (q arms the black point)");
 await press("Escape");
 h.eq((await model(S)).live.zone, "home", "Esc returns to the home zone, not out of the view");
-// Split channels: one panel per channel beside the image, one undo step, the view stays on the composite.
-const countImages = () => page.evaluate(() => window.__flux.figures()[0].elements.filter((e) => e.type === "fluximg").map((e) => ({ id: e.id, composite: e.view?.composite ?? null, solo: e.view?.solo ?? null })));
+// Split channels (from the channel zone): one panel per channel beside the image, LINKED to it, one undo step.
+const countImages = () => page.evaluate(() => window.__flux.figures()[0].elements.filter((e) => e.type === "fluximg").map((e) => ({ id: e.id, composite: e.view?.composite ?? null, solo: e.view?.solo ?? null, link: e.view?.link ?? null })));
 const imgs0 = await countImages(); before = await model(S);
-await press("x");
+await press("1");
+await press("b");
 const imgs1 = await countImages(); after = await model(S);
 const made = imgs1.filter((e) => !imgs0.some((o) => o.id === e.id));
-h.ok(made.length === 2 && made.every((e, i) => e.composite === "single" && e.solo === i), `x splits the channels into one solo panel each (${made.length})`);
+h.ok(made.length === 2 && made.every((e, i) => e.composite === "single" && e.solo === i), `b in a channel zone splits the channels into one solo panel each (${made.length})`);
 h.ok(after.past - before.past === 1 && (await isOpen()) && after.live.elementId === S, "…in one undo step, with the view still on the image");
-await press("z", ["Control"]);
-h.eq((await countImages()).length, imgs0.length, "Ctrl+Z takes the split back");
+const link = after.el.view?.link ?? null;
+h.ok(!!link && made.every((e) => e.link === link), `…and the panels are linked to the composite (${link})`);
+await press("Escape");
+// Stepping a plane on the composite moves every linked panel.
+const zOf = (id) => page.evaluate((id) => window.__flux.figures()[0].elements.find((e) => e.id === id)?.view?.index?.z ?? null, id);
+await press("ArrowDown"); await settled();
+const zs = [await zOf(S), ...(await Promise.all(made.map((e) => zOf(e.id))))];
+h.ok(zs[0] !== null && zs.every((z) => z === zs[0]), `stepping a plane on one linked panel moves all of them (z ${zs.join(", ")})`);
+// Dragging channel 1's white point on the composite sets the single-channel panel's window too.
+await press("1");
+await waitFor(page, () => !!document.querySelector(".fluximgPanel .hist svg.plot"), null, { label: "channel 1 zone" });
+const hb = await rect(".fluximgPanel .hist svg.plot"), wmk = await rects(".fluximgPanel .hist .mark");
+await page.mouse.move(wmk[1].x + wmk[1].w / 2, hb.cy); await page.mouse.down();
+await page.mouse.move(wmk[1].x + wmk[1].w / 2 - 40, hb.cy, { steps: 4 }); await page.mouse.up();
+await waitForFrame(page);
+const rangeOf = (id) => page.evaluate((id) => JSON.stringify(window.__flux.figures()[0].elements.find((e) => e.id === id)?.view?.channels?.[0]?.range ?? null), id);
+const r0 = await rangeOf(S), r1 = await rangeOf(made[0].id);
+h.ok(r0 !== "null" && r0 === r1, `dragging channel 1's white point on the composite sets the linked channel-1 panel's window (${r0} / ${r1})`);
+await press("Escape");
 await closeLive();
+await page.evaluate((ids) => { const F = window.__flux; F.fig.commit((p) => { p.figures[0].elements = p.figures[0].elements.filter((e) => !ids.includes(e.id)); }); F.fig.resetHistory(); }, made.map((e) => e.id));
 
 // =====================================================================================================
-h.section("the chrome never covers itself, the image or the readout");
+h.section("the rails never cover each other, the image or the panel");
 const chrome = () => page.evaluate(() => {
   const r = (e) => { const b = e.getBoundingClientRect(); return { x: b.left, y: b.top, right: b.right, bottom: b.bottom, w: b.width, h: b.height }; };
   const host = r(document.querySelector(".canvas-host"));
-  return { image: r(document.querySelector("[data-fluximg-live]")), host, rails: [...document.querySelectorAll(".fx-railpos")].map(r), strip: r(document.querySelector(".fx-strip")), panel: r(document.querySelector(".fluximgPanel")),
+  return { image: r(document.querySelector("[data-fluximg-live]")), host, rails: [...document.querySelectorAll(".fx-railpos .rail")].map(r), panel: r(document.querySelector(".fluximgPanel")),
     readouts: [...document.querySelectorAll("[data-fluximg-rail] .readout")].map((e) => { const b = e.getBoundingClientRect(); const hit = document.elementFromPoint(b.left + 4, b.top + 5); return !!hit && e.contains(hit); }) };
 });
-for (const [label, fixture, width, zoom, patch] of [["t and z", "tz_u16", 320, 1, {}], ["t and z, narrow", "tz_u16", 150, 1, {}], ["z, narrower than the readout", "stack_u16", 200, 1, {}], ["z at zoom 0.3", "stack_u16", 320, 0.3, {}], ["z rotated 90 degrees", "stack_u16", 320, 1, { rotation: 90 }], ["t and an extra dimension", "trials_f32", 220, 1, {}]]) {
+const hostBox = await rect(".canvas-host");
+// Near the right edge: room for the image, not for a depth rail beside it (its right edge 60 px from the canvas's).
+const nearRight = Math.round(hostBox.w - 60 - 240 - 300), nearBottom = Math.round(hostBox.h - 30 - 110 - 213);
+for (const [label, fixture, width, zoom, patch, at, expect] of [["t and z", "tz_u16", 320, 1, {}], ["t and z, narrow", "tz_u16", 150, 1, {}], ["z, narrow", "stack_u16", 200, 1, {}], ["z at zoom 0.3", "stack_u16", 320, 0.3, {}], ["z rotated 90 degrees", "stack_u16", 320, 1, { rotation: 90 }], ["t and an extra dimension", "trials_f32", 220, 1, {}],
+  ["z at the canvas's right edge", "stack_u16", 300, 1, {}, { x: nearRight, y: 60 }, "depth-left"], ["t at the canvas's bottom edge", "movie_f32", 320, 1, {}, { x: 80, y: nearBottom }, "time-above"], ["t and z in the bottom-right corner", "tz_u16", 300, 1, {}, { x: nearRight, y: Math.round(hostBox.h - 30 - 110 - 240) }, "depth-left time-above"], ["t and z at the bottom edge", "tz_u16", 300, 1, {}, { x: 80, y: Math.round(hostBox.h - 30 - 110 - 240) }, "time-above"]]) {
   await page.evaluate(() => { const F = window.__flux; F.fluximg.live.closeFluximgLive(); F.fig.commit((p) => { p.figures[0].elements = p.figures[0].elements.filter((e) => e.type !== "fluximg"); }); F.fig.viewport.set({ panX: 240, panY: 110, zoom: 1 }); });
-  const id = await placeFixture(fixture, { x: 80, y: 60 }, { width, patch });
+  const id = await placeFixture(fixture, at ?? { x: 80, y: 60 }, { width, patch });
   await page.evaluate((zoom) => window.__flux.fig.viewport.set({ panX: 240 + (zoom < 1 ? 200 : 0), panY: 110 + (zoom < 1 ? 100 : 0), zoom }), zoom);
   await waitStill(id);
   await openLive(id);
   await page.mouse.move(image?.x ?? 300, 940); // the pointer off the chrome
   await waitForFrame(page);
   const c = await chrome();
-  const boxes = [...c.rails, c.strip];
+  const boxes = [...c.rails];
   let pair = true;
   for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) if (overlaps(boxes[i], boxes[j])) pair = false;
-  h.ok(pair, `${label}: rails and readout strip never overlap each other`);
+  h.ok(pair, `${label}: rails never overlap each other`);
   h.ok(c.readouts.every(Boolean), `${label}: every rail's readout is visible (nothing lies on top of it)`);
-  h.ok(boxes.every((b) => !overlaps(b, c.image)), `${label}: no rail or readout covers the image`);
-  h.ok(![...boxes, c.image].some((b) => overlaps(b, c.panel)), `${label}: the panel covers neither the image, its rails nor the readout`);
+  h.ok(boxes.every((b) => !overlaps(b, c.image)), `${label}: no rail covers the image`);
+  h.ok(![...boxes, c.image].some((b) => overlaps(b, c.panel)), `${label}: the panel covers neither the image nor its rails`);
+  if (expect) {
+    const vr = await rect(".fx-railpos.v .rail"), hr = await rect(".fx-railpos:not(.v) .rail");
+    if (expect.includes("depth-left")) h.ok(!!vr && vr.right <= c.image.x + 0.5 && c.image.right <= c.host.right, `${label}: the depth rail moves to the image's left`);
+    if (expect.includes("time-above")) h.ok(!!hr && hr.bottom <= c.image.y + 0.5 && c.image.bottom <= c.host.bottom, `${label}: the time rail moves above the image`);
+    await shot(page, `fluximg-live-edge-${expect.replace(/ /g, "-")}`);
+  }
   if (label === "t and z") await shot(page, "fluximg-live-t-and-z");
 }
 await closeLive();
@@ -514,7 +599,6 @@ if (shapeAt) {
   await page.mouse.move(shapeAt.x, shapeAt.y, { steps: 3 });
   await waitFor(page, (rid) => !!document.querySelector(`.fluximgPanel .lrow.hot[data-rid='${rid}']`), other, { label: "row marked", timeout: 3000 }).catch(() => {});
   h.ok(await page.evaluate((rid) => !!document.querySelector(`.fluximgPanel .lrow.hot[data-rid='${rid}']`), other), `hovering an object on the image marks its row (${otherKey}; hit-test found ${shapeAt.hit})`);
-  h.ok(await page.evaluate(() => /footprints/.test(document.querySelector("[data-fluximg-readout]")?.textContent ?? "") || !!document.querySelector("[data-fluximg-readout] .obj")), "…and the readout names it");
 } else h.fail(`the object ${otherKey} is drawn on the live image`);
 await page.mouse.move(rowBox.cx, rowBox.cy);
 // The filter narrows.
@@ -609,6 +693,9 @@ const MV = await placeFixture("movie_f32", { x: 80, y: 60 }, { width: 360 });
 await waitStill(MV);
 await openLive(MV);
 const ann = [["b", "scalebar"], ["w", "stamp"], ["c", "channelLabels"], ["g", "colorbar"]];
+await press("b");
+h.eq((await model(MV)).live?.zone, "annotate", "b at home opens the Annotations zone");
+h.eq(await page.evaluate(() => [...document.querySelectorAll(".fluximgPanel [data-key]")].map((e) => `${e.getAttribute("data-key")}:${e.querySelector(".label")?.textContent.trim()}`)), ["b:Scale bar", "w:Position stamp", "c:Channel names", "g:Calibration bar"], "…listing scale bar, position stamp, channel names and calibration bar");
 for (const [key, kind] of ann) {
   await press(key);
   h.ok(await page.evaluate((k) => !!window.__flux.fluximg.actions.liveContext().view.furniture[k], kind), `${key} turns the ${kind} on`);
@@ -632,6 +719,18 @@ h.ok(mk.live && mk.live === mk.rest, `the furniture markup is identical apart fr
 await shot(page, "fluximg-live-annotations");
 for (const [key] of ann) await press(key);
 h.ok(await page.evaluate(() => !document.querySelector("[data-fluximg-live] [data-part='furniture']")), "toggling them all again removes them");
+await press("Escape");
+h.ok((await isOpen()) && (await model(MV)).live?.zone === "home", "Esc backs out of the Annotations zone to home");
+// An image that does not say how big a pixel is: the scale bar refuses, and says why.
+const RG = await placeFixture("rgb_u8", { x: 520, y: 60 }, { width: 200 });
+await waitStill(RG);
+await openLive(RG);
+await press("b"); await press("b");
+await waitFor(page, () => [...document.querySelectorAll(".toast")].some((t) => /scale bar/i.test(t.textContent)), null, { label: "scale bar toast", timeout: 3000 }).catch(() => {});
+h.ok(!(await page.evaluate(() => !!window.__flux.fluximg.actions.liveContext().view.furniture.scalebar)) && (await page.evaluate(() => [...document.querySelectorAll(".toast")].some((t) => /scale bar/i.test(t.textContent)))), "without a pixel size the scale bar refuses with a message");
+h.ok(!(await page.$(".fluximgPanel [data-key='w']")), "…and an image without rails offers no position stamp");
+await press("Escape");
+await openLive(MV);
 
 // =====================================================================================================
 h.section("undo and redo through live gestures");
@@ -642,7 +741,7 @@ const viewNow = () => page.evaluate((id) => { const el = window.__flux.figures()
 const states = [await viewNow()];
 await press("ArrowRight"); await press("ArrowRight"); await settled();
 states.push(await viewNow());
-await press("b");
+await press("b"); await press("b"); await press("Escape");
 states.push(await viewNow());
 await press("1"); await wheel(image.cx, image.cy, -100, 2); await settled(); await press("Escape");
 states.push(await viewNow());
@@ -722,12 +821,12 @@ h.ok(!!(await playing()), "a Space tap plays");
 const steady = await page.evaluate(async () => {
   const out = [], t0 = performance.now();
   const r = (s) => { const e = document.querySelector(s); if (!e) return "none"; const b = e.getBoundingClientRect(); return [b.left, b.top, b.width, b.height].map((v) => Math.round(v * 10) / 10).join(","); };
-  while (performance.now() - t0 < 900) { await new Promise((res) => requestAnimationFrame(res)); out.push({ t: window.__flux.fluximg.actions.liveContext()?.view.index.t, layout: [r(".fluximgPanel"), r(".fx-railpos"), r(".fx-strip"), r("[data-fluximg-rail] .readout"), r("[data-fluximg-rail] .track"), r("[data-fluximg-live]"), r("[data-fluximg-live] canvas.gl")].join("|"), anims: document.getAnimations().length }); }
+  while (performance.now() - t0 < 900) { await new Promise((res) => requestAnimationFrame(res)); out.push({ t: window.__flux.fluximg.actions.liveContext()?.view.index.t, layout: [r(".fluximgPanel"), r(".fx-railpos .rail"), r(".fluximgPanel .readout"), r("[data-fluximg-rail] .readout"), r("[data-fluximg-rail] .track"), r("[data-fluximg-live]"), r("[data-fluximg-live] canvas.gl")].join("|"), anims: document.getAnimations().filter((a) => !a.effect?.target?.closest?.(".toasts")).length, who: document.getAnimations().map((a) => (a.effect?.target?.className?.baseVal ?? a.effect?.target?.className ?? "?") + ":" + (a.animationName ?? a.transitionProperty ?? "")).join(",") }); }
   return out;
 });
 h.ok(new Set(steady.map((s) => s.t)).size >= 5, `playback advances (${new Set(steady.map((s) => s.t)).size} planes in 0.9 s)`);
 h.eq(new Set(steady.map((s) => s.layout)).size, 1, "nothing moves or changes size while playing (panel, rail, readout, track, image, canvas)");
-h.ok(steady.every((s) => s.anims === 0), "nothing is animated by CSS while playing");
+h.ok(steady.every((s) => s.anims === 0), `nothing is animated by CSS while playing (toasts aside)${steady.find((s) => s.anims) ? `: ${steady.find((s) => s.anims).who}` : ""}`);
 await press(" ");
 await settled();
 h.ok(!(await playing()), "Space again stops");
