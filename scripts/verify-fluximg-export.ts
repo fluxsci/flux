@@ -302,6 +302,23 @@ try {
   }
 
   // ------------------------------------------------------------------------------------------------------------------
+  h.section("F2. pictures of figures (the raster engine behind the canvas's cached figure pictures) draw images too");
+  {
+    const { project } = await (await import("../flux-core/model")).loadFigModel(root);
+    const figure = project.figures.find((f: { id: string }) => f.id === figureId);
+    const index = { assets: project.assets };
+    if (!figure?.elements) h.ok(false, "the gate could not read the figure model from fig/ (layout changed?)");
+    else {
+      const engine = await import("../electron/figureRasterEngine.mjs");
+      const composed: string = await engine.buildFigureSvg({ rid: "fluximg-route-c", root, figure, assets: index.assets ?? [], scale: 1, width: 200, height: 200 });
+      h.ok(!!stillOf(composed, a.elementId), "the composed picture carries the image's still (not the stand-in)");
+      h.ok(!composed.includes("data-fluximg-placeholder"), "no stand-in in a figure whose bundles are all present");
+      const again: string = await engine.buildFigureSvg({ rid: "fluximg-route-c-2", root, figure, assets: index.assets ?? [], scale: 2, width: 400, height: 400 });
+      h.ok(again === composed, "the composition is reused across raster scales (its stills do not depend on the scale)");
+    }
+  }
+
+  // ------------------------------------------------------------------------------------------------------------------
   h.section("G. timings (printed, not pinned)");
   {
     const N = 2048, data = new Uint16Array(3 * N * N);
