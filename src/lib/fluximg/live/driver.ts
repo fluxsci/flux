@@ -43,6 +43,13 @@ interface Wanted { key: string; request: PlaneRequest | { layerId: string } }
 export class LiveDriver {
   private renderer: FluximgLiveRenderer;
   private target: LiveTarget | null = null;
+  /** The last few targets, oldest first, each with a rising number: while planes are still arriving for the newest,
+   *  the newest one that IS complete is drawn, so playback and fast scrubbing show every plane they can. */
+  private recent: Array<{ n: number; target: LiveTarget }> = [];
+  private targetCount = 0;
+  private drawnTarget = 0;
+  private dirty = false;
+  private lastSet = 0;
   private planes = new Map<string, ServicePlane>();
   private asked = new Set<string>();
   private touched = new Map<string, number>();
@@ -80,12 +87,39 @@ export class LiveDriver {
   /** Show this view. Cheap to call on every change: requests are deduplicated and draws coalesce per frame. */
   set(target: LiveTarget): void {
     if (this.disposed) return;
+    const previous = this.target;
     this.target = target;
+    this.lastSet = performance.now();
+    this.recent.push({ n: ++this.targetCount, target });
+    if (this.recent.length > 6) this.recent.shift();
     const { sharp, coarse } = this.levels(target);
     // Coarse first: it is what makes a scrub feel instant.
     if (coarse !== sharp) this.ask(coarse, target);
     this.ask(sharp, target);
+    this.lookAhead(previous, target);
     this.schedule();
+  }
+
+  /** Moving steadily along one dimension (wheel, arrows, a rail drag, playback): decode the next planes that way. */
+  private lookAhead(previous: LiveTarget | null, next: LiveTarget): void {
+    if (!previous || next.view.projection) return;
+    let dim = "", delta = 0;
+    for (const d of Object.keys(next.view.index)) {
+      const change = next.view.index[d] - (previous.view.index[d] ?? 0);
+      if (!change) continue;
+      if (dim) return; // two dimensions changed at once: not a walk
+      dim = d; delta = change;
+    }
+    if (!dim || Math.abs(delta) > 12) return;
+    const step = Math.sign(delta), stride = Math.abs(delta);
+    // How far ahead depends on what a plane costs: small planes (a movie) are cheap, so playback at 80 planes a
+    // second never waits; a 4-megapixel confocal plane gets a shorter runway.
+    const s = this.manifest.pixels.shape, nd = s.length, px = s[nd - 1] * s[nd - 2];
+    const runway = px <= 300_000 ? 8 : px <= 1_200_000 ? 6 : 3;
+    // Small steps: every plane ahead (playback advances by one or two planes a frame, in no fixed pattern).
+    // Larger strides (Shift+wheel): the planes those strides will land on.
+    const ahead = stride <= 2 ? Array.from({ length: runway }, (_, k) => step * (k + 1)) : [1, 2, 3].map((k) => step * stride * k);
+    this.prefetch(dim, ahead);
   }
 
   /** Colour maps finished loading (or changed): tables built before that were the gray fallback. */
@@ -167,9 +201,22 @@ export class LiveDriver {
     return w.every((x) => this.planes.has(x.key)) ? w : null;
   }
 
+  /**
+   * One draw per screen frame, and only when something changed. While targets are streaming in (playback, a scrub)
+   * the frame callback stays armed for a few frames: a target set during this frame's callbacks is then drawn in
+   * the SAME frame instead of the one after next, which is the difference between 30 and 60 frames a second.
+   */
   private schedule(): void {
+    this.dirty = true;
+    this.arm();
+  }
+  private arm(): void {
     if (this.raf || this.disposed) return;
-    this.raf = requestAnimationFrame(() => { this.raf = 0; this.draw(); });
+    this.raf = requestAnimationFrame(() => {
+      this.raf = 0;
+      if (this.dirty) { this.dirty = false; this.draw(); }
+      if (performance.now() - this.lastSet < 100) this.arm();
+    });
   }
 
   private table(spec: { color: string | null; lut: string | null; invert: boolean }): Uint8Array {
@@ -180,12 +227,23 @@ export class LiveDriver {
   }
 
   private draw(): void {
-    const t = this.target;
-    if (!t || this.disposed || this.renderer.lost) return;
-    const { sharp, coarse } = this.levels(t);
-    let level = sharp, have = this.complete(sharp, t);
-    if (!have && coarse !== sharp) { level = coarse; have = this.complete(coarse, t); }
-    if (!have) return; // keep the previous frame
+    if (!this.target || this.disposed || this.renderer.lost) return;
+    // Newest first: the first target with every plane in hand wins. An older target is drawn only if nothing newer
+    // has been drawn yet (never step backwards), so a stream of steps shows each plane as it lands.
+    let t: LiveTarget | null = null, level = 0, have: Wanted[] | null = null, sharp = 0, number = 0;
+    for (let i = this.recent.length - 1; i >= 0; i--) {
+      const entry = this.recent[i];
+      const newest = i === this.recent.length - 1;
+      if (entry.n < this.drawnTarget || (entry.n === this.drawnTarget && !newest)) break;
+      const lv = this.levels(entry.target);
+      let l = lv.sharp, h = this.complete(lv.sharp, entry.target);
+      if (!h && lv.coarse !== lv.sharp) { l = lv.coarse; h = this.complete(lv.coarse, entry.target); }
+      if (!h) continue;
+      t = entry.target; level = l; have = h; sharp = lv.sharp; number = entry.n;
+      break;
+    }
+    if (!t || !have) return; // keep the previous frame
+    this.drawnTarget = number;
     const f = this.manifest.pixels.levels[level].downsample;
     const first = have.length ? this.planes.get(have[0].key)! : null;
     const nd = this.manifest.pixels.levels[level].shape.length;
@@ -217,11 +275,19 @@ export class LiveDriver {
     let pending = 0;
     for (const w of this.wanted(sharp, t)) if (!this.planes.has(w.key)) pending++;
     this.onFrame?.({ level, sharp: level === sharp, drawMs: performance.now() - t0, pending, serial: this.serial });
+    // A superseded target was drawn: the newest is still on its way, and its planes will schedule the next frame.
+    if (t !== this.target) this.touchTarget(this.target);
+  }
+
+  /** Keep the newest target's planes marked as wanted while an older one is on screen. */
+  private touchTarget(t: LiveTarget): void {
+    const { sharp, coarse } = this.levels(t);
+    for (const level of coarse !== sharp ? [coarse, sharp] : [sharp]) for (const w of this.wanted(level, t)) this.touched.set(w.key, this.serial);
   }
 
   /** Forget planes no recent target used; the service's own cache still has them if they are wanted again. */
   private prune(): void {
-    if (this.planes.size <= 24) return;
+    if (this.planes.size <= 48) return;
     for (const [key] of this.planes) {
       if ((this.touched.get(key) ?? 0) < this.serial - 6) { this.planes.delete(key); this.touched.delete(key); }
     }
