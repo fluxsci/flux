@@ -41,20 +41,22 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   The project keeps one copy however many times you place it, made in a fraction of a second
   where the file system can clone. Re-running the script that wrote it updates every placed
   copy, keeping each one's view; one Undo goes back.
-- **The live view: press R on an image, or double-click it.** Step through depth (a rail at the
-  side) and time (a rail below) with the wheel, the arrows or a drag, and play a movie at its
-  own frame rate; hovering a rail names the plane under the pointer. Each channel's row shows
-  its histogram, and the wheel over the row moves its white point. Set contrast on the
-  channel's histogram, by typing values (each point says what share of the channel it clips) or
-  by dragging on the image, with Auto that tightens on each press; change colours and colour
-  maps, log or gamma scales, solo a channel or split the channels into panels. Show a maximum,
-  mean, minimum, sum or standard deviation projection over a run of planes you can drag. Look
-  at layers and the objects in them (hover an object to find its row, filter by name or value).
-  Zoom and move the region shown, with a small map of the whole image, and draw a rectangle to
-  pull it out as an inset. Split panels and insets go beside the image when the figure has room
-  and share the image's place when it has not. Add a scale bar, a position stamp, channel
-  names and a calibration bar (Shift walks each round the corners), and object names. Every
-  gesture is one undo step.
+- **The live view: press R on an image, or double-click it.** There is no menu: the image's
+  control board stands round it on the canvas. Depth stands at its side and time lies under it,
+  like a plot's axes; each is a rail that plots the stack, with a paper flag on the playhead, a
+  play key and a speed dial. A console at the other side has a strip per channel whose
+  histogram, drawn from the pixels on screen, is the contrast control: drag its pink handles,
+  roll the wheel over it, bend its curve for gamma, double-click for Auto. Paper keys (in the
+  manner of the Crystallize offer) do the rest, and say what they would do before you press:
+  Auto shows where every channel's points would go, Split shows the panels it would make.
+  Hovering the image reads out on the board: where the pointer is, each channel's value marked
+  on its own histogram, and a card for the object under it. Take a channel, a rail or the frame
+  in hand with its key and the wheel drives it from anywhere; a drag on the image then pulls
+  contrast or moves the frame. Zoom in and a map of the whole image appears; draw a box to pull
+  out an inset. A scale bar, a position stamp, channel names and a calibration bar are one key
+  each, and each can be dragged to another corner of the picture. Projections (max, mean, min,
+  sum, std) are a band on the rail you can drag. Layers and their objects are a card, with
+  two-way hover and a filter. Every gesture is one undo step.
 - **The Inspector shows the same settings as numbers**, with or without the live view open.
 - **Exports, Paper and headless renders** draw each image from its full-resolution pixels at
   the output's own resolution (300 dpi for SVG, PDF and Paper), with layers, names and the

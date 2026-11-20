@@ -4012,33 +4012,70 @@ opens with a header that states its law. Read those before changing one. The par
   (`fluximgLiveBusy`) the element's request waits, so the workers serve the live view first. New
   pixels bump `fluximgStillRevision` (cached scene pictures retake); a sharper copy of the same
   look does not.
-- **The live view** (`live/`). `session.ts`: which element is live, the panel zone (`home`,
-  `channel`, `layers`, `frame`, `annotate`), the armed row the wheel drives, playback, and ONE
-  `editSession` per gesture key (a new key settles the previous one; wheel runs settle after
-  420 ms of quiet); a selection change or the element's disappearance closes the view.
-  `liveArm.explicit` says who armed the row: the view's own first-rail arm takes the wheel only
-  over the image and its rails, a row the user armed takes it anywhere; `backOut` (Esc) clears it
-  whenever it returns the wheel to the default rail (leaving a zone, or disarming a channel's
-  white point armed by the wheel over its home row). `actions.ts`: every change (panel rows,
-  rails, wheel, keys, `LIVE_KEYS`, the contrast drag `dragContrast`, `cycleFurnitureCorner`) is
-  one function there; crops are written by `writeFrame` / `resetFrame` (there is no `liveCrop`
-  any more). **`resetFrame` must not go through `ops.setCrop(null)`**: that keeps the content
-  still and grows the box round it, so an image zoomed in came back larger and elsewhere on the
-  figure; it deletes the crop and keeps the box's place and width (only the height follows the
-  image's aspect). `FluximgLivePanel.svelte` (mounted in FigureMode) owns unmodified keys and,
-  while open, a capture-phase non-passive window wheel listener; Ctrl/Cmd chords stay Flux-wide.
-  It also holds the readout strip (`fluximgReadout`, written by the overlay; the image's shape
-  and storage when nothing is under the pointer). `FluximgLiveOverlay.svelte` (mounted in
-  `Canvas.svelte`) puts a canvas snapped inward to whole device pixels exactly over the element's
-  visible part, the element's vectors on top, and the rails (time and other dimensions below,
-  `z` at the side); a press on the image pans the frame, draws an inset rectangle (`armed ===
-  "inset"`) or pulls contrast, by zone. R (`keyboard.ts` `openSelectedFluximgLive`) and
-  double-click (`Canvas.svelte`) open it through `fluximgLiveUnavailable` (figures only, unlocked
-  and shown). The Frame zone's map (`FluximgNavigator.svelte`) takes its picture from the one
-  still function (`fluximgService().still`, slot `live-navigator`, keyed by the resolved view,
-  never by the crop, so panning and zooming ask for nothing) and waits while `fluximgLiveBusy`.
-  `histogramPath` defaults to the `span` scale: the log of the count between the rarest occupied
-  bin and the commonest (a plain log from a count of 1 draws a dense channel as a solid block).
+- **The live view is a CONTROL BOARD round the image, not a menu** (`live/`; rebuilt 2026-11-20
+  after the owner called the F-menu-style panel "too much crammed into the small menu … not
+  enough like the crystallize button, the pink lines": "more stuff directly on the
+  screen/canvas/figure/surface, less hidden in boring menu boxes"). There are NO zones. Its
+  instruments, all mounted by `FluximgLiveOverlay.svelte` inside the canvas host (so the host
+  clips them and they follow pan and zoom at their own fixed size):
+  `FluximgBoard.svelte` = the console (head with the frame lamp, one `BoardChannel` strip per
+  channel, the keypad of `PaperKey`s, the map `FluximgNavigator` once the frame is zoomed in),
+  the rails (`BoardRail`: depth standing at the image's side, time and other dimensions lying
+  under it) and the layers card (`BoardLayers`). The overlay itself draws the pink viewfinder
+  frame (`[data-fxb-frame]`; the selection chrome is not rendered while `fluximgLiveItem`), the
+  ticks that ride with the pointer, the grips that let a shown annotation be dragged to another
+  corner (`setFurnitureCorner`), the card beside the pointer for the object under it, and the
+  dashed previews a hovered key asks for (`splitPlan`).
+  **Where they stand** is `boardLayout.ts` (pure, gated in `verify-fluximg-live`): depth left,
+  console right, layers outermost; a wide, low image takes console and layers under it; the
+  sides swap as the canvas gets tight; only an image that fills the canvas has instruments over
+  its edges. Law: nothing covers the image while there is room, nothing covers anything else,
+  everything is inside the canvas. The console's height is measured (`bind:offsetHeight`), the
+  layers card reports the height it would like (`onnatural`).
+  **The look is its own, not the 2026-09-15 surface contract's**: dark instrument cards read the
+  raw ramp (`--fxb-*`, set on `.fxb`; dark in every theme, like the X-ray screen), everything
+  the hand grabs is the guides' pink (`--c-guide`), and keys and flags are Flux's paper with the
+  Crystallize offer's magenta mark. A key says what it is through the board's ONE label
+  (`data-tip` + `data-hk`, shown by `FluximgBoard` on pointerover), never a `title`. Still held
+  to: no `filter` / `backdrop-filter`, nothing animating at rest or while playing (entrance
+  fades use `animation-fill-mode: backwards`: a forwards fill stays in `getAnimations()` for
+  ever), ≤ 150 ms.
+  **In hand.** `session.ts` state is `{ elementId, channel, armed, playing, speed }`: `armed` is
+  what the wheel and a drag on the image drive (`pos:<dim>`, `run:<dim>`, `white` / `black` /
+  `gamma` of `channel`, `zoom`, `inset`, `layer:<id>`). `liveArm.explicit` says who took it: the
+  view holds its first rail by itself (the wheel answers over the image and the board only), a
+  thing the USER took (a digit `takeChannel`, a rail's key, `v`, `x`) answers anywhere. Working
+  an instrument with the mouse takes nothing in hand (a rail gesture only `holdRail`s it, not
+  explicitly): the owner's wheel over the image must keep stepping planes after they dragged a
+  handle. `backOut` (Esc) stops playback, then lets go of what was taken (it SETTLES the open
+  gesture: a wheel run just made is kept), then closes. Keys are the same everywhere on the board
+  (`LIVE_KEYS`, all left-hand; digits by `e.code`, so Shift + digit toggles and Alt + digit
+  solos); the layers card takes the keyboard only while it has it (`d`, a click in it).
+  **One `editSession` per gesture key** (a new key settles the previous one; wheel runs settle
+  after 420 ms of quiet); a selection change or the element's disappearance closes the view.
+  `actions.ts`: every change is one function there; crops are written by `writeFrame` /
+  `resetFrame`. **`resetFrame` must not go through `ops.setCrop(null)`**: that keeps the content
+  still and grows the box round it; it deletes the crop and keeps the box's place and width.
+  **The picture comes first.** A strip's histogram is of the pixels ON SCREEN
+  (`viewHistogram` over `liveSampler.read()`, the plane the last frame drew): it is counted in
+  `requestIdleCallback`, never in the frame that draws the image, and a strip or rail handed
+  the same values again rebuilds no path (`BoardChannel` derives the window as two NUMBERS,
+  the board keeps one colour table and one trace list per look). The wheel zooms about
+  `livePointer.locate(clientX, clientY)`, asked at the notch (`livePointer.at` follows the
+  pointer a frame late). Grips are measured in a `requestAnimationFrame` after the image's draw,
+  and only while an annotation is shown. `fluximgFrame` (serial, sharp, pending) is bumped by
+  the overlay per presented frame; the head's lamp is hollow when a view's frame has not arrived
+  160 ms after it was asked for.
+  `FluximgLiveOverlay.svelte` puts a canvas snapped inward to whole device pixels exactly over
+  the element's visible part and the element's vectors on top; a press on the image draws an
+  inset box (`inset` in hand), pulls contrast (a channel in hand), or moves the image under its
+  frame (the frame in hand, or simply zoomed in). R (`keyboard.ts` `openSelectedFluximgLive`)
+  and double-click (`Canvas.svelte`) open it through `fluximgLiveUnavailable` (figures only,
+  unlocked and shown). The map takes its picture from the one still function
+  (`fluximgService().still`, slot `live-navigator`, keyed by the resolved view, never by the
+  crop) and waits while `fluximgLiveBusy`. `histogramPath` defaults to the `span` scale: the log
+  of the count between the rarest occupied bin and the commonest. `railTicks` ticks an evenly
+  spaced axis at ROUND VALUES (0, 2, 4 s; never every 100th frame = 1.25 s).
 - **Where new panels go** (`panelLayout.ts`, pure, gated in `verify-fluximg-live`). A figure clips
   what lies outside it, so the law is: a panel an image gives rise to goes BESIDE the image when
   the figure has room, otherwise INSIDE the image's own footprint; nothing else moves and the
@@ -4608,8 +4645,9 @@ refused or dropped in another:
    `furniture.ts` / `layers.ts` / `static.ts` (explicit sizes, no render-time text measurement,
    no `vector-effect`: Chromium and resvg must draw the same) and `FluximgVectors.svelte`.
 6. Editing it: `live/actions.ts` (+ `LIVE_KEYS` if it gets a key; `dimKeys` keeps rail letters
-   clear of them) and `live/FluximgLivePanel.svelte`; `inspectorEdits.ts` (a value equal to its
-   default is written as null) and `FluximgInspector.svelte`.
+   clear of them) and `live/FluximgBoard.svelte` (a paper key in the keypad, or its own
+   instrument; give it a `data-tip`); `inspectorEdits.ts` (a value equal to its default is
+   written as null) and `FluximgInspector.svelte`.
 7. Agents: the `set_image_view` summary in `flux-core/fluximgVerbs.ts` (its first sentence is in
    the 20 kB `flux_verbs` index, §9), `resources/flux-context/CLI-REFERENCE.md` (then
    `node scripts/gen-flux-context.mjs`), and `flux-core/fluximg.ts` `describeView` if it changes
@@ -6225,7 +6263,7 @@ module that publishes dev telemetry at import time loses it — publish lazily (
   (space-separated, the second code is not honoured), and a `<svelte:window onwheel>` handler is
   PASSIVE, so its `preventDefault` silently does nothing (the canvas pans as well). Register the
   listener yourself in an `$effect`: `window.addEventListener("wheel", f, { capture: true,
-  passive: false })` and remove it in the cleanup (`FluximgLivePanel.svelte`).
+  passive: false })` and remove it in the cleanup (`live/FluximgBoard.svelte`).
 - **A requestAnimationFrame draw loop scheduled only when its input changes draws every OTHER
   frame** when that input changes once per frame from another rAF callback (playback): the
   input arrives after this frame's callbacks ran, so it is drawn a frame late and the loop goes
@@ -13612,3 +13650,28 @@ landed through 6c86e626; this session updated `docs/concepts/images.qmd`, the sh
 `resetFrame` trap, the navigator's still slot, `histogramPath`'s `span` scale — and a new §4 "Where new panels go"
 row for `panelLayout.ts`; §7 the two live-view gates; §10 the deferral list no longer claims there is no live-view
 UI gate)
+
+### 2026-11-20 — fluximg live view rebuilt as a control board (Claude Fable 5.2, `fluximg`)
+**Work:** The owner tested the live view and asked for a total redesign: the F-menu-style panel was "too much
+crammed into the small menu" and the rails "work good but look so bad"; they wanted it closer to the original
+mockup, "more stuff directly on the screen/canvas/figure/surface", "small buttons that are more like the crystallize
+button", "less text and fields/boxes, more of a dynamic, responsive surface". The panel, its zones and the old rail,
+histogram and layer-list components are gone. New: `FluximgBoard`, `BoardChannel`, `BoardRail`, `BoardLayers`,
+`PaperKey`, `glyphs.ts`, `boardLayout.ts`, `objectTables.ts`; `viewHistogram`, `niceStep`, round-value `railTicks`,
+`profileLevel`; `takeChannel`, `holdRail`, `stepSpeed`, `autoPlan`, `splitPlan`, `setFurnitureCorner`. Gates:
+`verify-fluximg-live` (178) and `verify-fluximg-live-gui` (362, rewritten; each section now places its own fixture
+and `FX_ONLY=<word>` runs one section).
+**Learnings:** (promoted to §4 "The live view is a CONTROL BOARD")
+- A component that reads its result AFTER clearing its drag state throws inside the pointerup handler, and the
+  gesture never ends: the next drag silently joins the same undo step. The rewritten gate caught it only because it
+  counts undo steps after EVERY gesture; keep doing that.
+- `animation-fill-mode: both` leaves a finished animation in `document.getAnimations()` for ever ("nothing animates
+  at rest" fails); use `backwards` for a one-off entrance.
+- A real device scale for the scratch real-app harness (`--force-device-scale-factor`, `setViewport` with
+  `deviceScaleFactor: 0`), not an emulated one: with emulation a screenshot moves the pointer and small hover
+  states (a rail's cursor flag, the object card) are gone from the picture though the DOM had them.
+- In the Svelte dev runtime `get_stack` / `get_error` cost about 1.5 ms per model change with a board this size up
+  (measured with the CDP profiler); they are not in a production build. Profile before optimising: the paths I
+  first suspected (the strips' histograms) were a small part.
+- What "in hand" must NOT mean: after the owner drags a contrast handle, the wheel over the image has to keep
+  stepping planes. Mouse work on an instrument therefore takes nothing in hand; only an explicit ask does.

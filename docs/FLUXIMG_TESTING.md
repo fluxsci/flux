@@ -50,91 +50,111 @@ and one large one (2048 × 2048 or more, tens of planes).
 
 ## The live view
 
-10. Select a `stack_u16` element, press **R**. **Depth stands as a rail at the image's right, and
-    a panel opens beside the image with only the image's name in its header.** Each channel row
-    carries a small histogram with its window marked; the Depth row is armed. The strip at the
-    panel's foot says what the image is: "2 channels · 7 z · 64 × 48" over "uint16 · 0.25 µm per
-    pixel".
+10. Select a `stack_u16` element, press **R**. **The image wears a pink frame with corner marks
+    and its control board stands round it: no menu opens.** Depth is a rail at the image's left
+    (a plot of the stack, a pink playhead with a dot on each channel's trace, a paper flag
+    "4 · −58.5 µm"). The console is at its right: the image's name with a pink lamp, "7 z ·
+    64 × 48 · 0.25 µm/px", one strip per channel (a lamp with its digit, its name, its window in
+    numbers, its histogram with two pink handles) and a row of paper keys. The blue selection
+    box and its handles are gone while the view is open.
 11. Double-click the other `stack_u16` element. **Its live view opens** (the first one closes).
-12. Roll the wheel over the image. **Wheel down moves to the next plane**; the rail's playhead,
-    the panel's Depth row ("5/7 · −57.5 µm") and the picture follow at once. **Shift+wheel** moves
-    ten (clamped to the stack). **↑ / ↓** step through depth.
-13. Hover the Depth rail without pressing. **A label beside the rail names the plane under the
-    pointer and its position ("4 · −58.5 µm")**; a click there goes to that plane.
-14. Drag along the Depth rail. **The picture scrubs**; release, then **Ctrl+Z**: **the whole drag
-    undoes as one step.** A run of wheel notches is one step too.
-15. Hover the image. **The strip at the panel's foot shows x and y in µm and each channel's value
-    under the pointer.** Move off the image: **it says what the image is again.**
-16. Press **e**, then **2** (max). **A maximum projection over all 7 planes**; the rail shows a
-    band, the Depth row reads "1–7 · −61.5 to −55.5 µm" and the Projection row "max · 7 planes".
-    Roll the wheel: **the run narrows / widens around its middle.** Drag the band's edges and its
-    inside; **Shift**-drag elsewhere on the rail draws a new run. **e**, **1** (plane): **back to
-    the plane in the middle of the run.**
-17. Roll the wheel one notch over the structure channel's row. **Nothing changes, but the row is
-    armed and the footer says "↕ white point".** Further notches, anywhere on screen: **the white
-    point moves, and the row's histogram mark with it.** **Escape**: **the view stays open, and
-    the wheel over the image moves through depth again.**
-18. Press **1** (channel structure). **The channel zone opens with its histogram and three fields,
-    Black, White and Gamma; Black and White each say what share of the channel they clip
-    ("clips … %").** Drag the white handle: **the picture brightens/darkens live and the White
-    share changes.** Type `2000` in White, **Enter**: kept. Type `5`, **Escape**: the previous
-    value comes back.
-19. Still in the channel zone, drag on the image. **Dragging right narrows the window about its
-    centre (more contrast), left widens it; up brightens, down darkens**, and the window stops at
-    the channel's own lowest and highest values. Release, then **Ctrl+Z**: **the whole drag undoes
-    as one step.**
-20. Press **a** repeatedly in the channel zone. **The window steps through 0.1–99.9 %, 1–99.8 %
-    and 1–99 % of the pixels in view, then their full range, and round** (a step that would give
-    the window already on screen is skipped).
-21. **c** then a colour; **g** cycles Linear → Log → Gamma (**a gamma note appears**; with Log and
-    a black point at 0, **a note says it is drawn linear**); **z** inverts; **x** hides the
-    channel; **v** solos it (again: back to both); **d** resets it.
-22. **b** (Split channels). **Two new panels to the right of the image, one per channel, each in
-    gray with its name**; one **Ctrl+Z** removes both.
-23. **Escape**: back to the panel's home. **a**: Auto for every channel.
-24. **b** opens Annotations; then **b**, **w**, **c**, **g**: **scale bar (bottom right), position
-    stamp ("z …", top left), channel names (top right), calibration bar (bottom left) appear and
-    go**, and each row says its corner while it is on, "off" otherwise. With the scale bar on,
-    **Shift+b** four times: **it walks to bottom left, top left, top right and back to bottom
-    right.** **Escape**.
-25. **v** (Frame). **A small map of the whole image, with no rectangle on it.** Roll the wheel up
-    over the image: **the image zooms inside its box around the pointer; the box does not move;
-    the map shows the frame as a rectangle and dims the rest.** Drag on the image: **the image
-    moves under the frame.** Drag the rectangle on the map, or press elsewhere on the map: **the
-    frame moves there.** **n**: the Pixels row toggles **true pixels / smoothed** (zoom the
-    canvas in to see it). **d**: **the whole image again, and the box keeps its place and
-    width.**
-26. Press **x**. **The Inset row says "draw it on the image"; nothing is made yet.** Drag a
-    rectangle on the image: **a dashed guide follows the drag; on release an inset panel with a
-    scale bar appears beside the image (to the right, or below when the right has no room), the
-    image keeps its frame and outlines the inset's region, the map shows the region dashed, and a
-    message says where the inset went.**
-27. Zoom in with the wheel, then press **x** twice (or **x**, **Enter**). **An inset of the frame
-    as it is appears; the image returns to the frame it had when the zone opened, and the panel
-    goes back home.**
-28. Place `mid_tiled_u16` on a narrow figure (as in step 5, so it is as wide as the figure), press
-    **R**, **1**, **b**. **The image and its two channel panels share the image's own box as a
-    grid, the image first; nothing lies outside the figure**, and the message says they share its
-    place. **Ctrl+Z**.
-29. On the same image, with the figure no taller than the image (no room below either):
-    **Escape**, **v**, **x**, and draw a rectangle. **The inset stands on the image in its
-    top-right corner at two fifths of the image's height; the live view closes with the inset
-    selected, and the message says "Inset placed on the image".**
-30. Place `movie_f32`, press **R**. **Time is a rail below the image.** **Space**: **plays in real
-    time, 80 planes a second** (a 60 Hz screen shows 60 of them; the rail's ▶ does the same);
-    **Escape** stops it. **← / →** step. Hover the rail: **the label gives the frame and its time
-    in s.**
-31. Place `mean_f64_layers`, **R**, then **d**. **Layers & objects lists five layers, top
-    first**, with the readout strip and the key hints at the panel's foot as in the other zones.
-    On the synapse footprints row, **→ opens its objects with their table columns.** Hover a row:
-    **its object is outlined on the image.** Hover an object on the image: **its row is found.**
-    **a** and type part of a name or value: **the list filters.** **x** shows/hides,
-    **e** then the wheel changes opacity, **c** colours, **q** turns object names on,
-    **Shift+↑ / ↓** reorders.
-32. **R** closes the view; so does clicking elsewhere on the canvas, or **Escape** from home.
-    **The element keeps exactly what was set** (its still matches the last live frame).
-33. While the view is open, **Ctrl+Z / Ctrl+Shift+Z** step through the gestures; plain keys never
-    reach canvas shortcuts (no nudge, no delete).
+12. Rest the pointer on a paper key, a lamp, the rail's **Z**. **A small paper label names the
+    thing and its key** ("Scale bar  B"); it leaves with the pointer.
+13. Roll the wheel over the image. **Wheel down moves to the next plane**; the playhead, its flag
+    and the picture follow at once, and each strip's histogram changes with the plane (it is of
+    the pixels on screen; the faint outline behind it is the whole image's). **Shift+wheel**
+    moves ten (clamped to the stack). **↑ / ↓** step through depth.
+14. Rest on the Depth rail. **A dark flag names the plane under the pointer and its position**; a
+    click goes there. Drag along the rail: **the picture scrubs**; release, then **Ctrl+Z**:
+    **the whole drag undoes as one step.** A run of wheel notches is one step too.
+15. Move the pointer over the image. **The console's head shows x and y in µm, every strip marks
+    that pixel's value on its histogram (a tick and the number), and four small ticks on the
+    frame ride with the pointer.** Off the image: **the head says what the image is again.**
+16. Press **e**. **A row of paper chips opens on the rail** (off, max, mean, min, sum, std).
+    Press **2** (max): **a maximum projection over all 7 planes**; the rail shows a pink band
+    with a grip at each end, the flag reads "max 1–7", the projection key is lit and the play
+    key is gone. Roll the wheel: **the run narrows / widens around its middle.** Drag a grip and
+    the band's inside; **Shift**-drag elsewhere on the rail draws a new run. **e**, **1** (off):
+    **back to the plane in the middle of the run.**
+17. On the structure strip, drag the right pink handle: **the picture brightens / darkens live
+    and the strip's white number follows.** Drag between the handles: **the window slides.**
+    Roll the wheel over the plot near a handle: **that point moves.** Double-click the plot:
+    **Auto for that channel alone.** Click the white number, type `2000`, **Enter**: kept. Click
+    it again, type `5`, **Escape**: dropped. None of this takes the channel in hand: **the wheel
+    over the image still steps planes.**
+18. Click the structure strip's lamp. **The channel is hidden; its strip goes dim and its lamp is
+    a ring.** **Shift+1** shows it again. **Alt+1**: **only that channel**; again: both.
+19. Press **1**. **The strip is outlined pink: the channel is in hand.** Roll the wheel anywhere:
+    **its white point moves.** Press **1** again (black point), again (gamma), again (white).
+    Drag on the image: **right narrows the window about its centre, left widens it; up
+    brightens, down darkens**, and the window stops at the channel's own lowest and highest
+    values. **Ctrl+Z** undoes the whole drag. **Escape**: **the strip lets go; the view stays
+    open and the wheel over the image moves through depth again.**
+20. Rest the pointer on the **Auto** key. **Each strip shows, dashed, where its two points would
+    go; nothing changes.** Press **a** repeatedly: **every window steps through 0.1–99.9 %,
+    1–99.8 % and 1–99 % of the pixels in view, then their full range, and round** (a step that
+    would give the window already on screen is skipped). With a channel in hand (**1**), **a**
+    is that channel's alone.
+21. Rest on a strip: **its own keys come out.** The curve key steps Linear → Log → Gamma (with a
+    black point at 0, Log says it is drawn linear until the black point is above 0). **The
+    paper line across the plot is the transfer curve; pull its dot up or down and it bends
+    (gamma).** The colour key opens a drawer of swatches under the plot: pick one; **Invert**
+    inverts; the last key puts the channel back to how the image came.
+22. Rest on the **Split** key. **Dashed pink boxes on the figure show where each channel's panel
+    would go, each with its name.** Press it (or **s**): **two new panels to the right of the
+    image, one per channel, each in gray with its name**; one **Ctrl+Z** removes both.
+23. Press **b**, **w**, **c**, **g**. **Scale bar (bottom right), position stamp ("z …", top
+    left), channel names (top right) and calibration bar (bottom left) appear, and their keys
+    light.** Drag the scale bar toward another corner: **the four corners are marked and it
+    lands in the one under the pointer; the whole carry is one undo step.** **Shift+b** four
+    times walks it round the corners and back. Press the four keys again: gone.
+24. Press **v**. **The frame's corners thicken into handles and a small map appears in the
+    console.** Roll the wheel up over the image: **the image zooms inside its box around the
+    pointer; the box does not move; the map shows the frame as a pink rectangle and dims the
+    rest**, with how far in it is ("2.5×") and the pixels shown. Drag on the image: **it moves
+    under the frame.** Drag the rectangle on the map, press elsewhere on the map, roll the
+    wheel over it. **n** switches **true pixels / smoothed** (zoom the canvas in to see it).
+    **Escape**: **the frame lets go and stays zoomed in; a drag on the image still moves it.**
+    **Shift+V**: **the whole image again, the box keeps its place and width, and the map
+    leaves.**
+25. Press **x**. **The Inset key is lit; nothing is made yet.** Drag a box on the image: **a
+    dashed pink guide follows the drag; on release an inset panel with a scale bar appears
+    beside the image (to the right, or below when the right has no room), the image keeps its
+    frame and outlines the inset's region, and a message says where the inset went.** The tool
+    lets go by itself.
+26. **v**, zoom in with the wheel, then press **x** twice. **An inset of the frame as it is
+    appears, and the image shows the whole of itself again.**
+27. Place `mid_tiled_u16` on a narrow figure (as in step 5, so it is as wide as the figure),
+    press **R** and rest on **Split**. **The dashed boxes are inside the image's own box, as a
+    grid, the image first.** Press it: **nothing lies outside the figure**, and the message
+    says they share its place. **Ctrl+Z**.
+28. On the same image, with the figure no taller than the image (no room below either): **x**
+    and drag a box. **The inset stands on the image in its top-right corner at two fifths of the
+    image's height; the live view closes with the inset selected, and the message says "Inset
+    placed on the image".**
+29. Place `movie_f32`, press **R**. **Time is a rail under the image, like an x axis, with a
+    round play key.** **Space**: **plays in real time, 80 planes a second** (a 60 Hz screen
+    shows 60 of them); the play key is lit and its ring fills as the movie goes by. Click the
+    small **1×** dial beside it: **2×**; roll the wheel over it both ways. **Escape** stops the
+    movie. **← / →** step.
+30. Place `mean_f64_layers`, **R**. **A layers card lists five layers, top first, each with a
+    lamp in its colour.** Click a lamp: the layer hides. Click the synapse footprints row: **its
+    objects open with their table columns.** Rest on an object's row: **it lights up on the
+    image.** Rest on an object on the image: **its row lights, and a card beside the pointer
+    names it, its layer, its table's values and the pixel's.** Type in the filter: the list
+    narrows. Rest on a layer's row and roll the wheel over its **%** (or drag it sideways):
+    opacity. Press **d**: **the card is outlined pink and has the keys** (**↑ / ↓**, **x**,
+    **e**, **c**, **q**, **Shift+↑ / ↓**); **Escape** gives them back.
+31. Pan the canvas (Space-drag) so the image is at its left edge, then its right edge; zoom the
+    canvas in (**Ctrl** + wheel) until the image fills the window. **The rail and the console
+    change sides as their room goes, and stand over the image's edges only when it fills the
+    window; no instrument ever covers another, and all stay inside the canvas.** A wide, low
+    image takes its console under it.
+32. **R** closes the view; so does the console's **×**, clicking elsewhere on the canvas, or
+    **Escape** with nothing in hand. **The element keeps exactly what was set** (its still
+    matches the last live frame), and the selection box is back.
+33. While the view is open, **Ctrl+Z / Ctrl+Shift+Z** step through the gestures and the board
+    follows; plain keys never reach canvas shortcuts (no nudge, no delete).
 
 ## The Inspector
 
