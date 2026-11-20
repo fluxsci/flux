@@ -22,7 +22,7 @@
   import { clampCrop, fullCrop } from "./still";
   import { describePosition, describeProjection, formatNumber, resolveView } from "./viewOps";
   import { histDomain, nudgeStep } from "./live/histogram";
-  import { fluximgLiveUnavailable, openFluximgLive } from "./live/session";
+  import { fluximgLiveUnavailable, openFluximgLive, settleLiveEdit } from "./live/session";
   import {
     CORNERS, autoPatch, backgroundPatch, colorPatch, compositePatch, dimLength, furnitureFieldPatch, furnitureOnPatch, gammaPatch,
     indexPatch, integerData, layerNumberPatch, layerWindowPatch, middleEllipsis, namesLayerPatch, normPatch, projectionPatch, runPatch,
@@ -102,6 +102,8 @@
   /** A discrete edit (a button, a choice, a typed value): one session, one undo. */
   function apply(fn: (p: Project) => void): void {
     if (readOnly) return;
+    // A gesture the live view still holds (a wheel run waiting to settle) ends first, as its own undo step.
+    settleLiveEdit();
     const session = editSession();
     session.run(() => mutate(fn));
     session.finish();
@@ -109,6 +111,7 @@
   /** One step of a NumberField's scrub or wheel run: the field's own session makes the run one undo. */
   function preview(fn: (p: Project) => void): void {
     if (readOnly) return;
+    settleLiveEdit();
     mutate(fn);
   }
   function view(patch: FluximgView | null, live = false): void {
@@ -292,9 +295,8 @@
           {#if f.scalebar}
             {@const sb = f.scalebar}
             <div class="three">
-              <NumberField label={`Length ${unit}`.trim()} value={sb.length ?? 0} optional empty={sb.length === null} placeholder="auto" min={0} step={1} disabled={readOnly}
+              <NumberField label={`Length ${unit}`.trim()} value={sb.length ?? 0} optional live empty={sb.length === null} placeholder="auto" min={0} step={1} disabled={readOnly}
                 title="Bar length in the image's unit; empty = a round length for the shown region"
-                on:commit={(e) => view(furnitureFieldPatch(m, "scalebar", "length", e.detail > 0 ? e.detail : null))}
                 on:preview={(e) => view(furnitureFieldPatch(m, "scalebar", "length", e.detail && e.detail > 0 ? e.detail : null), true)}
                 on:scrub={(e) => view(furnitureFieldPatch(m, "scalebar", "length", e.detail > 0 ? e.detail : null), true)} />
               <NumberField label="Bar pt" value={sb.thickness} step={0.25} min={0.25} disabled={readOnly}
@@ -369,11 +371,11 @@
       </div>
       {#if crop}
         <p class="sub-h">Region shown <span class="u">image pixels</span></p>
-        <div class="two">
+        <div class="two" data-fluximg-crop="origin">
           <NumberField label="X" value={crop.x} step={1} min={0} displayPrecision={1} disabled={readOnly} on:commit={(e) => setCropField("x", e.detail)} on:scrub={(e) => setCropField("x", e.detail, true)} />
           <NumberField label="Y" value={crop.y} step={1} min={0} displayPrecision={1} disabled={readOnly} on:commit={(e) => setCropField("y", e.detail)} on:scrub={(e) => setCropField("y", e.detail, true)} />
         </div>
-        <div class="two">
+        <div class="two" data-fluximg-crop="size">
           <NumberField label="W" value={crop.width} step={1} min={1} displayPrecision={1} disabled={readOnly} on:commit={(e) => setCropField("width", e.detail)} on:scrub={(e) => setCropField("width", e.detail, true)} />
           <NumberField label="H" value={crop.height} step={1} min={1} displayPrecision={1} disabled={readOnly} on:commit={(e) => setCropField("height", e.detail)} on:scrub={(e) => setCropField("height", e.detail, true)} />
         </div>
@@ -399,7 +401,8 @@
   .line { margin: 0 0 4px; font: 11px var(--font-ui); color: var(--c-tx-2); line-height: 1.4; }
   .line:last-child { margin-bottom: 0; }
   .line.mono { font: 10.5px var(--font-mono); color: var(--c-tx-muted); margin: 6px 0 0; }
-  .line.path { font: 10.5px var(--font-mono); color: var(--c-tx-muted); white-space: nowrap; overflow: hidden; }
+  /* nowrap + overflow would clip an underscore's descender at the default line height */
+  .line.path { font: 10.5px/16px var(--font-mono); color: var(--c-tx-muted); white-space: nowrap; overflow: hidden; }
   .line.quiet { color: var(--c-tx-muted); }
   .block { padding: 8px 0; border-top: 1px solid var(--c-line); }
   .block:first-child { border-top: 0; padding-top: 0; }

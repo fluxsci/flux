@@ -58,7 +58,8 @@ async function typeField(selector, text) {
   if (!input) throw new Error(`no field ${selector}`);
   await input.click({ clickCount: 3 });
   await page.keyboard.down("Control"); await page.keyboard.press("KeyA"); await page.keyboard.up("Control");
-  await page.keyboard.type(text);
+  if (text) await page.keyboard.type(text);
+  else await page.keyboard.press("Delete");
   await page.keyboard.press("Enter");
   await sleep(150);
 }
@@ -165,6 +166,13 @@ try {
   h.eq(r.e.view?.furniture, { scalebar: {} }, "the scale bar switches on with defaults ({})");
   h.eq(r.undo, 1, "…one undo entry");
   h.ok(!!(await page.$(sel('[data-fluximg-furniture="scalebar"] .three'))), "its length, thickness and size fields appear");
+  const LENGTH = '[data-fluximg-furniture="scalebar"] .three label:nth-child(1) input';
+  r = await edit(stack, () => typeField(LENGTH, "10"));
+  h.eq(r.e.view?.furniture?.scalebar, { length: 10 }, "a typed length is stored in the image's unit");
+  h.eq(r.undo, 1, "…one undo entry");
+  r = await edit(stack, () => typeField(LENGTH, ""));
+  h.eq(r.e.view?.furniture?.scalebar, {}, "emptying the length returns to auto (the key goes, the bar stays on)");
+  h.eq(await fieldValue(LENGTH), "", "…and the field shows its auto placeholder");
   r = await edit(stack, () => click("[data-fluximg-scalebar]"));
   h.eq(r.e.view, undefined, "and off again leaves no view");
   r = await edit(stack, () => click('[data-fluximg-composite="single"]'));
@@ -193,6 +201,20 @@ try {
   h.ok((await page.$eval(sel("[data-fluximg-run]"), (n) => n.textContent)).startsWith("max z 2–7"), "the run is described in words");
   r = await edit(stack, () => page.select(sel("[data-fluximg-projection]"), ""));
   h.eq(r.e.view, undefined, "One plane returns to the run's middle (here the default plane): no view");
+
+  h.section("crop");
+  const CROP_W = '[data-fluximg-crop="size"] label:nth-child(1) input';
+  r = await edit(stack, () => typeField(CROP_W, "32"));
+  h.eq(r.e.crop, { x: 0, y: 0, width: 32, height: 48 }, "W 32 crops to the left half, in image pixels");
+  h.eq(r.undo, 1, "…one undo entry");
+  r = await edit(stack, async () => {
+    const target = await page.evaluateHandle(() => [...document.querySelectorAll(".inspector button.true-size")].find((b) => b.textContent.includes("Reset crop")) ?? null);
+    if (!target.asElement()) throw new Error("no Reset crop button");
+    await target.asElement().click();
+    await sleep(150);
+  });
+  h.eq(r.e.crop, undefined, "the Inspector's own Reset crop shows the whole image again (reused, not duplicated)");
+  h.eq(await page.$$eval(sel("[data-fluximg-inspector] button"), (n) => n.filter((b) => /whole image|reset crop/i.test(b.textContent)).length), 0, "the image sections add no second reset");
 
   // --- 5. layers and object names (the layered fixture) ------------------------------------------------
   h.section("layers");
