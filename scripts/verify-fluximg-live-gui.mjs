@@ -517,8 +517,11 @@ const objAfter = rows.filter((r) => r.startsWith("obj:"));
 h.ok(objAfter.length >= 1 && objAfter.length < objRows.length && objAfter.includes(firstObj), `the filter narrows the list (${objAfter.length} objects match '${firstKey}')`);
 await press("Enter");
 h.ok(await page.evaluate(() => !(document.activeElement instanceof HTMLInputElement)), "Enter hands the keyboard back from the filter");
-await page.evaluate(() => { const i = document.querySelector(".fluximgPanel .search-in"); i.value = ""; i.dispatchEvent(new Event("input", { bubbles: true })); });
-await waitForFrame(page);
+await press("a");
+await press("Escape");
+h.ok(await page.evaluate(() => document.querySelector(".fluximgPanel .search-in")?.value === "" && document.activeElement?.classList.contains("search-in")), "Esc in the filter clears it first");
+await press("Escape");
+h.ok(await page.evaluate(() => !(document.activeElement instanceof HTMLInputElement)) && (await model(L)).live?.zone === "layers", "Esc in the empty filter hands the keyboard back (and stays in the zone)");
 // x toggles the current row's layer; q toggles its names.
 await page.click(".fluximgPanel .lrow[data-rid='layer:footprints']");
 await page.click(".fluximgPanel .lrow[data-rid='layer:footprints']"); // (click toggles open; twice = back as it was, cursor on it)

@@ -141,7 +141,9 @@
       if (k === "ArrowDown") { done(); move(1); } else if (k === "ArrowUp") { done(); move(-1); }
       else if (k === "Enter") { done(); filterEl?.blur(); }
       else if (k === "Escape" && filter) { done(); filter = ""; }
-      else if (k !== "Escape") e.stopImmediatePropagation();
+      // Esc in an empty filter hands the keyboard back (it used to do nothing: the field kept every key, r included).
+      else if (k === "Escape") { done(); filterEl?.blur(); }
+      else e.stopImmediatePropagation();
       return;
     }
     if (k === "Escape") { if (picking) { done(); picking = false; } return; } // otherwise the panel backs out
