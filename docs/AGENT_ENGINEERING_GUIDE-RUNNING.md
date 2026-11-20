@@ -4005,8 +4005,9 @@ opens with a header that states its law. Read those before changing one. The par
   covers the need, at most 4 MP) at a base of 2 still px per canvas px; the density follows the
   SETTLED zoom (260 ms) one octave at a time up to the image's own pixels. `image-rendering:
   pixelated` only when the still is the crop's true pixels and `smooth` is off. **Draft still**:
-  a first still longer than 640 px is preceded by a 384 px draft, drawn from the stored overview
-  in tens of milliseconds and replaced when the full still lands. The old still stays up until
+  a first still longer than 640 px is preceded by a 384 px draft (`renderStill` picks the coarsest
+  level that serves it: the stored overview on a tiled image), drawn in tens of milliseconds and
+  replaced when the full still lands. The old still stays up until
   the new one arrives (nothing flashes). While the live view streams a gesture
   (`fluximgLiveBusy`) the element's request waits, so the workers serve the live view first. New
   pixels bump `fluximgStillRevision` (cached scene pictures retake); a sharper copy of the same
