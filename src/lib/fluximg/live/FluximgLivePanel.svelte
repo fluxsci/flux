@@ -87,6 +87,10 @@
     else setLive({ zone, armed: null });
   }
   function home(): void { picking = null; draft = null; setLive({ zone: "home", armed: defaultArmed() }); }
+  // A view that just opened arms its first rail, exactly as backing out of a zone does: without it the wheel over
+  // the image panned the canvas until some zone had been opened and closed. (The session cannot do this itself:
+  // which rail comes first is the actions' knowledge, and the manifest may arrive a moment after the open.)
+  $effect(() => { if (live && ctx && live.zone === "home" && live.armed === null && !live.playing) { const a = defaultArmed(); if (a) setLive({ armed: a }); } });
   function close(): void { closeFluximgLive(); }
 
   /** A scale bar needs to know how big a pixel is; without that, say so instead of switching on nothing. */
