@@ -162,6 +162,55 @@ To change a figure, **re-run the script**, don't hand-edit the SVG:
   `sync-figure`. An untouched plot follows the regenerated native size; Stretch keeps the
   previous proportional behavior. Positions, captions and restyles survive.
 
+## Images and image stacks (fluximg)
+
+**When:** pixels ARE the result (a micrograph, a confocal z-stack, a two-photon movie, a
+photograph, a segmentation over an image) → save a **fluximg**, not an `imshow` plot. A fluximg
+keeps the measured values (not colours), every plane, the pixel size, channel names and
+statistics, so the user can step through depth and time, set contrast, project and crop in Flux
+without rerunning Python, and exports draw from the full-resolution pixels. Use an ordinary
+fluxplot (`fp.heatmap`, `imshow` + `fp.tag`) when the image is a derived chart (a correlation
+matrix, a spectrogram with axes) whose axes and colorbar are the point.
+
+```python
+import fluxplot as fp
+
+# a z-stack: (c, z, y, x); dims name every axis of the array, in the array's own order
+fp.imsave("plots/neuron_stack", stack, dims=("c", "z", "y", "x"),
+          pixel_size=0.1, unit="µm", coords={"z": z_positions_um},
+          channels=[{"name": "membrane", "color": "#ff00ff"}, {"name": "nuclei", "color": "#00ffff"}],
+          default_index={"z": 15}, recipe=True)
+
+# a time-lapse with layers on the same pixel grid
+img = fp.fluximg(movie, dims=("t", "c", "y", "x"), dt=0.5, pixel_size=0.4, channels=["GCaMP", "tdTomato"])
+img.add_labels("cells", cell_labels, table=cells, key="cell_id")   # integer map; one table row per cell
+img.add_shapes("tracks", lines=track_paths, key="track_id")        # vector shapes in image pixels
+img.add_image("dff", dff_map, lut="magma")                         # another image (hidden until shown)
+img.save("plots/timelapse", recipe=True)
+
+fp.imsave("plots/field", field_image, pixel_size=0.65)             # plain 2-D: dims default to (y, x)
+fp.imsave("plots/specimen", photo, photometric="rgb")              # an RGB photograph
+```
+
+- `save` / `imsave` write the FOLDER `plots/<name>.fluximg/` (`fluximg.json` written last) and,
+  with `recipe=True` (or a recipe dict as for `fp.save`), `plots/<name>.recipe.json` beside it.
+  Without `recipe=` no recipe is written. The printed report says how the pixels were stored and
+  why; read it.
+- **Storage.** Integer data is always exact. Float data is stored compactly (16-bit steps across
+  each channel's range; Flux calls it "compact 16-bit") only when one step is under a tenth of the
+  typical neighbour-to-neighbour difference in every channel; otherwise the floats are kept
+  exactly and the report says why. `lossless=True` always keeps floats exactly: use it when
+  values will be measured from the stored copy (`fp.imread`) and must be bit-exact.
+- Channels: names, or dicts `{"name", "color" | "lut", "range"}`; the default window is the 1st
+  to 99.8th percentile. Without `default_index=`, Flux opens at the middle z plane and the first
+  position of every other dimension.
+- `nodata=` names the stored value meaning "no data"; `meta=` keeps acquisition facts in the
+  bundle; `layers="plots/mean"` copies another bundle's layers (same pixel grid only).
+- Read back with `fp.imread(path)`: `.values`, `.dims`, `.axes`, `.channels`, `.layer(id)`,
+  `.table(id)`. `help(fp.fluximg)` / `help(fp.imsave)` list every parameter.
+- Needs a zstd library (PYTHON-CONVENTIONS.md). Placing, viewing and the rules for agents:
+  PROJECT-AND-FIGURES.md → "Image panels (fluximg)".
+
 ## 3D fluxplots
 
 **Requires fluxplot with scene3d support** (`fp.scene3d`, `fp.mesh3d`, `fp.surface3d`,

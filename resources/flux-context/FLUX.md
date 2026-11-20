@@ -153,6 +153,7 @@ and imported copies; MANUSCRIPT.md covers authoring/export.
 | FluxConfig | The user's resolved machine-wide Flux data folder. |
 | FluxContext | This stock manual, refreshed from the app; store personal notes in UserContext. |
 | FluxLib | The machine-wide reference library; a project's bibliography is only its cited subset. |
+| fluximg | An N-dimensional image (channels, z, t…) saved by fluxplot as a `.fluximg` folder; placed on a figure it keeps its pixels and stores only a view. |
 | fluxplot | The external Python library producing semantic plots from matplotlib. |
 | F-menu | The Figure/Slide property menu, opened with F on the selection. |
 | Ghost / Become / Change transforms | Birth and transform a copy / transform into another object or asset / edit an object's endpoint. |
@@ -235,6 +236,7 @@ CLI-REFERENCE.md gives flags; `flux_verbs {query:"<name>"}` gives schemas.
 | Compose plots into a figure | `compose-figure` | `compose_figure` |
 | See a saved figure / canvas | `render-figure --png` / `render-canvas --png` | `get_figure_image`, `get_canvas_image` |
 | Restyle a plot part | `restyle` | `restyle_part` |
+| Place / adjust / describe an image stack | `place-image` / `set-image-view` / `image-info` | `place_image`, `set_image_view`, `image_info` (via `flux_verb` in core) |
 | Regenerate / refresh plots | `rerun-plot` / `sync-figure` | `rerun_plot`, `sync_figure` |
 | Align scientific axes | `align-plot-spines` | `align_plot_spines` |
 | Arrange / label panels | `arrange` / `auto-label` | `arrange_figure`, `auto_label` |

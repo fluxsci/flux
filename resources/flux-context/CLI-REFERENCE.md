@@ -197,6 +197,77 @@ Live `dispatch_command` also takes `set_model_view` and `set_model_field` (camel
 parameters, `target` or the current selection) as one Undo step. Posters, `--no-poster`,
 `--state` rules and the deck refusal: `PROJECT-AND-FIGURES.md` → "3D model panels".
 
+### Figure images (fluximg)
+
+| Verb (CLI) | MCP tool | What it does |
+|---|---|---|
+| `place-image <figureId> <bundle.fluximg> [--x n --y n --width n --name N --crop '<json>' --view '<json>']` | `place_image` | Copy a `.fluximg` folder into `fig/assets/` once (content already in the project is reused, `reused: true`) and add an image element. Canvas px; height follows the image's (or crop's) aspect; without `--width`, one image pixel per canvas px, narrowed to the figure's width. |
+| `set-image-view <elementId> [--view '<json>'] [--crop '<json>' \| --reset-crop]` | `set_image_view` | Merge a sparse view patch into the element's stored view and/or set its crop. Pixels are never touched. |
+| `image-info <elementId\|assetId>` | `image_info` | Read-only, no rendering: dims with sizes, units and positions, dtype and storage, levels, channels with default windows, min/max and percentiles, layers with object counts, regions, every placement; for an element also its box, crop, stored and resolved view, position in words and export size. |
+
+These three are outside the core MCP toolset: in core mode call them through `flux_verb`
+(`flux_verb {verb:"set_image_view", args:{id:"…", view:{…}}}`), with the MCP parameter names
+`figureId`, `bundlePath`, `id`, `target`, `view`, `crop` (`crop: null` resets).
+
+**`--view` (sparse; omit a key to leave it, `null` clears it back to the image's default):**
+
+```json
+{
+  "index": {"z": 12, "t": 0},
+  "projection": {"dim": "z", "mode": "max", "from": 8, "to": 16},
+  "channels": [{"range": [100, 4000], "color": "#ff00ff"}, null, {"visible": false}],
+  "composite": "blend", "solo": 0,
+  "smooth": false, "background": "#000000",
+  "layers": {"cells": {"visible": true, "opacity": 0.8, "color": "#ffd500", "strokeWidth": 1, "fillOpacity": 0.1}},
+  "layerOrder": ["dff", "cells"],
+  "furniture": {"scalebar": {"length": 20, "corner": "bottom-right"}, "stamp": {}, "channelLabels": {}, "names": {"layers": ["cells"]}},
+  "insetOf": "<another element of the same image>"
+}
+```
+
+- `index`: 0-based plane per dimension other than `c`, `y`, `x`. `projection`: `mode` one of
+  `max mean min sum std`, `from` inclusive, `to` exclusive, or `null` for one plane.
+- `channels[i]`: `visible`, `color` ("#rrggbb", the black-to-colour ramp) or `lut` (a colour-map
+  name: `gray`, `viridis`, `magma`, `cmasher.ember`, …; setting one clears the other), `range`
+  `[black, white]` in VALUE units (white > black), `norm` `linear|log|gamma`, `gamma`, `invert`.
+  `null` entries leave that channel alone. `composite: "single"` shows only channel `solo`.
+  `background` is a colour or `"transparent"` (where there is no data); `smooth: true`
+  interpolates magnified pixels.
+- `layers.<id>`: `visible`, `opacity` 0–1, `color`; shape and object layers also
+  `strokeWidth` (screen px) and `fillOpacity`; image layers `lut` and `range` instead.
+- `furniture`: `scalebar` (`length` in the x unit, `corner`, `color`, `label`, `thickness` and
+  `fontSize` in pt), `stamp` (`dims`, `corner`, `color`, `fontSize`), `channelLabels`
+  (`corner`, `fontSize`), `names` (`layers`, `fontSize`). `{}` turns one on with defaults,
+  `false` or `null` turns it off. Corners: `bottom-right bottom-left top-right top-left`.
+- **`--crop`**: `{"x", "y", "width", "height"}` in full-resolution image pixels, inside the
+  image. It keeps the content pinned on the canvas (the box changes, as cropping a picture does).
+
+**Refusals** (nothing is copied or written): a deck or slide target ("N-dimensional images
+(fluximg) cannot be placed on slides yet: keep them in a figure."); a path that is not a folder
+holding `fluximg.json`; a non-positive `--width`; any view key that does not fit THIS image,
+all listed at once (an unknown key or layer id, a dimension it lacks, a plane out of range,
+`to` not after `from`, an unknown colour map, a channel list longer than its channels, an
+`insetOf` that is not another placement of the same image); a crop outside the image;
+`set-image-view` with neither `--view` nor a crop. **Warnings** (the edit is made): a scale bar
+on an image without a pixel size (nothing is drawn), a stamp on an image without depth or time,
+a log window whose black point is not above 0 (drawn linear).
+
+Every answer is JSON with `elementId`, `figureId`, `name`, `box`, `crop`, the stored `view`, the
+`resolved` view, `position` and `showing` in words (`"z 13/31 · 1.2 µm"`, `"membrane: #ff00ff,
+100–4000"`), `exportPixels` (`dpi` 300) and `warnings`; `place-image` adds `assetId`, `reused`,
+`copy` (`clone` or `copy`) and `image` (`"2 channels · 31 z · 1,024 × 1,024 · uint16"`).
+
+```bash
+"{{FLUX_CLI}}" place-image fig2 plots/neuron_stack.fluximg --width 300 --name "Neuron stack" \
+  --view '{"index":{"z":12},"furniture":{"scalebar":{}}}'
+"{{FLUX_CLI}}" image-info <elementId>        # percentiles per channel → pick windows
+"{{FLUX_CLI}}" set-image-view <elementId> \
+  --view '{"projection":{"dim":"z","mode":"max","from":8,"to":16},"channels":[{"range":[120,3400]},{"lut":"gray"}]}'
+"{{FLUX_CLI}}" set-image-view <elementId> --crop '{"x":256,"y":256,"width":512,"height":512}'
+"{{FLUX_CLI}}" set-image-view <elementId> --view '{"projection":null,"channels":[{"range":null},null]}' --reset-crop
+"{{FLUX_CLI}}" render-figure fig2 --png --out /tmp/fig2.png
+```
+
 ### Slides (Flux Slide — see `SLIDES.md`)
 
 | Verb (CLI) | MCP tool | What it does |

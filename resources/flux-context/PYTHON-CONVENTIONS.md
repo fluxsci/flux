@@ -39,6 +39,10 @@ pipelines used across scripts or projects), build it as a **uv library**
 
 - Run scripts with `uv run` (or the project venv's interpreter) so the environment is
   always the project's own — never assume a global Python has the deps.
+- Saving an image or image stack (`fp.imsave`, `fp.fluximg`; PLOTS-AND-STYLE.md) needs a zstd
+  library in the analysis environment: `uv add zstandard` (fluxplot's `images` extra installs
+  the same; Python 3.14 has one built in). fluxplot says so with an actionable error if none is
+  installed.
 - Machine-specific facts (where existing envs live, user preferences) are in
   `UserContext/` — read it; it overrides nothing here but fills in specifics.
 - Missing prerequisites (uv itself, fluxplot clone, quarto/TeX, fonts)? The human

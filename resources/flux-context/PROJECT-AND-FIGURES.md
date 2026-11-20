@@ -17,13 +17,14 @@
 ├── plots/                       # USER-OWNED drop-zone — your fluxplot output lands here
 │   ├── growth.{svg,fluxplot.json,recipe.json}
 │   ├── neuron.{glb,fluxplot.json,recipe.json}
+│   ├── stack.fluximg/  + stack.recipe.json   # an image / image stack: a FOLDER (fluxplot fp.imsave)
 │   ├── _dissections/growth/     #   growth's companion material (see below) — NOT composable plots
 │   └── _lighttable/<name>/      #   Lighttable collections (exploratory image sets) — same
 ├── fig/                         # APP-MANAGED — NEVER hand-edit
 │   ├── index.json               #   canvases + figures rollup
 │   ├── canvases/<id>.json       #   the real figure composition (figures → elements)
 │   ├── captions/<id>.md         #   readable projection of model caption blocks
-│   ├── assets/                  #   imported SVGs, GLBs and metadata sidecars
+│   ├── assets/                  #   imported SVGs, GLBs, image bundles (<id>.fluximg/) and metadata sidecars
 │   └── renders/                 #   auto static renders (derived)
 │       └── model3d/             #   mesh-only PNG posters; vector furniture stays separate
 ├── references/library.bib       # USER-OWNED bibliography (BibTeX, [@citekey])
@@ -181,6 +182,45 @@ and paths; GLB bytes are never embedded in figure SVG.
 
 These commands target Figures. Deck selectors and 3D figure-to-slide conversion
 remain unavailable until the Slides integration is enabled.
+
+## Image panels (fluximg)
+
+A `fluximg` element shows an N-dimensional image (a `.fluximg` folder that fluxplot wrote under
+`plots/`; how to write one: PLOTS-AND-STYLE.md). Placing it copies the folder ONCE into
+`fig/assets/<assetId>.fluximg/`, an immutable asset named by a content id: the same content
+placed again, in the app or by `place-image`, reuses that copy. The element stores only a
+**view**: a sparse recipe of how the pixels are shown (plane along each dimension, projection,
+per-channel colour and window, layers, scale bar and stamps, crop). Absent keys mean the image's
+defaults; pixels never enter figure JSON and are never changed.
+
+```bash
+"{{FLUX_CLI}}" place-image fig2 plots/neuron_stack.fluximg --width 300 --name "Neuron stack"
+# Use the returned elementId below.
+"{{FLUX_CLI}}" image-info <elementId>      # dims, units, channels with percentiles, layers, the view in words
+"{{FLUX_CLI}}" set-image-view <elementId> --view '{"projection":{"dim":"z","mode":"max","from":10,"to":20},"channels":[{"range":[120,3400]},null],"furniture":{"scalebar":{}}}'
+"{{FLUX_CLI}}" render-figure fig2 --png --out /tmp/fig2.png   # look at it
+```
+
+- **Plan from facts, not pictures:** `image-info` gives each channel's min, max and percentiles
+  (choose `range` windows from them), every dimension's size, unit and positions, and the layer
+  ids. Every answer of the three verbs states the position in words (`z 12/21 · −50.5 µm`, plane
+  numbers 1-based there) and the channels shown, so read back what you set.
+- **Plane numbers in a view are 0-based** (`index`, `projection.from`); `projection.to` is
+  exclusive. The words and the app's Inspector count from 1.
+- **Pixels are data, the view is presentation.** Never edit a bundle in place, under `plots/` or
+  `fig/assets/`; never hand-edit `fig/**`. To change the data, re-run the script that wrote the
+  bundle. With the app open, a rewritten bundle under `plots/` replaces every placed copy (same
+  view and crop where they still fit, one Undo step). Headless there is no image update yet:
+  `sync-figure` does not cover images.
+- Contrast, colour maps, projections, crops, insets and annotations are view settings: set them
+  with `set-image-view` (or ask the user to use the live view, **R** on the image), never by
+  re-saving the pixels with clipped or rescaled values.
+- A crop (`--crop`, image pixels) keeps the content pinned on the canvas and changes the box;
+  `--reset-crop` shows the whole image again.
+- Exports, Paper and `render-figure` draw each image from its full-resolution pixels at the
+  output's resolution (SVG / PDF / Paper: 300 dpi at the printed size; PNG: its scale); layers of
+  shapes and objects, names and the scale bar stay vector.
+- Images go on figures only: a deck or slide target is refused.
 
 ## Conventions and identity
 
