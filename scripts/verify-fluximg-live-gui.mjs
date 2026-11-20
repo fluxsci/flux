@@ -52,6 +52,7 @@ const PLOT = await page.evaluate((svg, manifest) => {
   window.__fxFrames = [];
   document.addEventListener("flux-fluximg-frame", (e) => window.__fxFrames.push({ ...e.detail }));
   window.addEventListener("wheel", () => { window.__fxWheelAt = performance.now(); }, { capture: true });
+  window.addEventListener("keydown", (e) => { if (e.key === "r") window.__fxKeyAt = performance.now(); }, { capture: true });
   return "fxl-plot";
 }, PLOT_SVG, PLOT_MANIFEST);
 
@@ -669,7 +670,11 @@ for (const [name, width] of [["mid_tiled_u16", 420], ["big_tiled_u16", 420]]) {
   await page.evaluate(() => { const F = window.__flux; F.fig.commit((p) => { p.figures[0].elements = p.figures[0].elements.filter((e) => e.type !== "fluximg"); }); F.fig.resetHistory(); });
   const T = await placeFixture(name, { x: 80, y: 40 }, { width });
   await waitStill(T);
+  await page.evaluate(() => { window.__fxFrames = []; });
   await openLive(T);
+  const cold = await page.evaluate(() => { const at = window.__fxKeyAt, f = window.__fxFrames.filter((x) => x.time >= at), s = f.find((x) => x.sharp); return { first: f[0] ? f[0].time - at : NaN, sharp: s ? s.time - at : NaN, firstLevel: f[0]?.level, sharpLevel: s?.level }; });
+  console.log(`  ${name}: R -> first live frame ${cold.first.toFixed(1)} ms (level ${cold.firstLevel}), -> sharp ${cold.sharp.toFixed(1)} ms (level ${cold.sharpLevel})`);
+  h.ok(cold.first < 1000 && cold.sharp < 4000, `${name}: R shows the live image within 1 s and sharp within 4 s (${cold.first.toFixed(0)} / ${cold.sharp.toFixed(0)} ms)`);
   image = await rect("[data-fluximg-live]");
   await press("v");
   const first = [], sharp = [], draw = [], levels = [];
