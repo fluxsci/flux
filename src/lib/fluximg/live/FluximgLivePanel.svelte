@@ -77,7 +77,7 @@
     { label: "yellow", color: "#ffff00" }, { label: "red", color: "#ff0000" }, { label: "blue", color: "#4488ff" }, { label: "viridis", lut: "viridis" }, { label: "magma", lut: "magma" },
   ];
   const projectionDim = $derived(ctx ? (ctx.view.projection?.dim ?? (live?.armed?.startsWith("pos:") ? live.armed.slice(4) : dims[0])) : undefined);
-  const projectionOptions = $derived([{ label: "plane", mode: null }, ...PROJECTION_MODES.map((m) => ({ label: m, mode: m }))]);
+  const projectionOptions = $derived([{ label: "off", mode: null }, ...PROJECTION_MODES.map((m) => ({ label: m, mode: m }))]);
 
   function openZone(zone: "channel" | "layers" | "frame", index = 0): void {
     picking = null; draft = null;
@@ -369,7 +369,7 @@
               {/each}
               <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
               <div class="row" class:armed={picking === "projection"} class:tall={picking === "projection"} data-key={LIVE_KEYS.projection} onclick={() => { if (picking !== "projection") { picking = "projection"; optIndex = 0; } }}>
-                <span class="hk">{LIVE_KEYS.projection}</span><span class="label">Show</span>
+                <span class="hk">{LIVE_KEYS.projection}</span><span class="label">Projection</span>
                 {#if picking === "projection"}
                   <span class="opts" role="listbox" aria-label="Plane or projection">
                     {#each projectionOptions as o, i (o.label)}
@@ -378,14 +378,14 @@
                     {/each}
                   </span>
                 {:else}
-                  <span class="value">{ctx.view.projection ? `${ctx.view.projection.mode} over ${ctx.view.projection.to - ctx.view.projection.from} planes` : "one plane"}</span>
+                  <span class="value">{ctx.view.projection ? `${ctx.view.projection.mode} over ${ctx.view.projection.to - ctx.view.projection.from} planes` : "off · one plane"}</span>
                 {/if}
               </div>
             </div>
           {/if}
 
           <div class="group">
-            <div class="gtitle">Look inside</div>
+            <div class="gtitle">View</div>
             {#if ctx.manifest.layers.length}
               <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
               <div class="row" data-key={LIVE_KEYS.layers} onclick={() => openZone("layers")}><span class="hk">{LIVE_KEYS.layers}</span><span class="label">Layers &amp; objects</span><span class="value">{ctx.manifest.layers.length} {ctx.manifest.layers.length === 1 ? "layer" : "layers"}{objectCount ? ` · ${objectCount.toLocaleString("en-US")} objects` : ""} ›</span></div>
