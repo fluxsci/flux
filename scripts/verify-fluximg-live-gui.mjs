@@ -422,6 +422,16 @@ await press("q");
 h.eq((await model(S)).live.armed, "black", "keys work again after a field (q arms the black point)");
 await press("Escape");
 h.eq((await model(S)).live.zone, "home", "Esc returns to the home zone, not out of the view");
+// Split channels: one panel per channel beside the image, one undo step, the view stays on the composite.
+const countImages = () => page.evaluate(() => window.__flux.figures()[0].elements.filter((e) => e.type === "fluximg").map((e) => ({ id: e.id, composite: e.view?.composite ?? null, solo: e.view?.solo ?? null })));
+const imgs0 = await countImages(); before = await model(S);
+await press("x");
+const imgs1 = await countImages(); after = await model(S);
+const made = imgs1.filter((e) => !imgs0.some((o) => o.id === e.id));
+h.ok(made.length === 2 && made.every((e, i) => e.composite === "single" && e.solo === i), `x splits the channels into one solo panel each (${made.length})`);
+h.ok(after.past - before.past === 1 && (await isOpen()) && after.live.elementId === S, "…in one undo step, with the view still on the image");
+await press("z", ["Control"]);
+h.eq((await countImages()).length, imgs0.length, "Ctrl+Z takes the split back");
 await closeLive();
 
 // =====================================================================================================
