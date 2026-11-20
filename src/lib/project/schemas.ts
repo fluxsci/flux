@@ -304,6 +304,7 @@ const FLUXIMG_VIEW = {
       colorbar: { anyOf: [{ const: false }, { type: "object", properties: { corner: CORNER, color: { type: "string" }, fontSize: FONT_SIZE } }] },
     } },
     insetOf: NON_EMPTY,
+    link: NON_EMPTY,
   },
 };
 const FLUXIMG_BRANCH = elementBranch("fluximg", ["assetId"], {

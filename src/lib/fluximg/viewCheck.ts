@@ -58,7 +58,7 @@ export function checkViewPatch(manifest: FluximgManifest, patch: unknown, option
     for (const k of Object.keys(o)) if (!allowed.includes(k)) problems.push(`${where}: unknown setting "${k}" (allowed: ${list(allowed)})`);
   };
 
-  keysOk("view", patch, ["index", "projection", "channels", "composite", "solo", "smooth", "background", "layers", "layerOrder", "furniture", "insetOf"]);
+  keysOk("view", patch, ["index", "projection", "channels", "composite", "solo", "smooth", "background", "layers", "layerOrder", "furniture", "insetOf", "link"]);
 
   const index = patch.index;
   if (index !== undefined && index !== null) {
@@ -111,6 +111,7 @@ export function checkViewPatch(manifest: FluximgManifest, patch: unknown, option
   boolOk("smooth", patch.smooth);
   if (patch.background !== undefined && patch.background !== null && patch.background !== "transparent" && !isColor(patch.background)) problems.push(`background: "#rrggbb" or "transparent"`);
   if (patch.insetOf !== undefined && patch.insetOf !== null && (typeof patch.insetOf !== "string" || !patch.insetOf)) problems.push(`insetOf: the id of the element this one is a blow-out of`);
+  if (patch.link !== undefined && patch.link !== null && (typeof patch.link !== "string" || !patch.link)) problems.push(`link: a name shared by the panels that move together`);
 
   const layers = patch.layers;
   if (layers !== undefined && layers !== null) {

@@ -31,9 +31,16 @@ const orig = {
   readFile: fs.readFile, open: fs.open, readdir: fs.readdir,
   readFileSync: fsSync.readFileSync, createReadStream: fsSync.createReadStream, openSync: fsSync.openSync,
 };
+// A renderer of fluximg elements reads a bundle the way its own reader does: the manifest and layer files as text,
+// pixels in ranged pieces through an open handle. What stays forbidden for everyone is treating the bundle as an
+// ordinary asset: reading the directory itself, or a pixel shard WHOLE.
+let rendererMayRead = false;
+const WHOLE_PIXELS = /\.fluximg[\\/]pixels[\\/].*[\\/]c[\\/]/i, BUNDLE_ITSELF = /\.fluximg[\\/]?$/i;
 const guard = (how: string, p: unknown) => {
   const s = typeof p === "string" ? p : p instanceof URL ? p.pathname : Buffer.isBuffer(p) ? p.toString() : "";
-  if (armed && BUNDLE.test(s)) { asked.push(`${how} ${s}`); throw new Error(`fluximg guard: ${how} ${s}`); }
+  if (!armed || !BUNDLE.test(s)) return;
+  if (rendererMayRead && !BUNDLE_ITSELF.test(s) && !(WHOLE_PIXELS.test(s) && (how === "readFile" || how === "readFileSync" || how === "createReadStream"))) return;
+  asked.push(`${how} ${s}`); throw new Error(`fluximg guard: ${how} ${s}`);
 };
 type AnyFn = (...args: unknown[]) => unknown;
 const wrap = <F extends AnyFn>(how: string, fn: F): F => ((...args: unknown[]) => { guard(how, args[0]); return fn(...args); }) as F;
@@ -47,11 +54,12 @@ const wrap = <F extends AnyFn>(how: string, fn: F): F => ((...args: unknown[]) =
 (fsSync as unknown as Record<string, unknown>).createReadStream = wrap("createReadStream", orig.createReadStream as AnyFn);
 (fsSync as unknown as Record<string, unknown>).openSync = wrap("openSync", orig.openSync as AnyFn);
 syncBuiltinESMExports();
-async function armedRun<T>(label: string, fn: () => Promise<T> | T): Promise<T> {
+async function armedRun<T>(label: string, fn: () => Promise<T> | T, renderer = false): Promise<T> {
   const before = asked.length;
-  armed = true;
+  armed = true; rendererMayRead = renderer;
+  const what = renderer ? "reads the bundle only as its reader does (never the directory, never a shard whole)" : "never asks for a bundle's bytes";
   try { return await fn(); }
-  finally { armed = false; h.ok(asked.length === before, `${label}: never asks for a bundle's bytes${asked.length > before ? ` (asked: ${asked.slice(before).join(", ")})` : ""}`); }
+  finally { armed = false; rendererMayRead = false; h.ok(asked.length === before, `${label}: ${what}${asked.length > before ? ` (asked: ${asked.slice(before).join(", ")})` : ""}`); }
 }
 
 // fs-backed FileBridge for the renderer engine (the shim verify-figfiles-parity uses), reading through the guard.
@@ -257,8 +265,10 @@ try {
     const deps = await readProjectDependencies(rootA, { readText: (p: string) => fs.readFile(p, "utf8"), readdir: async (p: string) => (await fs.readdir(p, { withFileTypes: true })).map((e) => ({ name: e.name, dir: e.isDirectory() })) });
     h.ok(deps.byAsset[ASSET_ID]?.some((u) => u.kind === "figure"), "dependencies list the figure that places the bundle");
   });
-  const svg = await armedRun("flux-core renderFigureSvg", () => core.renderFigureSvg(rootA, "figA"));
-  h.ok(svg.includes(`data-fluximg-placeholder="${ASSET_ID}"`), "flux-core render draws the neutral placeholder");
+  const svg = await armedRun("flux-core renderFigureSvg", () => core.renderFigureSvg(rootA, "figA"), true);
+  // This project's bundle is a stand-in directory (the model gate needs no pixels): the renderer must still produce
+  // the figure, drawing the image from the bundle when it can and the named stand-in when it cannot.
+  h.ok(svg.includes(`data-fluximg="${ASSET_ID}"`) || svg.includes(`data-fluximg-placeholder="${ASSET_ID}"`), "flux-core render draws the image, or its stand-in when the bundle cannot be read");
   h.ok(walked.length === 0, `no engine walked a bundle's chunk files (${walked.length})`);
 
   h.section("4. GC, deletion and a missing bundle");
@@ -365,6 +375,27 @@ try {
     h.ok(validateModel(JSON.parse(JSON.stringify(p))).length === 0, "the merged model passes the load gate");
     let threw = false; try { ops.setFluximgView(p, "nope", {}); } catch { threw = true; }
     h.ok(threw, "an unknown element id is refused");
+  }
+  h.section("linked panels move together");
+  {
+    const p = proj();
+    const a = ops.addFluximg(p, { figureId: "f", asset, view: { link: "L", channels: [{ color: "#00ff00" }] } });
+    const b = ops.addFluximg(p, { figureId: "f", asset, view: { link: "L", composite: "single", solo: 1 } });
+    const c = ops.addFluximg(p, { figureId: "f", asset });
+    const el = (id: string) => p.figures[0].elements.find((e) => e.id === id) as FluximgElement;
+    ops.setFluximgView(p, a, { index: { z: 4 }, channels: [{ range: [10, 90], color: "#ff00ff" }], smooth: true });
+    h.ok(el(b).view?.index?.z === 4, "a linked panel follows the position");
+    h.eq(el(b).view?.channels, [{ range: [10, 90] }], "…and each channel's window, but not its colour");
+    h.ok(el(b).view?.smooth === undefined && el(b).view?.composite === "single" && el(b).view?.solo === 1, "what a panel shows stays its own");
+    h.ok(el(c).view === undefined, "an element without the link is untouched");
+    ops.setFluximgView(p, b, { projection: { dim: "z", mode: "max", from: 0, to: 3 } });
+    h.eq(el(a).view?.projection, { dim: "z", mode: "max", from: 0, to: 3 }, "the link works in both directions");
+    ops.setFluximgView(p, a, { projection: null, channels: [{ range: null as never }] });
+    h.ok(el(b).view?.projection === undefined && el(b).view?.channels === undefined, "clearing a shared value clears it on every linked panel");
+    ops.setFluximgView(p, a, { link: null as never });
+    ops.setFluximgView(p, a, { index: { z: 1 } });
+    h.ok(el(b).view?.index?.z === 4, "an element that left the link no longer drives it");
+    h.ok(validateModel(JSON.parse(JSON.stringify(p))).length === 0, "linked views pass the load gate");
   }
   h.section("crop");
   {

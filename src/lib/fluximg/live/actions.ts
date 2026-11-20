@@ -330,10 +330,13 @@ export function splitChannels(): void {
     const asset = p.assets.find((a) => a.id === c.element.assetId);
     if (!found || !asset) return;
     const src = found.element;
+    // The composite and its channel panels move together from now on (position, projection, each channel's window).
+    const link = src.view?.link ?? `split-${src.id}`;
+    src.view = { ...(src.view ?? {}), link };
     for (let i = 0; i < n; i++) {
       const channels: Array<FluximgChannelView | null> = [];
       for (let k = 0; k < n; k++) channels.push(k === i ? { ...(src.view?.channels?.[k] ?? {}), lut: "gray", color: null as unknown as undefined } : (src.view?.channels?.[k] ?? null));
-      const view: FluximgView = { ...structuredClone(src.view ?? {}), composite: "single", solo: i, channels, furniture: { channelLabels: {} } };
+      const view: FluximgView = { ...structuredClone(src.view ?? {}), link, composite: "single", solo: i, channels, furniture: { channelLabels: {} } };
       const nid = addFluximg(p, {
         figureId: found.figureId, asset, x: src.x + (i + 1) * (src.width + gap), y: src.y, width: src.width,
         view, ...(src.crop ? { crop: { ...src.crop } } : {}), ...(src.source ? { source: structuredClone(src.source) } : {}),
@@ -362,7 +365,10 @@ export function makeInset(restore: CropRect | null): string | null {
     const found = elementFigure(p, id), asset = p.assets.find((a) => a.id === c.element.assetId);
     if (!found || !asset) return;
     const src = found.element;
-    const view: FluximgView = { ...structuredClone(src.view ?? {}), insetOf: src.id, furniture: { scalebar: {} } };
+    // A blow-out follows its parent through planes and contrast (it is the same picture, closer).
+    const link = src.view?.link ?? `inset-${src.id}`;
+    src.view = { ...(src.view ?? {}), link };
+    const view: FluximgView = { ...structuredClone(src.view ?? {}), link, insetOf: src.id, furniture: { scalebar: {} } };
     created = addFluximg(p, {
       figureId: found.figureId, asset, x: src.x + src.width + 8, y: src.y, width: src.height * (region.width / region.height),
       view, crop: { x: region.x, y: region.y, width: region.width, height: region.height }, ...(src.source ? { source: structuredClone(src.source) } : {}),

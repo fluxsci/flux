@@ -151,6 +151,7 @@ export function resolveView(manifest: FluximgManifest, view?: FluximgView | null
     layers,
     furniture: resolveFurniture(manifest, v.furniture),
     insetOf: typeof v.insetOf === "string" && v.insetOf ? v.insetOf : null,
+    link: typeof v.link === "string" && v.link ? v.link : null,
   };
 }
 
@@ -265,6 +266,30 @@ export function patchView(view: FluximgView | undefined, patch: FluximgView): Fl
   }
   if (Array.isArray(out.layerOrder) && (out.layerOrder as unknown[]).length === 0) delete out.layerOrder;
   return out as FluximgView;
+}
+
+/**
+ * The part of a patch that linked panels share: position, projection, and each channel's window, norm and gamma.
+ * Null when the patch touches none of those. (Visibility, colours, the composite mode, layers, furniture and the
+ * frame belong to one panel: a grey single-channel panel beside its composite differs in exactly those.)
+ */
+export function sharedPatch(patch: FluximgView): FluximgView | null {
+  const out: FluximgView = {};
+  if (patch.index !== undefined) out.index = patch.index;
+  if (patch.projection !== undefined) out.projection = patch.projection;
+  if (Array.isArray(patch.channels)) {
+    let any = false;
+    const channels = patch.channels.map((c) => {
+      if (!isObj(c)) return null;
+      const keep: Record<string, unknown> = {};
+      for (const k of ["range", "norm", "gamma"] as const) if (k in c) keep[k] = (c as Record<string, unknown>)[k];
+      if (!Object.keys(keep).length) return null;
+      any = true;
+      return keep as FluximgChannelView;
+    });
+    if (any) out.channels = channels;
+  }
+  return Object.keys(out).length ? out : null;
 }
 
 // ---------------------------------------------------------------------------------------------

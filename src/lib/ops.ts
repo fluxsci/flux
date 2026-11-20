@@ -2113,7 +2113,7 @@ export { setModelView };
 // ---------------------------------------------------------------------------
 import type { Asset, FluximgElement } from "./types";
 import type { FluximgView } from "./fluximg/view";
-import { patchView } from "./fluximg/viewOps";
+import { patchView, sharedPatch } from "./fluximg/viewOps";
 import { FLUXIMG_NOT_IN_SLIDES } from "./fluximg/policy";
 import { DECK_CANVAS_ID } from "./slide/deckProject";
 
@@ -2184,6 +2184,16 @@ export function setFluximgView(p: Project, elementId: Id, patch: FluximgView): v
     const next = patchView(e.view, patch);
     if (Object.keys(next).length) e.view = next;
     else delete e.view;
+    // Linked panels (split channels, a blow-out) move together: the shared part of the patch goes to every other
+    // element of the same image carrying the same link, wherever it sits in the project.
+    const link = next.link, shared = link ? sharedPatch(patch) : null;
+    if (link && shared) {
+      for (const g of p.figures) for (const other of g.elements) {
+        if (other === e || other.type !== "fluximg" || other.assetId !== e.assetId || other.view?.link !== link) continue;
+        const merged = patchView(other.view, shared);
+        if (Object.keys(merged).length) other.view = merged; else delete other.view;
+      }
+    }
     return;
   }
   throw new Error(`element not found: ${elementId}`);

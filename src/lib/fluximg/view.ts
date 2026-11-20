@@ -103,6 +103,12 @@ export interface FluximgView {
   furniture?: FluximgFurnitureView;
   /** This element is a blow-out of that element (same asset): the parent draws this element's crop as a rectangle. */
   insetOf?: string;
+  /**
+   * Panels of one image that move together (split channels, a blow-out): elements of the same asset carrying the
+   * same link share their position, projection and each channel's window, norm and gamma. What a panel SHOWS
+   * (which channels, their colours, its frame, its annotations) stays its own.
+   */
+  link?: string;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -161,6 +167,7 @@ export interface ResolvedView {
   layers: ResolvedLayer[];
   furniture: ResolvedFurniture;
   insetOf: string | null;
+  link: string | null;
 }
 
 /** A crop in image pixels (level 0), or in the pixels of whichever level a renderer was handed. */
