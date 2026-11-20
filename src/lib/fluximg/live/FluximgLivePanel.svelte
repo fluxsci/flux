@@ -511,7 +511,7 @@
   /* One line per row: key, name, and its current value in mono at the right (the F-menu's search-result row). */
   .row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 8px; align-items: center; min-height: 26px; padding: 0 6px 0 4px; cursor: var(--cursor-cross-hover); }
   .row.chan { grid-template-columns: 18px 16px minmax(0, 1fr) 18px auto; gap: 7px; }
-  .row.static { cursor: default; }
+  .row.static { cursor: var(--cursor-cross); }
   .row:not(.static):hover { background: var(--c-surface-2); }
   .row.armed { background: var(--c-accent-tint); box-shadow: inset 2px 0 0 var(--c-accent); }
   .row.armed .hk, .field.editing .hk { background: var(--c-accent-tint); }

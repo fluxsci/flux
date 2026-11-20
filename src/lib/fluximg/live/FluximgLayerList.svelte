@@ -228,7 +228,7 @@
   /* The X-ray's row: 24 px, a twisty, an eye, the name, then quiet context at the right. */
   .lrow { display: flex; align-items: center; gap: 7px; height: 24px; padding: 0 6px 0 4px; cursor: var(--cursor-cross-hover); white-space: nowrap; }
   .lrow.obj { padding-left: 44px; gap: 10px; }
-  .lrow.more { padding-left: 44px; cursor: default; color: var(--c-tx-muted); font: 11px var(--font-ui); }
+  .lrow.more { padding-left: 44px; cursor: var(--cursor-cross); color: var(--c-tx-muted); font: 11px var(--font-ui); }
   .lrow:not(.more):hover { background: var(--c-surface-2); }
   .lrow.sel, .lrow.armed { background: var(--c-accent-tint); box-shadow: inset 2px 0 0 var(--c-accent); }
   .lrow.hot { background: color-mix(in oklab, var(--c-accent-bright) 18%, transparent); }

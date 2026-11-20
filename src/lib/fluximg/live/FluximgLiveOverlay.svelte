@@ -9,6 +9,7 @@
    */
   import { onDestroy } from "svelte";
   import { project } from "../../store";
+  import { yieldsToShellModal, isAnnotateChord } from "../../../shell/agent/annotationVisibility";
   import { fluximgBundle, fluximgManifests, fluximgService, needLuts, resolveLut } from "../store";
   import FluximgVectors from "../FluximgVectors.svelte";
   import { clampCrop } from "../still";
@@ -249,7 +250,12 @@
     lastMove = null; livePointer.at = null; under = null;
     if ($fluximgHover?.from === "image") fluximgHover.set(null);
   }
-  function onKey(e: KeyboardEvent): void { if (e.code === "Space") { space = e.type === "keydown"; if (space) beginPan(); } }
+  function onKey(e: KeyboardEvent): void {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
+    // Space held = pan the canvas, as everywhere else. While the live view's panel has a rail to play, Space is
+    // its play key and this never sees a held Space over the image; a pointer press checks `space` either way.
+    if (e.code === "Space") { space = e.type === "keydown"; if (space && !$fluximgLive) beginPan(); }
+  }
 
   // The hovered object (from the image or from the list) is outlined on the image.
   let hot: Element | null = null;
