@@ -9,6 +9,7 @@ import { addFluximg } from "../../ops";
 import { pushToast } from "../../toast";
 import type { CropRect, FluximgElement, Project } from "../../types";
 import { fluximgManifests } from "../store";
+import { niceLength, roundNeighbour } from "../furniture";
 import { clampCrop, fullCrop } from "../still";
 import type { FluximgManifest } from "../types";
 import type { FluximgChannelView, FluximgFurnitureView, FluximgLayerView, FluximgProjectionMode, FluximgView, PixelRect, ResolvedView } from "../view";
@@ -289,6 +290,34 @@ export function toggleFurniture(kind: FurnitureKind): void {
   liveView(`furniture:${kind}`, { furniture: { [kind]: on ? null : {} } as FluximgFurnitureView });
   settleLiveEdit();
 }
+/**
+ * The wheel over an annotation that is shown: the scale bar steps through round lengths (never longer than most
+ * of the picture; back at the length the picture would pick by itself, nothing is stored); the others change
+ * their text size by half a point.
+ */
+export function nudgeFurniture(kind: "scalebar" | "stamp" | "channelLabels" | "colorbar", steps: number): void {
+  const c = liveContext();
+  const item = c?.view.furniture[kind];
+  if (!c || !item || !steps) return;
+  if (kind === "scalebar") {
+    const ax = c.manifest.axes?.x, sb = c.view.furniture.scalebar;
+    if (!sb || !ax || !(typeof ax.scale === "number" && ax.scale > 0)) return;
+    const own = niceLength(0.25 * c.crop.width * ax.scale);
+    let next = sb.length ?? own;
+    for (let i = 0; i < Math.abs(steps); i++) {
+      const n = roundNeighbour(next, steps > 0 ? 1 : -1);
+      if (!(n > 0) || n > 0.9 * c.crop.width * ax.scale || n < 2 * ax.scale) break;
+      next = n;
+    }
+    if (next === (sb.length ?? own)) return;
+    liveView("furniture-size:scalebar", { furniture: { scalebar: { length: next === own ? (null as unknown as undefined) : next } } }, WHEEL_SETTLE_MS);
+    return;
+  }
+  const size = Math.min(48, Math.max(4, Math.round((item.fontSize + steps * 0.5) * 2) / 2));
+  if (size === item.fontSize) return;
+  liveView(`furniture-size:${kind}`, { furniture: { [kind]: { fontSize: size } } as FluximgFurnitureView }, WHEEL_SETTLE_MS);
+}
+
 const CORNERS = ["bottom-right", "bottom-left", "top-left", "top-right"] as const;
 export type FurnitureSpot = (typeof CORNERS)[number];
 /** Put an annotation that is on in a corner (it is being dragged there). The caller settles the gesture on release. */
@@ -499,6 +528,40 @@ export function makeInset(restore: CropRect | null, drawn?: PixelRect): string |
   if (created && done.place === "inside") { closeFluximgLive(); selection.set(new Set([created])); }
   if (created) pushToast("info", done.place === "inside" ? "Inset placed on the image" : done.place === "below" ? "Inset placed below the image" : "Inset placed beside the image", done.place === "inside" ? { detail: "The figure has no room beside it. Drag the inset where you want it." } : {});
   return created;
+}
+
+/** An inset of the live image, by id: its element and the region it shows. */
+function insetOf(p: Project, parentId: string, id: string): FluximgElement | null {
+  const found = elementFigure(p, id);
+  return found && found.element.view?.insetOf === parentId && found.element.crop ? found.element : null;
+}
+
+/**
+ * Move an inset's region on its image (its rectangle is being dragged there): `from` is the region when the drag
+ * began, `dx` / `dy` image pixels since. The inset keeps its size and stays inside the image. The caller settles
+ * the gesture on release.
+ */
+export function moveInset(id: string, from: PixelRect, dx: number, dy: number): void {
+  const c = liveContext();
+  if (!c) return;
+  const full = fullCrop(c.manifest), parent = c.element.id;
+  const x = Math.min(full.width - from.width, Math.max(0, from.x + dx)), y = Math.min(full.height - from.height, Math.max(0, from.y + dy));
+  liveMutate(`inset-move:${id}`, (p) => { const e = insetOf(p, parent, id); if (e) e.crop = { x, y, width: from.width, height: from.height }; });
+}
+
+/** Make an inset's region smaller (`factor` > 1: the inset shows it closer) or larger, about its middle; its shape stays. */
+export function zoomInset(id: string, factor: number): void {
+  const c = liveContext();
+  if (!c || !(factor > 0)) return;
+  const full = fullCrop(c.manifest), parent = c.element.id;
+  const now = insetOf(get(project), parent, id)?.crop;
+  if (!now) return;
+  const aspect = now.height / now.width;
+  let w = Math.min(full.width, Math.max(4, now.width / factor)), h = w * aspect;
+  if (h > full.height) { h = full.height; w = h / aspect; }
+  const x = Math.min(full.width - w, Math.max(0, now.x + (now.width - w) / 2)), y = Math.min(full.height - h, Math.max(0, now.y + (now.height - h) / 2));
+  if (Math.abs(w - now.width) < 1e-9) return;
+  liveMutate(`inset-zoom:${id}`, (p) => { const e = insetOf(p, parent, id); if (e) e.crop = { x, y, width: w, height: h }; }, WHEEL_SETTLE_MS);
 }
 
 // --- playback -----------------------------------------------------------------------------------

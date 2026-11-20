@@ -53,8 +53,10 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   on its own histogram, and a card for the object under it. Take a channel, a rail or the frame
   in hand with its key and the wheel drives it from anywhere; a drag on the image then pulls
   contrast or moves the frame. Zoom in and a map of the whole image appears; draw a box to pull
-  out an inset. A scale bar, a position stamp, channel names and a calibration bar are one key
-  each, and each can be dragged to another corner of the picture. Projections (max, mean, min,
+  out an inset, whose rectangle on the image stays a handle (drag its edge to move the region,
+  roll the wheel to size it). A scale bar, a position stamp, channel names and a calibration bar
+  are one key each; each can be dragged to another corner of the picture, and the wheel over one
+  steps the bar's length through round values or changes the text's size. Projections (max, mean, min,
   sum, std) are a band on the rail you can drag. Layers and their objects are a card, with
   two-way hover and a filter. Every gesture is one undo step.
 - **The Inspector shows the same settings as numbers**, with or without the live view open.

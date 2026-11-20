@@ -24,10 +24,10 @@
   import { contributingChannelIndices, formatNumber, resolveView } from "../viewOps";
   import type { FluximgElement } from "../../types";
   import FluximgBoard from "./FluximgBoard.svelte";
-  import { channelInHand, defaultArmed, dragContrast, makeInset, panFrame, setFurnitureCorner, type FurnitureSpot } from "./actions";
+  import { channelInHand, defaultArmed, dragContrast, makeInset, moveInset, panFrame, setFurnitureCorner, type FurnitureSpot } from "./actions";
   import { LiveDriver, type FrameInfo } from "./driver";
   import { fluximgTables, needTable, objectCells, tableOf } from "./objectTables";
-  import { cancelLiveEdit, fluximgFrame, fluximgHover, fluximgLive, fluximgLiveProblem, fluximgReadout, liveArm, livePointer, liveSampler, setLive, settleLiveEdit } from "./session";
+  import { cancelLiveEdit, fluximgFrame, fluximgHover, fluximgLive, fluximgLiveProblem, fluximgReadout, fluximgTip, liveArm, livePointer, liveSampler, setLive, settleLiveEdit } from "./session";
 
   let { element, left, top, zoom, beginPan }: { element: FluximgElement; left: number; top: number; zoom: number; beginPan: () => void } = $props();
 
@@ -375,6 +375,40 @@
   }
   const slot = $derived(Math.max(8, furnitureInset(box) * zoom));
 
+  // --- an inset's region on the picture: take its rectangle and move it; the inset follows -----------
+  /** Each inset's region as fractions of the box AS DRAWN (mirrored with the picture), when any of it is in the frame. */
+  const regions = $derived.by(() => {
+    if (!crop) return [];
+    return insets.map((i) => {
+      let u = (i.crop.x - crop.x) / crop.width, v = (i.crop.y - crop.y) / crop.height;
+      const w = i.crop.width / crop.width, h = i.crop.height / crop.height;
+      if (element.flipX) u = 1 - (u + w);
+      if (element.flipY) v = 1 - (v + h);
+      return { id: i.id, crop: i.crop, u, v, w, h };
+    }).filter((r) => r.u < 1 && r.v < 1 && r.u + r.w > 0 && r.v + r.h > 0);
+  });
+  let regionDrag = $state.raw<{ pointer: number; id: string; x: number; y: number; from: { x: number; y: number; width: number; height: number } } | null>(null);
+  function regionDown(e: PointerEvent, r: { id: string; crop: { x: number; y: number; width: number; height: number } }): void {
+    if (e.button !== 0 || space) return;
+    e.preventDefault(); e.stopPropagation();
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    fluximgTip.set(null);
+    regionDrag = { pointer: e.pointerId, id: r.id, x: e.clientX, y: e.clientY, from: { ...r.crop } };
+  }
+  function regionMove(e: PointerEvent): void {
+    if (!regionDrag || e.pointerId !== regionDrag.pointer || !crop) return;
+    let [dx, dy] = unrotate(e.clientX - regionDrag.x, e.clientY - regionDrag.y);
+    if (element.flipX) dx = -dx;
+    if (element.flipY) dy = -dy;
+    moveInset(regionDrag.id, regionDrag.from, dx * (crop.width / bw), dy * (crop.height / bh));
+  }
+  function regionUp(e: PointerEvent): void {
+    if (!regionDrag || e.pointerId !== regionDrag.pointer) return;
+    const cancelled = e.type !== "pointerup";
+    regionDrag = null;
+    if (cancelled) cancelLiveEdit(); else settleLiveEdit();
+  }
+
   // --- what a hovered key would do, drawn on the figure ---------------------------------------------
   let preview = $state.raw<null | { kind: "split"; plan: SplitLayout }>(null);
   const origin = $derived({ x: left - element.x * zoom, y: top - element.y * zoom });
@@ -420,11 +454,29 @@
   {/if}
 </div>
 
+<!-- An inset's region is a thing on the picture too: drag its rectangle and the inset shows what is under it;
+     roll the wheel over it and the inset shows it closer or wider. (Not while a box is being drawn or contrast pulled.) -->
+{#if regions.length && (mode === "read" || mode === "pan")}
+  <!-- Only the rectangle's EDGE takes the pointer (a band 12 px wide): what is inside it is still the image's. -->
+  <svg class="fx-regions" style={frameStyle} width={bw} height={bh} viewBox={`0 0 ${bw} ${bh}`} aria-hidden="true">
+    {#each regions as r (r.id)}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <rect class="hit" class:held={regionDrag?.id === r.id} x={r.u * bw} y={r.v * bh} width={r.w * bw} height={r.h * bh} data-fxb-region={r.id} data-fxb-wheel={`region:${r.id}`}
+        onpointerenter={(e) => { if (!regionDrag && !e.buttons) { const b = (e.currentTarget as SVGRectElement).getBoundingClientRect(); fluximgTip.set({ text: "The inset's region · drag its edge to move it, roll to size it", hk: "", x: Math.min(host.w - 8, Math.max(8, b.left + b.width / 2 - host.x)), y: b.top - host.y < 34 ? b.bottom - host.y + 9 : b.top - host.y - 9, below: b.top - host.y < 34 }); } }}
+        onpointerleave={() => fluximgTip.set(null)}
+        onpointerdown={(e) => regionDown(e, r)} onpointermove={regionMove} onpointerup={regionUp} onpointercancel={regionUp} onlostpointercapture={regionUp} />
+      <rect class="show" x={r.u * bw} y={r.v * bh} width={r.w * bw} height={r.h * bh} />
+    {/each}
+  </svg>
+{/if}
+
 <!-- An annotation that is shown is a thing on the picture: take it and put it in another corner. -->
 {#each grips as g (g.kind)}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="fx-grip" class:held={gripDrag?.kind === g.kind} style={`left:${g.x}px;top:${g.y}px;width:${g.w}px;height:${g.h}px`} data-fxb-grip={g.kind}
-    onpointerdown={(e) => gripDown(e, g.kind)} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp} onlostpointercapture={gripUp}></div>
+  <div class="fx-grip" class:held={gripDrag?.kind === g.kind} style={`left:${g.x}px;top:${g.y}px;width:${g.w}px;height:${g.h}px`} data-fxb-grip={g.kind} data-fxb-wheel={`furniture:${g.kind}`}
+    onpointerenter={() => { if (!gripDrag) fluximgTip.set({ text: g.kind === "scalebar" ? "Drag to another corner · roll: its length" : "Drag to another corner · roll: text size", hk: "", x: Math.min(host.w - 8, Math.max(8, g.x + g.w / 2)), y: g.y < 34 ? g.y + g.h + 7 : g.y - 7, below: g.y < 34 }); }}
+    onpointerleave={() => fluximgTip.set(null)}
+    onpointerdown={(e) => { fluximgTip.set(null); gripDown(e, g.kind); }} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp} onlostpointercapture={gripUp}></div>
 {/each}
 
 {#each previewBoxes as b, i (i)}
@@ -481,6 +533,12 @@
   .slot { position: absolute; width: 20%; height: 11%; min-width: 26px; min-height: 14px; border: 1.5px dashed color-mix(in oklab, var(--c-guide) 70%, transparent); border-radius: 4px; }
   .slot.on { border-style: solid; border-color: var(--c-guide); background: color-mix(in oklab, var(--c-guide) 18%, transparent); }
 
+  .fx-regions { position: absolute; z-index: 2; display: block; transform-origin: center; pointer-events: none; overflow: hidden; }
+  .fx-regions .hit { fill: none; stroke: transparent; stroke-width: 12px; pointer-events: stroke; cursor: grab; touch-action: none; }
+  .fx-regions .hit.held { cursor: grabbing; }
+  .fx-regions .show { fill: none; stroke: transparent; stroke-width: 2px; pointer-events: none; transition: stroke 80ms linear, fill 80ms linear; }
+  .fx-regions .hit:hover + .show { stroke: var(--c-guide); fill: color-mix(in oklab, var(--c-guide) 8%, transparent); }
+  .fx-regions .hit.held + .show { stroke: var(--c-guide); fill: color-mix(in oklab, var(--c-guide) 14%, transparent); }
   .fx-grip { position: absolute; z-index: 2; border-radius: 4px; cursor: grab; touch-action: none; transition: box-shadow 80ms linear, background-color 80ms linear; }
   .fx-grip:hover { box-shadow: 0 0 0 1px var(--c-guide); background: color-mix(in oklab, var(--c-guide) 12%, transparent); }
   .fx-grip.held { cursor: grabbing; box-shadow: 0 0 0 1.5px var(--c-guide); background: color-mix(in oklab, var(--c-guide) 20%, transparent); }

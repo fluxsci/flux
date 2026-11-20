@@ -81,6 +81,13 @@ export interface LiveReadout {
   u: number; v: number;
 }
 export const fluximgReadout = writable<LiveReadout | null>(null);
+/**
+ * The board's one label: what the thing under the pointer is, and its key. Host px; `below` = under the thing
+ * (when there is no room above it). The board draws it; the board's own parts and the overlay's (an annotation's
+ * grip on the picture) set it.
+ */
+export interface LiveTip { text: string; hk: string; x: number; y: number; below: boolean }
+export const fluximgTip = writable<LiveTip | null>(null);
 /** A problem the live canvas ran into (no WebGL, an unreadable plane): shown on the board's head. */
 export const fluximgLiveProblem = writable("");
 /** What the frame on screen is: bumped by the overlay every time a frame is presented. */
@@ -176,6 +183,7 @@ export function closeFluximgLive(): void {
   liveSampler.read = null;
   liveArm.explicit = false;
   fluximgReadout.set(null);
+  fluximgTip.set(null);
   fluximgLiveProblem.set("");
   fluximgLive.set(null);
 }

@@ -16,6 +16,7 @@ import {
   AUTO_STEPS, autoStepOf, autoWindow, clippedShares, formatShare, histDomain, histogramPath, moveWindow, nextAutoStep, nudgeStep, shareBelow, snapValue, transferPath, valueToX, viewHistogram, xToValue,
 } from "../src/lib/fluximg/live/histogram";
 import { gridCells, insetLayout, splitLayout, type PanelBox } from "../src/lib/fluximg/panelLayout";
+import { roundNeighbour } from "../src/lib/fluximg/furniture";
 import { patchView, resolveView } from "../src/lib/fluximg/viewOps";
 import type { FluximgManifest, FluximgStats } from "../src/lib/fluximg/types";
 import type { FluximgView } from "../src/lib/fluximg/view";
@@ -416,6 +417,22 @@ h.section("viewOps: a patch that restores a default leaves no key");
   const out = find(cases, ({ f, src }) => { const a = 0.2 + R() * 4, l = insetLayout(f, src, a); return !within(f, l.box) || Math.abs(l.box.width / l.box.height - a) > 1e-6 * a || (l.place !== "inside" && overlap(l.box, src)); });
   h.ok(out === null, `an inset is always inside the figure, keeps its region's aspect, and covers its image only when it stands on it${out ? ` (counter-example ${show(out)})` : ""}`);
   h.ok(insetLayout(page, fitted, 6).box.width <= 324 + 1e-9, "a very wide inset on its image is never more than half the image's width");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Round lengths (the wheel over a scale bar)
+// ---------------------------------------------------------------------------------------------
+h.section("furniture: the next round length");
+{
+  h.eq([1, 2, 5, 10, 20, 50, 0.5, 0.02].map((v) => roundNeighbour(v, 1)), [2, 5, 10, 20, 50, 100, 1, 0.05], "up the 1, 2, 5 × 10ⁿ series");
+  h.eq([1, 2, 5, 10, 20, 50, 0.5, 0.02].map((v) => roundNeighbour(v, -1)), [0.5, 1, 2, 5, 10, 20, 0.2, 0.01], "and down it");
+  h.eq([roundNeighbour(30, 1), roundNeighbour(30, -1), roundNeighbour(7.5, 1), roundNeighbour(7.5, -1)], [50, 20, 10, 5], "a length off the series goes to its neighbours on it");
+  h.eq([roundNeighbour(1000, -1), roundNeighbour(0.001, 1)], [500, 0.002], "powers of ten are read exactly (no 999.99…)");
+  h.eq([roundNeighbour(0, 1), roundNeighbour(-3, 1), roundNeighbour(NaN, 1)].map((v) => (Number.isNaN(v) ? "NaN" : v)), [0, -3, "NaN"], "what is not a length is handed back");
+  let v = 1;
+  for (let i = 0; i < 9; i++) v = roundNeighbour(v, 1);
+  for (let i = 0; i < 9; i++) v = roundNeighbour(v, -1);
+  h.eq(v, 1, "nine steps up and nine down come home");
 }
 
 // ---------------------------------------------------------------------------------------------

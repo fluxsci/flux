@@ -31,11 +31,11 @@
   import PaperKey from "./PaperKey.svelte";
   import {
     LIVE_KEYS, PROJECTION_MODES, autoContrast, autoPlan, backOut, channelInHand, cycleFurnitureCorner, defaultArmed, dimKeys, dimLength, holdRail, liveContext, makeInset,
-    nudgeGamma, nudgeLayerOpacity, nudgeWindow, panFrame, railDims, resetChannel, resetFrame, resizeProjection, setChannel, setPosition, setProjectionMode, setRun,
-    setWindow, soloChannel, splitChannels, splitPlan, stepPosition, stepSpeed, takeChannel, toggleChannel, toggleFurniture, togglePlayback, toggleSmooth, zoomFrame,
+    nudgeFurniture, nudgeGamma, nudgeLayerOpacity, nudgeWindow, panFrame, railDims, resetChannel, resetFrame, resizeProjection, setChannel, setPosition, setProjectionMode, setRun,
+    setWindow, soloChannel, splitChannels, splitPlan, stepPosition, stepSpeed, takeChannel, toggleChannel, toggleFurniture, togglePlayback, toggleSmooth, zoomFrame, zoomInset,
   } from "./actions";
   import { boardLayout, type Box } from "./boardLayout";
-  import { armLive, cancelLiveEdit, closeFluximgLive, fluximgFrame, fluximgHover, fluximgLive, fluximgLiveProblem, fluximgReadout, liveArm, livePointer, liveSampler, setLive, settleLiveEdit, type LiveSample } from "./session";
+  import { armLive, cancelLiveEdit, closeFluximgLive, fluximgFrame, fluximgLive, fluximgLiveProblem, fluximgReadout, fluximgTip, liveArm, livePointer, liveSampler, setLive, settleLiveEdit, type LiveSample } from "./session";
 
   let { image, host, origin, zoom, prefetch, preview = $bindable(null) }: {
     /** The live image's screen bounds, in the canvas host's px. */
@@ -299,7 +299,7 @@
     // Over an instrument the wheel is that instrument's, whatever is in hand.
     const over = target?.closest<HTMLElement>("[data-fxb-wheel]")?.dataset.fxbWheel ?? "";
     if (!over && target?.closest(".scrolls")) return; // a list scrolls
-    const onBoard = !!target?.closest("[data-fluximg-live], [data-fxb], [data-fxb-grip]");
+    const onBoard = !!target?.closest("[data-fluximg-live], [data-fxb], [data-fxb-grip], [data-fxb-region]");
     const armed = live.armed;
     if (!over) {
       if (!armed) return;
@@ -326,6 +326,8 @@
     if (over.startsWith("speed:")) { stepSpeed(Math.sign(notches)); return; }
     if (over === "map") { zoomFrame(Math.pow(1.12, notches * coarse * fine), null); return; }
     if (over.startsWith("layer:")) { nudgeLayerOpacity(over.slice(6), notches * coarse); return; }
+    if (over.startsWith("furniture:")) { nudgeFurniture(over.slice(10) as Furniture, notches); return; }
+    if (over.startsWith("region:")) { zoomInset(over.slice(7), Math.pow(1.1, notches * coarse * fine)); return; }
     if (!armed) return;
     if (armed.startsWith("pos:")) stepPosition(armed.slice(4), -notches * coarse);
     else if (armed.startsWith("run:")) resizeProjection(notches * coarse);
@@ -373,15 +375,15 @@
   const showMap = $derived(!!ctx && (!whole || live?.armed === "zoom"));
 
   // --- the board's one label ---------------------------------------------------------------------------
-  let tip = $state<{ text: string; hk: string; x: number; y: number; below: boolean } | null>(null);
+  const tip = $derived($fluximgTip);
   function showTip(e: PointerEvent): void {
     const el = e.target instanceof Element ? e.target.closest<HTMLElement>("[data-tip]") : null;
-    if (!el || !rootEl || e.buttons) { tip = null; return; }
+    if (!el || !rootEl || e.buttons) { fluximgTip.set(null); return; }
     const r = el.getBoundingClientRect(), o = rootEl.getBoundingClientRect();
     const below = r.top - o.top < 34;
-    tip = { text: el.dataset.tip ?? "", hk: el.dataset.hk ?? "", x: Math.min(host.w - 8, Math.max(8, r.left + r.width / 2 - o.left)), y: below ? r.bottom - o.top + 7 : r.top - o.top - 7, below };
+    fluximgTip.set({ text: el.dataset.tip ?? "", hk: el.dataset.hk ?? "", x: Math.min(host.w - 8, Math.max(8, r.left + r.width / 2 - o.left)), y: below ? r.bottom - o.top + 7 : r.top - o.top - 7, below });
   }
-  const hideTip = (): void => { tip = null; };
+  const hideTip = (): void => { fluximgTip.set(null); };
 
   // What the Auto key would set, shown on the strips while the pointer rests on it.
   let ghosts = $state.raw<Array<[number, number] | null> | null>(null);

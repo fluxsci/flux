@@ -32,6 +32,19 @@ export function niceLength(max: number): number {
   return 0;
 }
 
+/** The next (dir 1) or previous (dir -1) length in the 1, 2, 5 x 10^n series. */
+export function roundNeighbour(v: number, dir: 1 | -1): number {
+  if (!(v > 0) || !Number.isFinite(v)) return v;
+  const e = Math.floor(Math.log10(v) + 1e-9), series = [1, 2, 5, 10];
+  const m = v / Math.pow(10, e);
+  // Where v sits in the series (it may not be on it: a typed 30 goes to 50 or 20).
+  let k = series.findIndex((x) => Math.abs(x - m) < 1e-6);
+  let next: number;
+  if (k >= 0) next = dir > 0 ? (k === 3 ? 20 : series[k + 1]) : k === 0 ? 0.5 : series[k - 1];
+  else { k = series.findIndex((x) => x > m); next = dir > 0 ? series[k] : series[k - 1]; }
+  return Number((next * Math.pow(10, e)).toPrecision(12));
+}
+
 /** Inset of furniture from the box edge: 4 % of the shorter side, 6..24 px. */
 export function furnitureInset(box: { width: number; height: number }): number {
   return Math.min(24, Math.max(6, 0.04 * Math.min(box.width, box.height)));

@@ -107,7 +107,9 @@ and one large one (2048 × 2048 or more, tens of planes).
     left), channel names (top right) and calibration bar (bottom left) appear, and their keys
     light.** Drag the scale bar toward another corner: **the four corners are marked and it
     lands in the one under the pointer; the whole carry is one undo step.** **Shift+b** four
-    times walks it round the corners and back. Press the four keys again: gone.
+    times walks it round the corners and back. Roll the wheel over the scale bar: **its length
+    steps through round values (1, 2, 5, 10 …).** Roll it over the stamp: **its text grows or
+    shrinks half a point a notch.** Press the four keys again: gone.
 24. Press **v**. **The frame's corners thicken into handles and a small map appears in the
     console.** Roll the wheel up over the image: **the image zooms inside its box around the
     pointer; the box does not move; the map shows the frame as a pink rectangle and dims the
@@ -121,7 +123,10 @@ and one large one (2048 × 2048 or more, tens of planes).
     dashed pink guide follows the drag; on release an inset panel with a scale bar appears
     beside the image (to the right, or below when the right has no room), the image keeps its
     frame and outlines the inset's region, and a message says where the inset went.** The tool
-    lets go by itself.
+    lets go by itself. Rest on the region's rectangle on the image: **its edge lights pink.**
+    Drag the edge: **the region moves and the inset panel shows what is under it as you go.**
+    Roll the wheel over the edge: **the region shrinks or grows about its middle.** Inside the
+    rectangle the image still reads out.
 26. **v**, zoom in with the wheel, then press **x** twice. **An inset of the frame as it is
     appears, and the image shows the whole of itself again.**
 27. Place `mid_tiled_u16` on a narrow figure (as in step 5, so it is as wide as the figure),

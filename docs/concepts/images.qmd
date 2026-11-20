@@ -214,10 +214,17 @@ panels past its edge could not be seen). Nothing else on the figure moves.
 | **c** | Channel names | Each in its channel's colour |
 | **g** | Calibration bar | Each shown channel's colours from its black point to its white point, with both values |
 
-A key that is on is lit. The four annotations are drawn as vectors on the image. An annotation
-that is shown can be **dragged to another corner** of the picture: the four corners are marked
-while you carry it. **Shift** with its key (or a Shift-click on its paper key) sends it to the
-next corner too.
+A key that is on is lit. The four annotations are drawn as vectors on the image, and each one
+that is shown is a thing you can take hold of on the picture:
+
+- **Drag it to another corner**: the four corners are marked while you carry it. **Shift** with
+  its key (or a Shift-click on its paper key) sends it to the next corner too.
+- **Roll the wheel over the scale bar** to step its length through round values (1, 2, 5, 10 …);
+  back at the length the picture picks by itself, nothing is stored.
+- **Roll the wheel over the stamp, the channel names or the calibration bar** to change its text
+  size, half a point a notch.
+
+The Inspector has the same settings as numbers, with the bar's thickness and colours.
 
 ## Layers and objects
 
@@ -261,6 +268,11 @@ which shows all of the image again in the box it has.
 panel showing that region with a scale bar, while the image outlines the region and keeps its
 own frame. With the frame zoomed in, press **x** twice instead to pull out the frame as it is;
 the image then shows the whole of itself again.
+
+The region's rectangle on the image stays a handle: **drag its edge** and the region moves, the
+inset showing what is under it as you go; **roll the wheel over its edge** and the region gets
+smaller or larger about its middle (the inset shows it closer or wider). Inside the rectangle the
+image is still the image's.
 
 An inset goes beside the image when the figure has room: to the right at the image's height,
 else below it, no wider than the image. Otherwise it stands on the image, in its top-right

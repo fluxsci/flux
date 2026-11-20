@@ -1075,6 +1075,36 @@ h.ok(!(await page.$("[data-fxb-map]")), "…and the map leaves with it");
   await waitFor(page, () => !!document.querySelector("[data-fluximg-live] [data-part='inset']"), null, { label: "inset outline on the live image", timeout: 3000 }).catch(() => {});
   h.ok(await page.evaluate(() => !!document.querySelector("[data-fluximg-live] [data-part='inset']")), "the parent draws the inset's rectangle in the live view");
   h.ok(await page.evaluate((a) => !!document.querySelector(`svg[data-fluximg="${a}"] [data-part='inset']`), m1.el.assetId), "…and at rest");
+  // The inset's region on the picture: drag its rectangle's edge and the inset shows what is under it; roll to size it.
+  {
+    await waitFor(page, (id) => !!document.querySelector(`[data-fxb-region="${id}"]`), d.id, { label: "the region's handle" });
+    const insetCrop = () => page.evaluate((id) => structuredClone(window.__flux.figures()[0].elements.find((e) => e.id === id).crop), d.id);
+    const insetBox = () => page.evaluate((id) => { const e = window.__flux.figures()[0].elements.find((x) => x.id === id); return [e.x, e.y, e.width, e.height]; }, d.id);
+    const c0i = await insetCrop(), box0 = await insetBox(), m0r = await model(L), k = full.w / image.w;
+    // The rectangle's top edge, at its middle, in screen px (from the model: the whole image is in the frame).
+    const edge = { x: image.x + ((c0i.x + c0i.width / 2) / full.w) * image.w, y: image.y + (c0i.y / full.h) * image.h };
+    await drag(edge, { x: edge.x + 20, y: edge.y + 14 }, { hold: true });
+    const mid = await insetCrop();
+    await page.mouse.up(); await waitForFrame(page);
+    const c1i = await insetCrop();
+    h.ok(Math.abs(c1i.x - (c0i.x + 20 * k)) < 1 && Math.abs(c1i.y - (c0i.y + 14 * k)) < 1 && Math.abs(c1i.width - c0i.width) < 1e-9 && Math.abs(c1i.height - c0i.height) < 1e-9, `dragging the rectangle's edge moves the inset's region with the hand (${c0i.x.toFixed(1)}, ${c0i.y.toFixed(1)} -> ${c1i.x.toFixed(1)}, ${c1i.y.toFixed(1)})`);
+    h.ok(Math.abs(mid.x - c1i.x) < 1, "…while the pointer is still down");
+    h.eq(await insetBox(), box0, "…and the inset's own box on the figure does not move");
+    h.eq((await model(L)).past - m0r.past, 1, "…as one undo step");
+    // Inside the rectangle the image still answers the pointer.
+    const inside = { x: image.x + ((c1i.x + c1i.width / 2) / full.w) * image.w, y: image.y + ((c1i.y + c1i.height / 2) / full.h) * image.h };
+    await page.mouse.move(inside.x - 2, inside.y); await page.mouse.move(inside.x, inside.y);
+    await waitFor(page, () => !!document.querySelector("[data-fxb-readout] .where"), null, { label: "readout inside the region", timeout: 3000 }).catch(() => {});
+    h.ok(!!(await page.$("[data-fxb-readout] .where")), "inside the rectangle the image still reads out (only its edge is a handle)");
+    const edge2 = { x: image.x + ((c1i.x + c1i.width / 2) / full.w) * image.w, y: image.y + (c1i.y / full.h) * image.h };
+    await wheel(edge2.x, edge2.y, -100, 2);
+    await settled();
+    const c2i = await insetCrop();
+    h.ok(c2i.width < c1i.width && Math.abs(c2i.width / c2i.height - c1i.width / c1i.height) < 1e-6 && Math.abs((c2i.x + c2i.width / 2) - (c1i.x + c1i.width / 2)) < 0.01, `the wheel over the edge sizes the region about its middle, keeping its shape (${c1i.width.toFixed(1)} -> ${c2i.width.toFixed(1)} px wide)`);
+    await press("z", ["Control"]); await press("z", ["Control"]);
+    h.eq(await insetCrop(), c0i, "…and two undos put the region back");
+    await page.mouse.move(5, 940);
+  }
   // x twice with the frame zoomed in: the frame as it is becomes the inset, and the image shows all of itself again.
   await press("v"); await wheel(px, py, -100, 4); await settled();
   const frame = (await model(L)).el.crop, m2 = await model(L);
@@ -1129,6 +1159,34 @@ for (const [k, kind] of ann) {
   h.ok(bar2.cx > image.cx && bar2.cy < image.cy, "…and the scale bar is drawn in the top-right of the picture");
   await press("z", ["Control"]);
   h.eq(await corner("scalebar"), c0b, "…which one undo puts back");
+}
+// The wheel over an annotation on the picture: the scale bar steps through round lengths, text by half points.
+{
+  const stored = () => page.evaluate((id) => window.__flux.figures()[0].elements.find((e) => e.id === id).view?.furniture?.scalebar?.length ?? null, MV);
+  const barW = async () => (await rect("[data-fluximg-live] [data-part='scalebar']")).w;
+  let grip = await rect("[data-fxb-grip='scalebar']");
+  await page.mouse.move(grip.cx - 2, grip.cy); await page.mouse.move(grip.cx, grip.cy);
+  await waitFor(page, () => !!document.querySelector("[data-fxb] .tip"), null, { label: "the grip's label" });
+  h.ok(/corner/.test(await page.evaluate(() => document.querySelector("[data-fxb] .tip").textContent)) && /length/.test(await page.evaluate(() => document.querySelector("[data-fxb] .tip").textContent)), "resting on the scale bar says it can be dragged to a corner and rolled for its length");
+  const w0 = await barW(), m0 = await model(MV);
+  h.eq(await stored(), null, "the scale bar starts at the length the picture picks, and stores none");
+  await wheel(grip.cx, grip.cy, -100, 1);
+  await settled(); await waitForFrame(page); await waitForFrame(page);
+  const l1 = await stored(), w1 = await barW();
+  h.ok(l1 !== null && w1 > w0 * 1.5, `the wheel up over the scale bar makes it the next round length (${l1}; ${w0.toFixed(0)} -> ${w1.toFixed(0)} px)`);
+  h.ok(l1 !== null && [1, 2, 5].includes(Number((l1 / Math.pow(10, Math.floor(Math.log10(l1) + 1e-9))).toPrecision(3))), "…a 1, 2 or 5 × 10ⁿ length");
+  h.eq((await model(MV)).past - m0.past, 1, "…as one undo step");
+  grip = await rect("[data-fxb-grip='scalebar']");
+  await wheel(grip.cx, grip.cy, 100, 1);
+  await settled();
+  h.eq(await stored(), null, "…and back at the picture's own length nothing is stored");
+  const sg = await rect("[data-fxb-grip='stamp']"), fs0 = await ctx("(c) => c.view.furniture.stamp.fontSize");
+  await wheel(sg.cx, sg.cy, -100, 2);
+  await settled();
+  h.eq(await ctx("(c) => c.view.furniture.stamp.fontSize"), fs0 + 1, "the wheel over a text annotation changes its size, half a point a notch");
+  await press("z", ["Control"]);
+  h.eq(await ctx("(c) => c.view.furniture.stamp.fontSize"), fs0, "…which one undo puts back");
+  await page.mouse.move(5, 940);
 }
 const partNames = ["scalebar", "scalebar.label", "stamp", "colorbar"];
 const markup = () => page.evaluate(({ id, parts }) => {

@@ -4024,8 +4024,12 @@ opens with a header that states its law. Read those before changing one. The par
   under it) and the layers card (`BoardLayers`). The overlay itself draws the pink viewfinder
   frame (`[data-fxb-frame]`; the selection chrome is not rendered while `fluximgLiveItem`), the
   ticks that ride with the pointer, the grips that let a shown annotation be dragged to another
-  corner (`setFurnitureCorner`), the card beside the pointer for the object under it, and the
-  dashed previews a hovered key asks for (`splitPlan`).
+  corner (`setFurnitureCorner`) and rolled (`nudgeFurniture`: round lengths for the scale bar via
+  `furniture.roundNeighbour`, half points for text), the EDGE of each inset's region as a handle
+  (`moveInset` / `zoomInset` write the INSET element's crop; only a 12 px band on the rectangle
+  takes the pointer, so the image inside it still reads out), the card beside the pointer for
+  the object under it, and the dashed previews a hovered key asks for (`splitPlan`). Things the
+  overlay owns say what they are through the same label as the board's keys (`fluximgTip`).
   **Where they stand** is `boardLayout.ts` (pure, gated in `verify-fluximg-live`): depth left,
   console right, layers outermost; a wide, low image takes console and layers under it; the
   sides swap as the canvas gets tight; only an image that fills the canvas has instruments over
@@ -13659,7 +13663,7 @@ button", "less text and fields/boxes, more of a dynamic, responsive surface". Th
 histogram and layer-list components are gone. New: `FluximgBoard`, `BoardChannel`, `BoardRail`, `BoardLayers`,
 `PaperKey`, `glyphs.ts`, `boardLayout.ts`, `objectTables.ts`; `viewHistogram`, `niceStep`, round-value `railTicks`,
 `profileLevel`; `takeChannel`, `holdRail`, `stepSpeed`, `autoPlan`, `splitPlan`, `setFurnitureCorner`. Gates:
-`verify-fluximg-live` (178) and `verify-fluximg-live-gui` (362, rewritten; each section now places its own fixture
+`verify-fluximg-live` (184) and `verify-fluximg-live-gui` (377, rewritten; each section now places its own fixture
 and `FX_ONLY=<word>` runs one section).
 **Learnings:** (promoted to §4 "The live view is a CONTROL BOARD")
 - A component that reads its result AFTER clearing its drag state throws inside the pointerup handler, and the
