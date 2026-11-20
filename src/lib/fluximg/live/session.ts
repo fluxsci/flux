@@ -47,6 +47,13 @@ export const fluximgHover = writable<LiveHover | null>(null);
 /** Where the pointer is over the live image, in level-0 image pixels; null elsewhere. Read on demand (not a store). */
 export const livePointer: { at: { x: number; y: number } | null } = { at: null };
 
+/**
+ * The pixels on screen, for "Auto": per shown channel, the plane the current frame drew and the rectangle of it
+ * that is in view. Set by the overlay while it is mounted; null otherwise. Read on demand (not a store).
+ */
+export interface LiveSample { channel: number; data: ArrayLike<number>; map: { mul: number; add: number; sub: number; nodata: number | null } | null; width: number; height: number; rect: { x: number; y: number; width: number; height: number } }
+export const liveSampler: { read: (() => LiveSample[]) | null } = { read: null };
+
 /** The screen box of the live image together with its rails (client px): the panel keeps clear of it. */
 export const fluximgLiveRect = writable<{ x: number; y: number; w: number; h: number } | null>(null);
 
@@ -145,6 +152,7 @@ export function closeFluximgLive(): void {
   fluximgHover.set(null);
   fluximgLiveRect.set(null);
   livePointer.at = null;
+  liveSampler.read = null;
   fluximgLive.set(null);
 }
 

@@ -349,7 +349,7 @@
               </div>
             {/each}
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-            <div class="row" data-key={LIVE_KEYS.auto} onclick={() => autoContrast("all")}><span class="hk">{LIVE_KEYS.auto}</span><span class="label">Auto contrast</span><span class="value dim">press again to tighten</span></div>
+            <div class="row" data-key={LIVE_KEYS.auto} onclick={() => autoContrast("all")}><span class="hk">{LIVE_KEYS.auto}</span><span class="label">Auto contrast</span><span class="value dim">from the pixels in view</span></div>
             {#if ctx.view.channels.length > 1}
               <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
               <div class="row" data-key={LIVE_KEYS.split} onclick={splitChannels}><span class="hk">{LIVE_KEYS.split}</span><span class="label">Split channels</span><span class="value dim">one panel each</span></div>

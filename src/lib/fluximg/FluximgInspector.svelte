@@ -9,6 +9,7 @@
    * Nothing here reads pixels: the manifest (kilobytes) is all it needs.
    */
   import { project, mutate } from "../store";
+  import { pushToast } from "../toast";
   import { editSession } from "../interact/editSession";
   import { setCrop, setFluximgView } from "../ops";
   import NumberField from "../NumberField.svelte";
@@ -135,6 +136,29 @@
     if (!patch) { box.checked = !box.checked; return; }
     view(patch);
   }
+  // Is the bundle this image came from still what it was? Asked when the image or its asset changes (never per
+  // edit: the answer compares two small manifest files on the file side).
+  let sourceState = $state<"current" | "changed" | "missing" | "external" | "">("");
+  const sourceKey = $derived(`${element.id}|${element.assetId}|${element.source?.bundlePath ?? ""}|${element.source?.sha256 ?? ""}`);
+  $effect(() => {
+    void sourceKey;
+    sourceState = "";
+    if (!element.source?.bundlePath) return;
+    let closed = false;
+    void import("./sourceUpdate").then((m) => m.fluximgSourceState(element)).then((state) => { if (!closed) sourceState = state; }, () => {});
+    return () => { closed = true; };
+  });
+  function updateFromSource(): void {
+    void import("./sourceUpdate").then((m) => m.updateFluximgFromSource(element.id)).catch((error: unknown) => pushToast("error", "The image could not be updated", { detail: error instanceof Error ? error.message : String(error) }));
+  }
+  /** Other panels of the same image that share this one's link. */
+  const linkedWith = $derived.by(() => {
+    const link = element.view?.link;
+    if (!link) return 0;
+    let n = 0;
+    for (const f of $project.figures) for (const e of f.elements) if (e.type === "fluximg" && e.id !== element.id && e.assetId === element.assetId && e.view?.link === link) n++;
+    return n;
+  });
   const selectValue = (e: Event): string => (e.currentTarget as HTMLSelectElement).value;
   const checked = (e: Event): boolean => (e.currentTarget as HTMLInputElement).checked;
 </script>
@@ -148,6 +172,19 @@
     {#if pixelWords}<p class="line" data-fluximg-pixel>{pixelWords}</p>{/if}
     {#if encodingWords}<p class="line">{encodingWords}</p>{/if}
     {#if element.source?.bundlePath}<p class="line path" title={element.source.bundlePath} data-fluximg-source>{middleEllipsis(element.source.bundlePath)}</p>{/if}
+    {#if sourceState === "changed" || sourceState === "missing"}
+      <p class="line srcrow" data-fluximg-source-state={sourceState}>
+        <span>{sourceState === "changed" ? "The source bundle has changed since this was placed." : "The source bundle is no longer there; this copy is kept."}</span>
+        {#if sourceState === "changed"}<button class="mini" disabled={readOnly} data-fluximg-update-source title="Move this image to the bundle as it is now (its view is kept where it still fits)" onclick={updateFromSource}>Update</button>{/if}
+      </p>
+    {/if}
+    {#if linkedWith > 0}
+      <p class="line srcrow" data-fluximg-linked>
+        <span>Moves with {linkedWith} other {linkedWith === 1 ? "panel" : "panels"} of this image (plane, projection, channel windows).</span>
+        <button class="mini" disabled={readOnly} data-fluximg-unlink title="Let this panel change on its own" onclick={() => view({ link: null as unknown as undefined })}>Unlink</button>
+      </p>
+    {/if}
+    {#if element.rotation && Math.abs(element.rotation % 90) > 1e-6}<p class="line warn" data-fluximg-rotated>Rotated by {Number(element.rotation.toFixed(2))}°: an angle that is not a quarter turn resamples the pixels.</p>{/if}
     {#if !manifest}<p class="line quiet" data-fluximg-inspector-state>{issue ? issue : "Reading the image…"}</p>{/if}
   </div>
 </section>
@@ -415,6 +452,9 @@
   .line.mono { font: 10.5px var(--font-mono); color: var(--c-tx-muted); margin: 6px 0 0; }
   /* nowrap + overflow would clip an underscore's descender at the default line height */
   .line.path { font: 10.5px/16px var(--font-mono); color: var(--c-tx-muted); white-space: nowrap; overflow: hidden; }
+  .line.srcrow { display: flex; align-items: flex-start; gap: 8px; }
+  .line.srcrow span { flex: 1 1 auto; min-width: 0; }
+  .line.warn { color: var(--c-warning); }
   .line.quiet { color: var(--c-tx-muted); }
   .block { padding: 8px 0; border-top: 1px solid var(--c-line); }
   .block:first-child { border-top: 0; padding-top: 0; }

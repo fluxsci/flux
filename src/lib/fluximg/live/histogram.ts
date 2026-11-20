@@ -110,6 +110,54 @@ export function autoWindow(stats: FluximgStats, step: number): [number, number] 
   return stats.max > stats.min ? [stats.min, stats.max] : [stats.min, stats.min + 1];
 }
 
+/** The percentile pairs of `AUTO_STEPS` as numbers (the last step is the sample's full range). */
+const AUTO_PERCENT: ReadonlyArray<readonly [number, number]> = [[0.1, 99.9], [1, 99.8], [1, 99], [0, 100]];
+
+/**
+ * The valid VALUES of a plane inside a rectangle, sorted, thinned to at most `cap` by a regular stride (so a
+ * 4-megapixel plane costs a few milliseconds, once, on a key press). `decode` turns a stored sample into a value
+ * or NaN.
+ */
+export function sortedSample(data: ArrayLike<number>, width: number, height: number, rect: { x: number; y: number; width: number; height: number }, decode: (s: number) => number, cap = 200_000): Float64Array {
+  const x0 = Math.max(0, Math.floor(rect.x)), y0 = Math.max(0, Math.floor(rect.y));
+  const x1 = Math.min(width, Math.ceil(rect.x + rect.width)), y1 = Math.min(height, Math.ceil(rect.y + rect.height));
+  const n = Math.max(0, x1 - x0) * Math.max(0, y1 - y0);
+  if (!n) return new Float64Array(0);
+  // A stride along each axis, so the thinning never lines up with a scan pattern along one of them.
+  const stride = Math.max(1, Math.ceil(Math.sqrt(n / cap)));
+  const out = new Float64Array(Math.ceil((x1 - x0) / stride) * Math.ceil((y1 - y0) / stride));
+  let k = 0;
+  for (let y = y0; y < y1; y += stride) {
+    const row = y * width;
+    for (let x = x0; x < x1; x += stride) { const v = decode(data[row + x]); if (v === v) out[k++] = v; }
+  }
+  return out.subarray(0, k).sort();
+}
+
+/** The Auto window for step `step` (wraps) from a sorted sample; null when the sample cannot give one. */
+export function sampleWindow(sorted: Float64Array, step: number): [number, number] | null {
+  const n = sorted.length;
+  if (n < 2) return null;
+  const [lo, hi] = AUTO_PERCENT[((step % AUTO_PERCENT.length) + AUTO_PERCENT.length) % AUTO_PERCENT.length];
+  const at = (p: number): number => sorted[Math.min(n - 1, Math.max(0, Math.round((p / 100) * (n - 1))))];
+  const a = at(lo), b = at(hi);
+  if (b > a) return [a, b];
+  // A flat percentile pair (mostly background): fall back to the sample's full range, if it has one.
+  return sorted[n - 1] > sorted[0] ? [sorted[0], sorted[n - 1]] : null;
+}
+
+/** Which Auto step of a sorted sample a window already is, or -1. */
+export function sampleStepOf(sorted: Float64Array, range: readonly [number, number], integer = false): number {
+  for (let i = 0; i < AUTO_PERCENT.length; i++) {
+    const w = sampleWindow(sorted, i);
+    if (!w) continue;
+    const a = integer ? Math.round(w[0]) : w[0], b = integer ? Math.round(w[1]) : w[1];
+    const tol = 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
+    if (Math.abs(a - range[0]) <= tol && Math.abs(b - range[1]) <= tol) return i;
+  }
+  return -1;
+}
+
 /** Which Auto step a window already is (so the next press moves on), or -1. */
 export function autoStepOf(stats: FluximgStats, range: readonly [number, number]): number {
   for (let i = 0; i < AUTO_STEPS.length; i++) {

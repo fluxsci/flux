@@ -18,7 +18,7 @@
   import FluximgRail from "./FluximgRail.svelte";
   import { dimKeys, dimLength, panFrame, railDims, setPosition, setRun, togglePlayback } from "./actions";
   import { LiveDriver, type FrameInfo } from "./driver";
-  import { cancelLiveEdit, fluximgHover, fluximgLive, fluximgLiveRect, livePointer, setLive, settleLiveEdit } from "./session";
+  import { cancelLiveEdit, fluximgHover, fluximgLive, fluximgLiveRect, livePointer, liveSampler, setLive, settleLiveEdit } from "./session";
 
   let { element, left, top, zoom, beginPan }: { element: FluximgElement; left: number; top: number; zoom: number; beginPan: () => void } = $props();
 
@@ -98,9 +98,10 @@
     };
     d.onError = (message) => { problem = message; };
     driver = d;
+    liveSampler.read = () => d.inView();
     // Colour maps load lazily; tables built before they arrive are the gray fallback.
     void needLuts().then(() => d.invalidateTables());
-    return () => { d.dispose(); if (driver === d) driver = null; };
+    return () => { d.dispose(); if (driver === d) driver = null; liveSampler.read = null; };
   });
   $effect(() => {
     if (!driver || !rv || !visCrop || out.w < 1 || out.h < 1) return;

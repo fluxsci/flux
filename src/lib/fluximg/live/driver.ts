@@ -58,7 +58,7 @@ export class LiveDriver {
   private serial = 0;
   private generation = 0;
   private disposed = false;
-  private last: { level: number; frame: LiveFrame; f: number } | null = null;
+  private last: { level: number; frame: LiveFrame; f: number; channels: number[] } | null = null;
   /** Called after every frame that reaches the screen. */
   onFrame: ((info: FrameInfo) => void) | null = null;
   /** Called when a request fails for a reason other than being superseded. */
@@ -249,7 +249,7 @@ export class LiveDriver {
     const nd = this.manifest.pixels.levels[level].shape.length;
     const width = first ? first.width : this.manifest.pixels.levels[level].shape[nd - 1];
     const height = first ? first.height : this.manifest.pixels.levels[level].shape[nd - 2];
-    const channels: LiveChannel[] = [], layers: LiveLayer[] = [];
+    const channels: LiveChannel[] = [], layers: LiveLayer[] = [], channelIndices: number[] = [];
     for (const w of have) {
       const plane = this.planes.get(w.key)!;
       if ("layerId" in w.request) {
@@ -260,6 +260,7 @@ export class LiveDriver {
       } else {
         const c = t.view.channels[w.request.channel];
         channels.push({ plane, table: this.table(c), range: c.range, norm: c.norm, gamma: c.gamma });
+        channelIndices.push(w.request.channel);
       }
     }
     const frame: LiveFrame = {
@@ -269,7 +270,7 @@ export class LiveDriver {
     };
     const t0 = performance.now();
     this.renderer.draw(frame);
-    this.last = { level, frame, f };
+    this.last = { level, frame, f, channels: channelIndices };
     this.serial++;
     this.prune();
     let pending = 0;
@@ -302,6 +303,18 @@ export class LiveDriver {
     if (!last) return [];
     const px = Math.floor(x / last.f), py = Math.floor(y / last.f);
     return last.frame.channels.map((c) => (c.plane ? valueAt({ data: c.plane.data, map: c.plane.map }, last.frame.width, px, py) : NaN));
+  }
+
+  /** The pixels on screen, per shown channel: the plane the last frame drew and the part of it in view. */
+  inView(): Array<{ channel: number; data: ArrayLike<number>; map: ServicePlane["map"]; width: number; height: number; rect: PixelRect }> {
+    const last = this.last;
+    if (!last) return [];
+    const out = [];
+    for (let i = 0; i < last.frame.channels.length; i++) {
+      const plane = last.frame.channels[i].plane;
+      if (plane) out.push({ channel: last.channels[i], data: plane.data, map: plane.map, width: last.frame.width, height: last.frame.height, rect: last.frame.crop });
+    }
+    return out;
   }
 
   /** The drawing buffer as straight-alpha RGBA rows from the top (gates only). */

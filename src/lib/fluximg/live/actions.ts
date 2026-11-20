@@ -13,9 +13,9 @@ import { clampCrop, fullCrop } from "../still";
 import type { FluximgManifest } from "../types";
 import type { FluximgChannelView, FluximgFurnitureView, FluximgLayerView, FluximgProjectionMode, FluximgView, PixelRect, ResolvedView } from "../view";
 import { positionDims, resolveView } from "../viewOps";
-import { autoStepOf, autoWindow, histDomain, moveWindow, nudgeStep, snapValue } from "./histogram";
+import { autoStepOf, autoWindow, histDomain, moveWindow, nudgeStep, sampleStepOf, sampleWindow, snapValue, sortedSample } from "./histogram";
 import { framePeriod, playStep, resizeRun, slideRun, stepIndex, type PlayMode } from "./rail";
-import { WHEEL_SETTLE_MS, cancelLiveEdit, fluximgLive, liveCrop, liveElement, liveMutate, liveView, setLive, settleLiveEdit } from "./session";
+import { WHEEL_SETTLE_MS, cancelLiveEdit, fluximgLive, liveCrop, liveElement, liveMutate, liveSampler, liveView, setLive, settleLiveEdit } from "./session";
 
 export interface LiveContext { element: FluximgElement; manifest: FluximgManifest; view: ResolvedView; crop: PixelRect }
 
@@ -166,18 +166,35 @@ export function nudgeGamma(i: number, steps: number): void {
 }
 
 /**
- * Auto contrast for one channel, or all of them: the window snaps to the stack's percentiles. Pressing again
- * tightens it (0.1–99.9 %, then 1–99.8 %, 1–99 %), and a fourth press shows the full range.
+ * Auto contrast for one channel, or all of them, from the PIXELS IN VIEW: the plane (or projection) on screen,
+ * inside the frame. The window snaps to their percentiles; pressing again tightens it (0.1–99.9 %, then 1–99.8 %,
+ * 1–99 %), and a fourth press shows their full range. Before the first frame is on screen (or outside the live
+ * view's canvas) the stack's stored percentiles stand in.
  */
 export function autoContrast(i: number | "all"): void {
   const c = liveContext();
   if (!c) return;
   const which = i === "all" ? c.view.channels.map((ch) => ch.index) : [i];
+  const integer = integerData(c.manifest);
+  const seen = new Map<number, Float64Array>();
+  for (const s of liveSampler.read?.() ?? []) {
+    if (!which.includes(s.channel)) continue;
+    const m = s.map, nodata = m && m.nodata !== null ? m.nodata : NaN;
+    const decode = m ? (v: number): number => (v === nodata || v !== v ? NaN : m.add + m.mul * (v - m.sub)) : (v: number): number => v;
+    const sorted = sortedSample(s.data, s.width, s.height, s.rect, decode);
+    if (sorted.length >= 16) seen.set(s.channel, sorted);
+  }
   // One step for all channels, taken from the first: "Auto" on a composite must not mix tightness between channels.
   const lead = c.view.channels[which[0]];
-  const step = lead ? autoStepOf(c.manifest.channels[lead.index].stats, lead.range) + 1 : 0;
+  const leadSample = lead ? seen.get(lead.index) : undefined;
+  const step = !lead ? 0 : leadSample ? sampleStepOf(leadSample, lead.range, integer) + 1 : autoStepOf(c.manifest.channels[lead.index].stats, lead.range) + 1;
   const channels: Array<FluximgChannelView | null> = c.view.channels.map(() => null);
-  for (const k of which) channels[k] = { range: autoWindow(c.manifest.channels[k].stats, step) };
+  for (const k of which) {
+    const sorted = seen.get(k);
+    let w = sorted ? sampleWindow(sorted, step) : null;
+    if (w && integer) { w = [Math.round(w[0]), Math.round(w[1])]; if (!(w[1] > w[0])) w = null; }
+    channels[k] = { range: w ?? autoWindow(c.manifest.channels[k].stats, step) };
+  }
   liveView(`auto:${i}`, { channels });
   settleLiveEdit();
 }
