@@ -111,9 +111,9 @@ const glStats = () => page.evaluate(() => {
   const k = document.createElement("canvas"); k.width = c.width; k.height = c.height;
   const x = k.getContext("2d"); x.drawImage(c, 0, 0);
   const d = x.getImageData(0, 0, c.width, c.height).data;
-  let r = 0, g = 0, b = 0, n = 0;
-  for (let i = 0; i < d.length; i += 4 * 7) { r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; }
-  return { r: r / n, g: g / n, b: b / n, w: c.width, h: c.height };
+  let r = 0, g = 0, b = 0, a = 0, n = 0;
+  for (let i = 0; i < d.length; i += 4 * 7) { r += d[i]; g += d[i + 1]; b += d[i + 2]; a += d[i + 3]; n++; }
+  return { r: r / n, g: g / n, b: b / n, a: a / n, w: c.width, h: c.height, lost: !!c.getContext("webgl2")?.isContextLost() };
 });
 const differs = (a, b, by = 2) => !!a && !!b && (Math.abs(a.r - b.r) > by || Math.abs(a.g - b.g) > by || Math.abs(a.b - b.b) > by);
 const wheel = async (x, y, deltaY, n = 1, mods = []) => {
@@ -397,6 +397,9 @@ after = await model(S);
 h.ok((await chanOf(S, 0)).range[1] === c0.range[1] && after.past === before.past, "Esc reverts the typed value (no undo step)");
 h.ok(await isOpen() && (await model(S)).live.zone === "channel", "Esc in a field leaves the zone open");
 h.ok(await page.evaluate(() => !(document.activeElement instanceof HTMLInputElement)), "…and no field keeps focus");
+await waitForFrame(page); await waitForFrame(page);
+g = await glStats();
+h.ok(!!g && !g.lost && g.a > 200, "…and the live image is still drawn after the revert");
 await press("q");
 h.eq((await model(S)).live.armed, "black", "keys work again after a field (q arms the black point)");
 await press("Escape");
@@ -488,5 +491,207 @@ h.ok(await page.evaluate(() => !document.querySelector("[data-fluximg-live] [dat
 await press("Escape");
 h.eq((await model(L)).live?.zone, "home", "Esc leaves the layers zone for home");
 await closeLive();
+
+// =====================================================================================================
+h.section("the frame: a viewport onto the image, and pulling out an inset");
+await openLive(L);
+image = await rect("[data-fluximg-live]");
+await press("v");
+h.eq((await model(L)).live.zone, "frame", "v opens the frame zone");
+let e0 = (await model(L)).el;
+const full = await page.evaluate(() => { const m = window.__flux.fluximg.actions.liveContext().manifest; const n = m.pixels.shape.length; return { w: m.pixels.shape[n - 1], h: m.pixels.shape[n - 2] }; });
+const u = 0.3, v = 0.4, px = image.x + u * image.w, py = image.y + v * image.h;
+before = await model(L);
+await wheel(px, py, -100, 3);
+await settled();
+let e1 = (await model(L)).el;
+h.ok(!!e1.crop && e1.crop.width < full.w && e1.crop.height < full.h, `wheel up over the image zooms the frame in (crop ${e1.crop && [e1.crop.x, e1.crop.y, e1.crop.width, e1.crop.height].map((n) => n.toFixed(1)).join(", ")})`);
+h.eq([e1.x, e1.y, e1.width, e1.height], [e0.x, e0.y, e0.width, e0.height], "…without changing the element's box");
+const fixedX = e1.crop.x + u * e1.crop.width, fixedY = e1.crop.y + v * e1.crop.height;
+h.ok(Math.abs(fixedX - u * full.w) < 0.75 && Math.abs(fixedY - v * full.h) < 0.75, `…about the pointer (the image point under it stays put: ${fixedX.toFixed(2)}, ${fixedY.toFixed(2)} vs ${(u * full.w).toFixed(2)}, ${(v * full.h).toFixed(2)})`);
+h.eq((await model(L)).past - before.past, 1, "…as one undo step");
+h.ok(JSON.stringify(await rect("[data-fluximg-live]")) === JSON.stringify(image), "the live image keeps its place and size while zooming");
+before = await model(L);
+await page.mouse.move(image.cx, image.cy); await page.mouse.down();
+await page.mouse.move(image.cx - 20, image.cy - 10, { steps: 3 }); await page.mouse.move(image.cx - 40, image.cy - 20, { steps: 3 }); await page.mouse.up();
+await waitForFrame(page);
+let e2 = (await model(L)).el;
+h.ok(e2.crop.x > e1.crop.x && e2.crop.y > e1.crop.y && Math.abs(e2.crop.width - e1.crop.width) < 1e-9, `dragging pans the image under the frame, following the hand (x ${e1.crop.x.toFixed(1)} -> ${e2.crop.x.toFixed(1)})`);
+h.eq([e2.x, e2.y, e2.width, e2.height], [e0.x, e0.y, e0.width, e0.height], "…and the box stays put");
+h.eq((await model(L)).past - before.past, 1, "…as one undo step");
+await press("d");
+h.ok(!(await model(L)).el.crop, "d (Whole image) restores the whole frame");
+await wheel(px, py, -100, 4);
+await settled();
+const frame = (await model(L)).el.crop;
+before = await model(L);
+await press("x");
+await waitForFrame(page);
+const after2 = await model(L);
+const inset = await page.evaluate((id) => window.__flux.figures()[0].elements.find((e) => e.type === "fluximg" && e.view?.insetOf === id) ?? null, L);
+h.ok(!!inset, "x (Pull out as an inset) creates one new element that remembers its parent");
+h.ok(inset && Math.abs(inset.crop.x - frame.x) < 1e-6 && Math.abs(inset.crop.width - frame.width) < 1e-6 && Math.abs(inset.crop.y - frame.y) < 1e-6, "…whose crop is the frame");
+h.ok(!after2.el.crop, "…and the parent returns to the frame it had before (the whole image)");
+h.eq(after2.past - before.past, 1, "…in one undo step");
+h.eq(after2.live?.zone, "home", "…and the panel goes back home");
+await waitFor(page, () => !!document.querySelector("[data-fluximg-live] [data-part='inset']"), null, { label: "inset outline on the live image", timeout: 3000 }).catch(() => {});
+h.ok(await page.evaluate(() => !!document.querySelector("[data-fluximg-live] [data-part='inset']")), "the parent draws the inset's rectangle in the live view");
+h.ok(await page.evaluate((a) => !!document.querySelector(`svg[data-fluximg="${a}"] [data-part='inset']`), after2.el.assetId), "…and at rest");
+await closeLive();
+
+// =====================================================================================================
+h.section("annotations: the live overlay and the element at rest draw the same vectors");
+await page.evaluate(() => { const F = window.__flux; F.fig.commit((p) => { p.figures[0].elements = p.figures[0].elements.filter((e) => e.type !== "fluximg"); }); F.fig.resetHistory(); });
+const MV = await placeFixture("movie_f32", { x: 80, y: 60 }, { width: 360 });
+await waitStill(MV);
+await openLive(MV);
+const ann = [["b", "scalebar"], ["w", "stamp"], ["c", "channelLabels"], ["g", "colorbar"]];
+for (const [key, kind] of ann) {
+  await press(key);
+  h.ok(await page.evaluate((k) => !!window.__flux.fluximg.actions.liveContext().view.furniture[k], kind), `${key} turns the ${kind} on`);
+}
+const parts = ["scalebar", "scalebar.label", "stamp", "colorbar"];
+const markup = () => page.evaluate(({ id, parts }) => {
+  const el = window.__flux.figures()[0].elements.find((e) => e.id === id);
+  const safe = id.replace(/[^A-Za-z0-9_-]/g, "_");
+  const clean = (n) => (n ? n.outerHTML.replace(/<!--.*?-->/g, "").replaceAll(`fxl-${safe}-`, `fx-${safe}-`) : null);
+  const live = document.querySelector("[data-fluximg-live] svg.vec"), rest = document.querySelector(`svg[data-fluximg="${el.assetId}"]`);
+  return {
+    parts: Object.fromEntries(parts.map((p) => [p, [!!live?.querySelector(`[data-part='${p}']`), !!rest?.querySelector(`[data-part='${p}']`)]])),
+    channelNames: [live?.querySelectorAll("[data-part='furniture'] text").length ?? 0, rest?.querySelectorAll("[data-part='furniture'] text").length ?? 0],
+    live: clean(live?.querySelector("[data-part='furniture']")), rest: clean(rest?.querySelector("[data-part='furniture']")),
+  };
+}, { id: MV, parts });
+await waitFor(page, ({ id }) => { const el = window.__flux.figures()[0].elements.find((e) => e.id === id); return !!document.querySelector(`svg[data-fluximg="${el.assetId}"] [data-part='colorbar']`); }, { id: MV }, { label: "furniture at rest", timeout: 4000 }).catch(() => {});
+let mk = await markup();
+for (const p of parts) h.ok(mk.parts[p][0] && mk.parts[p][1], `${p}: drawn in the live overlay and at rest`);
+h.ok(mk.live && mk.live === mk.rest, `the furniture markup is identical apart from the id prefix (${mk.live?.length ?? 0} chars)`);
+await shot(page, "fluximg-live-annotations");
+for (const [key] of ann) await press(key);
+h.ok(await page.evaluate(() => !document.querySelector("[data-fluximg-live] [data-part='furniture']")), "toggling them all again removes them");
+
+// =====================================================================================================
+h.section("undo and redo through live gestures");
+const ctrlZ = () => press("z", ["Control"]);
+const ctrlShiftZ = () => press("z", ["Control", "Shift"]);
+await page.evaluate(() => window.__flux.fig.resetHistory());
+const viewNow = () => page.evaluate((id) => { const el = window.__flux.figures()[0].elements.find((e) => e.id === id); const c = window.__flux.fluximg.actions.liveContext(); return { stored: JSON.stringify(el?.view ?? {}), live: !!window.__flux.get(window.__flux.fluximg.live.fluximgLive), ctx: c ? { t: c.view.index.t, scalebar: !!c.view.furniture.scalebar, white: c.view.channels[0].range[1] } : null, panelT: document.querySelector(".fluximgPanel .row[data-key='t'] .value")?.textContent?.trim() ?? null, railT: document.querySelector("[data-fluximg-rail='t'] .readout")?.textContent?.trim() ?? null }; }, MV);
+const states = [await viewNow()];
+await press("ArrowRight"); await press("ArrowRight"); await settled();
+states.push(await viewNow());
+await press("b");
+states.push(await viewNow());
+await press("1"); await wheel(image.cx, image.cy, -100, 2); await settled(); await press("Escape");
+states.push(await viewNow());
+h.ok(states[1].ctx.t === 2 && states[2].ctx.scalebar && states[3].ctx.white > states[2].ctx.white, "three live gestures: two frames on, a scale bar, a whiter white point");
+let okUndo = true, drawn = true;
+for (let i = 3; i > 0; i--) {
+  await ctrlZ();
+  await sharpFrame(); await waitForFrame(page);
+  const gs = await glStats();
+  if (!gs || gs.lost || gs.a < 200) { drawn = false; console.log("  live image after undo", i, gs); }
+  const s = await viewNow();
+  if (!(s.live && s.stored === states[i - 1].stored && s.ctx && JSON.stringify(s.ctx) === JSON.stringify(states[i - 1].ctx) && s.panelT === states[i - 1].panelT && s.railT === states[i - 1].railT)) { okUndo = false; console.log("  undo mismatch", i, s, states[i - 1]); }
+}
+h.ok(okUndo, "Ctrl+Z steps back through each live gesture while the view stays open, panel and rail agreeing with the model");
+h.ok(drawn, "…and the live image keeps drawing after every undo (its WebGL context survives the project being replaced)");
+let okRedo = true;
+for (let i = 1; i <= 3; i++) {
+  await ctrlShiftZ();
+  const s = await viewNow();
+  if (!(s.live && s.stored === states[i].stored && s.panelT === states[i].panelT)) { okRedo = false; console.log("  redo mismatch", i, s, states[i]); }
+}
+h.ok(okRedo, "Ctrl+Shift+Z steps forward through them again");
+// An undo while a wheel run is still open undoes that run (it does not leave half of it behind).
+const tBefore = (await viewNow()).ctx.t;
+await wheel(image.cx, image.cy, 100, 2);
+await ctrlZ();
+await sleep(500); // debounce: past the wheel's 420 ms settle, so a stray late commit would show
+h.eq((await viewNow()).ctx.t, tBefore, "Ctrl+Z in the middle of a wheel run undoes the run");
+// Undo past the element's creation closes the view without errors.
+await page.evaluate(() => { const F = window.__flux; F.fig.resetHistory(); });
+await closeLive();
+await page.evaluate(() => { const F = window.__flux; F.fig.commit((p) => { p.figures[0].elements = p.figures[0].elements.filter((e) => e.type !== "fluximg"); }); F.fig.resetHistory(); });
+const U = await placeFixture("stack_u16", { x: 80, y: 60 }, { width: 320 });
+await waitStill(U);
+await openLive(U);
+await press("ArrowDown"); await settled();
+await ctrlZ();
+h.ok(await isOpen(), "the first Ctrl+Z undoes the live step and keeps the view open");
+await ctrlZ();
+await waitFor(page, () => !document.querySelector("[data-fluximg-live]") && !document.querySelector(".fluximgPanel"), null, { label: "view closed after undoing the element away", timeout: 3000 }).catch(() => {});
+h.ok(!(await isOpen()) && !(await page.$("[data-fluximg-live]")) && !(await page.$(".fluximgPanel")), "undoing past the element's creation closes the view");
+await press("h");
+h.eq(await page.evaluate(() => window.__flux.get(window.__flux.fig.activeTool)), "hand", "…and the keyboard is the canvas's again");
+await press("v");
+
+// =====================================================================================================
+h.section("after closing, the still shows the last live state");
+await page.evaluate(() => { const F = window.__flux; F.fig.commit((p) => { p.figures[0].elements = p.figures[0].elements.filter((e) => e.type !== "fluximg"); }); F.fig.resetHistory(); });
+const SM = await placeFixture("movie_f32", { x: 80, y: 60 }, { width: 360 });
+await waitStill(SM);
+await openLive(SM);
+image = await rect("[data-fluximg-live]");
+await wheel(image.cx, image.cy, 100, 5); await settled();
+await press("2"); await press("z"); await press("Escape");
+await press("1"); await wheel(image.cx, image.cy, 100, 4); await settled(); await press("Escape");
+await sharpFrame(); await waitForFrame(page); await waitForFrame(page);
+const grid = await page.evaluate(() => { const m = window.__flux.fluximg.actions.liveContext().manifest; const n = m.pixels.shape.length; const W = m.pixels.shape[n - 1], H = m.pixels.shape[n - 2]; const pts = []; for (let j = 0; j < H; j += 3) for (let i = 0; i < W; i += 3) pts.push([(i + 0.5) / W, (j + 0.5) / H]); return pts; });
+const lastGl = await page.evaluate((pts) => {
+  const c = document.querySelector("[data-fluximg-live] canvas.gl"), k = document.createElement("canvas"); k.width = c.width; k.height = c.height;
+  const x = k.getContext("2d"); x.drawImage(c, 0, 0); const d = x.getImageData(0, 0, c.width, c.height).data;
+  return pts.map(([u, v]) => { const i = (Math.floor(v * c.height) * c.width + Math.floor(u * c.width)) * 4; return [d[i], d[i + 1], d[i + 2]]; });
+}, grid);
+const liveView = await page.evaluate(() => structuredClone(window.__flux.fluximg.actions.liveContext().view));
+await press("r");
+h.ok(!(await isOpen()), "r closes the view");
+await waitFor(page, ({ id, t }) => { const el = window.__flux.figures()[0].elements.find((e) => e.id === id); const k = document.querySelector(`svg[data-fluximg="${el.assetId}"]`)?.getAttribute("data-fluximg-key") ?? ""; return k.includes(`t=${t};`) || k.includes(`t=${t}|`) || new RegExp(`[;|]t=${t}([;|]|$)`).test(k); }, { id: SM, t: liveView.index.t }, { label: "the still at the last plane", timeout: 8000 }).catch(() => {});
+const stillKey = await page.evaluate((id) => { const el = window.__flux.figures()[0].elements.find((e) => e.id === id); return document.querySelector(`svg[data-fluximg="${el.assetId}"]`)?.getAttribute("data-fluximg-key") ?? ""; }, SM);
+const c1v = liveView.channels[1], c0v = liveView.channels[0];
+h.ok(new RegExp(`(^|[;|])t=${liveView.index.t}([;|]|$)`).test(stillKey), `the still's key is at the last live plane (t=${liveView.index.t})`);
+h.ok(stillKey.includes(`|${c0v.range[0]},${c0v.range[1]}|`) && /c1=[^;]*\|inv/.test(stillKey), "…with the last live window and the inverted channel");
+const stillPx = await page.evaluate(async ({ id, pts }) => {
+  const el = window.__flux.figures()[0].elements.find((e) => e.id === id);
+  const href = document.querySelector(`svg[data-fluximg="${el.assetId}"] image`).getAttribute("href");
+  const img = new Image(); img.src = href; await img.decode();
+  const k = document.createElement("canvas"); k.width = img.naturalWidth; k.height = img.naturalHeight;
+  const x = k.getContext("2d"); x.drawImage(img, 0, 0); const d = x.getImageData(0, 0, k.width, k.height).data;
+  return pts.map(([u, v]) => { const i = (Math.floor(v * k.height) * k.width + Math.floor(u * k.width)) * 4; return [d[i], d[i + 1], d[i + 2]]; });
+}, { id: SM, pts: grid });
+let worst = 0, off = 0;
+for (let i = 0; i < grid.length; i++) { const dlt = Math.max(...[0, 1, 2].map((k) => Math.abs(lastGl[i][k] - stillPx[i][k]))); worst = Math.max(worst, dlt); if (dlt > 2) off++; }
+h.ok(worst <= 3, `the still's pixels match the last WebGL frame (${grid.length} samples, worst difference ${worst}/255, ${off} above 2)`);
+
+// =====================================================================================================
+h.section("timings (real frames from flux-fluximg-frame; generous ceilings)");
+const timings = {};
+for (const [name, width] of [["mid_tiled_u16", 420], ["big_tiled_u16", 420]]) {
+  await page.evaluate(() => { const F = window.__flux; F.fig.commit((p) => { p.figures[0].elements = p.figures[0].elements.filter((e) => e.type !== "fluximg"); }); F.fig.resetHistory(); });
+  const T = await placeFixture(name, { x: 80, y: 40 }, { width });
+  await waitStill(T);
+  await openLive(T);
+  image = await rect("[data-fluximg-live]");
+  await press("v");
+  const first = [], sharp = [], draw = [], levels = [];
+  for (let n = 0; n < 6; n++) {
+    await page.evaluate(() => { window.__fxFrames = []; window.__fxWheelAt = 0; });
+    await page.mouse.move(image.x + image.w * (0.35 + 0.05 * n), image.y + image.h * 0.45);
+    await page.mouse.wheel({ deltaY: -100 });
+    const r = await waitFor(page, () => { const at = window.__fxWheelAt, f = window.__fxFrames.filter((x) => x.time >= at); const s = f.find((x) => x.sharp && x.pending === 0); return at && s ? { first: f[0].time - at, sharp: s.time - at, draw: Math.max(...f.map((x) => x.drawMs)), level: s.level } : null; }, null, { label: `${name}: sharp frame after a notch`, timeout: 15000 }).catch(() => null);
+    if (r) { first.push(r.first); sharp.push(r.sharp); draw.push(r.draw); levels.push(r.level); }
+  }
+  const med = (a) => a.slice().sort((x, y) => x - y)[Math.floor(a.length / 2)] ?? NaN, max = (a) => Math.max(...a);
+  timings[name] = { notches: first.length, firstMedian: med(first), firstMax: max(first), sharpMedian: med(sharp), sharpMax: max(sharp), drawMax: max(draw), levels };
+  console.log(`  ${name}: wheel notch -> first frame median ${med(first).toFixed(1)} ms (max ${max(first).toFixed(1)}), -> sharp frame median ${med(sharp).toFixed(1)} ms (max ${max(sharp).toFixed(1)}), GPU draw max ${max(draw).toFixed(2)} ms, levels ${levels.join(",")}`);
+  h.ok(first.length === 6, `${name}: every notch reached a sharp frame`);
+  h.ok(max(first) < 250, `${name}: a wheel notch shows a new frame within 250 ms (max ${max(first).toFixed(1)} ms)`);
+  h.ok(max(sharp) < 3000, `${name}: and the sharp frame within 3 s (max ${max(sharp).toFixed(1)} ms)`);
+  await closeLive();
+}
+
+// =====================================================================================================
+h.section("console");
+const errs = realErrors(page).filter((e) => !/Couldn't save|save figures/i.test(e));
+h.eq(errs, [], "no console errors anywhere");
 
 await h.done(async () => { await browser.close(); rmSync(scratch, { recursive: true, force: true }); });

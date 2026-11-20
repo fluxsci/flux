@@ -88,10 +88,14 @@
   let driver = $state.raw<LiveDriver | null>(null);
   let frame = $state.raw<FrameInfo | null>(null);
   let problem = $state("");
+  // The driver depends on WHICH bundle is shown, never on the asset record's identity: undo, redo and a cancelled
+  // edit replace the project with a copy, and recreating the driver then disposed the canvas's WebGL context (lost
+  // for good: the same canvas hands back the lost context) and the live image went blank.
+  const bundle = $derived(asset ? fluximgBundle(asset) : "");
   $effect(() => {
-    if (!canvas || !manifest || !asset) return;
+    if (!canvas || !manifest || !bundle) return;
     let d: LiveDriver;
-    try { d = new LiveDriver(canvas, fluximgService(), fluximgBundle(asset), manifest, resolveLut); }
+    try { d = new LiveDriver(canvas, fluximgService(), bundle, manifest, resolveLut); }
     catch (error) { problem = error instanceof Error ? error.message : String(error); return; }
     d.onFrame = (info) => {
       frame = info;
