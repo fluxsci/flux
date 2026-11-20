@@ -41,6 +41,9 @@ try {
     window.__fluxSeedFluximg("plots/cells.fluximg", stack);
     window.__fluxSeedFluximg("plots/sub/plane.fluximg", gray);
     window.__fluxSeedFluximg("plots/sub/half.fluximg", { "pixels/zarr.json": btoa("{}") }); // an unfinished write
+    // A folder that holds only image stacks must never read as empty (owner's first view of a real project).
+    window.__fluxSeedFluximg("plots/stacks/a.fluximg", stack);
+    window.__fluxSeedFluximg("plots/stacks/b.fluximg", gray);
   }, { stack, gray });
   // Show the Plots view (Alt+G from the canvas), as a user would.
   await page.mouse.click(900, 500);
@@ -64,7 +67,57 @@ try {
   const half = await waitFor(page, (s) => { const n = document.querySelector(`${s} .unavailable`); return n ? n.getAttribute("title") : null; }, tileOf("/half.fluximg"), { label: "the broken bundle's tile", timeout: 10000 });
   h.ok(/^No fluximg.json: an unfinished or damaged image bundle$/.test(half), `a folder named .fluximg without a manifest is listed and says why it has no picture: ${half}`);
 
+  // The rail's folder navigator: a bundle is never a folder; a folder of bundles counts them.
+  await page.click("[data-directory-toggle]");
+  await waitFor(page, () => !!document.querySelector("[data-plots-directories] .tree [role=\"treeitem\"]"), null, { label: "folder navigator" });
+  const dirRows = await waitFor(page, () => {
+    const rows = [...document.querySelectorAll("[data-plots-directories] .row")].map((el) => ({ name: el.querySelector(".name")?.textContent ?? "", count: el.querySelector(".count")?.textContent ?? "" }));
+    return rows.some((r) => r.name === "stacks" && r.count === "2") ? rows : null;
+  }, null, { label: "the stacks folder row with its count" }).catch(() => null);
+  h.ok(!!dirRows, `the rail's folder navigator counts a folder of image stacks: ${JSON.stringify(dirRows?.find((r) => r.name === "stacks"))}`);
+  h.ok(!!dirRows && !dirRows.some((r) => /\.fluximg$|^pixels$|^layers$/.test(r.name)), "…and lists no bundle (or anything inside one) as a folder");
+  await page.click("[data-directory-toggle]");
+  // The rail's own folder section for it: its header counts the stacks, its tiles have pictures.
+  const railSection = await waitFor(page, async () => {
+    const vp = document.querySelector("[data-plots-gallery] .viewport");
+    for (let y = 0; vp && y <= vp.scrollHeight; y += 200) {
+      vp.scrollTop = y;
+      await new Promise((r) => setTimeout(r, 30));
+      const head = document.querySelector("[data-plots-gallery] [data-section=\"dir:stacks\"]");
+      if (head) return head.textContent?.replace(/\s+/g, " ").trim() ?? "";
+    }
+    return null;
+  }, null, { label: "the rail's stacks section" }).catch(() => "");
+  h.ok(/stacks.*· 2/.test(railSection), `the rail's section for a folder of stacks counts them: "${railSection}"`);
+  const railPics = await waitFor(page, () => { const n = [...document.querySelectorAll("[data-plots-gallery] [data-tile*=\"/stacks/\"] .page img")].filter((i) => i.naturalWidth > 0).length; return n >= 2 ? n : null; }, null, { label: "the stacks' tiles", timeout: 10000 }).catch(() => 0);
+  h.eq(railPics, 2, "…and both its tiles have pictures");
+  await page.evaluate(() => { const vp = document.querySelector("[data-plots-gallery] .viewport"); if (vp) vp.scrollTop = 0; });
+
   h.section("the bundle in the Plot gallery");
+  await openGalleryDialog(page);
+  // The Folders view: the bundle-only folder shows a count and a mosaic picture; the header names image stacks.
+  const folderTile = await waitFor(page, () => {
+    const b = [...document.querySelectorAll(".importer button.row[data-kind=\"dir\"]")].find((n) => n.querySelector(".nm")?.textContent?.trim() === "stacks");
+    if (!b) return null;
+    const imgs = [...b.querySelectorAll(".mosaic-cell img")].filter((i) => i.naturalWidth > 0);
+    const count = b.querySelector(".fcount")?.textContent?.trim() ?? "";
+    return imgs.length && count ? { count, pictures: imgs.length } : null;
+  }, null, { label: "the stacks folder tile's mosaic and count", timeout: 15000 }).catch(() => null);
+  h.ok(!!folderTile && folderTile.count === "2", `a folder holding only image stacks shows its count (${folderTile?.count})`);
+  h.ok(!!folderTile && folderTile.pictures >= 1, `…and a mosaic picture (${folderTile?.pictures} of its stacks drawn)`);
+  const header = await waitFor(page, () => { const t = document.querySelector(".importer [data-gallery-count]")?.textContent ?? ""; return /image/.test(t) ? t : null; }, null, { label: "the header count", timeout: 10000 }).catch(() => "");
+  h.ok(/^(\d+ plots? · )?[1-9]\d* images?$/.test(header), `the header counts the image stacks under the folder: "${header}"`);
+  // Search reaches bundles in folders; the List view lists them with their kind.
+  await page.type(".importer input.search-in", "stacks/");
+  const hits = await waitFor(page, () => { const p = [...document.querySelectorAll(".importer [data-path]")].map((n) => n.getAttribute("data-path")); return p.some((x) => x.endsWith("/stacks/a.fluximg")) && p.some((x) => x.endsWith("/stacks/b.fluximg")) ? p : null; }, null, { label: "search hits", timeout: 8000 }).catch(() => null);
+  h.ok(!!hits, "searching reaches the image stacks inside a folder");
+  await page.click(".importer button[aria-label=\"List view\"]");
+  const listRow = await waitFor(page, () => { const r = [...document.querySelectorAll(".importer button.row")].find((n) => n.getAttribute("data-path")?.endsWith("/stacks/a.fluximg")); return r ? (r.querySelector(".ic")?.textContent?.trim() ?? "") : null; }, null, { label: "a list row", timeout: 8000 }).catch(() => null);
+  h.eq(listRow, "▦", "the List view lists the stacks, marked as image stacks");
+  await page.click(".importer button[aria-label=\"Gallery view\"]");
+  await page.click(".importer input.search-in", { count: 3 }); await page.keyboard.press("Backspace");
+  await page.evaluate(() => window.__flux.fig.importerOpen.set(false));
+  await waitFor(page, () => !document.querySelector(".importer"), null, { label: "gallery closed" });
   await openGalleryDialog(page);
   const rows = await waitFor(page, () => {
     const all = [...document.querySelectorAll(".importer [data-path]")].map((n) => ({ path: n.getAttribute("data-path"), kind: n.getAttribute("data-kind") }));

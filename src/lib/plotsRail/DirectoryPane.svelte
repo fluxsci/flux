@@ -12,6 +12,7 @@
   // the search. Rows have guide lines, an open or closed folder, and one highlight.
   import { fileBridge, joinPath } from "../project/types";
   import { isReservedPlotDirName } from "../project/plotsFolders";
+  import { isFluximgBundleName } from "./rules";
 
   let { base, selected = "", counts, onChoose, onClose, floating = false, onPlacement }: {
     base: string;
@@ -57,7 +58,8 @@
           const batch = await Promise.all(level.slice(i, i + READERS).map((rel) =>
             readdir(rel ? joinPath(root, rel) : root, true).then((entries) => ({ rel, entries }), () => ({ rel, entries: [] }))));
           for (const { rel, entries } of batch) for (const e of entries) {
-            if (!e.dir || isReservedPlotDirName(e.name) || e.name.startsWith(".") || /[\\/]/.test(e.name)) continue;
+            // An image bundle (`*.fluximg`) is one item in the gallery, never a folder to open or walk into.
+            if (!e.dir || isReservedPlotDirName(e.name) || isFluximgBundleName(e.name) || e.name.startsWith(".") || /[\\/]/.test(e.name)) continue;
             // A library this large still opens: the first 20,000 folders, and a line that says so.
             if (out.length >= MAX_FOLDERS) { full = true; break; }
             const child = rel ? `${rel}/${e.name}` : e.name;

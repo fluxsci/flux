@@ -289,14 +289,16 @@
   $: stackAspect = (r: Row): number => { const f = stackFact(r); return f ? f.width / f.height : 0; };
   function resetSizes() { sizeGeneration++; sizes = new Map(); settled = new Set(); asked.clear(); sizeQueue = []; }
   $: navCount = (() => { let n = 0; while (n < rows.length && rows[n].kind !== "file") n++; return n; })();
-  // Each folder row previews (up to) four of the plots under it, from the search walk.
+  // Each folder row previews (up to) four of the plots and image stacks under it, from the search walk. An image
+  // stack's mosaic cell is an ordinary Tile: its picture comes through the same lazy, bounded thumbnail path as its
+  // own tile (only cells on screen are mounted, and only a mounted cell reads its bundle's manifest).
   $: folderPreviews = ((): Map<string, { count: number; plots: string[] }> => {
     const map = new Map<string, { count: number; plots: string[] }>();
     if (viewMode !== "gallery" || !navCount) return map;
     for (const r of rows.slice(0, navCount)) if (r.kind === "dir") map.set(r.abs ?? joinPath(cwd, r.name), { count: 0, plots: [] });
     const all = new Map<string, string[]>();
     for (const p of planCaches.flatMap((c) => c?.recs ?? [])) {
-      if (p.video || p.model3d || p.fluximg || !p.abs.startsWith(cwd + "/")) continue;
+      if (p.video || p.model3d || !p.abs.startsWith(cwd + "/")) continue;
       const rest = p.abs.slice(cwd.length + 1), slash = rest.indexOf("/");
       const entry = slash > 0 ? map.get(joinPath(cwd, rest.slice(0, slash))) : undefined;
       if (!entry) continue;
@@ -335,6 +337,27 @@
   }
   $: captionText = (name: string, w: number) => middleEllipsis(name, w - 6, captionMeasure());
   $: fileCount = rows.filter(r => r.kind === "file").length;
+  // The header counts what this folder holds, its subfolders included (from the search walk once it has run; the
+  // listing meanwhile), and names image stacks apart from plots: a folder of stacks never reads "0 plots".
+  $: headerCounts = ((): { plots: number; images: number } => {
+    const own = { plots: 0, images: 0 };
+    const add = (fx: boolean | undefined) => { if (fx) own.images++; else own.plots++; };
+    if (!q && !similarTo && scanned) {
+      for (const p of planCaches.flatMap((c) => c?.recs ?? [])) {
+        if (!p.abs.startsWith(cwd + "/") || (modelsOnly && !p.model3d)) continue;
+        add(p.fluximg);
+      }
+      return own;
+    }
+    for (const r of rows) if (r.kind === "file") add(r.fluximg);
+    return own;
+  })();
+  $: headerCountText = browseVideos
+    ? `${headerCounts.plots + headerCounts.images} ${headerCounts.plots + headerCounts.images === 1 ? "item" : "items"}`
+    : [
+        ...(headerCounts.plots || !headerCounts.images ? [`${headerCounts.plots} ${headerCounts.plots === 1 ? "plot" : "plots"}`] : []),
+        ...(headerCounts.images ? [`${headerCounts.images} ${headerCounts.images === 1 ? "image" : "images"}`] : []),
+      ].join(" · ");
   function resetScroll() { scrollTop = 0; if (listEl) listEl.scrollTop = 0; }
   $: { search; similarTo; viewMode; previewSize; spacing; labels; resetScroll(); }
 
@@ -476,7 +499,9 @@
     const inReserved = !!reservedRootOf(dir);
     entries = es
       .filter((e) => (e.dir ? inReserved || !isReservedPlotDirName(e.name) || videos && e.name === VIDEO_DIRNAME : /\.(svg|png)$/i.test(e.name) || allowModels && /\.glb$/i.test(e.name) || videos && /\.(mp4|mov)$/i.test(e.name)))
-      .sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1));
+      // An image bundle is a folder on disk but a FILE here: it sorts with the files, after the folders (the folder
+      // section is the leading run of non-file rows — a bundle sorted among folders would end it before it began).
+      .sort((a, b) => { const ad = a.dir && !isFluximgBundleName(a.name), bd = b.dir && !isFluximgBundleName(b.name); return ad === bd ? a.name.localeCompare(b.name) : ad ? -1 : 1; });
     loading = false;
   }
 
@@ -511,7 +536,8 @@
         const r = rel ? `${rel}/${e.name}` : e.name;
         if (e.dir && isFluximgBundleName(e.name)) {
           // One item, never walked into (its preview.png and layers are parts of the image).
-          if (allowModels) out.push({ abs, rel: r, name: e.name, scope: src.scope, semantic: false, fluximg: true });
+          // Project scope only: a bundle is read through the project's own file bridge (the Plots rail's rule too).
+          if (allowModels && src.scope === "project") out.push({ abs, rel: r, name: e.name, scope: src.scope, semantic: false, fluximg: true });
         }
         else if (e.dir) {
           if (src.reserved || !isReservedPlotDirName(e.name) || videos && e.name === VIDEO_DIRNAME) await visit(abs, r, depth + 1);
@@ -578,7 +604,7 @@
     if (cwd && cwd !== plotsRoot) out.push({ kind: "up", name: ".." });
     for (const e of entries) {
       if (e.dir && isFluximgBundleName(e.name)) {
-        if (allowModels && !modelsOnly) out.push({ kind: "file", name: e.name, abs: joinPath(cwd, e.name), rel: e.name, scope: browseScope, semantic: false, fluximg: true });
+        if (allowModels && !modelsOnly && browseScope === "project") out.push({ kind: "file", name: e.name, abs: joinPath(cwd, e.name), rel: e.name, scope: browseScope, semantic: false, fluximg: true });
       }
       else if (e.dir) out.push({ kind: "dir", name: e.name });
       else if (!modelsOnly || /\.glb$/i.test(e.name))
@@ -899,7 +925,7 @@
           <label class="slider">Space <input type="range" aria-label="Preview spacing" min="4" max="32" step="2" bind:value={spacing} on:change={rememberView} /></label>
           <label class="labels"><input type="checkbox" bind:checked={labels} on:change={rememberView} /> Names</label>
         {/if}
-        <span class="count">{fileCount} {browseVideos ? (fileCount === 1 ? "item" : "items") : (fileCount === 1 ? "plot" : "plots")}</span>
+        <span class="count" data-gallery-count>{headerCountText}</span>
       </div>
       {#if similarTo}<div class="similar-filter"><span>Names similar to <strong>{similarTo}</strong>{#if !scanned} · Scanning…{/if}</span><button aria-label="Clear similar names" on:click={() => { similarTo = ""; index = 0; focusInput(); }}>× Clear</button></div>{/if}
       <div class="gallery-body">
@@ -936,7 +962,7 @@
                           {@const ch = n <= 2 ? row.h : (row.h - 3) / 2}
                           {#each folder.plots as plot, k (plot)}
                             <span class="mosaic-cell" style:left={`${(k % 2) * (cw + 3)}px`} style:top={`${Math.floor(k / 2) * (ch + 3)}px`} style:width={`${cw}px`} style:height={`${ch}px`}>
-                              {#if settled.has(plot)}<Tile path={plot} stamp={sizes.get(plot)?.stamp ?? "?"} aspect={cw / ch} w={cw} h={ch} captionH={0} name="" backdrop={$railPrefs.backdrop} destination={destination?.background ?? null} priority={50 + Math.abs(i - index)} />{/if}
+                              {#if settled.has(plot)}<Tile path={plot} stamp={sizes.get(plot)?.stamp ?? "?"} aspect={cw / ch} w={cw} h={ch} captionH={0} name="" backdrop={$railPrefs.backdrop} destination={destination?.background ?? null} priority={50 + Math.abs(i - index)} darkMedia={isFluximgBundleName(plot.split("/").pop() ?? "")} />{/if}
                             </span>
                           {/each}
                         {:else}

@@ -134,6 +134,16 @@ try {
   const memParent = await mem.plotsList!({ scope: "project", accept: "svg,png,fluximg", dirs: [`${mroot}/plots/deep/er`] });
   h.eq(memParent.entries.map((e) => e.rel).sort(), ["deep/er/beside.png", "deep/er/cells.fluximg"], "…and the bundle beside its neighbours when its folder is re-listed");
 
+  // The gallery's folder tree (plot/galleryTree.ts): a bundle is a FILE row where images can be placed, sorted
+  // after the folders, never a folder; elsewhere it is not listed.
+  {
+    const { galleryDirectoryEntries } = await import("../src/lib/plot/galleryTree");
+    const listing = [{ name: "zeta", dir: true }, { name: "cells.fluximg", dir: true }, { name: "alpha", dir: true }, { name: "p.svg", dir: false }];
+    const fig = galleryDirectoryEntries("/r/plots", "/r/plots", listing, false, true);
+    h.eq(fig.map((e) => `${e.kind}:${e.name}${e.fluximg ? "▦" : ""}`), ["dir:alpha", "dir:zeta", "file:cells.fluximg▦", "file:p.svg"], "gallery tree (Figure): a bundle is a file row after the folders");
+    h.eq(galleryDirectoryEntries("/r/plots", "/r/plots", listing, true, false).map((e) => e.name), ["alpha", "zeta", "p.svg"], "gallery tree (Slide): bundles are not listed, and never as folders");
+  }
+
   // 200 bundles: the walk stats each bundle's manifest and preview; it opens none of them.
   const many = path.join(scratch, "many", "plots");
   const grayFiles = await filesOf(fx("gray2d_u8"));

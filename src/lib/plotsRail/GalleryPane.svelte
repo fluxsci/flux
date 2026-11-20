@@ -285,7 +285,9 @@
   const idBySlash = $derived.by(() => { void ix.version; const m = new Map<string, string>(); for (const it of ix.items) m.set(slash(it.abs), it.abs); return m; });
   const linkedId = $derived.by(() => {
     const el = resolvePlotElement($project, $selection, $partSelection);
-    const src = el?.type === "plot" ? el.source?.svgPath : "";
+    // A placed image stack links to its bundle's tile the way a plot links to its SVG's.
+    const fx = el?.type === "fluximg" ? (el.source as { bundlePath?: string; external?: boolean } | undefined) : undefined;
+    const src = el?.type === "plot" ? el.source?.svgPath : fx && !fx.external ? fx.bundlePath : "";
     return src ? idBySlash.get(absOf(src)) ?? "" : "";
   });
   let lastRevealed = "";
