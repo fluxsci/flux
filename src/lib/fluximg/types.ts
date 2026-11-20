@@ -48,6 +48,8 @@ export interface FluximgChannel {
   /** Default display window, in VALUE units: black point, white point. */
   range: [number, number];
   stats: FluximgStats;
+  /** Whether the channel starts shown (default true). A view's own `visible` wins. Contract update 2. */
+  visible?: boolean;
 }
 
 /** How stored numbers map to values. */
@@ -160,7 +162,12 @@ export interface FluximgManifest {
   defaults?: { index?: Record<string, number> };
   layers: FluximgLayer[];
   regions: FluximgRegion[];
-  /** Kept verbatim. Flux does not interpret it in fluximg/1. */
+  /**
+   * Kept verbatim; Flux does not interpret it in fluximg/1. `matrix` (3 x 3, or 4 x 4 when z is mapped) maps
+   * homogeneous image coordinates (x, y, 1) / (x, y, z, 1), in the continuous pixel coordinates layers use
+   * (pixel (i, j) covers [i, i+1) x [j, j+1); the first pixel's centre is (0.5, 0.5); z = plane index along `z`),
+   * to world coordinates in `unit`.
+   */
   world?: { matrix: number[][]; unit?: string | null; note?: string | null } | null;
   provenance?: {
     writer?: string;

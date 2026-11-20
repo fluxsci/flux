@@ -45,7 +45,7 @@ export function arraySource(data: FluximgTypedArray, dims: string[], shape: numb
   };
 }
 
-export interface WriteChannel { name?: string; color?: string | null; lut?: string | null; range?: [number, number] }
+export interface WriteChannel { name?: string; color?: string | null; lut?: string | null; range?: [number, number]; /** false: the channel starts hidden. */ visible?: boolean }
 export type WriteLayer =
   | { kind: "intensity"; id: string; name?: string; data: FluximgTypedArray; dtype: FluximgDtype; color?: string | null; lut?: string | null; range?: [number, number]; opacity?: number | "value"; visible?: boolean; lossless?: boolean; from?: string }
   | { kind: "labels"; id: string; name?: string; data: Uint16Array | Uint32Array; table?: FluximgTable; key?: string; color?: string | null; visible?: boolean; weights?: string | null; from?: string }
@@ -85,18 +85,82 @@ export interface WriteReport {
   notes: string[];
 }
 
-const DEFAULT_COLOURS = ["#00ff00", "#ff00ff", "#00ffff", "#ffff00", "#ff8000", "#0080ff"];
+/**
+ * Default channel colours (fluxplot's writer uses the same). Two channels: green + magenta. Three: gray, green,
+ * magenta (the trio that stays distinguishable for deuteranopes, protanopes and tritanopes). Four and more
+ * continue cyan, azure, red: past three no additive set stays apart for every colour-vision deficiency, so the
+ * first three keep their colours when a channel is added and the rest are simply distinct hues. `null` = the
+ * gray LUT.
+ */
+export function defaultChannelColours(n: number): Array<string | null> {
+  if (n <= 1) return [null];
+  if (n === 2) return ["#00ff00", "#ff00ff"];
+  const seq: Array<string | null> = [null, "#00ff00", "#ff00ff", "#00ffff", "#0080ff", "#ff0000"];
+  return Array.from({ length: n }, (_, i) => seq[i % seq.length]);
+}
+/** Vector and label layers without a colour take these in turn (yellow first): none is a default channel colour. */
+export const DEFAULT_LAYER_COLOURS = ["#ffd400", "#ff8000", "#ffffff", "#ff5c5c", "#9c8cff"];
 const ID_RE = /^[a-z][a-z0-9_]*$/;
 
-/** Streams inner chunks (in C order) into shard files, splitting shards along dimension 0. */
+/** How many planes the shard-size estimate looks at (SPEC 3.3, "the estimate"). */
+export const SHARD_SAMPLE_PLANES = 8;
+
+/**
+ * What the first compressed chunks of an array cost (SPEC 3.3, "the estimate"): the `planes` complete planes
+ * sampled took `planeBytes`; the `rows` complete rows of inner chunks sampled (those planes' rows plus any of
+ * the plane after them) took `rowBytes`.
+ */
+export interface ShardEstimate { planes: number; planeBytes: number; rows: number; rowBytes: number }
+
+/**
+ * SPEC 3.3's shard rule: inner chunks per shard along each dimension, from the chunk counts, the estimate and
+ * the cap. Exported so the gate (and another writer's port) can check it in isolation.
+ *
+ * A shard spans y and x whole. Walking the leading dimensions from the LAST one backwards, it spans each
+ * whole while the estimate stays at or below the cap; the first that does not fit is split into runs of k
+ * inner chunks (k = floor(0.9 x cap / size of one run unit), at least 1), and every earlier dimension gets 1.
+ * Only when one plane is itself over the cap is y split, into runs of rows of inner chunks (x stays whole).
+ * Integer arithmetic throughout (`9 * cap / 10`, not `0.9 * cap`), so two writers that measured the same bytes
+ * choose the same shape.
+ */
+export function shardChunks(counts: readonly number[], est: ShardEstimate, cap: number): number[] {
+  const nd = counts.length, per = counts.slice();
+  if (!(est.planes > 0 && est.planeBytes <= cap * est.planes)) {
+    // One plane is over the cap (or never completed within it): runs of rows of inner chunks, x whole.
+    for (let i = 0; i < nd - 2; i++) per[i] = 1;
+    if (est.rowBytes > 0) per[nd - 2] = Math.max(1, Math.min(counts[nd - 2], Math.floor((9 * cap * est.rows) / (10 * est.rowBytes))));
+    return per;
+  }
+  const { planes: q, planeBytes: s } = est;
+  let unit = 1;                                         // planes in one step along the dimension being judged
+  for (let i = nd - 3; i >= 0; i--) {
+    if (s * unit * counts[i] <= cap * q) { unit *= counts[i]; continue; }
+    per[i] = Math.max(1, Math.min(counts[i], Math.floor((9 * cap * q) / (10 * s * unit))));
+    for (let j = 0; j < i; j++) per[j] = 1;
+    break;
+  }
+  return per;
+}
+
+/**
+ * Streams inner chunks, in C order, into shard files shaped by `shardChunks`.
+ *
+ * The first chunks are held (compressed) until the estimate is known: the first `SHARD_SAMPLE_PLANES` planes,
+ * or fewer once they pass the cap, so at most about one shard's worth waits. Because a shard spans every
+ * dimension after its split dimension whole, chunks in C order fill one shard after another; each shard is
+ * written as soon as the next one starts, so memory stays at about one shard whatever the array's size.
+ */
 class ArrayWriter {
   readonly counts: number[];
-  private readonly perSlab: number;
   private readonly chunkBytes: number;
-  private pending = new Map<number, Uint8Array>();   // flat chunk number -> compressed bytes
-  private slabBytes: number[] = [];
-  private slabsPerShard = 0;
-  private flushedSlabs = 0;
+  private readonly samplePlanes: number;
+  private per: number[] | null = null;                 // inner chunks per shard, once decided
+  private held: Array<{ coords: number[]; blob: Uint8Array }> = [];
+  private heldBytes = 0;
+  private rowsDone = 0;
+  private planesDone = 0;
+  private planesBytes = 0;
+  private open: { shard: number[]; parts: Array<{ local: number; blob: Uint8Array }> } | null = null;
   bytes = 0;
   files = 0;
 
@@ -106,79 +170,69 @@ class ArrayWriter {
     readonly dims: string[], private level: number, private maxShardBytes: number,
   ) {
     this.counts = chunkCounts(shape, inner);
-    this.perSlab = product(this.counts.slice(1));
     this.chunkBytes = product(inner) * DTYPE_BYTES[dtype];
+    this.samplePlanes = Math.min(SHARD_SAMPLE_PLANES, product(this.counts.slice(0, -2)));
   }
 
-  private flat(coords: readonly number[]): number {
-    let k = 0;
-    for (let i = 0; i < coords.length; i++) k = k * this.counts[i] + coords[i];
-    return k;
-  }
-
-  /** `chunk` must be exactly one inner chunk; null (or entirely fill) writes nothing. */
+  /** `chunk` must be exactly one inner chunk; null (or entirely fill) writes nothing. Every chunk of the array
+   *  must be offered, in C order of `coords` (the estimate counts rows and planes as they end). */
   async add(coords: readonly number[], chunk: FluximgTypedArray | null): Promise<void> {
-    const slab = coords[0];
-    while (this.slabBytes.length <= slab) this.slabBytes.push(0);
+    let blob: Uint8Array | null = null;
     if (chunk && !allFill(chunk, this.fill)) {
       const raw = new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
       if (raw.byteLength !== this.chunkBytes) throw new Error(`fluximg: chunk has ${raw.byteLength} bytes, expected ${this.chunkBytes}`);
-      const packed = this.codec.compress!(raw, this.level);
-      this.pending.set(this.flat(coords), packed);
-      this.slabBytes[slab] += packed.byteLength;
+      blob = this.codec.compress!(raw, this.level);
     }
-    await this.maybeFlush(slab);
+    if (this.per) { if (blob) await this.put(coords, blob); return; }
+    if (blob) { this.held.push({ coords: coords.slice(), blob }); this.heldBytes += blob.byteLength; }
+    const nd = coords.length;
+    if (coords[nd - 1] !== this.counts[nd - 1] - 1) return;            // a row of inner chunks ends here
+    this.rowsDone++;
+    if (coords[nd - 2] === this.counts[nd - 2] - 1) { this.planesDone++; this.planesBytes = this.heldBytes; }
+    if (this.planesDone >= this.samplePlanes || this.heldBytes > this.maxShardBytes) await this.decide();
   }
 
-  /** Once the first slabs show what a slab costs, fix the shard height and write every completed shard. */
-  private async maybeFlush(currentSlab: number, final = false): Promise<void> {
-    if (!this.slabsPerShard) {
-      const seen = final ? this.slabBytes.length : currentSlab;        // slabs known to be complete
-      if (!final && seen < Math.min(8, this.counts[0])) return;
-      const known = this.slabBytes.slice(0, Math.max(1, seen));
-      const mean = known.length ? known.reduce((a, b) => a + b, 0) / known.length : 0;
-      const total = mean * this.counts[0];
-      this.slabsPerShard = total <= this.maxShardBytes || mean <= 0
-        ? this.counts[0]
-        : Math.max(1, Math.min(this.counts[0], Math.floor((this.maxShardBytes * 0.9) / mean)));
-    }
-    const k = this.slabsPerShard;
-    const complete = final ? this.counts[0] : currentSlab;             // slabs before the current one are complete
-    while (this.flushedSlabs < this.counts[0] && (this.flushedSlabs + k <= complete || (final && this.flushedSlabs < this.counts[0]))) {
-      await this.writeShard(this.flushedSlabs / k);
-      this.flushedSlabs += k;
-    }
+  private async decide(): Promise<void> {
+    this.per = shardChunks(this.counts, { planes: this.planesDone, planeBytes: this.planesBytes, rows: this.rowsDone, rowBytes: this.heldBytes }, this.maxShardBytes);
+    const held = this.held;
+    this.held = [];
+    for (const h of held) await this.put(h.coords, h.blob);
   }
 
-  private async writeShard(shardNo: number): Promise<void> {
-    const k = this.slabsPerShard;
-    const n = k * this.perSlab;
+  private async put(coords: readonly number[], blob: Uint8Array): Promise<void> {
+    const per = this.per!;
+    const shard: number[] = [];
+    let local = 0;
+    for (let i = 0; i < per.length; i++) { shard.push(Math.floor(coords[i] / per[i])); local = local * per[i] + (coords[i] % per[i]); }
+    if (!this.open || this.open.shard.some((v, i) => v !== shard[i])) {
+      await this.writeOpen();
+      this.open = { shard, parts: [] };
+    }
+    this.open.parts.push({ local, blob });
+  }
+
+  /** Write the open shard: its chunks in the order they came (C order), then the index. */
+  private async writeOpen(): Promise<void> {
+    const open = this.open;
+    this.open = null;
+    if (!open || !open.parts.length) return;                           // an entirely empty shard is not written
+    const n = product(this.per!);
     const offsets = new Float64Array(n).fill(-1), lengths = new Float64Array(n);
-    const parts: Uint8Array[] = [];
-    let offset = 0;
-    for (let local = 0; local < n; local++) {
-      const slab = shardNo * k + Math.floor(local / this.perSlab);
-      if (slab >= this.counts[0]) break;
-      const flat = slab * this.perSlab + (local % this.perSlab);
-      const blob = this.pending.get(flat);
-      if (!blob) continue;
-      offsets[local] = offset; lengths[local] = blob.byteLength;
-      parts.push(blob); offset += blob.byteLength;
-      this.pending.delete(flat);
-    }
-    if (!parts.length) return;                                        // an entirely empty shard is not written
+    let size = 0;
+    for (const p of open.parts) { offsets[p.local] = size; lengths[p.local] = p.blob.byteLength; size += p.blob.byteLength; }
     const index = encodeShardIndex({ offsets, lengths });
-    const file = new Uint8Array(offset + index.byteLength);
+    const file = new Uint8Array(size + index.byteLength);
     let at = 0;
-    for (const p of parts) { file.set(p, at); at += p.byteLength; }
+    for (const p of open.parts) { file.set(p.blob, at); at += p.blob.byteLength; }
     file.set(index, at);
-    await this.io.writeFile(`${this.path}/${shardKey([shardNo, ...new Array(this.shape.length - 1).fill(0)])}`, file);
+    await this.io.writeFile(`${this.path}/${shardKey(open.shard)}`, file);
     this.bytes += file.byteLength; this.files++;
   }
 
   async finish(attributes: Record<string, unknown> = {}): Promise<ZarrArrayMeta> {
-    await this.maybeFlush(this.counts[0], true);
-    const outer = [this.slabsPerShard * this.inner[0], ...this.counts.slice(1).map((c, i) => c * this.inner[i + 1])];
+    if (!this.per) await this.decide();
+    await this.writeOpen();
+    const outer = this.per!.map((p, i) => p * this.inner[i]);
     const meta: ZarrArrayMeta = { shape: this.shape, dtype: this.dtype, inner: this.inner, outer, fill: this.fill, dims: this.dims, zstdLevel: this.level };
     const text = JSON.stringify(arrayMetaJson(meta, attributes), null, 1);
     await this.io.writeText(`${this.path}/zarr.json`, text);
@@ -392,11 +446,13 @@ export async function writeFluximg(io: BundleWriteIO, codec: ZstdCodec, input: W
 
   // ---- channels, profiles ------------------------------------------------------------------------
   const stats = accs.map(finishStats);
+  const defaults = defaultChannelColours(C);
   const channels: FluximgChannel[] = stats.map((st, i) => {
     const given = input.channels?.[i] ?? {};
     const lut = given.lut ?? null;
-    const color = lut ? null : given.color ?? (C === 1 ? null : DEFAULT_COLOURS[i % DEFAULT_COLOURS.length]);
-    return { name: given.name ?? (C === 1 ? "image" : `channel ${i + 1}`), color, lut: lut ?? (color ? null : "gray"), range: given.range ?? defaultRange(st), stats: st };
+    const color = lut ? null : given.color ?? defaults[i];
+    return { name: given.name ?? (C === 1 ? "image" : `channel ${i + 1}`), color, lut: lut ?? (color ? null : "gray"), range: given.range ?? defaultRange(st), stats: st,
+      ...(given.visible === false ? { visible: false } : {}) };
   });
   const profiles: FluximgManifest["profiles"] = {};
   for (const d of profileDims) {
@@ -433,7 +489,7 @@ export async function writeFluximg(io: BundleWriteIO, codec: ZstdCodec, input: W
         version: "0.5",
         multiscales: [{ name: input.name, axes: omeAxes, datasets }],
         ...(ci >= 0 ? { omero: { channels: channels.map((ch, c) => ({
-          label: ch.name, active: true, color: (ch.color ?? "#ffffff").replace("#", "").toUpperCase(),
+          label: ch.name, active: ch.visible !== false, color: (ch.color ?? "#ffffff").replace("#", "").toUpperCase(),
           window: { start: toStored(ch.range[0], c), end: toStored(ch.range[1], c), min: toStored(ch.stats.min, c), max: toStored(ch.stats.max, c) },
         })) } } : {}),
       },
@@ -445,6 +501,8 @@ export async function writeFluximg(io: BundleWriteIO, codec: ZstdCodec, input: W
   // ---- layers ------------------------------------------------------------------------------------
   const layers: FluximgLayer[] = [];
   const ids = new Set<string>();
+  let objectLayers = 0;                                       // vector + label layers so far: their default colours cycle
+  const nextLayerColour = (): string => DEFAULT_LAYER_COLOURS[objectLayers++ % DEFAULT_LAYER_COLOURS.length];
   for (const L of input.layers ?? []) {
     if (!ID_RE.test(L.id)) throw new Error(`fluximg: layer id ${JSON.stringify(L.id)} must match ${ID_RE}`);
     if (ids.has(L.id)) throw new Error(`fluximg: duplicate layer id ${L.id}`);
@@ -476,7 +534,7 @@ export async function writeFluximg(io: BundleWriteIO, codec: ZstdCodec, input: W
       const keyOf = new Map<number, string | number>();
       labelCol.forEach((l, i) => keyOf.set(Number(l), keyCol[i] as string | number));
       for (const o of outlines) if (!keyOf.has(o.label)) throw new Error(`fluximg: layer ${L.id}: label ${o.label} has no table row`);
-      const colour = L.color ?? "#ffd400";
+      const colour = L.color ?? nextLayerColour();
       const body = outlines.map((o) => `<path id="${L.id}/${esc(String(keyOf.get(o.label)))}" data-key="${esc(String(keyOf.get(o.label)))}" data-label="${o.label}" d="${o.d}"/>`).join("");
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}"><g id="${L.id}" fill="${colour}" fill-opacity="0.12" fill-rule="evenodd" stroke="${colour}" stroke-width="1">${body}</g></svg>`;
       const tableText = JSON.stringify({ key, columns: table.columns });
@@ -484,7 +542,7 @@ export async function writeFluximg(io: BundleWriteIO, codec: ZstdCodec, input: W
       bytes += svg.length + tableText.length; files += 2;
       layers.push({ ...base, kind: "labels", path: `layers/${L.id}`, dtype: ldtype, outlines: `layers/${L.id}.svg`, table: `layers/${L.id}.table.json`, key, count: outlines.length, color: colour, weights: L.weights ?? null });
     } else {
-      const colour = L.color ?? "#00e5ff";
+      const colour = L.color ?? nextLayerColour();
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}"><g id="${L.id}" fill="none" stroke="${colour}" stroke-width="1">${L.body}</g></svg>`;
       await io.writeText(`layers/${L.id}.svg`, svg); bytes += svg.length; files++;
       let tablePath: string | null = null;

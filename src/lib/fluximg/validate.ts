@@ -3,7 +3,7 @@
  * them, and (unless `quick`) every stored chunk. Pure; the same check backs the CLI, the import path and the
  * conformance tests of other writers.
  */
-import { CORE_DIMS, DTYPE_BYTES, FLUXIMG_MANIFEST, PERCENTILE_KEYS, type FluximgManifest, type FluximgStats } from "./types";
+import { CORE_DIMS, DTYPE_BYTES, FLUXIMG_MANIFEST, MAX_SHARD_BYTES, PERCENTILE_KEYS, type FluximgManifest, type FluximgStats } from "./types";
 import { FluximgFormatError, chunksPerShard, ndindex, product, shardCounts, shardIndexBytes, shardKey, decodeShardIndex } from "./zarr";
 import { openFluximg, type ArrayHandle, type BundleReadIO, type FluximgReader, type ZstdCodec } from "./reader";
 
@@ -11,6 +11,9 @@ export interface ValidationIssue { code: string; message: string; path?: string 
 export interface ValidationResult {
   ok: boolean;
   issues: ValidationIssue[];
+  /** Non-fatal notes (a shard file far over the size a writer should aim for, table rows without an object):
+   *  the bundle still conforms, but a writer has regressed or an author may have made a mistake. */
+  warnings: ValidationIssue[];
   manifest: FluximgManifest | null;
   /** Chunks decoded and shards visited. */
   chunks: number;
@@ -28,13 +31,26 @@ const attr = (tag: string, name: string): string | null => {
   return m ? m[1].replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&") : null;
 };
 
-export async function validateFluximg(io: BundleReadIO, codec: ZstdCodec, options: { quick?: boolean } = {}): Promise<ValidationResult> {
+export interface ValidateOptions {
+  /** Check the shard indexes only, not every stored chunk. */
+  quick?: boolean;
+  /** The shard size a writer aims for (SPEC 3.3; default 64 MiB). A shard over 1.5 x this is a warning. */
+  maxShardBytes?: number;
+}
+
+/** A shard file this many times over the cap gets a warning (SPEC 3.3: writers SHOULD stay near the cap). */
+export const SHARD_WARN_FACTOR = 1.5;
+
+export async function validateFluximg(io: BundleReadIO, codec: ZstdCodec, options: ValidateOptions = {}): Promise<ValidationResult> {
   const issues: ValidationIssue[] = [];
+  const warnings: ValidationIssue[] = [];
   const bad = (code: string, message: string, path?: string): void => { issues.push({ code, message, ...(path ? { path } : {}) }); };
+  const warn = (code: string, message: string, path?: string): void => { warnings.push({ code, message, ...(path ? { path } : {}) }); };
+  const cap = options.maxShardBytes ?? MAX_SHARD_BYTES;
   let reader: FluximgReader;
   try { reader = await openFluximg(io, codec, { verifyIndex: true }); } catch (e) {
     bad("manifest", (e as Error).message, FLUXIMG_MANIFEST);
-    return { ok: false, issues, manifest: null, chunks: 0, shards: 0 };
+    return { ok: false, issues, warnings, manifest: null, chunks: 0, shards: 0 };
   }
   const m = reader.manifest, p = m.pixels;
   let chunks = 0, shards = 0;
@@ -76,6 +92,11 @@ export async function validateFluximg(io: BundleReadIO, codec: ZstdCodec, option
       let index;
       try { index = decodeShardIndex(await io.readRange(file, -shardIndexBytes(per), shardIndexBytes(per)), per, true, file); }
       catch (e) { bad("shard", (e as Error).message, file); continue; }
+      // The file's size, from its own index: the stored chunks end where the index begins.
+      let end = 0;
+      for (let k = 0; k < per; k++) if (index.offsets[k] >= 0) end = Math.max(end, index.offsets[k] + index.lengths[k]);
+      const size = end + shardIndexBytes(per);
+      if (size > SHARD_WARN_FACTOR * cap) warn("shard-size", `shard is ${(size / 1048576).toFixed(1)} MiB, over ${SHARD_WARN_FACTOR} x the ${(cap / 1048576).toFixed(cap < 1048576 ? 3 : 0)} MiB a writer should aim for (SPEC 3.3)`, file);
       if (options.quick) continue;
       const cps = chunksPerShard(a.meta);
       let local = 0;
@@ -132,6 +153,7 @@ export async function validateFluximg(io: BundleReadIO, codec: ZstdCodec, option
     if (!!c.color === !!c.lut) bad("channels", `channel ${i} needs exactly one of color and lut`);
     if (c.color && !/^#[0-9a-fA-F]{6}$/.test(c.color)) bad("channels", `channel ${i}: color must be #rrggbb`);
     if (!Array.isArray(c.range) || !fin(c.range[0]) || !fin(c.range[1]) || !(c.range[1] > c.range[0])) bad("channels", `channel ${i}: range must be [low, high] with high > low`);
+    if (c.visible !== undefined && typeof c.visible !== "boolean") bad("channels", `channel ${i}: visible must be true or false`);
     statsOk(c.stats, `channel ${i}`);
   });
   for (const d of dims) {
@@ -154,6 +176,11 @@ export async function validateFluximg(io: BundleReadIO, codec: ZstdCodec, option
   for (const [d, i] of Object.entries(m.defaults?.index ?? {})) {
     const k = dims.indexOf(d);
     if (k < 0 || k >= nd - 2 || d === "c" || !int(i) || i < 0 || i >= p.shape[k]) bad("defaults", `defaults.index.${d} is out of range`);
+  }
+  if (m.world !== undefined && m.world !== null) {
+    // Shape only: Flux keeps the matrix verbatim and does not interpret it in fluximg/1 (SPEC 2).
+    const mx = m.world.matrix, n = Array.isArray(mx) ? mx.length : 0;
+    if (!((n === 3 || n === 4) && mx.every((row) => Array.isArray(row) && row.length === n && row.every(fin)))) bad("world", "world.matrix must be a 3 x 3 or 4 x 4 matrix of finite numbers");
   }
   const rids = new Set<string>();
   for (const r of m.regions) {
@@ -217,6 +244,13 @@ export async function validateFluximg(io: BundleReadIO, codec: ZstdCodec, option
         if (L.kind === "labels") {
           if (!table?.columns.label) bad("table", 'a labels table needs an integer "label" column', L.table);
           else {
+            // Label 0 is "no object" (SPEC 6): a row for 0 or below is a key column read as 0-based, which would
+            // silently join every object to its neighbour's row.
+            const low = table.columns.label.filter((l) => !(Number.isInteger(l) && (l as number) >= 1));
+            if (low.length) bad("table", `labels table: label ${JSON.stringify(low[0])} is not an object label (labels are integers from 1; 0 means no object). A key column read as 0-based?`, L.table);
+            const drawn = new Set(shapes.map((sh) => attr(sh, "data-label")));
+            const orphans = table.columns.label.filter((l) => !drawn.has(String(l)));
+            if (orphans.length) warn("table", `layer ${L.id}: ${orphans.length} table row(s) have no object in the map (e.g. label ${JSON.stringify(orphans[0])})`, L.table);
             const keyCol = table.columns[L.key ?? table.key] ?? [];
             const want = new Map(table.columns.label.map((l, i) => [String(l), String(keyCol[i])]));
             for (const s of shapes) {
@@ -229,7 +263,7 @@ export async function validateFluximg(io: BundleReadIO, codec: ZstdCodec, option
       }
     }
   }
-  return { ok: issues.length === 0, issues, manifest: m, chunks, shards };
+  return { ok: issues.length === 0, issues, warnings, manifest: m, chunks, shards };
 }
 
 export { FluximgFormatError };

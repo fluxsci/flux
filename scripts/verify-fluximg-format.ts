@@ -10,7 +10,8 @@ import { harness } from "./lib/harness.mjs";
 import { fixtures, readValues, rng, writeFixture } from "./lib/fluximgFixtures";
 import { nodeBundleReader, nodeBundleWriter, nodeZstd } from "../flux-core/fluximgIo";
 import { openFluximg, pickLevel } from "../src/lib/fluximg/reader";
-import { arraySource, blockMean, writeFluximg } from "../src/lib/fluximg/writer";
+import { arraySource, blockMean, shardChunks, writeFluximg } from "../src/lib/fluximg/writer";
+import { resolveView } from "../src/lib/fluximg/viewOps";
 import { validateFluximg } from "../src/lib/fluximg/validate";
 import { crc32c, decodeShardIndex, encodeShardIndex, locateChunk, ndindex, product } from "../src/lib/fluximg/zarr";
 import { encodeLinear16, guardRatio, linear16Params, toValues, valueMaps } from "../src/lib/fluximg/encoding";
@@ -36,6 +37,7 @@ async function hashTree(dir: string): Promise<string> {
   await walk(dir);
   return crypto.createHash("sha256").update(out.join("\n")).digest("hex");
 }
+const same = (a: ArrayLike<number>, b: ArrayLike<number>): boolean => { if (a.length !== b.length) return false; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false; return true; };
 const files = async (dir: string): Promise<string[]> => {
   const out: string[] = [];
   const walk = async (d: string): Promise<void> => { for (const e of await fsp.readdir(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) await walk(p); else out.push(path.relative(dir, p)); } };
@@ -207,6 +209,99 @@ h.section("H. Zarr arithmetic");
   h.eq([Array.from(dec.offsets), Array.from(dec.lengths)], [[0, -1, 5_000_000_000], [10, 0, 7]], "a shard index round-trips, including a missing chunk and an offset past 4 GB");
   h.eq(locateChunk({ inner: [1, 1, 512, 512], outer: [4, 2, 1024, 1536] }, [9, 1, 1, 2]), { shard: [2, 0, 0, 0], local: ((1 * 2 + 1) * 2 + 1) * 3 + 2 }, "a chunk's shard and its place in that shard's index");
   h.eq([...ndindex([2, 2])], [[0, 0], [0, 1], [1, 0], [1, 1]], "C-order iteration");
+}
+
+h.section("I. contract update 2: shard shapes, hidden channels, label tables, world");
+{
+  const MiB = 1048576, cap = 64 * MiB;
+  const est = (planes: number, planeBytes: number, rows = 0, rowBytes = 0) => ({ planes, planeBytes, rows, rowBytes });
+  h.eq(shardChunks([2, 7, 1, 1], est(8, 8 * 3_000_000), cap), [2, 7, 1, 1], "a stack under the cap is one shard, as before");
+  h.eq(shardChunks([3, 25, 1, 1], est(8, 8 * 5_000_000), cap), [1, 12, 1, 1], "channel-first (c 3, z 25, 5 MB planes): runs of floor(0.9 x 64 MiB / 5 MB) = 12 z planes of ONE channel");
+  h.eq(shardChunks([10, 3, 4, 1, 1], est(8, 8 * 6_000_000), cap), [1, 2, 4, 1, 1], "t, c, z: z fits whole (24 MB), c does not: runs of 2 channels, t gets 1");
+  h.eq(shardChunks([816, 2, 1, 1], est(8, 8 * 150_000), cap), [201, 2, 1, 1], "a t-first movie splits along t as before: floor(0.9 x 64 MiB / (2 planes of 150 kB)) = 201 frames");
+  h.eq(shardChunks([5, 9, 4], est(0, 0, 3, 90_000_000), cap), [1, 2, 4], "one plane over the cap: runs of rows of tiles, x whole, leading dims 1");
+  h.eq(shardChunks([5, 9, 4], est(1, 100_000_000, 9, 100_000_000), cap), [1, 5, 4], "a sampled plane over the cap also splits y");
+  h.eq(shardChunks([4, 1, 1], est(4, 0), cap), [4, 1, 1], "nothing stored in the sample: one shard (empty shards are not written anyway)");
+  h.eq(shardChunks([3, 25, 1, 1], est(8, 8 * 64 * MiB), cap), [1, 1, 1, 1], "a plane just at the cap: one plane per shard");
+
+  const outer = async (name: string, level = "0"): Promise<number[]> => JSON.parse(await fsp.readFile(path.join(dirOf(name), "pixels", level, "zarr.json"), "utf8")).chunk_grid.configuration.chunk_shape;
+  h.eq(await outer("stack_cz_split_u16"), [1, 4, 40, 48], "channel-first fixture: shard = 1 channel x 4 z planes (the SECOND leading dimension is split)");
+  h.eq(await outer("stack_tcz_split_u16"), [1, 1, 2, 40, 48], "t, c, z fixture: t and c have shard extent 1, z runs of 2");
+  h.eq(await outer("rows_split_u8"), [1024, 1024], "one plane over the cap: shards of two rows of 512 px tiles");
+  h.eq(await outer("sharded_u8"), [7, 32, 32], "the existing small-cap fixture keeps its layout (runs of 7 planes)");
+  h.eq([await outer("big_tiled_u16"), await outer("mid_tiled_u16"), await outer("stack_u16"), await outer("movie_f32")], [[2560, 3072], [2, 1536, 1536], [2, 7, 48, 64], [24, 2, 40, 60]], "arrays under the cap keep their one-shard layout");
+  const czFiles = (await files(dirOf("stack_cz_split_u16"))).filter((p) => p.startsWith("pixels/0/c/"));
+  h.eq(czFiles.length, 9, "channel-first fixture: 3 channels x 3 runs (4, 4, 2) = 9 shard files");
+  const czCap = byName.stack_cz_split_u16.options!.maxShardBytes!;
+  let biggest = 0;
+  for (const p of czFiles) biggest = Math.max(biggest, (await fsp.stat(path.join(dirOf("stack_cz_split_u16"), p))).size);
+  h.ok(biggest <= czCap, `no shard is over the cap (largest ${biggest} of ${czCap} bytes)`);
+  {
+    // Round trip through the split layout: a plane from the middle of the middle shard, and a whole channel.
+    const f = byName.stack_cz_split_u16, r = await openFluximg(nodeBundleReader(dirOf(f.name)), codec), a = await r.level(0);
+    const plane = await r.readPlane(a, [1, 5]), at = (1 * 10 + 5) * 40 * 48;
+    h.ok(same(plane, f.data.subarray(at, at + 40 * 48)), "a plane in a split shard reads back exactly (c 1, z 5)");
+    const reg = await r.readRegion(a, [2, 9], { x: 7, y: 3, width: 30, height: 20 });
+    let ok = true;
+    for (let y = 0; ok && y < 20; y++) for (let x = 0; x < 30; x++) if (reg.data[y * 30 + x] !== f.data[(2 * 10 + 9) * 1920 + (3 + y) * 48 + 7 + x]) { ok = false; break; }
+    h.ok(ok, "a region of the last, partial shard reads back exactly (c 2, z 9)");
+    const rr = await openFluximg(nodeBundleReader(dirOf("rows_split_u8")), codec), ra = await rr.level(0);
+    const band = await rr.readRegion(ra, [], { x: 100, y: 1000, width: 300, height: 60 });       // straddles shards 0 and 1
+    let bandOk = true;
+    for (let y = 0; bandOk && y < 60; y++) for (let x = 0; x < 300; x++) if (band.data[y * 300 + x] !== byName.rows_split_u8.data[(1000 + y) * 600 + 100 + x]) { bandOk = false; break; }
+    h.ok(bandOk, "a region across a y shard boundary reads back exactly");
+  }
+  {
+    // Streaming: shard files are written while the planes are still coming, not at the end.
+    const f = byName.stack_cz_split_u16, n = 30;
+    let pulled = 0, firstShardAt = -1;
+    const base = arraySource(f.data, f.dims, f.shape, f.dtype);
+    const src = { ...base, plane(lead: readonly number[]) { pulled++; return base.plane(lead); } };
+    const io = nodeBundleWriter(path.join(tmp, "stream.fluximg"));
+    await writeFluximg({ writeText: io.writeText, async writeFile(p, b) { if (firstShardAt < 0 && p.startsWith("pixels/0/c/")) firstShardAt = pulled; await io.writeFile(p, b); } }, codec, { name: "stream", source: src, ...f.input }, f.options);
+    h.ok(firstShardAt > n && firstShardAt <= n + 9, `the first shard is written after ${firstShardAt - n} of ${n} planes are stored (the sample is at most 8 planes)`);
+  }
+  {
+    // Validator: a shard far over the cap is a WARNING, not an issue.
+    const strict = await validateFluximg(nodeBundleReader(dirOf("sharded_u8")), codec, { maxShardBytes: 4096 });
+    h.ok(strict.ok && strict.warnings.some((w) => w.code === "shard-size"), `a shard over 1.5 x the cap is warned about and still conforms (${strict.warnings.length} warning(s))`);
+    const usual = await validateFluximg(nodeBundleReader(dirOf("sharded_u8")), codec, { maxShardBytes: byName.sharded_u8.options!.maxShardBytes });
+    h.eq(usual.warnings, [], "at the cap it was written for: no warning");
+    let warned = 0;
+    for (const g of fx) warned += (await validateFluximg(nodeBundleReader(dirOf(g.name)), codec, { quick: true, maxShardBytes: g.options?.maxShardBytes })).warnings.length;
+    h.eq(warned, 0, "no fixture has a warning at its own cap");
+  }
+  {
+    const m = JSON.parse(await fsp.readFile(path.join(dirOf("hidden_channel_u8"), "fluximg.json"), "utf8"));
+    h.eq(m.channels.map((c: any) => c.visible), [undefined, false, undefined], "visible: false is written for the hidden channel only");
+    h.eq(m.channels.map((c: any) => c.color ?? c.lut), ["gray", "#00ff00", "#ff00ff"], "three channels default to gray, green, magenta");
+    const g = JSON.parse(await fsp.readFile(path.join(dirOf("hidden_channel_u8"), "pixels/zarr.json"), "utf8"));
+    h.eq(g.attributes.ome.omero.channels.map((c: any) => c.active), [true, false, true], "OME active follows visible");
+    h.eq(resolveView(m).channels.map((c) => c.visible), [true, false, true], "resolveView: the hidden channel resolves hidden");
+    const lm = JSON.parse(await fsp.readFile(path.join(dirOf("mean_f64_layers"), "fluximg.json"), "utf8"));
+    h.eq(lm.layers.filter((l: any) => l.kind !== "intensity").map((l: any) => l.color), ["#ffd400", "#ff8000", "#ffffff"], "vector and label layers without a colour take distinct defaults, yellow first");
+  }
+}
+
+h.section("J. the validator: label tables and world");
+{
+  const check = async (name: string, mutate: (dir: string) => Promise<void>): Promise<Awaited<ReturnType<typeof validateFluximg>>> => {
+    const dir = path.join(tmp, `case-${Math.random().toString(36).slice(2)}.fluximg`);
+    await fsp.cp(dirOf(name), dir, { recursive: true });
+    await mutate(dir);
+    return validateFluximg(nodeBundleReader(dir), codec);
+  };
+  const editJson = (rel: string, fn: (j: any) => void) => async (dir: string): Promise<void> => { const p = path.join(dir, rel); const j = JSON.parse(await fsp.readFile(p, "utf8")); fn(j); await fsp.writeFile(p, JSON.stringify(j)); };
+  const zeroBased = await check("mean_f64_layers", editJson("layers/footprints.table.json", (j) => { j.columns.label = j.columns.label.map((l: number) => l - 1); }));
+  h.ok(!zeroBased.ok && zeroBased.issues.some((i) => i.code === "table" && /0 means no object/.test(i.message)), "a 0-based label column (a row for label 0) is refused → [table]");
+  const extraRow = await check("mean_f64_layers", editJson("layers/footprints.table.json", (j) => { for (const k of Object.keys(j.columns)) j.columns[k].push(k === "label" ? 9 : k === "source_id" ? "s9" : null); }));
+  h.ok(extraRow.ok && extraRow.warnings.some((w) => w.code === "table" && /no object/.test(w.message)), "a table row without an object is a warning, not an issue");
+  const w3 = await check("mean_f64_layers", editJson("fluximg.json", (j) => { j.world = { matrix: [[0.25, 0, -160], [0, 0.25, -100], [0, 0, 1]], unit: "µm" }; }));
+  h.ok(w3.ok, "a 3 x 3 world matrix (a 2-D mapping) is accepted");
+  const w23 = await check("mean_f64_layers", editJson("fluximg.json", (j) => { j.world.matrix = [[1, 0, 0], [0, 1, 0]]; }));
+  h.ok(!w23.ok && w23.issues.some((i) => i.code === "world"), "a 2 x 3 world matrix is refused → [world]");
+  const vis = await check("hidden_channel_u8", editJson("fluximg.json", (j) => { j.channels[1].visible = "no"; }));
+  h.ok(!vis.ok && vis.issues.some((i) => i.code === "channels"), "a channel visible that is not a boolean is refused → [channels]");
 }
 
 await fsp.rm(tmp, { recursive: true, force: true });

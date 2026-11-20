@@ -48,6 +48,15 @@ function blobs(r: () => number, lead: number[], H: number, W: number, dtype: Flu
   return out;
 }
 
+/** `n` planes of a smooth pattern plus noise (uint16): every plane compresses to nearly the same size. */
+function wavyStack(seed: number, n: number, H: number, W: number): Uint16Array {
+  const r = rng(seed), d = new Uint16Array(n * H * W);
+  for (let p = 0; p < n; p++) for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    d[(p * H + y) * W + x] = Math.max(0, Math.round(800 * (1 + Math.sin(x / 5 + p) * Math.cos(y / 7)) + 60 * gauss(r)));
+  }
+  return d;
+}
+
 export function fixtures(): Fixture[] {
   const list: Fixture[] = [];
   const inRois = (y: number, x: number): boolean => (y >= 4 && y < 18 && x >= 6 && x < 40) || (y >= 22 && y < 36 && x >= 20 && x < 56);
@@ -143,6 +152,34 @@ export function fixtures(): Fixture[] {
     d.fill(NaN, 1 * 1024, 3 * 1024); d.fill(NaN, 5 * 1024, 6 * 1024);
     list.push({ name: "sparse_f32", about: "whole planes without data are not stored at all", dims: ["t", "y", "x"], shape: [6, 32, 32], dtype: "float32", data: d, input: { lossless: true }, expectEncoding: "exact" });
   }
+  // Contract update 2: shard shapes. Each plane compresses to about 3040 bytes (zstd 5); the small caps below
+  // sit mid-way between run lengths, so a writer whose zstd differs by a few bytes still picks the same shape.
+  {
+    // Channel-first: one channel's whole z run (10 planes, ~30 kB) is over the 15 000-byte cap, so z (the
+    // SECOND leading dimension) is split into runs of floor(0.9 * 15000 / 3040) = 4 planes, c gets 1.
+    const d = wavyStack(12, 3 * 10, 40, 48);
+    list.push({ name: "stack_cz_split_u16", about: "a channel-first stack over a small cap: shards of 4 z planes of one channel", dims: ["c", "z", "y", "x"], shape: [3, 10, 40, 48], dtype: "uint16", data: d,
+      input: { axes: { z: { unit: "µm", scale: 0.5 }, y: { unit: "µm", scale: 0.2 }, x: { unit: "µm", scale: 0.2 } } }, options: { maxShardBytes: 15_000 }, expectEncoding: "exact" });
+  }
+  {
+    // Three leading dimensions: z is split into runs of floor(0.9 * 8400 / 3040) = 2, so t AND c get 1.
+    const d = wavyStack(13, 2 * 2 * 6, 40, 48);
+    list.push({ name: "stack_tcz_split_u16", about: "t, c and z over a small cap: t and c have shard extent 1, z runs of 2", dims: ["t", "c", "z", "y", "x"], shape: [2, 2, 6, 40, 48], dtype: "uint16", data: d,
+      input: { axes: { t: { unit: "s", scale: 2 } } }, options: { maxShardBytes: 8_400 }, expectEncoding: "exact" });
+  }
+  {
+    // One tiled plane over the cap: y is split into runs of rows of 512 px tiles (x stays whole). A row of
+    // tiles is ~307 kB; sampling stops after 3 rows (~921 kB > 800 000), so runs of floor(0.9 * 800000 * 3 / 921k) = 2.
+    const r = rng(14), H = 2100, W = 600, d = new Uint8Array(H * W);
+    for (let i = 0; i < d.length; i++) d[i] = 1 + Math.floor(255 * r());
+    list.push({ name: "rows_split_u8", about: "one large plane over a small cap: shards of two rows of tiles", dims: ["y", "x"], shape: [H, W], dtype: "uint8", data: d, input: {}, options: { maxShardBytes: 800_000 }, expectEncoding: "exact" });
+  }
+  {
+    // A channel that starts hidden, and the default colours of three channels (gray, green, magenta).
+    const r = rng(15);
+    list.push({ name: "hidden_channel_u8", about: "three channels with default colours; the second starts hidden", dims: ["c", "y", "x"], shape: [3, 24, 32], dtype: "uint8", expectEncoding: "exact",
+      data: blobs(r, [3], 24, 32, "uint8", { amp: 150, noise: 5 }), input: { channels: [{ name: "nuclei" }, { name: "background", visible: false }, { name: "marker" }] } });
+  }
   return list;
 }
 
@@ -190,6 +227,10 @@ export async function writeAllFixtures(outDir: string): Promise<Array<{ fixture:
       // A writer given inputs/<name>.npy must produce values within this of expected/<name>.npy, per channel.
       maxAbsError: enc.kind === "linear16" ? enc.channels.map((c) => c.scale / 2) : [0],
       options: f.options ?? {}, levels: report.manifest.pixels.levels.map((l) => l.downsample), layers: report.manifest.layers.map((l) => ({ id: l.id, kind: l.kind })),
+      // Contract update 2: the shard shape (zarr chunk_grid chunk_shape) of every pixel level. Two writers given
+      // the same input and maxShardBytes choose the same one (SPEC 3.3).
+      chunkShapes: await Promise.all(report.manifest.pixels.levels.map(async (l) =>
+        JSON.parse(await fsp.readFile(path.join(outDir, `${f.name}.fluximg`, "pixels", l.path, "zarr.json"), "utf8")).chunk_grid.configuration.chunk_shape as number[])),
     };
     done.push({ fixture: f, report });
   }

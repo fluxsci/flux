@@ -11,6 +11,13 @@ This document is normative. Its executable half lives in the Flux repository:
 
 "MUST", "SHOULD" and "MAY" have their usual meaning. Paths inside a bundle are POSIX, relative to its root.
 
+**Contract update 2 (fluximg/1, 2026-11-19).** Additive, so the version string stays `"fluximg/1"`: old bundles
+stay valid and old readers read new ones. It changes the shard rule writers follow (section 3.3, so that no file
+passes about 64 MiB whatever the dimension order), lets a channel start hidden (`channels[i].visible`, section 5),
+states the `world.matrix` convention (section 2), refuses a labels-table row for label 0 or below (section 6), and
+makes the validator warn about oversized shard files (section 10). Paragraphs that changed are marked
+"(contract update 2)".
+
 ## 1. Layout
 
 ```
@@ -46,7 +53,7 @@ UTF-8 JSON. Every field below is required unless marked optional.
 | `defaults` | Optional. `{"index": {"<dim>": <int>}}`: where the image opens along each such dimension. |
 | `layers` | List, possibly empty (section 6). |
 | `regions` | List, possibly empty (section 7). |
-| `world` | Optional. `{"matrix": [[4 x 4]], "unit": "µm", "note": "…"}`, kept verbatim. Flux does not interpret it in fluximg/1. |
+| `world` | Optional. `{"matrix": [[…]], "unit": "µm", "note": "…"}`, kept verbatim; Flux does not interpret it in fluximg/1. (contract update 2) `matrix` maps homogeneous image coordinates `(x, y, 1)` (3 x 3, a 2-D mapping) or `(x, y, z, 1)` (4 x 4, when z is mapped) to world coordinates in `unit`. Image coordinates are the continuous pixel coordinates layers use (section 6): pixel (column `i`, row `j`) covers `[i, i+1) x [j, j+1)`, so the centre of the first pixel is `(0.5, 0.5)`; `z` is the plane index along `z`, 0 at the first plane. A validator checks the shape only (3 x 3 or 4 x 4, finite numbers). |
 | `provenance` | Optional. `{"writer", "created" (ISO 8601), "source": [{"path", "bytes", "mtime"}], "meta": {…}, "recipe"}`. |
 
 ## 3. Pixels
@@ -101,9 +108,11 @@ Every array in a bundle (each pixel level and each raster layer) is a Zarr v3 ar
 - **Inner chunks** (`codecs[0].configuration.chunk_shape`) are 1 along every leading dimension. Along `y` and
   `x` they are the whole plane when the plane is at most 1024 px on both sides, otherwise 512 x 512 tiles. An
   edge tile is padded to the full tile shape with the fill value.
-- **Shards** (`chunk_grid…chunk_shape`) hold a whole number of inner chunks along every dimension. A shard
-  spans the full extent of every dimension but the first; along the first it holds as many inner chunks as
-  keep the file at or below about 64 MiB (a writer SHOULD aim for that; a reader MUST NOT rely on it).
+- **Shards** (`chunk_grid…chunk_shape`) hold a whole number of inner chunks along every dimension. A writer
+  SHOULD keep every shard file at or below about `M` = 64 MiB (67 108 864 bytes), whatever the order of the
+  dimensions, by the shard rule below. A reader MUST NOT rely on it: it reads any regular `chunk_shape`.
+  (contract update 2; the previous rule split only the first dimension, which made a channel-first stack one
+  file per channel.)
 - A shard file is the compressed inner chunks, in any order, followed by the index: for each inner chunk in C
   order, `offset` and `nbytes` as little-endian uint64, then the CRC-32C of those index bytes as a little-endian
   uint32. An inner chunk that is entirely fill is not stored: both its numbers are `2^64 - 1`. A shard with no
@@ -111,6 +120,37 @@ Every array in a bundle (each pixel level and each raster layer) is a Zarr v3 ar
 - `fill_value` is `"NaN"` for float arrays stored `exact`, `0` for `linear16` arrays, and the manifest's
   `nodata` (else `0`) for integer arrays stored `exact`.
 - zstd level is the writer's choice (5 by default). No other codec, filter or byte order is allowed.
+
+#### The shard rule (contract update 2)
+
+Write `n_i` for the number of inner chunks along dimension `i` (for a leading dimension, its length). A
+**plane** is the inner chunks that share their leading coordinates; a **row** is the inner chunks of a plane
+that share their `y` chunk coordinate. All arithmetic below is exact integer arithmetic (`9·M/10`, never a
+rounded `0.9·M`).
+
+1. A shard spans `x` whole, and `y` whole unless rule 3 applies.
+2. The leading dimensions (those before `y`) are taken from the LAST one backwards, with `u` = the number of
+   planes in one step along the dimension being judged (1 for the last leading dimension). The shard spans
+   dimension `i` whole while its estimated size stays within the cap, `S·u·n_i <= q·M` (then `u` becomes
+   `u·n_i`). The first leading dimension that does not fit whole is split into runs of
+   `k = max(1, min(n_i, floor(9·M·q / (10·S·u))))` inner chunks, and every leading dimension before it has
+   shard extent 1. So a shard is always "1, …, 1, k, whole, …, whole".
+3. Only when one plane alone is over the cap (no complete plane was sampled, or `S > q·M`): every leading
+   dimension has extent 1 and `y` is split into runs of `k = max(1, min(n_y, floor(9·M·r / (10·R))))` rows
+   (`k = n_y` when `R = 0`).
+
+**The estimate** (`q`, `S`, `r`, `R`) comes from the first inner chunks actually compressed, in C order. The writer
+samples chunks until the end of the 8th plane (or of the last plane, when there are fewer), or, if that comes
+first, until the end of the first row after which the sampled bytes exceed `M`. A chunk's bytes are its
+compressed size; a chunk that is entirely fill counts 0; the shard index is ignored. Then `q` is the number of
+complete planes sampled and `S` their bytes, and `r` the number of complete rows sampled and `R` their bytes
+(the sample always ends at the end of a row). Shards of this shape are filled one after another when chunks
+are written in C order, so a writer streams them to disk and holds at most the sample and one shard.
+
+The cap is a writer parameter: the fixtures (section 10) use a small `maxShardBytes` to force splitting on
+small data. Two writers that compress the sampled chunks to the same sizes choose the same `chunk_shape`; zstd
+builds can differ by a few bytes, so near a boundary between two values of `k` they may differ, and both
+results conform. Arrays that fit the cap are one shard, exactly as before contract update 2.
 
 ### 3.4 Levels
 
@@ -167,10 +207,12 @@ guard forced. Integer data is always stored `exact`. A writer MUST tell the auth
 
 ## 5. Channels, statistics, profiles, axes
 
-**Channel.** `{"name", "color", "lut", "range", "stats"}`. Exactly one of `color` (`#rrggbb`: the ramp from
-black to that colour) and `lut` (a colour-map name such as `gray`, `viridis`, `cmasher.ember`) is non-null.
-`range` is the default display window `[black, white]`, in values, with `white > black`. The writer's default
-is the 1st to 99.8th percentile.
+**Channel.** `{"name", "color", "lut", "range", "stats"}` and optional `visible`. Exactly one of `color`
+(`#rrggbb`: the ramp from black to that colour) and `lut` (a colour-map name such as `gray`, `viridis`,
+`cmasher.ember`) is non-null. `range` is the default display window `[black, white]`, in values, with
+`white > black`. The writer's default is the 1st to 99.8th percentile. (contract update 2) `visible` (boolean,
+default `true`) says whether the channel starts shown; a placed image's own view still wins. When the group
+carries `omero.channels`, their `active` equals it.
 
 **Stats.** `{"count", "min", "max", "percentiles": {"0.1", "1", "50", "99", "99.8", "99.9"}, "hist": {"lo", "hi",
 "counts": [256 integers]}}` over the channel's valid values. `hist` spans `lo`..`hi` (the 0.1 and 99.9
@@ -221,6 +263,10 @@ separate loops.
 strings, booleans or nulls. A labels table MUST have an integer `label` column; the object with label `L` is
 the row where `label == L`, and its key is that row's value in the layer's `key` column (which may be `label`
 itself). When a vector layer has a table, every shape's `data-key` MUST appear in its key column.
+(contract update 2) Every value of a labels table's `label` column MUST be an integer of at least 1: label 0 means
+"no object", so a row for 0 (or below) is almost always a 0-based id column joined to 1-based labels, which
+would silently give every object its neighbour's row. A validator refuses it. A row whose label has no object in
+the map is allowed; a validator warns about it.
 
 ## 7. Regions
 
@@ -249,11 +295,15 @@ node --import tsx scripts/fluximg-fixtures.ts <outdir>
 
 - `fluximg-validate` exits 0 when a bundle conforms and lists what is wrong otherwise. `--values` writes what a
   correct reader returns for level 0: float64 values in stored dimension order, NaN where there is no data.
+  (contract update 2) It also prints WARNINGS, which do not change the exit status and are listed under
+  `"warnings"` in `--json`: a shard file larger than 1.5 x the cap (`--max-shard-bytes N`, default 64 MiB), and
+  labels-table rows with no object in the map.
 - `fluximg-fixtures` writes reference bundles, plus `inputs/<name>.npy` (what the writer was given),
   `expected/<name>.npy` (what a reader must return) and `fixtures.json` (dims, encoding, the error bound
-  `maxAbsError` per channel).
+  `maxAbsError` per channel, the `maxShardBytes` option, and `chunkShapes`: each pixel level's shard shape).
 
 A **writer** conforms when, for every fixture input, its bundle passes `fluximg-validate` and decodes to
 values within `maxAbsError` of the input (exactly equal for `exact`), with "no data" in the same places, and
-its encoding choice matches the fixture's. A **reader** conforms when it returns `expected/<name>.npy` for
+its encoding choice matches the fixture's; it SHOULD also produce each level's `chunkShapes`, given the
+fixture's `maxShardBytes` as its cap. A **reader** conforms when it returns `expected/<name>.npy` for
 every fixture bundle, exactly.

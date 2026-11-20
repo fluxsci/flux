@@ -105,6 +105,13 @@ h.section("A. resolveView: defaults and overrides");
   h.eq([o.channels[1].color, o.channels[1].lut, o.channels[1].range, o.channels[1].norm, o.channels[1].gamma], ["#00ff00", null, movie.channels[1].range, "linear", 1], "a colour clears the manifest lut; an empty window, an unknown norm, a bad gamma fall back");
   h.eq(resolveView(movie, { channels: [{ range: [NaN, 3] }] }).channels[0].range, movie.channels[0].range, "a non-finite window falls back");
   h.eq(resolveView(movie, { channels: [null, { visible: false }] }).channels.map((c) => c.visible), [true, false], "a null entry keeps the defaults");
+  // Contract update 2: a manifest channel may start hidden; the element's view still wins either way.
+  const hidden = copy(movie); hidden.channels[1].visible = false;
+  h.eq(resolveView(hidden).channels.map((c) => c.visible), [true, false], "a manifest channel with visible: false resolves hidden");
+  h.eq(resolveView(hidden, { channels: [{ visible: false }, { visible: true }] }).channels.map((c) => c.visible), [false, true], "a view's visible wins over the manifest's, both ways");
+  h.eq(planeRequests(hidden, resolveView(hidden)).map((r) => r.channel), [0], "a channel hidden by the manifest is not read");
+  hidden.channels[1].visible = true;
+  h.eq(resolveView(hidden).channels[1].visible, true, "visible: true is the same as absent");
   h.eq([d.composite, d.solo, d.smooth, d.background, d.projection, d.insetOf], ["blend", 0, false, "#000000", null, null], "blend, solo 0, true pixels, black background, no projection");
   h.eq([resolveView(movie, { solo: 9 }).solo, resolveView(movie, { solo: -2 }).solo, resolveView(movie, { composite: "single", solo: 1 }).composite], [1, 0, "single"], "solo is clamped to the channels");
   h.eq([resolveView(movie, { background: "transparent" }).background, resolveView(movie, { background: "#123456" }).background, resolveView(movie, { background: "red" }).background], ["transparent", "#123456", "#000000"], "background: a hex colour or transparent");

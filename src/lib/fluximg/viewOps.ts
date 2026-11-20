@@ -59,7 +59,8 @@ function resolveChannel(manifest: FluximgManifest, i: number, ov: FluximgChannel
   return {
     index: i,
     name: base.name,
-    visible: typeof o?.visible === "boolean" ? o.visible : true,
+    // the manifest's `visible` (contract update 2) is only the default: an element's view still wins
+    visible: typeof o?.visible === "boolean" ? o.visible : base.visible !== false,
     color, lut, range,
     norm: o?.norm && (NORMS as readonly string[]).includes(o.norm) ? o.norm : "linear",
     gamma: finite(o?.gamma) && o!.gamma! > 0 ? o!.gamma! : 1,
