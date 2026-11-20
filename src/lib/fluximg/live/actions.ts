@@ -279,6 +279,34 @@ export function toggleFurniture(kind: FurnitureKind): void {
   liveView(`furniture:${kind}`, { furniture: { [kind]: on ? null : {} } as FluximgFurnitureView });
   settleLiveEdit();
 }
+const CORNERS = ["bottom-right", "bottom-left", "top-left", "top-right"] as const;
+/** Move an annotation that is on to the next corner (clockwise from bottom right). */
+export function cycleFurnitureCorner(kind: "scalebar" | "stamp" | "channelLabels" | "colorbar"): void {
+  const c = liveContext();
+  const item = c?.view.furniture[kind];
+  if (!c || !item) return;
+  const next = CORNERS[(CORNERS.indexOf(item.corner) + 1) % CORNERS.length];
+  liveView(`furniture-corner:${kind}`, { furniture: { [kind]: { corner: next } } as FluximgFurnitureView });
+  settleLiveEdit();
+}
+
+/**
+ * Pull a channel's contrast by hand: `dx` and `dy` are screen pixels since the press, `from` the window at the
+ * press. Right narrows the window (more contrast), left widens it; up brightens (the window slides toward lower
+ * values), down darkens. The caller settles the gesture on release.
+ */
+export function dragContrast(i: number, from: readonly [number, number], dx: number, dy: number): void {
+  const c = liveContext(), ch = c?.view.channels[i];
+  if (!c || !ch) return;
+  const d = histDomain(c.manifest.channels[i].stats, from), span = d.hi - d.lo;
+  const half = Math.max(span * 1e-4, ((from[1] - from[0]) / 2) * Math.exp(-dx / 220));
+  const centre = (from[0] + from[1]) / 2 + (dy / 260) * span;
+  const integer = integerData(c.manifest);
+  let lo = centre - half, hi = centre + half;
+  if (integer) { lo = Math.round(lo); hi = Math.max(lo + 1, Math.round(hi)); }
+  setChannel(i, { range: [lo, hi] }, `contrast-drag:${i}`);
+}
+
 export function toggleSmooth(): void {
   const c = liveContext();
   if (!c) return;
@@ -386,11 +414,14 @@ export function splitChannels(): void {
  * Blow-out: a new panel beside the image showing the current frame, while the image itself returns to `restore`
  * (the frame it had before the region was chosen). The new panel remembers its parent, which draws its frame.
  */
-export function makeInset(restore: CropRect | null): string | null {
+export function makeInset(restore: CropRect | null, drawn?: PixelRect): string | null {
   const c = liveContext();
   if (!c) return null;
-  const full = fullCrop(c.manifest), region = c.crop;
-  if (region.width >= full.width - 1e-6 && region.height >= full.height - 1e-6) { pushToast("info", "Zoom into a region first, then pull it out as an inset"); return null; }
+  const full = fullCrop(c.manifest);
+  // A rectangle drawn on the image is the region (the image keeps its frame); otherwise the frame itself is.
+  const region = drawn ? clampCrop(c.manifest, drawn) : c.crop;
+  if (drawn && (drawn.width < 2 || drawn.height < 2)) return null;
+  if (region.width >= full.width - 1e-6 && region.height >= full.height - 1e-6) { pushToast("info", "Draw a rectangle on the image, or zoom into a region first, then pull it out as an inset"); return null; }
   const id = c.element.id;
   let created: string | null = null;
   liveMutate("inset", (p) => {
@@ -407,7 +438,7 @@ export function makeInset(restore: CropRect | null): string | null {
     });
     const el = p.figures.find((f) => f.id === found.figureId)!.elements.find((e) => e.id === created)!;
     el.name = `${src.name ?? asset.name} · inset`;
-    if (restore) src.crop = { ...restore }; else delete src.crop;
+    if (!drawn) { if (restore) src.crop = { ...restore }; else delete src.crop; }
   });
   settleLiveEdit();
   return created;

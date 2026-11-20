@@ -86,8 +86,8 @@ file dialog cannot pick a folder), or drag the `.fluximg` folder in from your fi
 # The live view
 
 Select an image and press **R**, or double-click it. The image stays where it is and becomes
-live: navigator rails appear beside it, a panel opens next to it, and a line below the image
-reads the position and each channel's value under the pointer. **R** again closes the view;
+live: navigator rails appear beside it and a small panel opens next to it. The foot of the
+panel reads the position and each channel's value under the pointer. **R** again closes the view;
 **Escape** backs out one level at a time (a choice, then playback, then a zone, then the view).
 Clicking elsewhere on the canvas closes it too.
 
@@ -97,24 +97,35 @@ usual meaning; plain keys belong to the panel. **F** opens the usual property me
 
 ## The panel
 
-The panel lists the image's zones, each with a left-hand key:
+The panel is a short list: the image's channels, its rails, and the zones you can open. Each
+row has a left-hand key. Nothing more appears until you ask for it.
 
 | Key | Row | What it does |
 |---|---|---|
 | **1**–**6** | a channel | Open that channel's contrast and colour (its eye shows or hides it) |
-| **a** | Auto contrast | Every channel at once, from the pixels in view; press again to tighten |
-| **x** | Split channels | One panel per channel to the right, each alone in gray with its name |
-| **t**, **z** | Time, Depth | Arm that rail: the mouse wheel then moves through it (other dimensions get **q** or **`**) |
+| **t**, **z** | Time, Depth | Arm that rail: the mouse wheel then moves through it anywhere on screen (other dimensions get **q** or **`**) |
 | **e** | Projection | Off (one plane), or max, mean, min, sum or std over a run of planes |
 | **d** | Layers & objects | The layers and the objects in them |
-| **v** | Frame | The region of the image the panel shows |
-| **n** | Pixels | True pixels or smoothed when magnified |
-| **b** | Scale bar | On or off (it needs a pixel size: without one the row says "no pixel size" and pressing it tells you so) |
-| **w** | Position stamp | Where along depth or time the picture is, printed on it |
-| **c** | Channel names | Each channel's name in its colour |
-| **g** | Calibration bar | Each shown channel's colours from its black point to its white point, with both values |
+| **v** | Frame | The region of the image shown; true or smoothed pixels |
+| **b** | Annotations | Scale bar, position stamp, channel names, calibration bar |
 
-The view opens with its first rail armed, so the wheel moves through the stack at once.
+**a** sets every channel's contrast automatically from the pixels in view (press again to
+tighten). It has no row of its own; the panel's footer names it.
+
+The view opens with its first rail armed for the wheel **over the image and its rails**, so you
+can move through the stack at once while the wheel still pans the canvas everywhere else. Press
+a rail's key (or click the rail) and the wheel moves it from anywhere on screen.
+
+## Annotations
+
+Press **b**. Each row is one annotation, drawn as vectors on the image:
+
+| Key | Annotation |
+|---|---|
+| **b** | Scale bar (it needs a pixel size: without one the row says "no pixel size" and pressing it tells you so) |
+| **w** | Position stamp: where along depth or time the picture is |
+| **c** | Channel names, each in its channel's colour |
+| **g** | Calibration bar: each shown channel's colours from its black point to its white point, with both values |
 
 ## Moving through a stack
 
@@ -152,6 +163,7 @@ another channel.
 | **x** | Shown |
 | **v** | Solo: show only this channel (again: back to all of them) |
 | **d** | Reset to the image's own window and colour |
+| **b** | Split channels: one panel per channel to the right, each alone in gray with its name |
 
 **Auto** sets the window from the pixels in view: the plane (or projection) on screen, inside
 the frame. Each press moves to the next window on a ladder: 0.1–99.9 %, 1–99.8 %, 1–99 % of
@@ -184,7 +196,8 @@ row. Long lists show the first 400 objects of a layer; filter to find the rest.
 
 Press **v**. The frame is a window onto the whole image: the box stays where it is on the
 figure, and the wheel over the image zooms in on the spot under the pointer; drag the image to
-move it under the frame. **d** shows the whole image again. **x** pulls the current region out
+move it under the frame. **d** shows the whole image again; **n** switches between true pixels
+and smoothing when the image is magnified. **x** pulls the current region out
 as an **inset**: a new panel beside the image shows the region with a scale bar, the original
 returns to the frame it had, and it outlines the inset's region.
 

@@ -9,7 +9,7 @@
    * Presentational: it reports gestures and draws what it is given. The overlay owns the model.
    */
   import type { FluximgAxis } from "../types";
-  import { profileShape, railIndex, railPos, railSpan, railTicks } from "./rail";
+  import { axisValue, profileShape, railIndex, railPos, railSpan, railTicks } from "./rail";
 
   type Phase = "start" | "move" | "end" | "cancel";
   let {
@@ -49,6 +49,13 @@
   const band = $derived(run ? railSpan(run.from, run.to, length, extent) : null);
   const ticks = $derived(railTicks(axis, length, extent, format, vertical ? 30 : 54));
   let hover = $state<number | null>(null);
+  /** The plane under the pointer and what a click there would show: the rail's axis cursor. */
+  const hoverAt = $derived.by(() => {
+    if (hover === null || drag) return null;
+    const i = railIndex(hover, length, extent), v = axisValue(axis, i);
+    const where = axis?.labels?.[i] ?? (v !== null ? `${format(Number(v.toPrecision(5)))}${unit ? ` ${unit}` : ""}` : "");
+    return { index: i, pos: railPos(i, length, extent), label: where ? `${i + 1} · ${where}` : String(i + 1) };
+  });
 
   let track = $state<SVGSVGElement>();
   type Drag = { pointer: number; kind: "scrub" | "draw" | "slide" | "from" | "to"; origin: number; from: number; to: number };
@@ -160,9 +167,9 @@
         {@const [x2, y2] = xy(head, ACROSS)}
         <line class="head-line" {x1} {y1} {x2} {y2} />
       {/if}
-      {#if hover !== null && !drag}
-        {@const [x1, y1] = xy(hover, 0)}
-        {@const [x2, y2] = xy(hover, ACROSS)}
+      {#if hoverAt}
+        {@const [x1, y1] = xy(hoverAt.pos, 0)}
+        {@const [x2, y2] = xy(hoverAt.pos, ACROSS)}
         <line class="hover" {x1} {y1} {x2} {y2} />
       {/if}
     </svg>
@@ -170,11 +177,13 @@
       <!-- The thumb straddles the track's outer edge, so it never hides the trace under the playhead. -->
       <span class="thumb" style={vertical ? `top:${head}px` : `left:${head}px`}></span>
     {/if}
-    <div class="ticks" aria-hidden="true">
+    <div class="ticks" class:hovering={!!hoverAt} aria-hidden="true">
       {#each ticks as t (t.index)}
         <span class="tick" style={vertical ? `top:${t.pos}px` : `left:${t.pos}px`}>{t.label}</span>
       {/each}
     </div>
+    <!-- The axis cursor: the plane under the pointer, named where the ticks are (a click goes there). -->
+    {#if hoverAt}<span class="cursor" data-fluximg-railcursor style={vertical ? `top:${hoverAt.pos}px` : `left:${Math.min(extent - 4, Math.max(4, hoverAt.pos))}px`}>{hoverAt.label}</span>{/if}
   </div>
   {#if !vertical}{@render words()}{@render player()}{/if}
 </div>
@@ -210,6 +219,10 @@
   .rail:not(.vertical) .ticks { left: 0; right: 0; top: calc(100% + 7px); height: 11px; }
   .rail.vertical .ticks { top: 0; bottom: 0; left: calc(100% + 8px); width: 36px; }
   .tick { position: absolute; }
+  .ticks.hovering { opacity: 0.35; }
+  .cursor { position: absolute; z-index: 1; padding: 0 4px; height: 13px; line-height: 13px; background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); color: var(--c-tx-hi); font-size: 9.5px; white-space: nowrap; pointer-events: none; }
+  .rail:not(.vertical) .cursor { top: calc(100% + 5px); transform: translateX(-50%); }
+  .rail.vertical .cursor { left: calc(100% + 6px); transform: translateY(-50%); }
   .rail:not(.vertical) .tick { transform: translateX(-50%); }
   .rail.vertical .tick { transform: translateY(-50%); }
   /* The position in words: the plane number first, then where that is. It never changes size while scrubbing. */

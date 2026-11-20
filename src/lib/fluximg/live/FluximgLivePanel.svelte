@@ -23,12 +23,14 @@
   import { fullCrop } from "../still";
   import { describePosition, describeProjection, formatNumber } from "../viewOps";
   import FluximgHistogram from "./FluximgHistogram.svelte";
+  import FluximgMiniHist from "./FluximgMiniHist.svelte";
   import FluximgLayerList from "./FluximgLayerList.svelte";
   import {
     LIVE_KEYS, PROJECTION_MODES, autoContrast, backOut, defaultArmed, dimKeys, dimLength, liveContext, makeInset, naturalRate, nudgeGamma,
     nudgeLayerOpacity, nudgeWindow, railDims, resetChannel, resetFrame, resizeProjection, setChannel, setProjectionMode, setWindow, soloChannel,
-    splitChannels, stepPosition, toggleChannel, toggleFurniture, togglePlayback, toggleSmooth, zoomFrame,
+    splitChannels, stepPosition, toggleChannel, toggleFurniture, togglePlayback, toggleSmooth, zoomFrame, cycleFurnitureCorner,
   } from "./actions";
+  import { clippedShares, formatShare } from "./histogram";
   import { armLive, cancelLiveEdit, closeFluximgLive, fluximgLive, fluximgLiveProblem, fluximgLiveRect, fluximgReadout, liveArm, livePointer, setLive, settleLiveEdit } from "./session";
 
   const live = $derived($fluximgLive);
@@ -43,8 +45,17 @@
   const dimName = (d: string): string => DIM_NAMES[d] ?? d.charAt(0).toUpperCase() + d.slice(1);
   const channel = $derived(ctx && live ? ctx.view.channels[Math.min(live.channel, ctx.view.channels.length - 1)] : null);
   const table = $derived.by(() => { void $fluximgLutsReady; return channel ? channelTable(channel, resolveLut) : new Uint8Array(1024); });
+  /** What the open channel's window clips to its first and last colour, as shares of the channel's values. */
+  const clipped = $derived(ctx && channel ? clippedShares(ctx.manifest.channels[channel.index].stats, channel.range) : null);
   /** A value as the panel prints it: whole numbers for integer data, five significant digits otherwise. */
   const fmt = (v: number): string => (integer ? formatNumber(Math.round(v)) : formatNumber(Number(v.toPrecision(4))));
+  /** A channel's ink for small plots: its colour, or a bright entry of its colour map. */
+  function inkOf(c: { color: string | null; lut: string | null }): string {
+    void $fluximgLutsReady;
+    if (c.color) return c.color;
+    const t = c.lut ? resolveLut(c.lut) : null;
+    return t?.[Math.floor(t.length * 0.72)] ?? "#cecdc3";
+  }
   /** A swatch for a channel: its colour, or its colour map as a small ramp. */
   function swatch(c: { color: string | null; lut: string | null; invert?: boolean }): string {
     void $fluximgLutsReady;
@@ -154,7 +165,7 @@
     if (live.zone === "home") return void (homeKey(k) && done());
     if (live.zone === "channel") return void (channelKey(k) && done());
     if (live.zone === "frame") return void (frameKey(k) && done());
-    if (live.zone === "annotate") return void (annotateKey(k) && done());
+    if (live.zone === "annotate") return void (annotateKey(k, e.shiftKey) && done());
     // The layers zone handles its own keys (FluximgLayerList); everything else is swallowed here.
     if (live.zone !== "layers") done();
   }
@@ -181,15 +192,16 @@
     }
     return true; // the panel owns unmodified keys: nothing leaks to canvas shortcuts (no stray Delete or nudge)
   }
-  function annotateKey(k: string): boolean {
-    switch (k) {
-      case LIVE_KEYS.scalebar: toggleScalebar(); break;
-      case LIVE_KEYS.stamp: if (dims.length) toggleFurniture("stamp"); break;
-      case LIVE_KEYS.channelNames: toggleFurniture("channelLabels"); break;
-      case LIVE_KEYS.colorbar: toggleFurniture("colorbar"); break;
-    }
+  function annotateKey(k: string, shift: boolean): boolean {
+    const kind = k === LIVE_KEYS.scalebar ? "scalebar" : k === LIVE_KEYS.stamp ? "stamp" : k === LIVE_KEYS.channelNames ? "channelLabels" : k === LIVE_KEYS.colorbar ? "colorbar" : null;
+    if (!kind || !ctx || (kind === "stamp" && !dims.length)) return true;
+    // Shift + its key walks an annotation that is on round the corners; the plain key switches it on and off.
+    if (shift && ctx.view.furniture[kind]) cycleFurnitureCorner(kind);
+    else if (kind === "scalebar") toggleScalebar();
+    else toggleFurniture(kind);
     return true;
   }
+  const cornerWords = (corner: string): string => corner.replace("-", " ");
   function channelKey(k: string): boolean {
     if (!ctx || !live) return false;
     const i = live.channel;
@@ -219,7 +231,11 @@
   function frameKey(k: string): boolean {
     switch (k) {
       case "d": resetFrame(); break;
-      case "x": if (makeInset(frameBefore)) home(); break;
+      case "x": case "Enter":
+        // First press: the next drag on the image draws the inset's rectangle. Pressed again: the frame as it is.
+        if (live?.armed !== "inset" && k === "x") armLive("inset");
+        else if (live?.armed === "inset") { if (makeInset(frameBefore)) home(); else armLive("zoom"); }
+        break;
       case LIVE_KEYS.smooth: toggleSmooth(); break;
     }
     return true;
@@ -229,6 +245,13 @@
   const stepper = new WheelStepper();
   function onWheel(e: WheelEvent): void {
     if (!live || !ctx || e.ctrlKey || e.metaKey || get(fluxFigMenuOpen)) return; // Ctrl-wheel is always canvas zoom
+    // The mouse alone: the first wheel notch over a channel's row arms that channel's white point, as the wheel
+    // over an unarmed F-menu row arms it. The notch itself is spent on arming.
+    const row = live.zone === "home" && e.target instanceof Element ? e.target.closest<HTMLElement>(".row.chan[data-channel]") : null;
+    if (row) {
+      const i = Number(row.dataset.channel);
+      if (!(live.channel === i && live.armed === "white")) { e.preventDefault(); e.stopPropagation(); liveArm.explicit = true; setLive({ channel: i, armed: "white" }); stepper.reset(); return; }
+    }
     const armed = live.armed;
     // Inside the panel a list scrolls; only an armed row takes the wheel there.
     const inPanel = e.target instanceof Node && !!panelEl?.contains(e.target);
@@ -332,7 +355,13 @@
     return () => observer.disconnect();
   });
 
-  const head = $derived(ctx ? { name: ctx.element.name ?? asset?.name ?? "Image", about: asset?.fluximg ? describeFluximg(asset.fluximg) : "" } : null);
+  const head = $derived.by(() => {
+    if (!ctx) return null;
+    const info = asset?.fluximg, px = info?.pixelSize;
+    const pixel = px ? `${fmtPixel(px.x)}${px.y !== px.x ? ` × ${fmtPixel(px.y)}` : ""} ${px.unit ?? "units"} per pixel` : "";
+    return { name: ctx.element.name ?? asset?.name ?? "Image", about: info ? describeFluximg(info) : "", pixel };
+  });
+  const fmtPixel = (v: number): string => formatNumber(Number(v.toPrecision(4)));
   const full = $derived(ctx ? fullCrop(ctx.manifest) : null);
   const frameWords = $derived.by(() => {
     if (!ctx || !full) return "";
@@ -363,6 +392,10 @@
     {:else if $fluximgReadout}
       <span class="where">{$fluximgReadout.where}{#if $fluximgReadout.object}<span class="obj">{$fluximgReadout.object}</span>{/if}</span>
       <span class="vals">{#each $fluximgReadout.values as v (v.name)}<span class="val"><i style={`background:${v.ink}`}></i>{v.name} <b>{v.text}</b></span>{/each}</span>
+    {:else if head}
+      <!-- Nothing under the pointer: the strip says what the image IS (its size, its pixel, how it is stored). -->
+      <span class="what">{head.about}</span>
+      <span class="what">{head.pixel}</span>
     {/if}
   </div>
 {/snippet}
@@ -376,7 +409,7 @@
         <span class="mark" aria-hidden="true"><Logomark size={14} /></span>
         <span class="vsep" aria-hidden="true"></span>
         <span class="ttl">{head.name}</span>
-        <span class="ctx">{head.about}</span>
+        <span class="ctx"></span>
         <button class="xbtn" onclick={close} aria-label="Close the image view">×</button>
       </header>
 
@@ -385,12 +418,14 @@
           {#each ctx.view.channels as c, i (c.index)}
             {@const shown = ctx.view.composite === "single" ? ctx.view.solo === i : c.visible}
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-            <div class="row chan" class:off={!shown} data-key={i < 6 ? String(i + 1) : undefined} onclick={() => openZone("channel", i)}>
+            <div class="row chan" class:off={!shown} class:armed={live.channel === i && (live.armed === "white" || live.armed === "black")} data-key={i < 6 ? String(i + 1) : undefined} data-channel={i} onclick={() => openZone("channel", i)}>
               <span class="hk">{i < 6 ? i + 1 : "·"}</span>
               <span class="sw" style={swatch(c)}></span>
               <span class="label">{c.name}</span>
               <button class="eye" onclick={(e) => { e.stopPropagation(); toggleChannel(i); }} title={shown ? "Hide this channel" : "Show this channel"} aria-label={shown ? `Hide ${c.name}` : `Show ${c.name}`}>{shown ? "◉" : "○"}</button>
-              <span class="value">{fmt(c.range[0])} – {fmt(c.range[1])}{c.norm === "gamma" && c.gamma !== 1 ? ` · γ ${fmt(c.gamma)}` : c.norm === "log" ? " · log" : ""}</span>
+              <span class="minihist" title={`${fmt(c.range[0])} – ${fmt(c.range[1])}${c.norm === "gamma" && c.gamma !== 1 ? ` · γ ${fmt(c.gamma)}` : c.norm === "log" ? " · log" : ""}`}>
+                <FluximgMiniHist stats={ctx.manifest.channels[c.index].stats} range={c.range} ink={inkOf(c)} off={!shown} />
+              </span>
             </div>
           {/each}
           {#if dims.length}<div class="sep"></div>{/if}
@@ -430,7 +465,7 @@
         </div>
         {@render readoutStrip()}
         <div class="foot">
-          {#if live.armed?.startsWith("pos:")}<span><b class="hk">↕</b> {dimName(live.armed.slice(4)).toLowerCase()}</span>{:else if live.armed?.startsWith("run:")}<span><b class="hk">↕</b> run</span>{/if}
+          {#if live.armed?.startsWith("pos:")}<span><b class="hk">↕</b> {dimName(live.armed.slice(4)).toLowerCase()}</span>{:else if live.armed?.startsWith("run:")}<span><b class="hk">↕</b> run</span>{:else if live.armed === "white"}<span><b class="hk">↕</b> white point</span>{/if}
           {#if dims.length}<span><b class="hk">␣</b> {playing ? "stop" : "play"}</span>{/if}
           <span><b class="hk">{LIVE_KEYS.auto}</b> auto</span>
           <span><b class="hk">r</b> <b class="hk">esc</b> close</span>
@@ -450,7 +485,7 @@
           <div class="fields">
             {#each [["q", "black", "Black point"], ["w", "white", "White point"], ["e", "gamma", "Gamma"]] as [k, id, label] (id)}
               <label class="field" class:editing={live.armed === id} data-key={k}>
-                <span class="fhead"><span class="hk">{k}</span><span class="flabel">{label}</span></span>
+                <span class="fhead"><span class="hk">{k}</span><span class="flabel">{label}</span>{#if clipped && id !== "gamma"}<span class="clip" title={id === "black" ? "The share of this channel's values at or below the black point" : "The share of this channel's values at or above the white point"}>clips {formatShare(id === "black" ? clipped.black : clipped.white)}</span>{/if}</span>
                 <input class="nin" type="text" inputmode="decimal" spellcheck="false" value={fieldValue(id)}
                   onfocus={() => armLive(id)} onblur={() => { draft = null; }} oninput={(e) => applyField(id, e.currentTarget.value)} onkeydown={(e) => onField(e, id)} />
               </label>
@@ -481,7 +516,7 @@
         {@render readoutStrip()}
         <div class="foot">
           <span><b class="hk">↕</b> wheel moves the {live.armed === "black" ? "black point" : live.armed === "gamma" ? "gamma" : live.armed === "window" ? "window" : "white point"}</span>
-          <span><b class="hk">⇧</b> ×10</span>
+          <span>drag the image: contrast</span>
           {#if ctx.view.channels.length > 1}<span><b class="hk">1</b>–<b class="hk">{ctx.view.channels.length}</b> channel</span>{/if}
           <span><b class="hk">esc</b> back</span>
         </div>
@@ -499,29 +534,29 @@
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
           <div class="row" data-key="d" onclick={resetFrame}><span class="hk">d</span><span class="label">Whole image</span><span class="value"></span></div>
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-          <div class="row" data-key="x" onclick={() => { if (makeInset(frameBefore)) home(); }}><span class="hk">x</span><span class="label">Pull out as an inset</span><span class="value"></span></div>
+          <div class="row" class:armed={live.armed === "inset"} data-key="x" onclick={() => frameKey("x")}><span class="hk">x</span><span class="label">Inset</span><span class="value">{live.armed === "inset" ? "draw it on the image" : ""}</span></div>
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
           <div class="row" data-key={LIVE_KEYS.smooth} onclick={toggleSmooth}><span class="hk">{LIVE_KEYS.smooth}</span><span class="label">Pixels</span><span class="value">{ctx.view.smooth ? "smoothed" : "true"}</span></div>
         </div>
         {@render readoutStrip()}
-        <div class="foot"><span><b class="hk">↕</b> zoom</span><span>drag moves</span><span><b class="hk">esc</b> back</span></div>
+        <div class="foot">{#if live.armed === "inset"}<span>drag a rectangle</span><span><b class="hk">x</b> the frame as it is</span>{:else}<span><b class="hk">↕</b> zoom</span><span>drag moves</span>{/if}<span><b class="hk">esc</b> back</span></div>
 
       {:else if live.zone === "annotate"}
         <div class="body zone">
           <div class="cm-head"><span class="hk">{LIVE_KEYS.annotations}</span> Annotations<button class="back" onclick={home} title="Back to the image (Esc)">← back <span class="hk">esc</span></button></div>
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-          <div class="row" data-key={LIVE_KEYS.scalebar} onclick={toggleScalebar}><span class="hk">{LIVE_KEYS.scalebar}</span><span class="label">Scale bar</span><span class="value" class:on={!!ctx.view.furniture.scalebar}>{ctx.view.furniture.scalebar ? "on" : ctx.manifest.axes?.x?.unit ? "off" : "no pixel size"}</span></div>
+          <div class="row" data-key={LIVE_KEYS.scalebar} onclick={toggleScalebar}><span class="hk">{LIVE_KEYS.scalebar}</span><span class="label">Scale bar</span><span class="value" class:on={!!ctx.view.furniture.scalebar}>{ctx.view.furniture.scalebar ? cornerWords(ctx.view.furniture.scalebar.corner) : ctx.manifest.axes?.x?.unit ? "off" : "no pixel size"}</span></div>
           {#if dims.length}
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-            <div class="row" data-key={LIVE_KEYS.stamp} onclick={() => toggleFurniture("stamp")}><span class="hk">{LIVE_KEYS.stamp}</span><span class="label">Position stamp</span><span class="value" class:on={!!ctx.view.furniture.stamp}>{ctx.view.furniture.stamp ? "on" : "off"}</span></div>
+            <div class="row" data-key={LIVE_KEYS.stamp} onclick={() => toggleFurniture("stamp")}><span class="hk">{LIVE_KEYS.stamp}</span><span class="label">Position stamp</span><span class="value" class:on={!!ctx.view.furniture.stamp}>{ctx.view.furniture.stamp ? cornerWords(ctx.view.furniture.stamp.corner) : "off"}</span></div>
           {/if}
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-          <div class="row" data-key={LIVE_KEYS.channelNames} onclick={() => toggleFurniture("channelLabels")}><span class="hk">{LIVE_KEYS.channelNames}</span><span class="label">Channel names</span><span class="value" class:on={!!ctx.view.furniture.channelLabels}>{ctx.view.furniture.channelLabels ? "on" : "off"}</span></div>
+          <div class="row" data-key={LIVE_KEYS.channelNames} onclick={() => toggleFurniture("channelLabels")}><span class="hk">{LIVE_KEYS.channelNames}</span><span class="label">Channel names</span><span class="value" class:on={!!ctx.view.furniture.channelLabels}>{ctx.view.furniture.channelLabels ? cornerWords(ctx.view.furniture.channelLabels.corner) : "off"}</span></div>
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-          <div class="row" data-key={LIVE_KEYS.colorbar} onclick={() => toggleFurniture("colorbar")}><span class="hk">{LIVE_KEYS.colorbar}</span><span class="label">Calibration bar</span><span class="value" class:on={!!ctx.view.furniture.colorbar}>{ctx.view.furniture.colorbar ? "on" : "off"}</span></div>
+          <div class="row" data-key={LIVE_KEYS.colorbar} onclick={() => toggleFurniture("colorbar")}><span class="hk">{LIVE_KEYS.colorbar}</span><span class="label">Calibration bar</span><span class="value" class:on={!!ctx.view.furniture.colorbar}>{ctx.view.furniture.colorbar ? cornerWords(ctx.view.furniture.colorbar.corner) : "off"}</span></div>
         </div>
         {@render readoutStrip()}
-        <div class="foot"><span><b class="hk">esc</b> back</span></div>
+        <div class="foot"><span><b class="hk">⇧</b> + key: next corner</span><span><b class="hk">esc</b> back</span></div>
       {/if}
     </div>
   </div>
@@ -548,14 +583,14 @@
   .body.zone { padding: 8px 10px 10px; }
   /* One line per row: key, name, and its current value in mono at the right (the F-menu's search-result row). */
   .row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 8px; align-items: center; min-height: 26px; padding: 0 6px 0 4px; cursor: var(--cursor-cross-hover); }
-  .row.chan { grid-template-columns: 18px 16px minmax(0, 1fr) 18px auto; gap: 7px; }
+  .row.chan { grid-template-columns: 18px 16px minmax(0, 1fr) 18px 84px; gap: 7px; }
   .row.static { cursor: var(--cursor-cross); }
   .row:not(.static):hover { background: var(--c-surface-2); }
   .row.armed { background: var(--c-accent-tint); box-shadow: inset 2px 0 0 var(--c-accent); }
   .row.armed .hk, .field.editing .hk { background: var(--c-accent-tint); }
   .row.tall { grid-template-columns: 18px auto minmax(0, 1fr); padding-top: 3px; padding-bottom: 3px; align-items: start; }
   .label { color: var(--c-tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .row.chan.off .label, .row.chan.off .value { color: var(--c-tx-muted); }
+  .row.chan.off .label { color: var(--c-tx-muted); }
   .row.chan.off .sw { opacity: 0.35; }
   .value { font: 11px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--c-tx-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; text-align: right; }
   .value.on { color: var(--c-tx-hi); }
@@ -577,6 +612,7 @@
   .field.editing { background: var(--c-accent-tint); box-shadow: inset 2px 0 0 var(--c-accent); }
   .fhead { display: flex; align-items: center; gap: 6px; min-height: 16px; }
   .flabel { color: var(--c-tx); white-space: nowrap; }
+  .fhead .clip { margin-left: auto; font: 10px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--c-tx-muted); white-space: nowrap; }
   .nin { width: 100%; height: 22px; background: var(--c-bg); border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); color: var(--c-tx); padding: 0 6px; font: 12px var(--font-mono); font-variant-numeric: tabular-nums; outline: none; box-sizing: border-box; text-align: right; }
   .nin:focus { border-color: var(--c-accent); }
   .acts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
@@ -595,6 +631,8 @@
   .readout .val i { width: 8px; height: 8px; border-radius: var(--r-ui); border: 1px solid color-mix(in oklab, var(--c-tx-hi) 22%, transparent); box-sizing: border-box; }
   .readout .val b { font-weight: 500; color: var(--c-tx-hi); }
   .readout .bad { color: var(--c-danger); white-space: normal; }
+  .readout .what { color: var(--c-tx-muted); overflow: hidden; text-overflow: ellipsis; }
+  .minihist { display: inline-flex; align-items: center; }
   .foot { display: flex; gap: 14px; min-height: 26px; align-items: center; padding: 0 10px; border-top: 1px solid var(--c-line); font: 11px var(--font-ui); color: var(--c-tx-muted); background: var(--c-bg-raised); flex: none; white-space: nowrap; overflow: hidden; }
   .foot span { display: inline-flex; align-items: center; gap: 4px; }
 </style>

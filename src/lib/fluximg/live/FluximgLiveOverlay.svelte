@@ -17,7 +17,7 @@
   import { contributingChannelIndices, describePosition, describeProjection, formatNumber, resolveView } from "../viewOps";
   import type { FluximgElement } from "../../types";
   import FluximgRail from "./FluximgRail.svelte";
-  import { dimKeys, dimLength, panFrame, railDims, setPosition, setRun, togglePlayback } from "./actions";
+  import { dimKeys, dimLength, dragContrast, makeInset, panFrame, railDims, setPosition, setRun, togglePlayback } from "./actions";
   import { LiveDriver, type FrameInfo } from "./driver";
   import { armLive, cancelLiveEdit, fluximgHover, fluximgLive, fluximgLiveProblem, fluximgLiveRect, fluximgReadout, livePointer, liveSampler, settleLiveEdit } from "./session";
 
@@ -238,6 +238,30 @@
     const was = $fluximgHover;
     if ((now?.key ?? "") !== (was?.key ?? "") || (now?.layerId ?? "") !== (was?.layerId ?? "")) { if (now || was?.from === "image") fluximgHover.set(now); }
   }
+  // Three things a press on the live image can be, by what the panel has open:
+  //   Frame zone             drag moves the image under its frame;
+  //   Frame zone, inset armed  drag draws the rectangle that becomes an inset (the pink of Flux's guides);
+  //   a channel's zone       drag pulls that channel's contrast (right/left) and brightness (up/down).
+  let pull = $state.raw<{ pointer: number; x: number; y: number; from: [number, number]; channel: number } | null>(null);
+  let drawn = $state.raw<{ pointer: number; x0: number; y0: number; x1: number; y1: number } | null>(null);
+  /** The rectangle being drawn, in the element's box (canvas px), for the guide. */
+  const drawnBox = $derived.by(() => {
+    if (!drawn || !crop) return null;
+    const kx = box.width / crop.width, ky = box.height / crop.height;
+    const x = (Math.min(drawn.x0, drawn.x1) - crop.x) * kx, y = (Math.min(drawn.y0, drawn.y1) - crop.y) * ky;
+    return { x, y, width: Math.abs(drawn.x1 - drawn.x0) * kx, height: Math.abs(drawn.y1 - drawn.y0) * ky };
+  });
+  /** A client point as image pixels, clamped INTO the image (a drag may leave it). */
+  function imagePointClamped(clientX: number, clientY: number): { x: number; y: number } | null {
+    if (!crop || !(bw > 0) || !(bh > 0)) return null;
+    const cx = host.x + left + bw / 2, cy = host.y + top + bh / 2, a = (-element.rotation * Math.PI) / 180;
+    let dx = clientX - cx, dy = clientY - cy;
+    [dx, dy] = [dx * Math.cos(a) - dy * Math.sin(a), dx * Math.sin(a) + dy * Math.cos(a)];
+    if (element.flipX) dx = -dx;
+    if (element.flipY) dy = -dy;
+    const u = Math.min(1, Math.max(0, (dx + bw / 2) / bw)), v = Math.min(1, Math.max(0, (dy + bh / 2) / bh));
+    return { x: crop.x + u * crop.width, y: crop.y + v * crop.height };
+  }
   function onMove(e: PointerEvent): void {
     if (pan && e.pointerId === pan.pointer && crop) {
       e.preventDefault(); e.stopPropagation();
@@ -250,6 +274,17 @@
       panFrame(-dx * (pan.from.width / bw), -dy * (pan.from.height / bh), "frame-pan", pan.from);
       return;
     }
+    if (pull && e.pointerId === pull.pointer) {
+      e.preventDefault(); e.stopPropagation();
+      dragContrast(pull.channel, pull.from, e.clientX - pull.x, e.clientY - pull.y);
+      return;
+    }
+    if (drawn && e.pointerId === drawn.pointer) {
+      e.preventDefault(); e.stopPropagation();
+      const p = imagePointClamped(e.clientX, e.clientY);
+      if (p) drawn = { ...drawn, x1: p.x, y1: p.y };
+      return;
+    }
     lastMove = e;
     if (!moveQueued) moveQueued = requestAnimationFrame(readPointer);
   }
@@ -258,16 +293,32 @@
     if (e.button === 1 || space) return;
     if (e.button !== 0) return;
     e.preventDefault(); e.stopPropagation();
-    if (live?.zone === "frame" && crop && wrapper) {
+    if (!wrapper || !crop || !live) return;
+    if (live.zone === "frame" && live.armed === "inset") {
+      const p = imagePointClamped(e.clientX, e.clientY);
+      if (!p) return;
+      drawn = { pointer: e.pointerId, x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+    } else if (live.zone === "frame") {
       pan = { pointer: e.pointerId, x: e.clientX, y: e.clientY, from: { ...crop } };
-      wrapper.setPointerCapture(e.pointerId);
-    }
+    } else if (live.zone === "channel" && rv?.channels[live.channel]) {
+      const r = rv.channels[live.channel].range;
+      pull = { pointer: e.pointerId, x: e.clientX, y: e.clientY, from: [r[0], r[1]], channel: live.channel };
+    } else return;
+    wrapper.setPointerCapture(e.pointerId);
   }
   function onUp(e: PointerEvent): void {
-    if (!pan || e.pointerId !== pan.pointer) return;
-    pan = null;
+    const mine = (pan && e.pointerId === pan.pointer) || (pull && e.pointerId === pull.pointer) || (drawn && e.pointerId === drawn.pointer);
+    if (!mine) return;
     if (wrapper?.hasPointerCapture(e.pointerId)) wrapper.releasePointerCapture(e.pointerId);
-    settleLiveEdit();
+    const rect = drawn && e.type === "pointerup" ? { x: Math.min(drawn.x0, drawn.x1), y: Math.min(drawn.y0, drawn.y1), width: Math.abs(drawn.x1 - drawn.x0), height: Math.abs(drawn.y1 - drawn.y0) } : null;
+    const cancelled = e.type !== "pointerup";
+    pan = null; pull = null; drawn = null;
+    if (rect) {
+      // The rectangle becomes an inset beside the image; the image keeps its frame and outlines the inset's region.
+      if (makeInset(null, rect)) armLive("zoom");
+      return;
+    }
+    if (cancelled) cancelLiveEdit(); else settleLiveEdit();
   }
   function onLeave(): void {
     lastMove = null; livePointer.at = null; under = null;
@@ -323,13 +374,14 @@
 
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div bind:this={wrapper} class="fx-live" class:framing={live?.zone === "frame"} class:panning={!!pan} style={boxStyle}
+<div bind:this={wrapper} class="fx-live" class:framing={live?.zone === "frame" && live.armed !== "inset"} class:panning={!!pan} class:pulling={live?.zone === "channel"} style={boxStyle}
   data-fluximg-live={element.id} data-command-scope="fluximg-live" data-level={frame?.level ?? ""} data-sharp={frame?.sharp ? "1" : "0"}
   onpointerdown={onDown} onpointermove={onMove} onpointerup={onUp} onpointercancel={onUp} onlostpointercapture={onUp} onpointerleave={onLeave}>
   <canvas bind:this={canvas} class="gl" class:pixelated={!rv?.smooth} style={`left:${vis.x}px;top:${vis.y}px;width:${vis.w}px;height:${vis.h}px`}></canvas>
   {#if asset && manifest && rv && crop}
     <svg class="vec" width={bw} height={bh} viewBox={`0 0 ${box.width} ${box.height}`} preserveAspectRatio="none">
       <FluximgVectors {asset} {manifest} view={rv} {crop} {box} {prefix} flipX={!!element.flipX} flipY={!!element.flipY} {insets} />
+      {#if drawnBox}<rect class="draw" x={drawnBox.x} y={drawnBox.y} width={drawnBox.width} height={drawnBox.height} />{/if}
     </svg>
   {/if}
 </div>
@@ -359,6 +411,9 @@
   .fx-live { position: absolute; transform-origin: center; touch-action: none; overflow: hidden; outline: none; cursor: var(--cursor-cross); }
   .fx-live.framing { cursor: grab; }
   .fx-live.panning { cursor: grabbing; }
+  .fx-live.pulling { cursor: move; }
+  /* The rectangle being drawn for an inset: the pink of Flux's guides, a constant hairline at any zoom. */
+  .vec .draw { fill: var(--c-layout-gap-tint); stroke: var(--c-layout-gap); stroke-width: 1.25px; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
   .gl { position: absolute; display: block; pointer-events: none; }
   /* The drawing buffer is one pixel per screen pixel; if the browser ever rescales it, it must not smooth true pixels. */
   .gl.pixelated { image-rendering: pixelated; }

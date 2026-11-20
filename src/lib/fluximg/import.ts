@@ -16,6 +16,7 @@ import { project, activeFigureId, embeddedProjectRoot, projectDir } from "../sto
 import { storeTenant, storeTenantState } from "../tenancy";
 import { fileBridge, joinPath } from "../project/types";
 import type { Incoming } from "../io";
+import { pushToast } from "../toast";
 import type { Asset } from "../types";
 import type { FluximgImportResult } from "./bridge";
 import { fluximgAsset, fluximgAssetId, fluximgDisplayName } from "./place";
@@ -58,6 +59,7 @@ let sequence = 0;
 const uniqueTail = (): string => `${Date.now().toString(36)}${(++sequence).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const baseName = (p: string): string => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? p;
 
+let toldLiveView = false;
 async function incoming(source: string | File, targetFigure?: string): Promise<Incoming> {
   assertFluximgDestination();
   const root = await ensureFluximgImportRoot();
@@ -121,6 +123,8 @@ async function incoming(source: string | File, targetFigure?: string): Promise<I
         // The manifest is already here: the element need not ask a worker for it again.
         if (asset.id === assetId) fluximgManifests.update((m) => (m[asset.id] ? m : { ...m, [asset.id]: manifest }));
         void import("./sourceUpdate").then((m) => m.ensureFluximgSourceWatch()).catch(() => {});
+        // Once a session: the way in to everything an image can show is one key, and nothing on the canvas says so.
+        if (!toldLiveView) { toldLiveView = true; pushToast("info", "Image placed", { detail: "Press R, or double-click it, to move through it and set its contrast.", ttl: 6000 }); }
       },
     };
   } catch (error) {

@@ -97,6 +97,45 @@ export function transferPath(range: readonly [number, number], norm: "linear" | 
   return `${p}L${r2(width)} 0`;
 }
 
+/**
+ * The share of the channel's values at or below `v` (0 .. 1), read off the manifest's histogram. The histogram
+ * spans the 0.1 .. 99.9 percentiles, so it holds the middle 99.8 % and each tail beyond it is its 0.1 %, spread
+ * evenly out to the data's true extreme. Null when the image carries no usable histogram.
+ */
+export function shareBelow(stats: FluximgStats, v: number): number | null {
+  const h = stats.hist, counts = h?.counts;
+  if (!counts?.length || !finite(h.lo) || !finite(h.hi) || !(h.hi > h.lo) || !finite(v)) return null;
+  let total = 0;
+  for (const c of counts) total += c;
+  if (!(total > 0)) return null;
+  const TAIL = 0.001;
+  if (v < h.lo) return finite(stats.min) && stats.min < h.lo ? TAIL * Math.min(1, Math.max(0, (v - stats.min) / (h.lo - stats.min))) : 0;
+  if (v >= h.hi) return finite(stats.max) && stats.max > h.hi ? 1 - TAIL * Math.min(1, Math.max(0, (stats.max - v) / (stats.max - h.hi))) : 1;
+  const at = ((v - h.lo) / (h.hi - h.lo)) * counts.length, whole = Math.floor(at);
+  let below = 0;
+  for (let i = 0; i < whole; i++) below += counts[i];
+  below += (counts[whole] ?? 0) * (at - whole);
+  return TAIL + (1 - 2 * TAIL) * (below / total);
+}
+
+/**
+ * What a display window clips, as shares of the channel's values (0 .. 1): `black` shown as the map's first
+ * colour (at or below the black point), `white` as its last (at or above the white point). Null without a histogram.
+ */
+export function clippedShares(stats: FluximgStats, range: readonly [number, number]): { black: number; white: number } | null {
+  const b = shareBelow(stats, range[0]), w = shareBelow(stats, range[1]);
+  return b === null || w === null ? null : { black: b, white: 1 - w };
+}
+
+/** A share as the panel prints it: "0 %", "<0.1 %", "0.4 %", "12 %". */
+export function formatShare(share: number): string {
+  const p = share * 100;
+  if (!(p > 0)) return "0 %";
+  if (p < 0.1) return "<0.1 %";
+  if (p > 99.9 && p < 100) return ">99.9 %";
+  return `${p < 10 ? Number(p.toFixed(1)) : Math.round(p)} %`;
+}
+
 /** The percentile pairs "Auto" walks through, gentlest first; the last entry is the full data range. */
 export const AUTO_STEPS: ReadonlyArray<readonly [string, string] | "full"> = [["0.1", "99.9"], ["1", "99.8"], ["1", "99"], "full"];
 
