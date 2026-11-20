@@ -132,7 +132,7 @@
   }
   function toggleChannel(e: Event, i: number): void {
     const box = e.currentTarget as HTMLInputElement;
-    const patch = rv ? showChannelPatch(rv, i, box.checked) : null;
+    const patch = rv ? showChannelPatch(rv, i, box.checked, manifest) : null;
     if (!patch) { box.checked = !box.checked; return; }
     view(patch);
   }

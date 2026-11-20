@@ -205,7 +205,9 @@ export function toggleChannel(i: number): void {
   const c = liveContext(), ch = c?.view.channels[i];
   if (!c || !ch) return;
   if (c.view.composite === "single") { liveView(`show:${i}`, { solo: i }); settleLiveEdit(); return; }
-  setChannel(i, { visible: !ch.visible }, `show:${i}`);
+  // Stored only when it differs from what the image itself says (a channel may start hidden in the bundle).
+  const byDefault = c.manifest.channels[i]?.visible !== false, next = !ch.visible;
+  setChannel(i, { visible: next === byDefault ? (null as unknown as undefined) : next }, `show:${i}`);
   settleLiveEdit();
 }
 

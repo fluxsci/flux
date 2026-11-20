@@ -103,10 +103,13 @@ export function autoPatch(m: FluximgManifest, rv: ResolvedView, i: number | "all
 }
 
 /** Show or hide a channel. With one channel shown at a time, "show" makes it the one. */
-export function showChannelPatch(rv: ResolvedView, i: number, show: boolean): FluximgView | null {
+export function showChannelPatch(rv: ResolvedView, i: number, show: boolean, m?: FluximgManifest): FluximgView | null {
   if (!rv.channels[i]) return null;
   if (rv.composite === "single") return show ? { solo: i === 0 ? CLEAR : i } : null;
-  return channelPatch(i, { visible: show ? CLEAR : false });
+  // A channel can start hidden in the image itself (manifest `visible: false`): the override is cleared only when
+  // it says what the image already says.
+  const byDefault = m?.channels[i]?.visible !== false;
+  return channelPatch(i, { visible: show === byDefault ? CLEAR : show });
 }
 
 export function compositePatch(mode: "blend" | "single", solo?: number): FluximgView {
