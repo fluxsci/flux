@@ -40,6 +40,7 @@ import { assetDisplay, displayRevision, imageDisplayStats, imageDisplayDev } fro
 import * as fluximgStore from "../fluximg/store";
 import * as fluximgLiveSession from "../fluximg/live/session";
 import * as fluximgLiveActions from "../fluximg/live/actions";
+import * as fluximgLiveStep from "../fluximg/live/step";
 import * as fluximgPlace from "../fluximg/place";
 import * as fluximgSource from "../fluximg/sourceUpdate";
 import { slideFluximgStats } from "../slide/player/fluximg";
@@ -52,7 +53,7 @@ export interface FluxDevHandle {
   imageDisplay: { display: typeof assetDisplay; revision: typeof displayRevision; stats: typeof imageDisplayStats; dev: typeof imageDisplayDev };
   /** fluximg: the window's service + stores, the live view's session and actions, and the asset-record helpers.
    *  Gates must use THESE instances: a second `import()` of a module with state is a different module after HMR. */
-  fluximg: { store: typeof fluximgStore; live: typeof fluximgLiveSession; actions: typeof fluximgLiveActions; place: typeof fluximgPlace; source: typeof fluximgSource };
+  fluximg: { store: typeof fluximgStore; live: typeof fluximgLiveSession; actions: typeof fluximgLiveActions; step: typeof fluximgLiveStep; place: typeof fluximgPlace; source: typeof fluximgSource };
   /** Images on slides (stage 2): the player's image counters and what the live hosts hold (textures, surfaces). */
   fluximgSlide: { stats: typeof slideFluximgStats; hosts: typeof slideHostStats };
   /** The pure figure ops (addFluximg, setFluximgView, setCrop, …), for seeding a model inside `fig.commit`. */
@@ -143,7 +144,7 @@ export function installDevHandle(): void {
     presets,
     atlas: { ...atlasDev, details: figureDetails },
     imageDisplay: { display: assetDisplay, revision: displayRevision, stats: imageDisplayStats, dev: imageDisplayDev },
-    fluximg: { store: fluximgStore, live: fluximgLiveSession, actions: fluximgLiveActions, place: fluximgPlace, source: fluximgSource },
+    fluximg: { store: fluximgStore, live: fluximgLiveSession, actions: fluximgLiveActions, step: fluximgLiveStep, place: fluximgPlace, source: fluximgSource },
     fluximgSlide: { stats: slideFluximgStats, hosts: slideHostStats },
     ops,
   } satisfies FluxDevHandle;
