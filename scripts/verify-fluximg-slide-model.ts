@@ -360,7 +360,8 @@ try {
     let saved: any = null;
     (globalThis as any).window = { fig: { writeSlideLibrary: async (_rel: string, snap: unknown) => { saved = snap; return true; } } };
     const { saveSlidePreset } = await import("../src/lib/slide/presetLib");
-    const { loadDeckModel } = await import("../src/lib/slide/store");
+    const { loadDeckModel, currentDeck } = await import("../src/lib/slide/store");
+    const currentDeckNow = () => currentDeck()!;
     const { setStoreTenant } = await import("../src/lib/tenancy");
     const { embeddedProjectRoot } = await import("../src/lib/store");
     setStoreTenant("slide"); embeddedProjectRoot.set(root);
@@ -370,6 +371,40 @@ try {
     const res = await saveSlidePreset("with image", pd.slides[0].id);
     h.ok(!!res && res.missingAssets.includes("img-a") && !!saved && !(saved.assets ?? []).some((a: { asset: Asset }) => a.asset.kind === "fluximg") && saved.slide.elements.some((e: Element) => e.type === "fluximg"),
       "a saved preset keeps the image element, embeds no bundle and reports the asset as not embedded");
+    // C5: stamped with the content-derived minimum, so a build that would drop the image never lists it
+    const { slidePresetEntries, insertSlidePreset, slidePresetStamp } = await import("../src/lib/slide/presetLib");
+    h.ok(saved.fluxPreset === 2 && saved.schemaVersion === "0.8.0", `a preset holding an image is stamped fluxPreset 2, format ${saved.schemaVersion} (deckSchemaFor over its slide)`);
+    const oldReader = (p: { fluxPreset?: unknown; kind?: unknown }) => p.fluxPreset === 1 && p.kind === "slide"; // every released build's filter
+    h.ok(!oldReader(saved), "…which every older build's preset filter skips: it is never inserted there with the image dropped");
+    h.eq(slidePresetStamp(slideOps.createDeck({ id: "p", title: "P" }).slides[0]), { fluxPreset: 1 }, "a slide without an image stays fluxPreset 1 with no stamp (its file as before)");
+    const listed = slidePresetEntries([{ rel: "a.json", payload: saved }, { rel: "b.json", payload: { ...saved, schemaVersion: "0.9.0" } }, { rel: "c.json", payload: { ...saved, fluxPreset: 3 } }]);
+    h.ok(!listed[0].refusal && /written by a newer Flux/.test(listed[1].refusal ?? "") && /written by a newer Flux/.test(listed[2].refusal ?? ""), `a preset of a newer format or version is listed with the "newer Flux" words: "${listed[1].refusal}"`);
+    let why = "";
+    try { await insertSlidePreset(listed[1]); } catch (e) { why = (e as Error).message; }
+    h.ok(/newer Flux/.test(why), "…and inserting it is refused with them");
+    // survives save → insert in this build (the bundle is registered here)
+    const n0 = currentDeckNow().slides.length;
+    const nid = await insertSlidePreset(listed[0]);
+    const ins = currentDeckNow().slides.find((x) => x.id === nid);
+    h.ok(!!nid && currentDeckNow().slides.length === n0 + 1 && ins!.elements.some((e) => e.type === "fluximg" && e.assetId === "img-a"), "the preset inserts into this project with its image");
+    // another project, where the bundle does not exist: a refusal naming the image, not a grey box
+    const other = path.join(scratch, "other");
+    await core.scaffold(other, { title: "other" });
+    (globalThis as any).window.fig = { ...(globalThis as any).window.fig, readText: async (p: string) => fs.readFile(p, "utf8"), exists: async (p: string) => fs.stat(p).then(() => true, () => false) };
+    embeddedProjectRoot.set(other);
+    const od = slideOps.createDeck({ id: "od", title: "Other" });
+    loadDeckModel(od, [], new Set());
+    why = "";
+    try { await insertSlidePreset({ ...listed[0], preset: { ...listed[0].preset, slide: { ...listed[0].preset.slide, elements: listed[0].preset.slide.elements.map((e) => (e.type === "fluximg" ? { ...e, name: "Stack A" } : e)) } } }); } catch (e) { why = (e as Error).message; }
+    h.ok(/"Stack A".*not in this project/.test(why) && currentDeckNow().slides.length === 1, `inserting it in another project is refused, naming the image: "${why}"`);
+    // …and where the bundle IS in that project's fig/assets but not loaded yet, it is registered with the insert
+    await writeFixture(path.join(other, "fig/assets"), fx["gray2d_u8"]);
+    const there = { ...listed[0], preset: { ...listed[0].preset, slide: { ...listed[0].preset.slide, elements: listed[0].preset.slide.elements.map((e) => (e.type === "fluximg" ? { ...e, assetId: "gray2d_u8" } : e)) } } };
+    const nid2 = await insertSlidePreset(there);
+    const { project: figProject } = await import("../src/lib/store");
+    const { get: getStore } = await import("svelte/store");
+    h.ok(!!nid2 && currentDeckNow().slides.find((x) => x.id === nid2)!.elements.some((e) => e.type === "fluximg" && e.assetId === "gray2d_u8")
+      && getStore(figProject).assets.some((a: Asset) => a.id === "gray2d_u8" && a.kind === "fluximg"), "a bundle present in the project's fig/assets is registered with the insert");
     setStoreTenant("figure");
   }
 

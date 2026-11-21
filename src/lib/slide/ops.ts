@@ -321,7 +321,11 @@ export interface SlidePresetAssetEntry {
   modelMetadataActive?: boolean;
 }
 export interface SlidePresetSnapshot {
-  fluxPreset: 1;
+  /** 1: what every build reads. 2: the slide holds something a fluxPreset-1 reader would drop (an image), so those builds
+   *  never list it; `schemaVersion` then says which deck format it needs (presetLib.slidePresetStamp). */
+  fluxPreset: 1 | 2;
+  /** With fluxPreset 2: the content-derived deck format the slide needs (`deckSchemaFor`), refused by a build that reads less. */
+  schemaVersion?: string;
   kind: "slide";
   name: string;
   savedAt: string;
