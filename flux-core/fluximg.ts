@@ -121,6 +121,16 @@ async function findSlideTarget(root: string, target: string): Promise<{ deckId: 
   return null;
 }
 
+/** Every image placed on a slide of the project, with its deck and slide. */
+async function slideImages(root: string): Promise<Array<{ deck: Deck; slide: Slide; element: FluximgElement }>> {
+  const out: Array<{ deck: Deck; slide: Slide; element: FluximgElement }> = [];
+  for (const d of await listDecks(root).catch(() => [])) {
+    const deck = await loadDeck(root, d.id).catch(() => null);
+    for (const slide of deck?.slides ?? []) for (const e of slide.elements) if (e.type === "fluximg") out.push({ deck: deck!, slide, element: e });
+  }
+  return out;
+}
+
 /** A slide projected as a figure of the deck canvas over its own element array (edits land in the slide). */
 const slideFigure = (deck: Deck, slide: Slide): Figure => ({ id: slide.id, name: slide.name ?? slide.id, canvasId: DECK_CANVAS_ID, x: 0, y: 0,
   width: deck.stage.width, height: deck.stage.height, background: "", elements: slide.elements } as Figure);
@@ -186,9 +196,19 @@ export async function placeImage(root: string, figureId: string, bundlePath: str
   const total = files.reduce((n, f) => n + f.size, 0);
   let reuse: Asset | undefined;
   const sameSize = before.assets.filter((a) => a.kind === "fluximg" && a.bytes === total && a.sha256);
+  let contentId: string | undefined;
   if (sameSize.length) {
-    const id = await bundleContentId(files);
-    reuse = sameSize.find((a) => a.sha256 === id);
+    contentId = await bundleContentId(files);
+    reuse = sameSize.find((a) => a.sha256 === contentId);
+  }
+  // Images placed on slides only are not in the figure index: their elements record the content id (source.sha256).
+  if (!reuse) {
+    const onSlides = (await slideImages(root)).filter((x) => x.element.source?.sha256);
+    if (onSlides.length) {
+      contentId ??= await bundleContentId(files);
+      const hit = onSlides.find((x) => x.element.source!.sha256 === contentId);
+      if (hit) reuse = await deckImageAsset(root, before, hit.element).catch(() => undefined);
+    }
   }
 
   let asset: Asset, imported: { assetId: string; method: string } | null = null;
@@ -362,11 +382,7 @@ export async function imageInfo(root: string, target: string) {
   if (el) { placed = findImage(project, target); asset = imageAsset(project, placed.element.assetId); }
   else asset = project.assets.find((a) => a.id === target && a.kind === "fluximg");
   // Images on slides: an element there (its Design state), and every slide placement of the asset.
-  const onSlides: Array<{ deck: Deck; slide: Slide; element: FluximgElement }> = [];
-  for (const d of await listDecks(root).catch(() => [])) {
-    const deck = await loadDeck(root, d.id).catch(() => null);
-    for (const slide of deck?.slides ?? []) for (const e of slide.elements) if (e.type === "fluximg") onSlides.push({ deck: deck!, slide, element: e });
-  }
+  const onSlides = await slideImages(root);
   if (!el) {
     const hit = onSlides.find((x) => x.element.id === target) ?? (asset ? undefined : onSlides.find((x) => x.element.assetId === target));
     if (hit?.element.id === target) placed = { figure: slideFigure(hit.deck, hit.slide), element: hit.element };
