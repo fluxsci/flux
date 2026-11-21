@@ -21,7 +21,10 @@ export async function nodeSlideRepository(root: string) {
     // Letters of text ↔ shape Becomes, through the same resolver as export-deck.
     glyphFont: async (style: { family: string; weight?: number; style?: string }) => (await lookupFont(style, { cacheFile: path.join(userDataDir(), "fonts-index.json") })).bytes };
   let figures: Promise<string[]> | undefined;
-  return createSlideRepository(root, { ...io,
+  // Images: stills by the reference renderer; clips (pinned encoder) only for portable materialization (the repository
+  // strips the clip hook from live snapshots). Loaded on first use.
+  const { nodeImageIO } = await import("./slides");
+  return createSlideRepository(root, { ...io, ...(await nodeImageIO(root, {})),
     // Posters and PDF/Word need only the separate PNG. Interactive exports ask
     // the repository for portable materialization, which then embeds the clip.
     videoUrl: async file => { await fs.access(file); return pathToFileURL(file).href; },

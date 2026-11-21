@@ -1544,7 +1544,7 @@ export async function gatherDeckPayload(
 
 /** The image half of the payload IO in Node: stills by the reference renderer, clips baked by the pinned encoder
  *  (none installed: stills and one warning, `ImageClipUnavailable`). Loaded only for decks that hold an image. */
-async function nodeImageIO(root: string, opts: { imageClipUrl?: (file: string, clip: { key: string }) => Promise<string>; signal?: AbortSignal; onImageClip?: (progress: { frame: number; total: number }) => void }): Promise<Partial<import("../src/lib/slide/payload").SlidePayloadIO>> {
+export async function nodeImageIO(root: string, opts: { imageClipUrl?: (file: string, clip: { key: string }) => Promise<string>; signal?: AbortSignal; onImageClip?: (progress: { frame: number; total: number }) => void }): Promise<Partial<import("../src/lib/slide/payload").SlidePayloadIO>> {
   const { fluximgRenderSession, nodeSlideImageIO } = await import("./fluximgRender");
   const session = fluximgRenderSession();
   let encoder: Promise<{ path: string; identity: string } | null> | undefined;

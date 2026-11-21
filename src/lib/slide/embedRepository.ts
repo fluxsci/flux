@@ -49,7 +49,8 @@ export function createSlideRepository(root: string, io: SlideRepositoryIO) {
     if (current) return current;
     const stamp = generation;
     const p = limited(async () => {
-      const d = await preparedDeck(ref.deck), result = await gatherSlidePayload(root, d, ref.slide, io);
+      // Live snapshots (preview, posters, Word/PDF) never bake image clips: only portable exports carry movies.
+      const d = await preparedDeck(ref.deck), result = await gatherSlidePayload(root, d, ref.slide, io.imageClip ? { ...io, imageClip: undefined } : io);
       result.warnings.unshift(...sourceWarnings.get(ref.deck) ?? []);
       const signature = JSON.stringify(result);
       const old = snapshots.get(key);
@@ -104,7 +105,7 @@ export function createSlideRepository(root: string, io: SlideRepositoryIO) {
       const prior = io.exists && await io.exists(path) ? await io.readText(path) : null;
       if (prior !== snapshot.poster) { await io.mkdir?.(path.slice(0, path.lastIndexOf("/"))); await io.writeText(path, snapshot.poster); }
     }
-    if (options.portable && (snapshot.modelSource || Object.values(snapshot.payload.videos ?? {}).some(url => !url.startsWith("data:video/")))) {
+    if (options.portable && (snapshot.modelSource || Object.values(snapshot.payload.videos ?? {}).some(url => !url.startsWith("data:video/")) || (io.imageClip && snapshot.payload.images))) {
       const portable = await gatherPortable(ref, snapshot, generation);
       if (disposed) throw new Error("Slide repository closed");
       if (!portable) return materialize(ref, options);
