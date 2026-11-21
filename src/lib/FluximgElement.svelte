@@ -19,7 +19,7 @@
   import { PLACEHOLDER_FILL, fluximgIdPrefix, insetsOf } from "./fluximg/static";
   import type { FluximgElement } from "./types";
 
-  let { element }: { element: FluximgElement } = $props();
+  let { element, partOpacity = undefined }: { element: FluximgElement; partOpacity?: Record<string, number> } = $props();
 
   /** Still pixels per canvas pixel at rest: sharp up to 2x zoom (or a 2x display at 1x). Zooming further in asks for
    *  a denser still, one octave at a time, up to the image's own pixels. */
@@ -138,6 +138,6 @@
     </g>
   {/if}
   {#if asset && manifest && rv && crop}
-    <FluximgVectors {asset} {manifest} view={rv} {crop} {box} {prefix} flipX={!!element.flipX} flipY={!!element.flipY} {insets} />
+    <FluximgVectors {asset} {manifest} view={rv} {crop} {box} {prefix} flipX={!!element.flipX} flipY={!!element.flipY} {insets} {partOpacity} />
   {/if}
 </svg>

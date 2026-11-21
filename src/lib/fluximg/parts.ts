@@ -166,9 +166,12 @@ export function partIndexFromTexts(manifest: FluximgManifest, layerText: (path: 
 // --- the provider the window registers ---------------------------------------------------------------------------
 
 export type FluximgPartsLookup = (assetId: string) => FluximgPartIndex | undefined;
-let provider: FluximgPartsLookup | null = null;
-/** The window's (or a host's) default index lookup, used by every compile that names none. One per process. */
-export function registerFluximgParts(lookup: FluximgPartsLookup | null): void { provider = lookup; }
+export type FluximgTableLookup = (assetId: string, path: string) => FluximgTable | null | undefined;
+let provider: FluximgPartsLookup | null = null, tableProvider: FluximgTableLookup | null = null;
+/** The window's (or a host's) default index and table lookups, used by every compile that names none. One per process. */
+export function registerFluximgParts(lookup: FluximgPartsLookup | null, tables: FluximgTableLookup | null = null): void { provider = lookup; tableProvider = tables; }
+/** `explicit` when given, else the registered table lookup. */
+export function fluximgTableLookup(explicit?: FluximgTableLookup): FluximgTableLookup | undefined { return explicit ?? tableProvider ?? undefined; }
 /** `explicit` when given, else the registered provider. */
 export function fluximgPartsLookup(explicit?: FluximgPartsLookup): FluximgPartsLookup | undefined {
   return explicit ?? provider ?? undefined;

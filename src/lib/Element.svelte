@@ -15,6 +15,8 @@
 
   export let element: Element;
   export let modelPartOpacity: Record<string, number> | undefined = undefined;
+  /** An image's objects at a slide step (part id → opacity; 0 = not drawn). */
+  export let fluximgPartOpacity: Record<string, number> | undefined = undefined;
   /** WP 4.2: the background this element is drawn on (its figure's / slide's): a text halo without its own colour takes it */
   export let haloBackground: string | undefined = undefined;
 
@@ -62,7 +64,7 @@
   {:else if element.type === "model3d"}
     <Model3dElement element={element} partOpacity={modelPartOpacity} />
   {:else if element.type === "fluximg"}
-    <FluximgElement element={element} />
+    <FluximgElement element={element} partOpacity={fluximgPartOpacity} />
   {:else if element.type === "video"}
     <!-- Authoring uses the prepared still: selection and direct manipulation
          never start a decoder, playback or audio. The shared player owns that. -->

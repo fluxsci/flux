@@ -4,7 +4,7 @@ import type { Element, TextElement } from "../types";
 import type { FluxPlotManifest } from "../plot/types";
 import type { Scene3dManifest } from "../model3d/types";
 import type { FluximgManifest, FluximgTable } from "../fluximg/types";
-import { fluximgPartsLookup, fluximgPartsPending, objectStaggerCoordinates, type FluximgPartIndex, type FluximgPartsLookup } from "../fluximg/parts";
+import { fluximgPartsLookup, fluximgTableLookup, fluximgPartsPending, objectStaggerCoordinates, type FluximgPartIndex, type FluximgPartsLookup } from "../fluximg/parts";
 import type { FluximgElement } from "../fluximg/element";
 import { checkMergedView, checkViewPatch } from "../fluximg/viewCheck";
 import { FLUXIMG_BECOME_OTHER_IMAGE } from "../fluximg/policy";
@@ -115,7 +115,8 @@ function imagePartsIssue(track: Track, el: Element | null, opts: CompileOptions)
 export function imageStaggerCoordinates(track: Track, el: Element | null | undefined, parts: readonly string[], opts: Pick<CompileOptions, "fluximgParts" | "fluximgTable">): Array<number | null> | undefined {
   if (el?.type !== "fluximg" || !track.stagger?.by || !hasPartBinding(track)) return undefined;
   const index: FluximgPartIndex | undefined = fluximgPartsLookup(opts.fluximgParts)?.(el.assetId);
-  return objectStaggerCoordinates(index, parts, track.stagger, (layer) => layer.table ? opts.fluximgTable?.(el.assetId, layer.table) : undefined);
+  const table = fluximgTableLookup(opts.fluximgTable);
+  return objectStaggerCoordinates(index, parts, track.stagger, (layer) => layer.table ? table?.(el.assetId, layer.table) : undefined);
 }
 const clamp = (n: number) => Math.max(0, Math.min(1, n));
 /** What is wrong with an image's view (Design, or a step's end when `step`) for THIS image, and a bundle that cannot be
