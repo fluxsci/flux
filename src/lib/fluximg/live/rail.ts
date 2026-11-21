@@ -5,7 +5,7 @@
  * a horizontal rail (time) has along = x, a vertical one (depth) has along = y. Each index owns an equal band of
  * the track and the playhead sits at the band's centre, so index 0 and the last index are never cut off at the ends.
  */
-import type { FluximgAxis } from "../types";
+import type { FluximgAxis, FluximgManifest } from "../types";
 
 const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 
@@ -213,4 +213,10 @@ export function framePeriod(axis: FluximgAxis | undefined): number | null {
   const c = axis.coords;
   if (c && c.length > 1) { const dt = (c[c.length - 1] - c[0]) / (c.length - 1); return dt > 0 ? dt * k : null; }
   return null;
+}
+
+/** Planes per second for a dimension: its real rate when it is time in seconds, else a steady 12. */
+export function naturalRate(m: FluximgManifest, dim: string): number {
+  const period = framePeriod(m.axes?.[dim]);
+  return period ? 1 / period : 12;
 }
