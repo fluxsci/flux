@@ -1423,7 +1423,10 @@
 
   /* The readout: two lines of fixed height, so the panel never jumps as rows are hovered. Line one is where it is,
      its name and its value; line two what it is, and its id. */
-  .xdetail { display: flex; flex-wrap: wrap; align-content: center; column-gap: 8px; height: 44px; padding: 0 9px; font-size: 11px; line-height: 17px; }
+  .xdetail { display: flex; flex-wrap: wrap; align-content: center; column-gap: 8px; height: 44px; padding: 0 9px; font-size: 11px; line-height: 17px;
+    /* Its text changes at every row the pointer or the keys cross, and its box never does (fixed height, the
+       panel's width): contained, so that change is laid out here and nowhere else in the panel. */
+    contain: strict; }
   .dline { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   /* Line one is plain text (where it is, its name, its value): the cheapest thing there is to lay out, and it is
      laid out again at every row the pointer or the arrow keys cross. */

@@ -16,7 +16,8 @@
 //     2px rail and glows softly FROM it, inside the row (blur ≤ 12 px); no row's name is text-shadowed
 //   · rows are 22 px, carry no image and no decoration of their own, and a row with nothing to open carries no
 //     empty twisty (a leaf row is one element lighter than before; a preview's text has no wrapper)
-//   · the readout is two lines of fixed height; one key is bright (properties), the others glass
+//   · the readout is two lines of fixed height, contained (its text changes at every row; the panel is not
+//     laid out again for it); one key is bright (properties), the others glass
 //   · one hint line; the key at its end shows and hides the whole legend
 //   · nothing animates at rest (document.getAnimations() empty ≥ 200ms after open) and
 //     prefers-reduced-motion opens with no entrance animation at all
@@ -162,10 +163,14 @@ try {
   // --- the readout, the keys, the hint line -----------------------------------------
   const chrome = await page.evaluate(() => { const q = (s) => document.querySelector(".xray " + s), r = (s) => q(s)?.getBoundingClientRect(), cs = (s) => (q(s) ? getComputedStyle(q(s)) : null);
     const hints = q(".foot .hints");
-    return { readoutH: r(".xdetail")?.height, sameLine: Math.abs(r(".xdetail .dpath").top - r(".xdetail .dval").top) < 4, metaBelow: r(".xdetail .dmeta").top > r(".xdetail .dpath").bottom - 2,
+    return { readoutContain: cs(".xdetail")?.contain, readoutW: Math.round(r(".xdetail")?.width ?? 0), treeW: Math.round(r(".tree")?.width ?? 0), readoutH: r(".xdetail")?.height, sameLine: Math.abs(r(".xdetail .dpath").top - r(".xdetail .dval").top) < 4, metaBelow: r(".xdetail .dmeta").top > r(".xdetail .dpath").bottom - 2,
       lead: cs(".showprops.lead")?.backgroundColor, leadText: q(".showprops.lead")?.textContent.replace(/\s+/g, " ").trim(), anim: cs(".animbtn")?.backgroundColor, animOff: q(".animbtn")?.disabled,
       hintCut: hints.scrollWidth > hints.clientWidth + 1, hintLines: Math.round(r(".foot").height), legend: !!q(".legend"), src: r(".srcline")?.height ?? 0, srcInHead: !!q(".xhead .srcline") }; });
   ok(chrome.readoutH === 44 && chrome.sameLine && chrome.metaBelow, `the readout is two lines of fixed height: where and what, then its facts (${chrome.readoutH}px)`);
+  // Its text is rewritten at every row the pointer or the keys cross and its box never changes: contained, so the
+  // rest of the panel is not laid out again each time. (Size containment is only safe on a box of fixed size:
+  // the width check is what would catch it collapsing.)
+  ok(/strict/.test(chrome.readoutContain ?? "") && chrome.readoutW === chrome.treeW && chrome.readoutW > 400, `…contained, at the panel's width (contain: ${chrome.readoutContain}; ${chrome.readoutW}px)`);
   ok(chrome.lead === "rgb(226, 245, 240)" && /Properties/.test(chrome.leadText) && chrome.anim !== chrome.lead, `one key is bright (${chrome.leadText}); the others are glass`);
   ok(chrome.animOff === true, "Animate is off in Figure mode");
   ok(!chrome.hintCut && chrome.hintLines === 22 && !chrome.legend, "one hint line, whole; no legend until asked");

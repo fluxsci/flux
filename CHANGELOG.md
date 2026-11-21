@@ -210,7 +210,7 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   - A new **gives** line writes out what each object or track gets, in order (**+25 +50 +75**,
     **×1.25 ×1.56**, **+40° +80°**), so you can read the cascade before you apply it. With many,
     it shows the first four and the last.
-  - **Apply** is the one lit key; the foot says whether anything has changed yet.
+  - **Apply** is the one lit key. It opens at the cost of the old pop-up (measured).
 - **Axis view and colour scale, inside the property menu and the X-ray, wear their host's look.**
   The limits are numbers in small wells on one line, a choice (scale, norm, extend) has the
   menu's face, **Reverse** is an on/off key, and **reset** and **Apply to source** are keys.

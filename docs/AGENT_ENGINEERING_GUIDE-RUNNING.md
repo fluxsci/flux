@@ -2820,6 +2820,10 @@ Persistence invariants (all machine-checked — do not weaken):
     were left out, like the marks.
   - **No `text-shadow` on anything that changes as the pointer or the keys move.** It grows ink overflow
     and is laid out again each time; the picked row glows from its rail with an INSET shadow instead.
+  - **Contain what changes at every row.** The X-ray's readout is rewritten at every row the pointer or
+    the keys cross, and its box never changes (fixed height, the panel's width): `contain: strict` lays
+    that change out inside it and nowhere else in the panel. (Only for a box whose size cannot depend on
+    its content: size containment makes it 0 by 0 otherwise.)
   - **Count elements.** The Flux mark as 88 live circles was a third of the menu's elements at every
     open: it is one image now (`shell/logoImage.ts`). An empty placeholder per leaf row, a wrapper round a
     number, a wrapper round a preview: each was removed and each showed in the numbers.
@@ -2830,8 +2834,14 @@ Persistence invariants (all machine-checked — do not weaken):
     (`--fm-*`), one line per thing, one lit key (Apply), one hint line, and a ladder that writes out what
     each unit gets (`interact/cascadeLook.ts`, pure, from the core's own `stepOf`). Its hooks did not move
     (`select.prop`, `select.ord`, `input.delta/.factor/.dl/.dc/.dh`, `.mode button`,
-    `label.chk.rev/.ff input`, `.n`): the selects stay native (gates drive them with `page.select`), an
-    on/off key is its checkbox laid unseen over the whole key.
+    `label.chk.rev/.ff input`, `.n`): the selects stay native (gates drive them with `page.select`), and an
+    on/off key IS its checkbox, drawn as the key (`appearance: none`, its word from `::after`, lit by
+    `:checked`: no class to keep in step). A pop-up is built and thrown away whole at every open, so EVERY
+    element and binding in it is paid each time: the first version (a wrapper per control, the Flux mark
+    as an `<img>`, a span per ladder rung, a class binding per key, a 70 ms fade) cost 2.67 ms per
+    open-and-close against the old pop-up's 2.12; drawn from the old one's element count (arrows, leads,
+    key words and the hint by rules; the ladder one run of text; no image; no fade) it costs the same.
+    `verify-cascade-gui.mjs` pins the count.
   - **A panel HOSTED in an instrument wears the host's look, from its own stylesheet.** Axis view
     (`plot/AxisView.svelte`) and the colour-scale block (`plot/ColorScaleControls.svelte`) are shared with
     the Inspector, so each carries a second, host-scoped set of rules (`:global(.fluxFigMenu) …`,
