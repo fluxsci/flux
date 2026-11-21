@@ -283,6 +283,40 @@ function edgeEnergy(png: { width: number; height: number; rgba: Uint8Array }): n
   return sum / n;
 }
 
+// ---- C10: one WebGL budget per document ----------------------------------------------------------------------------------
+const plainImg = (i: number, x: number) => ({ type: "fluximg", id: `g${i}`, x, y: 10 + (i % 2) * 70, width: 60, height: 60, rotation: 0, assetId: "mv", view: { index: { t: 12 } } });
+const gridDeck = (n: number) => ({ schemaVersion: "0.8.0", id: `g${n}`, title: "grid", created: "", modified: "", stage: STAGE, theme: "flux-dark", defaults: { transition: "none" }, assets: [],
+  slides: [{ id: "g0", elements: Array.from({ length: n }, (_, i) => plainImg(i, 10 + i * 70)), beats: [{ id: "q0", tracks: [] }] }] });
+async function budgetRun(decks: { a: unknown; b: unknown }): Promise<unknown> {
+  const T = (window as any).__T, FX = (window as any).FX;
+  (window as any).__P?.player.destroy(); (window as any).__P?.host.dispose(); (window as any).__P = null;
+  const grey = (c: HTMLCanvasElement) => { if (!c.width) return -1; const k = Object.assign(document.createElement("canvas"), { width: c.width, height: c.height }).getContext("2d")!; k.drawImage(c, 0, 0); return k.getImageData(c.width >> 1, c.height >> 1, 1, 1).data[0]; };
+  const shows = (P: any) => [...P.mount.querySelectorAll("[data-slide-fluximg-root]")].map((r: any) => { const b = FX.fluximgBindingOf(r); return { live: b.probe().live, grey: grey(b.canvas) }; });
+  const errors: string[] = [];
+  const onError = (e: ErrorEvent) => errors.push(String(e.message));
+  window.addEventListener("error", onError);
+  const A = T.newPlayer(decks.a);            // "the editor preview": six images, every slot
+  A.mount.style.cssText = "position:absolute;left:0;top:0;width:640px;height:200px";   // both hosts on screen
+  A.player.goTo(0, 0); await A.player.readyMedia(); await A.player.captureMedia([], Infinity); await T.sleep(400);
+  const withA = FX.slideHostStats();
+  const B = T.newPlayer(decks.b);            // "Present", another host in the same document
+  B.mount.style.cssText = "position:absolute;left:0;top:300px;width:640px;height:200px";
+  B.player.goTo(0, 0); await B.player.readyMedia(); await B.player.captureMedia([], Infinity); await T.sleep(100);
+  await A.player.captureMedia([], Infinity);
+  const both = { ...FX.slideHostStats(), a: A.host.stats().direct, b: B.host.stats().direct }, aShows = shows(A), bShows = shows(B);
+  const bBinding = FX.fluximgBindingOf(B.mount.querySelector("[data-slide-fluximg-root]"));
+  // a context loss on B's live surface: the picture comes back, the budget stays right
+  const lostCanvas = bBinding.canvas as HTMLCanvasElement;
+  (lostCanvas.getContext("webgl2") as WebGL2RenderingContext | null)?.getExtension("WEBGL_lose_context")?.loseContext();
+  await T.sleep(200);
+  const afterLoss = { replaced: bBinding.canvas !== lostCanvas, live: bBinding.probe().live, grey: grey(bBinding.canvas), stats: FX.slideHostStats() };
+  B.player.destroy(); B.host.dispose(); B.mount.remove();
+  const afterB = FX.slideHostStats();
+  A.player.destroy(); A.host.dispose(); A.mount.remove();
+  window.removeEventListener("error", onError);
+  return { withA, both, aShows, bShows, afterLoss, afterB, end: FX.slideHostStats(), errors };
+}
+
 // ---- bundle, serve, run -------------------------------------------------------------------------------------------------
 const server = createServer(async (req, res) => {
   try {
@@ -341,6 +375,20 @@ try {
     h.section("C8: a Change that scales an image keeps one canvas size while it moves");
     h.ok(sc[1].reallocs <= 2 && sc[1].end === 320, `160 -> 320: ${sc[1].reallocs} reallocation(s) over the Change (sizes: ${sc[1].widths.join(", ")}), exact at the end (${sc[1].end})`);
     h.ok(sc[2].reallocs <= 2 && sc[2].end === 160, `320 -> 160: ${sc[2].reallocs} reallocation(s) (sizes: ${sc[2].widths.join(", ")}), exact at the end (${sc[2].end})`);
+  }
+  if (!only || only.has("budget")) {
+    const b = await page.evaluate(budgetRun as (d: unknown) => Promise<any>, { a: gridDeck(6), b: gridDeck(1) }) as any;
+    const want = Math.round((480 / 920) * 255);
+    const right = (x: { live: boolean; grey: number }) => x.live && Math.abs(x.grey - want) <= 2;
+    h.section("C10: one WebGL budget per document, shared by its hosts");
+    h.ok(b.withA.direct === 6, `one host with six images holds the six slots (${b.withA.direct} direct)`);
+    h.ok(b.both.hosts === 2 && b.both.direct === 6, `a second host in the same document stays inside the one budget (${b.both.direct} direct contexts over ${b.both.hosts} hosts; ${b.both.contexts} contexts in all)`);
+    h.ok(b.both.b === 1 && b.both.a === 5 && right(b.bShows[0]), `the second host's image took the least recently drawn slot of the first and draws on it (${b.both.a} + ${b.both.b} direct; grey ${b.bShows[0].grey}, want ${want})`);
+    h.ok(b.aShows.every(right), `the first host's evicted image is redrawn through its shared renderer: all six right (${b.aShows.map((x: any) => x.grey).join(", ")})`);
+    h.ok(b.afterLoss.replaced && right(b.afterLoss), `a lost context (loseContext) on a live surface: a new canvas, the picture back (grey ${b.afterLoss.grey})`);
+    h.ok(b.afterLoss.stats.direct === 6, `the budget stays right after the loss (${b.afterLoss.stats.direct} direct)`);
+    h.eq(b.errors, [], "no exception from the loss");
+    h.ok(b.afterB.direct === 5 && b.end.direct === 0 && b.end.contexts === 0, `disposal gives the slots back (${b.afterB.direct} after the second host, ${b.end.direct} at the end)`);
   }
   if (r.across) {
     h.section("A1: a running movie runs on across later steps");
