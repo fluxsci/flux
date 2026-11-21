@@ -110,8 +110,9 @@ assert(validateModel(model([rect({ futureExtraKey: { nested: true } })])).length
   assert(validateFigIndexFile(index).length === 0, "fig/index.json accepts a fluximg asset");
   assert(validateFigIndexFile({ ...index, assets: [{ ...asset, bytes: 0 }] }).length > 0, "fig/index.json refuses a zero-byte fluximg asset");
   const deck = { schemaVersion: "0.6.0", id: "d", title: "T", theme: "flux-dark", stage: { width: 640, height: 360 }, slides: [{ id: "s1", elements: [fx()], beats: [] }] };
-  assert(validateDeckFile({ ...deck, slides: [{ ...deck.slides[0], elements: [] }] }).length === 0 && validateDeckFile(deck).length > 0, "a deck REFUSES a fluximg element (stage 1)");
-  assert(validateDeckFile({ ...deck, slides: [{ ...deck.slides[0], elements: [] }], assets: [{ ...asset }] }).length > 0, "a deck REFUSES a fluximg asset (stage 1)");
+  // fluximg stage 2 (deck format 0.8.0) supersedes the stage-1 element refusal: a deck places images, refers to their bundles by id
+  assert(validateDeckFile({ ...deck, schemaVersion: "0.8.0" }).length === 0 && validateDeckFile({ ...deck, schemaVersion: "0.8.0", slides: [{ ...deck.slides[0], elements: [{ ...fx(), view: { zoom: 2 } }] }] }).length > 0, "a deck ACCEPTS a fluximg element (0.8.0) and refuses a malformed one");
+  assert(validateDeckFile({ ...deck, slides: [{ ...deck.slides[0], elements: [] }], assets: [{ ...asset }] }).length > 0, "a deck still REFUSES a fluximg asset of its own (a bundle belongs to the project)");
 }
 
 // ---- rejections ----------------------------------------------------------------
