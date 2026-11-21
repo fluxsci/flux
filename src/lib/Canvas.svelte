@@ -115,6 +115,7 @@
   import { fluximgStillRevision } from "./fluximg/store";
   import { fluximgLive, closeFluximgLive, openFluximgLive, fluximgLiveUnavailable } from "./fluximg/live/session";
   import FluximgLiveOverlay from "./fluximg/live/FluximgLiveOverlay.svelte";
+  import { modelPartOpacity as livePartOpacity } from "./model3d/appearance";
   import TiffAskSurface from "./fluximg/TiffAskSurface.svelte";
   import { tiffAsk } from "./fluximg/tiffAsk";
   import ElementView from "./Element.svelte";
@@ -592,6 +593,9 @@
     return null;
   })();
   $: if ($fluximgLive && paneActive && !["select", "scale"].includes($activeTool)) closeFluximgLive();
+  // On a slide step the live board draws the image's objects as the element at rest does at that step (ElementSlot):
+  // the same factors from the same function (unborn or gone = left out; ghosted while Show hidden is on).
+  $: fluximgLivePartOpacity = fluximgLiveItem ? livePartOpacity(presentation?.partStates?.[fluximgLiveItem.el.id], presentation?.ghostHidden) : undefined;
   $: modelOverlayItems = paneActive ? canvasFigures.flatMap(fig => (visibleByFig.get(fig.id) ?? []).filter(el => el.type === "model3d" && $modelPreviews[el.id] && !absentPresentationIds.has(el.id)).map(el => ({ fig, el }))) : [];
   onDestroy(() => { finishModelOrbit(); clearModelPreviews(); });
 
@@ -6274,7 +6278,7 @@
   {/if}
   {#if fluximgLiveItem}
     {#key fluximgLiveItem.el.id}
-      <FluximgLiveOverlay element={fluximgLiveItem.el} beginPan={() => { spaceDown = true; }} left={$viewport.panX + (fluximgLiveItem.fig.x + fluximgLiveItem.el.x) * $viewport.zoom} top={$viewport.panY + (fluximgLiveItem.fig.y + fluximgLiveItem.el.y) * $viewport.zoom} zoom={$viewport.zoom} />
+      <FluximgLiveOverlay element={fluximgLiveItem.el} partOpacity={fluximgLivePartOpacity} beginPan={() => { spaceDown = true; }} left={$viewport.panX + (fluximgLiveItem.fig.x + fluximgLiveItem.el.x) * $viewport.zoom} top={$viewport.panY + (fluximgLiveItem.fig.y + fluximgLiveItem.el.y) * $viewport.zoom} zoom={$viewport.zoom} />
     {/key}
   {/if}
   {#if tiffAskFig && $tiffAsk}
