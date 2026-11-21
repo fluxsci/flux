@@ -229,10 +229,10 @@ Make test TIFFs in a scratch folder (synthetic, no metadata; and an ImageJ one),
 50. Drag the **c** key before the **t** key: **the pictures change** (the pages are read in the
     other order). Rest on the Flip key: **the pictures show the flip; nothing is written** until
     you press it. Press **T**: **the pictures turn.**
-51. Click the pixel size, type `0.25`, Enter; click the rate, type `80`, Enter. Set **c** to 3:
+51. Click the pixel size, type `0.5`, Enter; click the rate, type `40`, Enter. Set **c** to 3:
     **Convert goes off and says why** ("… cannot be split …"); set it back to 2.
 52. Press **M** (remember: this project), then **Enter**. **The image is placed** with the
-    transposed plane, two channels, 0.25 µm pixels and 80 Hz (Inspector, or `flux image-info`).
+    transposed plane, two channels, 0.5 µm pixels and 40 Hz (Inspector, or `flux image-info`).
 53. Drop a second file of the same kind (another page count, a similar name). **No question**;
     the notice says "(remembered)".
 54. Drop a large file of the kind and press **Change** in its notice: **the conversion stops and

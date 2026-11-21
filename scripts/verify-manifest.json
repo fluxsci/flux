@@ -498,6 +498,7 @@
       "verify-fluximg-object-style.ts",
       "verify-fluximg-slide-model.ts",
       "verify-fluximg-slide-authoring.ts",
+      "verify-fluximg-slide-parts.ts",
       "verify-fluximg-slide-export.ts",
       "verify-tiff.ts",
       "verify-tiff-app.ts",
@@ -704,6 +705,7 @@
       "verify-fluximg-slide-place-gui.mjs",
       "verify-fluximg-slide-player-gui.mjs",
       "verify-fluximg-slide-authoring-gui.mjs",
+      "verify-fluximg-slide-parts-gui.mjs",
       "verify-tiff-app-gui.mjs",
       "verify-fluximg-live-gui.mjs"
     ],
@@ -1696,12 +1698,14 @@
       "verify-fluximg-slide-place-gui.mjs",
       "verify-fluximg-slide-player-gui.mjs",
       "verify-fluximg-slide-authoring-gui.mjs",
+      "verify-fluximg-slide-parts-gui.mjs",
       "verify-tiff-app-gui.mjs",
       "verify-fluximg-live.ts",
       "verify-fluximg-view-tween.ts",
       "verify-fluximg-object-style.ts",
       "verify-fluximg-slide-model.ts",
       "verify-fluximg-slide-authoring.ts",
+      "verify-fluximg-slide-parts.ts",
       "verify-fluximg-slide-export.ts",
       "verify-tiff.ts",
       "verify-tiff-app.ts",
@@ -1723,6 +1727,7 @@
       "verify-fluximg-object-style.ts",
       "verify-fluximg-slide-model.ts",
       "verify-fluximg-slide-authoring.ts",
+      "verify-fluximg-slide-parts.ts",
       "verify-fluximg-slide-export.ts",
       "verify-tiff.ts",
       "verify-tiff-app.ts"
@@ -1735,6 +1740,7 @@
       "verify-fluximg-slide-place-gui.mjs",
       "verify-fluximg-slide-player-gui.mjs",
       "verify-fluximg-slide-authoring-gui.mjs",
+      "verify-fluximg-slide-parts-gui.mjs",
       "verify-tiff-app-gui.mjs",
       "verify-fluximg-live-gui.mjs"
     ]
@@ -12917,6 +12923,17 @@
       "exclusive": true,
       "coverage": "behavior"
     },
+    "verify-fluximg-slide-parts-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 240000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
     "verify-tiff-app-gui.mjs": {
       "runtime": "tsx",
       "prerequisites": [
@@ -12971,6 +12988,17 @@
       "isolation": "scratch",
       "timeoutMs": 120000,
       "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-fluximg-slide-parts.ts": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "chrome"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 300000,
+      "exclusive": true,
       "coverage": "behavior"
     },
     "verify-fluximg-slide-export.ts": {

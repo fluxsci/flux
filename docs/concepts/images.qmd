@@ -133,7 +133,7 @@ Flux converts it into an image bundle first, then places it like any other.
 
 The command line does the same with `flux place-image <figure> <file.tif>`; when the file does not
 say how its pages are ordered it lists the suggestions with the flags that choose each (`--dims
-t,c=2 --transpose --pixel-size 0.25 --rate 80`), and it uses the project's remembered answers.
+t,c=2 --transpose --pixel-size 0.5 --rate 40`), and it uses the project's remembered answers.
 
 # The live view
 
@@ -377,6 +377,14 @@ says what the step does and offers **Play through**, its **Pace** and **Blend pl
 **Start**, **Pause** and **Stop movie** with loop, bounce or once. Space plays a preview that
 changes nothing. Split channels and Inset work in Design only. The
 [Slides guide](../modes/slide.qmd#images) has the details.
+
+A layer's objects are parts of the slide, as a plot's points are. The image's X-ray (**Shift+Alt+R**,
+or **objects… (X-ray)** in its F-menu) lists them by name, with each one's value when the layer
+is coloured by a column; make them appear one by one, ordered by any column of their table, or
+emphasize a few. And objects whose names are the names of a plot's series **Become** those
+series in one step: footprints fly into their traces. See
+[Animating an image's objects](../modes/slide.qmd#animating-an-images-objects) and
+[Become by key](../modes/slide.qmd#become-by-key).
 
 # An image's movie as a file
 

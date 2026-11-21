@@ -10,7 +10,7 @@
 import type { AnswerRule, DimsAnswer } from "./types";
 
 export interface RememberedRule extends AnswerRule {
-  /** What it says, for the list a person reads ("t × c 2 (c fastest), transposed, 0.25 µm pixels, 80 Hz"). */
+  /** What it says, for the list a person reads ("t × c 2 (c fastest), transposed, 0.5 µm pixels, 40 Hz"). */
   summary: string;
   /** When it was remembered (ISO date). */
   saved: string;

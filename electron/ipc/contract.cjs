@@ -189,6 +189,7 @@ const CHANNELS = [
   { channel: "fluximg:import", kind: "invoke", scope: "write" },
   { channel: "fluximg:read", kind: "invoke", scope: "read" },
   { channel: "fluximg:discard", kind: "invoke", scope: "write" },
+  { channel: "fluximg:measure", kind: "invoke", scope: "read" },
   { channel: "fluximg:importDropped", kind: "invoke", scope: "write" },
   // --- TIFF → image bundle (electron/ipc/tiff.cjs): probe in a supervised child, small previews, convert with
   // progress and cancel, publish into fig/assets; remembered answers for every project live in FluxConfig ---------

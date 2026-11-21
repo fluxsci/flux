@@ -13,7 +13,8 @@ import { familyOf } from "./family";
 import { authoredFields } from "./presetCatalog";
 import { newId } from "../ids";
 import { trackKey } from "./targets";
-import { planStagger, lagTotal } from "./stagger";
+import { planStagger, lagTotal, staggerFields } from "./stagger";
+import { fluximgPartsLookup, fluximgPartTargets } from "../fluximg/parts";
 
 export interface AnimateTarget {
   elementId: string;
@@ -89,6 +90,30 @@ export function addAppearanceTracks(
   if (!beat) return null;
   const exit = kind === "disappear";
   const created: string[] = [];
+  // An image's objects (W8): ONE track per image, bound to the picked objects and layers, staggered across them in the
+  // layer's order (a layer appears object by object; the Animator's stagger row re-orders it by a table column).
+  const images = new Map<string, string[]>();
+  unique = unique.filter((t) => {
+    if (!t.partId || elementsById.get(t.elementId)?.type !== "fluximg") return true;
+    const list = images.get(t.elementId) ?? [];
+    list.push(t.partId); images.set(t.elementId, list);
+    return false;
+  });
+  for (const [elementId, parts] of images) {
+    const el = elementsById.get(elementId) as Extract<(typeof slide.elements)[number], { type: "fluximg" }>;
+    const preset = kind === "emphasize" ? "pulse" : exit ? "fadeOut" : "fade";
+    const index = fluximgPartsLookup()?.(el.assetId);
+    const n = index ? fluximgPartTargets({ parts }, index).length : parts.length;
+    const track: Track = { id: newId("track"), target: elementId, ...(parts.length === 1 ? { part: parts[0] } : { parts }), preset, start: 0, ...authoredFields(preset) };
+    if (n >= 2) {
+      const fields = staggerFields(planStagger(lagTotal(n, track.duration ?? 400, MULTI_LAG_RATIO, n < 15 ? MULTI_LAG_CAP_MS : 2 * MULTI_LAG_CAP_MS), MULTI_LAG_RATIO, n - 1), { from: "start" });
+      track.duration = fields.duration; track.stagger = fields.stagger;
+    }
+    const prior = beat.tracks.filter((x) => trackKey(x) === trackKey(track) && familyOf(x) === "appearance").at(-1);
+    if (prior) { prior.id ??= newId("track"); track.anchor = { trackId: prior.id, edge: "end" }; }
+    const added = appendAnimation(deck, slideId, beat.id, track);
+    if (added?.id) created.push(added.id);
+  }
   const manifestOf = (assetId: string) => manifests[assetId];
   for (const t of unique) {
     const el = elementsById.get(t.elementId);

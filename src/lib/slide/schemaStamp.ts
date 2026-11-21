@@ -29,7 +29,17 @@ export const DECK_FEATURES: SchemaFeature<Deck>[] = [
   // fluximg stage 2: an older build's deck validator rejects the element kind (and so the whole deck). A Change's `to.state` never
   // holds a type of its own for an image (a Become into an image is a hand-off), so the placed elements are the whole test.
   { name: "fluximg", version: DECK_FLUXIMG_SCHEMA_VERSION, has: (deck) => deck.slides.some((s) => s.elements.some((e) => e.type === "fluximg")) },
+  // fluximg stage 2 (W8): a stagger ordered by a table column and the Become pair policy "key" are written for an image's objects; a 0.7
+  // validator rejects both (closed enums). A deck that keeps one after its image is gone (a dangling track, a linked style) still holds it.
+  { name: "objectStagger", version: DECK_FLUXIMG_SCHEMA_VERSION, has: (deck) => deckTrackLike(deck).some((t) => columnStagger(t.stagger?.by)) },
+  { name: "pairKey", version: DECK_FLUXIMG_SCHEMA_VERSION, has: (deck) => deck.slides.some((s) => s.beats.some((b) => b.tracks.some((t) => t.to?.become?.pair === "key"))) },
 ];
+/** Every track and linked style of a deck (what carries a stagger). */
+function deckTrackLike(deck: Deck): Array<{ stagger?: { by?: unknown } }> {
+  return [...deck.slides.flatMap((s) => s.beats.flatMap((b) => b.tracks)), ...(deck.animStyles ?? []).map((st) => st.track ?? {})];
+}
+/** `{ column: <name> }`: an order a 0.7 build does not know. */
+const columnStagger = (by: unknown): boolean => !!by && typeof by === "object" && typeof (by as { column?: unknown }).column === "string";
 /** Canvas features, over the canvas's elements (every figure on it). Registered by: model3d (0.2.0, before the manim study), WP 3.2. */
 export const CANVAS_FEATURES: SchemaFeature<readonly Element[]>[] = [
   { name: "model3d", version: CANVAS_MODEL3D_SCHEMA_VERSION, has: (els) => els.some((e) => e.type === "model3d") },

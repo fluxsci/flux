@@ -324,4 +324,52 @@ async function discardBundle({ root, assetId, checkCurrent = () => {} }) {
   await shareRetry(() => fsp.rm(aside, { recursive: true, force: true }));
 }
 
-module.exports = { importBundle, readRange, discardBundle, loadRules, assetsLocation, syncDirectory };
+/** One file's SHA-256, read in place; the file must still be the one the walk saw when the read ends. */
+async function hashInPlace(file, R) {
+  const handle = await fsp.open(file.abs, O_READ);
+  try {
+    const before = await handle.stat();
+    if (!before.isFile() || identity(before) !== file.identity) throw new Error(R.fluximgErrors.changed(file.rel));
+    const hash = createHash("sha256"), buffer = Buffer.allocUnsafe(Math.min(COPY_BUFFER, Math.max(file.size, 1)));
+    let total = 0;
+    for (let read; (read = (await handle.read(buffer, 0, buffer.length, total)).bytesRead) > 0; total += read) hash.update(buffer.subarray(0, read));
+    if (total !== file.size || identity(await handle.stat()) !== file.identity) throw new Error(R.fluximgErrors.changed(file.rel));
+    return hash.digest("hex");
+  } finally { await handle.close(); }
+}
+
+/**
+ * What an import would record of the asset bundle already at `<root>/fig/assets/<assetId>.fluximg/`: its content id,
+ * byte count and file count, measured where it is (nothing is written). An image placed on slides only has no record
+ * in fig/index.json; a figure that takes it over needs exactly these (project/convert.ts). Same walk, same limits and
+ * same content id as importBundle.
+ * @returns {Promise<{ path: string; sha256: string; bytes: number; files: number }>}
+ */
+async function measureBundle({ root, assetId, checkCurrent = () => {}, limits = {} }) {
+  const R = await loadRules();
+  const id = R.fluximgAssetId(assetId);
+  const bounds = { maxFiles: R.FLUXIMG_IMPORT_MAX_FILES, maxDirs: R.FLUXIMG_IMPORT_MAX_DIRS, maxDepth: R.FLUXIMG_IMPORT_MAX_DEPTH, maxBytes: R.FLUXIMG_IMPORT_MAX_BYTES, ...limits };
+  await checkCurrent();
+  const { realAssets } = await assetsLocation(root, R, { create: false });
+  const name = `${id}${R.FLUXIMG_EXT}`, target = realAssets ? path.join(realAssets, name) : null;
+  const stat = target ? await fsp.lstat(target).catch((error) => { if (error.code === "ENOENT") return null; throw error; }) : null;
+  if (!stat) throw new Error(`ENOENT: ${R.fluximgAssetPath(id)} does not exist`);
+  // The asset folder itself is never a link (an import publishes a real directory by rename).
+  if (!stat.isDirectory()) throw new Error(R.fluximgErrors.notDirectory(name));
+  await readManifest(target, name, R);
+  const walk = await walkBundle(target, R, bounds);
+  const entries = new Array(walk.files.length);
+  let next = 0, failed = null;
+  const worker = async () => {
+    while (failed === null && next < walk.files.length) {
+      const i = next++, file = walk.files[i];
+      try { await checkCurrent(); entries[i] = { path: file.rel, sha256: await hashInPlace(file, R) }; } catch (error) { failed ??= error; }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(COPY_CONCURRENCY, walk.files.length) }, worker));
+  if (failed) throw failed;
+  await checkCurrent();
+  return { path: R.fluximgAssetPath(id), sha256: createHash("sha256").update(R.fluximgContentIdText(entries), "utf8").digest("hex"), bytes: walk.bytes, files: walk.files.length };
+}
+
+module.exports = { importBundle, readRange, discardBundle, measureBundle, loadRules, assetsLocation, syncDirectory };

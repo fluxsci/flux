@@ -58,6 +58,7 @@
   import { CORNERS, HANDLES, handlePos, resizeCursorVar, rotateCursorVar, selectionHitZones, zoneClipForFrame, type Handle, type RotateZone } from "./interact/handles";
   import { chromeTone, elementTone, figureTone, type CursorTone } from "./cursor/cursorTone";
   import { restorePlotClip, partDomId } from "./plot/parse";
+  import { fluximgPartNode } from "./fluximg/parts";
   import { flushPendingPlotBounds } from "./plot/mount";
   import { partsInside, leafPartIds, partIndexOf, isDataRole, boxFrom as partBoxFrom, type PartBoxCandidate, type Box as PartBox } from "./plot/partMarquee";
   import { createTransformDrive, type TransformDrive } from "./interact/compositorDrive";
@@ -180,7 +181,9 @@
       if (absent.has(item.elementId)) continue;
       const parts = item.partIds?.filter(id => !stashedParts.get(item.elementId)?.has(id));
       if (item.partIds?.length && !parts?.length) continue;
-      const nodes = parts?.length && parts.length <= 256
+      const imageHost = parts?.length && imageWrapper(item.elementId);
+      const nodes = imageHost ? parts!.flatMap((id) => imageNodes(imageHost, id))
+        : parts?.length && parts.length <= 256
         ? parts.map((id) => hostEl.querySelector(`[id="${CSS.escape(partDomId(item.elementId, id))}"]`))
         : [hostEl.querySelector(`[data-editor-element-id="${CSS.escape(item.elementId)}"]`)];
       for (const node of nodes) {
@@ -5203,6 +5206,17 @@
    *  through the LEAVES it controls — one box per drawn leaf, never one box around them
    *  (a union around a scatter's points would just be the plot area). Hidden leaves draw
    *  nothing and get no box. */
+  /** The wrapper of an image element on this canvas (null for any other kind). */
+  function imageWrapper(elementId: string): globalThis.Element | null {
+    if (findElement($project, elementId)?.element.type !== "fluximg") return null;
+    return hostEl?.querySelector(`[data-editor-element-id="${CSS.escape(elementId)}"]`) ?? null;
+  }
+  /** An image part's drawn nodes: a layer → each of its objects, an object → its shape (fluximg/parts.fluximgPartNode). */
+  function imageNodes(wrapper: globalThis.Element, partId: string): globalThis.Element[] {
+    if (partId.startsWith("layer:")) return Array.from(wrapper.querySelectorAll(`[data-layer="${CSS.escape(partId.slice(6))}"] [data-key]`));
+    const n = fluximgPartNode<globalThis.Element>(wrapper, partId);
+    return n ? [n] : [];
+  }
   function measurePartsWorld(parts: readonly { elementId: string; partId: string }[]): Rect[] {
     if (!hostEl || !parts.length) return [];
     const h=hostEl.getBoundingClientRect(),v=get(viewport);
@@ -5220,6 +5234,9 @@
       else { const l=misses.get(ps.elementId); if (l) l.push(ps.partId); else misses.set(ps.elementId, [ps.partId]); }
     }
     for (const [elementId, partIds] of misses) {
+      // an image's objects and layers (W8): its overlay's shapes, by layer and key
+      const image = imageWrapper(elementId);
+      if (image) { for (const id of partIds) for (const n of imageNodes(image, id)) push(n); continue; }
       const f=findElement($project, elementId);
       const m=f?.element.type==="plot" ? ms[f.element.assetId] : undefined;
       const wrapper=hostEl.querySelector(`[data-editor-element-id="${CSS.escape(elementId)}"]`);

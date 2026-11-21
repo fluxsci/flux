@@ -6,6 +6,7 @@ import type { Element } from '../types';
 import type { Model3dAsset, Model3dElement } from '../model3d/types';
 import { model3dSvgContext } from '../model3d/static';
 import type { ExportPayload } from './export/runtime';
+import { payloadImageParts } from './imageExport';
 import type { Slide, StageSize } from './types';
 import { compileSlide, type CompileOptions, type PartFrame, type SlideFrame } from './compile';
 
@@ -38,6 +39,9 @@ export function staticModelContext(payload: ExportPayload, partStates?: SlideFra
 }
 export function payloadModelCompileOptions(payload: ExportPayload) {
   const assets = new Map(payload.deck.assets.filter((asset): asset is Model3dAsset => asset.kind === 'glb').map(asset => [asset.id, asset]));
+  const images = payloadImageParts(payload);
   return { animStyles: payload.deck.animStyles, plotManifest: (id: string) => payload.plots?.[id]?.manifest,
-    modelAsset: (id: string) => assets.get(id), modelManifest: (id: string) => payload.modelManifests?.[id] };
+    modelAsset: (id: string) => assets.get(id), modelManifest: (id: string) => payload.modelManifests?.[id],
+    // an image's objects from the payload's layer texts (W8); absent for a payload without images
+    ...(images ? { fluximgParts: images, fluximgTable: (id: string, path: string) => payload.images?.[id]?.tables?.[path] ?? null } : {}) };
 }

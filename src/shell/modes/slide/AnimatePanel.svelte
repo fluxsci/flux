@@ -1,5 +1,6 @@
 <script lang="ts">
   import { defaultTimingFor } from "../../../lib/slide/presetCatalog";
+  import { appFluximgParts, fluximgPartsRevision } from "../../../lib/fluximg/partStore";
   import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotationVisibility";
 
   import { animatorAnnotationTargets } from "./animator/annotationTargets";
@@ -115,7 +116,8 @@
   });
   const manifestFor = (target: string) => {
     const el = slide ? transformPreState(slide, target, $activeBeat) : undefined;
-    return el?.type === "model3d" ? $scene3dManifests[el.assetId] : el?.type === "plot" ? manifests[el.assetId] : undefined;
+    // an image's object index (W8), read only for an image (its lookup may load the image's layer files)
+    return el?.type === "model3d" ? $scene3dManifests[el.assetId] : el?.type === "plot" ? manifests[el.assetId] : el?.type === "fluximg" && $fluximgPartsRevision >= 0 ? appFluximgParts(el.assetId) : undefined;
   };
 
   // --- keyboard cockpit ---------------------------------------------------------

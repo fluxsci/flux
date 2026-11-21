@@ -3,7 +3,7 @@ import type { SlideFrame } from "./compile";
 import type { Track, TargetRef, BecomeSpec } from "./types";
 import type { StageOutline } from "./stageOutline";
 import { trackRef, isWholeElementRef } from "./targets";
-import { targetOutlines, plotStageMapping, geometryPlotRoot, geometryPlotManifest, type GeometryCtx } from "./targetGeometry";
+import { targetOutlines, withSeriesNames, plotStageMapping, geometryPlotRoot, geometryPlotManifest, type GeometryCtx } from "./targetGeometry";
 import { planCorrespondence, type CorrespondencePlan, type DataHint } from "./correspondence";
 import { viewFits } from "../plot/project";
 
@@ -78,6 +78,9 @@ function planOne(track: Track, frame: SlideFrame, ctx: GeometryCtx, sourceOutlin
     if (!sourceOutlines && lettered(a) && drawn(b)) a = targetOutlines(source, frame, ctx).filter(o => insideCrop(o, frame));
     if (lettered(b) && drawn(a)) b = targetOutlines(spec.ref, frame, ctx).filter(o => insideCrop(o, frame));
   }
+  // Pairing by key (named, or an image's objects on a side) matches a series' NAME as well as its id: only then do
+  // the plot outlines carry it.
+  if (spec.pair === "key" || a.some(o => o.owner.key !== undefined) || b.some(o => o.owner.key !== undefined)) { a = withSeriesNames(a, frame, ctx); b = withSeriesNames(b, frame, ctx); }
   const data: DataHint = { destAxisFit: axisHint(spec.ref, b, frame, ctx), sourceAxisFit: axisHint(source, a, frame, ctx) };
   const dest = frame.elements.find(el => el.id === spec.ref.element);
   // Whole-plot default: one source becomes the merged axes, not a slice of

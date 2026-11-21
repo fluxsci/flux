@@ -76,6 +76,9 @@ export interface SlideRenderCtx extends FluximgSlideContext {
   pixelScale?: number | (() => number);
   /** Derived ghost styling; never written into the figure/deck model. */
   ghostPartFactors?: Record<string, Record<string, { opacity: number }>>;
+  /** Images whose OBJECTS this slide animates (part-bound tracks, hand-offs): their overlay is built when the image is
+   *  mounted and never culled to the crop, so every object's node exists from the first frame (stage 2, W8). */
+  fluximgPartImages?: ReadonlySet<string>;
 }
 
 export interface RenderedSlide {

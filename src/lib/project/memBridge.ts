@@ -290,6 +290,23 @@ export function createMemBridge(): FileBridge & {
       // A fresh buffer sized exactly to the bytes read, like the IPC result.
       return bytes.slice(range.start, range.start + range.length).buffer;
     },
+    // The twin of fluximgFiles.measureBundle: the content id and byte count an import would record, read in place.
+    async measureFluximg(request) {
+      if (typeof request?.root === "string" && watchedRoot !== undefined && watchedRoot !== norm(request.root)) throw new Error(fxr.fluximgErrors.projectChanged());
+      const id = fxr.fluximgAssetId(request?.assetId);
+      const root = fluximgRoot(request.root);
+      if (!files.has(`${root}/project.json`)) throw new Error(fxr.fluximgErrors.root());
+      const target = `${root}/${fxr.FLUXIMG_ASSETS_REL}/${id}${fxr.FLUXIMG_EXT}`;
+      if (!memIsDir(target)) throw new Error(`ENOENT: ${fxr.fluximgAssetPath(id)} does not exist`);
+      const found: { rel: string; bytes: Uint8Array }[] = [];
+      for (const [key, bytes] of files) {
+        if (!key.startsWith(`${target}/`)) continue;
+        const rel = key.slice(target.length + 1);
+        if (!rel.split("/").some((part) => fxr.isFluximgJunkName(part))) found.push({ rel, bytes });
+      }
+      const entries = await Promise.all(found.map(async (f) => ({ path: f.rel, sha256: await sha256(f.bytes) })));
+      return { path: fxr.fluximgAssetPath(id), sha256: await fluximgSha(fxr.fluximgContentIdText(entries)), bytes: found.reduce((sum, f) => sum + f.bytes.byteLength, 0), files: found.length };
+    },
     async discardFluximg(request) {
       if (typeof request?.root === "string" && watchedRoot !== undefined && watchedRoot !== norm(request.root)) throw new Error(fxr.fluximgErrors.projectChanged());
       const id = fxr.fluximgAssetId(request?.assetId);

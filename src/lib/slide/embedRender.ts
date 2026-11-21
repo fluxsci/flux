@@ -114,7 +114,7 @@ export function renderSlidePosterSvg(payload: ExportPayload, step = 0): string {
   fig.elements = fig.elements.map(el => staticModelElement(el, ev.slide));
   // Images: each step's still from the payload, keyed by the request the composer computes for the sampled element;
   // their vector layers and furniture stay vectors. Absent without images (the options object is unchanged then).
-  const images = payloadImageSvgContext(payload, fig.elements);
+  const images = payloadImageSvgContext(payload, fig.elements, ev.partStates);
   let svg = figureToSvg(fig, id => payload.assets?.[id], ev.plotMarkup, id => payload.assetSizes?.[id], images ? { model3d: models, fluximg: images } : { model3d: models });
   const { width: w, height: h } = ev.stage;
   const c = ev.camera, camera = c ? `translate(${w / 2} ${h / 2}) scale(${c.zoom}) translate(${-c.x} ${-c.y})` : "";

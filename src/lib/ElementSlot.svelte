@@ -71,6 +71,8 @@
   const tone = $derived(elementTone(current.element, plotManifest));
   const partDisplay = $derived({ elementId: current.element.id, states: partStates, ghost, generation });
   const modelPartOpacity = $derived(current.element.type === "model3d" ? deriveModelPartOpacity(partStates, ghost) : undefined);
+  // An image's objects at a slide step (W8): the same factors, drawn into its layers' markup (unborn = left out).
+  const fluximgPartOpacity = $derived(current.element.type === "fluximg" ? deriveModelPartOpacity(partStates, ghost) : undefined);
   // Preserve the content-change token even when the mutable element retains
   // its identity; deriving the bare element would suppress an in-place nudge.
   const rendered = $derived({ element: override ?? (hidden && ghost ? { ...current.element, opacity: 1 } : current.element) });
@@ -99,7 +101,7 @@
   }}
   ondblclick={(event) => onDoubleClick(event, current.element, figure)}
 >
-  <ElementView element={rendered.element} {modelPartOpacity} haloBackground={figure?.background} />
+  <ElementView element={rendered.element} {modelPartOpacity} {fluximgPartOpacity} haloBackground={figure?.background} />
 </g>
 
 <style>

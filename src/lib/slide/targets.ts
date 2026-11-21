@@ -17,6 +17,7 @@ import type { Element, Figure, Id } from "../types";
 import type { FluxPlotManifest } from "../plot/types";
 import type { Scene3dManifest } from "../model3d/types";
 import { modelPartTargets } from "./model3dTargets";
+import { isFluximgPartIndex, fluximgPartTargets, type FluximgPartIndex } from "../fluximg/parts";
 import { buildPartIndex } from "../plot/parse";
 import { resolveTargets } from "../plot/tree";
 import { membersDeep } from "../groups";
@@ -33,6 +34,8 @@ export const PAIR_POLICIES = [
   { id: "order", label: "by order" },
   { id: "data", label: "by data" },
   { id: "tile", label: "tile" },
+  // stage 2 (plan D10): an image object pairs with the plot series (or object) that shares its key
+  { id: "key", label: "by key" },
 ] as const;
 /** The ids alone, as the non-empty tuple `z.enum` takes. */
 export const PAIR_POLICY_IDS = PAIR_POLICIES.map(p => p.id) as [(typeof PAIR_POLICIES)[number]["id"], ...(typeof PAIR_POLICIES)[number]["id"][]];
@@ -200,7 +203,10 @@ export function composeDestination(picks: readonly TargetRef[], groupMembers: (g
   return normalizeRef({ element: members[0]?.element ?? picks[0].element, members });
 }
 
-export function isScene3dManifest(manifest: FluxPlotManifest | Scene3dManifest | undefined): manifest is Scene3dManifest {
+/** What a part binding resolves against: a plot's manifest, a 3D model's, or an image's object index (stage 2, D9). */
+export type PartManifest = FluxPlotManifest | Scene3dManifest | FluximgPartIndex;
+
+export function isScene3dManifest(manifest: PartManifest | undefined): manifest is Scene3dManifest {
   return manifest?.spec === 'fluxplot/scene3d';
 }
 
@@ -213,9 +219,11 @@ export function isScene3dManifest(manifest: FluxPlotManifest | Scene3dManifest |
  *  both call, so a track can never animate one set and be inspected as another. */
 export function targetPartIds(
   binding: Pick<Track, "part" | "parts" | "selector">,
-  manifest: FluxPlotManifest | Scene3dManifest | undefined,
+  manifest: PartManifest | undefined,
 ): string[] {
   if (isScene3dManifest(manifest)) return modelPartTargets(manifest).resolve(binding);
+  // An image's objects (`layer:<id>` → its objects in order, `<layer>/<key>` → itself): a kind test, nothing more, for every other manifest.
+  if (isFluximgPartIndex(manifest)) return fluximgPartTargets(binding, manifest);
   const out: string[] = [];
   const seen = new Set<string>();
   const push = (id: string) => { if (!seen.has(id)) { seen.add(id); out.push(id); } };
@@ -276,10 +284,11 @@ export function resolveTargetLeaves(
   slide: Pick<Slide, "elements" | "groups">,
   manifestFor: (assetId: string) => FluxPlotManifest | undefined,
   modelManifestFor?: (assetId: string) => Scene3dManifest | undefined,
+  imagePartsFor?: (assetId: string) => FluximgPartIndex | undefined,
 ): ResolvedTarget[] {
   // A set is the union of its members, each against ITS OWN element's
   // manifest; two members of one element merge (a whole member wins).
-  if (ref.members) return mergeResolved(mergeMembers(ref.members, false).map(m => resolveTargetLeaves(m, slide, manifestFor, modelManifestFor)));
+  if (ref.members) return mergeResolved(mergeMembers(ref.members, false).map(m => resolveTargetLeaves(m, slide, manifestFor, modelManifestFor, imagePartsFor)));
   const byId = new Map(slide.elements.map((e) => [e.id, e] as const));
   if (ref.group) {
     const fig = { elements: slide.elements, groups: slide.groups } as unknown as Figure;
@@ -289,8 +298,9 @@ export function resolveTargetLeaves(
   if (!el) return [];
   if (isWholeElementRef(ref)) return [{ elementId: el.id, partIds: null }];
   const manifest = el.type === "plot" ? manifestFor((el as Element & { assetId: string }).assetId)
-    : el.type === 'model3d' ? modelManifestFor?.(el.assetId) : undefined;
-  if (el.type === 'model3d' && !manifest) return [{ elementId: el.id, partIds: [] }];
+    : el.type === 'model3d' ? modelManifestFor?.(el.assetId) : el.type === "fluximg" ? imagePartsFor?.(el.assetId) : undefined;
+  // No index for a model or an image: its parts are unknown (never the whole element).
+  if ((el.type === 'model3d' || el.type === "fluximg") && !manifest) return [{ elementId: el.id, partIds: [] }];
   const partIds = targetPartIds({ parts: ref.parts, selector: ref.selector }, manifest);
   return [{ elementId: el.id, partIds }];
 }
@@ -322,7 +332,7 @@ const SET_LABEL_MAX = 40;
  *  + 1 rect", "6 points + 1 ellipse" — in first-pick order, larger counts
  *  first; past 40 characters it falls back to a plain total. Pure: the
  *  animator lanes, pick bar, toast and the CLI verbs all say the same words. */
-export function setLabel(members: readonly TargetRef[], elements: readonly Pick<Element, "id" | "type">[], manifestFor: (elementId: string) => FluxPlotManifest | Scene3dManifest | undefined = () => undefined): string {
+export function setLabel(members: readonly TargetRef[], elements: readonly Pick<Element, "id" | "type">[], manifestFor: (elementId: string) => PartManifest | undefined = () => undefined): string {
   const counts = new Map<string, number>();
   let objects = 0, parts = 0;
   const add = (noun: string, n = 1) => counts.set(noun, (counts.get(noun) ?? 0) + n);
@@ -332,6 +342,7 @@ export function setLabel(members: readonly TargetRef[], elements: readonly Pick<
     if (!member.parts?.length && !member.selector) { add(KIND_NOUN[el.type] ?? "object"); objects++; continue; }
     const manifest = manifestFor(el.id);
     const ids = targetPartIds({ parts: member.parts, selector: member.selector }, manifest);
+    if (isFluximgPartIndex(manifest)) { for (const _ of ids.length ? ids : member.parts ?? []) { add("object"); parts++; } continue; }
     const index = manifest && !isScene3dManifest(manifest) ? buildPartIndex(manifest) : {};
     for (const id of ids.length ? ids : member.parts ?? []) { const role = index[id]?.role; add(role && ROLE_NOUN.has(role) ? role : "part"); parts++; }
   }

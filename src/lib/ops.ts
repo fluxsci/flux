@@ -1740,6 +1740,9 @@ export function setPartHidden(p: Project, elementId: Id, partId: string, hide: b
     for (const e of f.elements) {
       if (e.id !== elementId) continue;
       if (e.type === "model3d") { mergePartOverride(e, partId, { hidden: hide }); continue; }
+      // An image's layer (W8 X-ray eye): its visibility in the view (at a slide step, the capture makes it that step's fade).
+      // An image's objects have no visibility of their own.
+      if (e.type === "fluximg") { if (partId.startsWith("layer:")) e.view = patchView(e.view, { layers: { [partId.slice(6)]: { visible: !hide } } }); continue; }
       if (e.type !== "plot") continue;
       const m = manifest ?? readStore(plotManifests)[e.assetId];
       for (const [key, hidden] of Object.entries(hiddenToggleWrites(m, e.overrides, partId, hide))) mergePartOverride(e, key, { hidden });

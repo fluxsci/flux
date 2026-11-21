@@ -258,6 +258,9 @@ export interface FileBridge {
   readFluximg?(request: import('../fluximg/bridge').FluximgReadRequest): Promise<ArrayBuffer>;
   /** Remove an unplaced import, exactly fig/assets/<assetId>.fluximg (refused while fig/index.json lists it). */
   discardFluximg?(request: { root: string; assetId: string }): Promise<void>;
+  /** What an import would record of the bundle already at fig/assets/<assetId>.fluximg (content id, byte count), measured
+   *  in place: an image placed on slides only has no record in fig/index.json, and a figure taking it over needs one. */
+  measureFluximg?(request: { root: string; assetId: string }): Promise<{ path: string; sha256: string; bytes: number; files: number }>;
   /** Import a bundle FOLDER dropped from the file manager. The preload takes its path from the dropped File
    *  (webUtils), never from the page, and returns it beside the result (where the element says it came from). */
   importDroppedFluximg?(file: File, request: Omit<import('../fluximg/bridge').FluximgImportRequest, "sourcePath">): Promise<import('../fluximg/bridge').FluximgImportResult & { sourcePath: string }>;

@@ -136,6 +136,36 @@ try {
   await page.keyboard.down("Control"); await page.keyboard.press("KeyC"); await page.keyboard.press("KeyV"); await page.keyboard.up("Control");
   const pasted = await waitFor(page, async (id) => { const f = window.__flux, sid = f.get(f.fig.activeFigureId); const els = f.figures().find((x) => x.id === sid).elements.filter((e) => e.type === "fluximg"); const p = els.find((e) => e.id !== id && e.assetId === els.find((x) => x.id === id)?.assetId); return p ?? null; }, placed.id, { label: "a pasted copy", timeout: 5000 }).catch(() => null);
   h.ok(!!pasted, "copy / paste on a slide makes a second image of the same asset");
+  h.section("send the slide to a canvas: an image placed on slides only gets its figure record");
+  {
+    // Reloaded, the deck's record of the image is rebuilt from the bundle (no byte count), and fig/index.json has never
+    // listed it: the conversion measures the bundle where it is and gives the figure the record an import would.
+    await page.evaluate(async () => { await window.__flux.lifecycle.flushById("slide"); });
+    await page.evaluate(async ({ root, deckId }) => { await window.__flux.slideBridge.loadDeckInto(root, deckId); }, { root, deckId });
+    const readIndex = () => page.evaluate((p) => { const v = window.fig._files.get(p); return v ? JSON.parse(v instanceof Uint8Array ? new TextDecoder().decode(v) : String(v)) : null; }, `${root}/fig/index.json`);
+    const assetId = placed.assetId;
+    h.ok(!(await readIndex())?.assets?.some((a) => a.id === assetId), "before: the figure index does not list the image");
+    const onDisk = await page.evaluate((prefix) => { let bytes = 0, files = 0; for (const [k, v] of window.fig._files) if (k.startsWith(prefix)) { bytes += v.byteLength ?? v.length; files++; } return { bytes, files }; }, `${root}/fig/assets/${assetId}.fluximg/`);
+    const bundles = () => page.evaluate((p) => [...window.fig._files.keys()].filter((k) => k.startsWith(p) && k.endsWith("/fluximg.json")).sort(), `${root}/fig/assets/`);
+    const bundlesBefore = await bundles();
+    await page.mouse.click(1200, 880); await page.keyboard.press("Escape");
+    await page.evaluate(() => window.__flux.fig.selection.set(new Set()));
+    const clickText = (text) => page.evaluate((t) => { const b = [...document.querySelectorAll("button")].find((x) => x.textContent.trim() === t && x.offsetParent); if (b) b.click(); return !!b; }, text);
+    // Send to canvas… lives on the inspector's Slide tab.
+    await page.evaluate(() => [...document.querySelectorAll(".inspector-tabs button")].find((x) => x.textContent.trim() === "Slide")?.click());
+    h.ok(await waitFor(page, () => [...document.querySelectorAll("button")].some((x) => x.textContent.trim() === "Send to canvas…" && x.offsetParent)), "the slide's Send to canvas… is offered");
+    await clickText("Send to canvas…");
+    h.ok(await waitFor(page, () => [...document.querySelectorAll(".sendmenu button")].some((x) => x.textContent.trim() === "+ New canvas")), "…with a new canvas as a destination");
+    await clickText("+ New canvas");
+    const sent = await waitFor(page, async ({ p, id }) => { const v = window.fig._files.get(p); if (!v) return null; const j = JSON.parse(v instanceof Uint8Array ? new TextDecoder().decode(v) : String(v)); return j.assets?.find((a) => a.id === id) ?? null; }, { p: `${root}/fig/index.json`, id: assetId });
+    h.ok(!!sent, `the slide is sent: no refusal${sent ? "" : ` (${(await page.evaluate(() => [...document.querySelectorAll(".toast")].map((t) => t.textContent.trim()).join(" | "))).slice(0, 200)})`}`);
+    h.ok(sent?.kind === "fluximg" && /^[a-f0-9]{64}$/.test(sent?.sha256 ?? "") && sent?.bytes === onDisk.bytes && onDisk.bytes > 0, `the figure index now holds the image's record: content id and the bundle's own byte count (${sent?.bytes} = ${onDisk.bytes} over ${onDisk.files} files)`);
+    h.eq(sent?.sha256, placed.source?.sha256, "…and the content id is the one the slide's element recorded when it was placed");
+    const figs = await page.evaluate(({ p, id }) => { const out = []; const walk = (o) => { if (Array.isArray(o)) o.forEach(walk); else if (o && typeof o === "object") { if (o.type === "fluximg" && o.assetId === id) out.push(o.id); Object.values(o).forEach(walk); } };
+      for (const [k, v] of window.fig._files) if (k.startsWith(p) && !k.startsWith(`${p}assets/`) && k.endsWith(".json")) { try { walk(JSON.parse(v instanceof Uint8Array ? new TextDecoder().decode(v) : String(v))); } catch {} } return out; }, { p: `${root}/fig/`, id: assetId });
+    h.ok(figs.length >= 1, `the new figure places the same asset (${figs.length} element(s))`);
+    h.eq(await bundles(), bundlesBefore, "…and no bundle was moved or copied");
+  }
   h.eq(errs.length, 0, `clean console${errs.length ? `: ${errs.slice(0, 3).join(" | ")}` : ""}`);
 } catch (error) {
   h.fail(`unexpected: ${error?.stack ?? error}`);
