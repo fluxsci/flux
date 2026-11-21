@@ -3,7 +3,7 @@ import type { SlideRepository } from "./embedRepository";
 import type { ExportPayload } from "./payload";
 import { SLIDE_EMBED_CSS } from "./embedPlayer";
 import { shareEmbedModels } from './embedModels';
-import { loadEmbedAssets, loadEmbedModelRuntime } from './embedAssets';
+import { loadEmbedAssets, loadEmbedModelRuntime, loadEmbedImageRuntime } from './embedAssets';
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 /** `bridged`: live-preview slides whose models render through the parent's
  * worker service (previewModelBridge.ts) instead of inlined GLB bytes, with
@@ -55,8 +55,10 @@ export async function finishSlideDocument(bundle: SlideDocumentBundle, opts: Sli
     if (opts.interactive && occurrences.length) {
       const shared = shareEmbedModels(payloads);
       const modelRuntime = Object.keys(shared.models).length ? await loadEmbedModelRuntime() : "";
+      // The image runtime only for a document whose slides hold an image (review B5: no image code otherwise).
+      const imageRuntime = Object.values(payloads).some(p => Object.keys(p.images ?? {}).length) ? await loadEmbedImageRuntime() : "";
       const data = JSON.stringify({ live: !!opts.live, documentKey: opts.documentKey || "", ...(bundle.bridged.size ? { modelBridge: true, modelRevision: [...new Set(bundle.bridged.values())].join(" ") } : {}), ...shared, occurrences }).replace(/</g, "\\u003c");
-      tail = `<script type="application/json" id="flux-slide-data">${data}</script>${modelRuntime ? `<script>${modelRuntime}</script>` : ''}<script>${assets.runtime}</script>`;
+      tail = `<script type="application/json" id="flux-slide-data">${data}</script>${modelRuntime ? `<script>${modelRuntime}</script>` : ''}${imageRuntime ? `<script>${imageRuntime}</script>` : ''}<script>${assets.runtime}</script>`;
     }
   }
   return { style, tail };

@@ -73,11 +73,11 @@ import { cueEnd } from "../video";
 import { isVideoCommand, type VideoEvent } from "../mediaTimeline";
 import { createVideoController } from "./media";
 import { createModel3dController, flushSlideModels } from "./model3d";
-import { createFluximgController, flushSlideFluximgs } from "./fluximg";
-import { fluximgPartIdOf, fluximgPartNode, fluximgPartNodes, fluximgPartsLookup, imageToBox, isFluximgPartIndex, partIndexFromTexts, type FluximgPartsLookup } from "../../fluximg/parts";
+import { createFluximgController, flushSlideFluximgs, fluximgPartIdOf, fluximgPartNode, fluximgPartNodes, fluximgPartsLookup, imageToBox, isFluximgPartIndex, partIndexFromTexts, createFluximgMovieController, joinMedia, slideMovieTargets } from "../imageSeam";
+import type { FluximgPartsLookup } from "../../fluximg/parts";
 import { imageStaggerCoordinates } from "../compile";
 import { imageObjectStageOutlines } from "../targetGeometry";
-import { createFluximgMovieController, joinMedia, slideMovieTargets, type MediaController } from "./fluximgMedia";
+import type { MediaController } from "./fluximgMedia";
 
 // --- target resolution -------------------------------------------------------
 /** A node's spatial coordinate for stagger ordering: the data-space value the

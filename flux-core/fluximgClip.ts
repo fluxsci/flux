@@ -108,7 +108,14 @@ export async function bakeImageClip(root: string, asset: Asset, request: ImageCl
   const dir = options.cacheDir ?? safeJoin(root, "fig/renders/fluximg");
   const file = path.join(dir, `${key}.mp4`);
   const meta = { fps: clip.fps, frames: clip.frames.length, durationMs, width: W, height: H, key, ...(request.kind === "playback" && request.playback.mode !== "once" ? { loop: true } : {}) };
-  try { const st = await fs.stat(file); if (st.isFile() && st.size > 0) return { ...meta, file, cached: true }; } catch { /* a miss: bake */ }
+  try {
+    const st = await fs.stat(file);
+    if (st.isFile() && st.size > 0) {
+      // Least-recently-used bookkeeping for the cache's prune (`pruneImageClipCache`).
+      const now = new Date(); await fs.utimes(file, now, now).catch(() => {});
+      return { ...meta, file, cached: true };
+    }
+  } catch { /* a miss: bake */ }
   if (options.signal?.aborted) throw aborted();
 
   await fs.mkdir(dir, { recursive: true });
@@ -195,3 +202,42 @@ export async function bakeImageClip(root: string, asset: Asset, request: ImageCl
 
 /** The project cache's clip names (a key names its content). */
 export const isImageClipName = (name: string): boolean => /^fxc-[\da-f]{16}\.mp4$/.test(name);
+
+/**
+ * The clip cache's bounds (review C3), its siblings' rule: the 3D poster caches drop what has not been used for 14 days
+ * and cap the shared cache at 1 GiB, least recently used first. A clip is derived (its key names its content and the
+ * encoder re-bakes the same bytes), so a pruned clip costs only a re-bake at the next export that needs it. The cache
+ * grows only when an export bakes, so it is bounded right there; the clips that export uses are never pruned.
+ */
+export const IMAGE_CLIP_CACHE_LIMITS = Object.freeze({ maxBytes: 1024 * 1024 * 1024, olderThanDays: 14 });
+export interface CachedClipEntry { name: string; size: number; mtimeMs: number }
+/** Pure prune plan: clips unused for `olderThanDays` go first, then least recently used (mtime is touched on every
+ *  hit) until the cache fits `maxBytes`. `protect` holds the keys (names without `.mp4`) the current export uses. */
+export function planImageClipPrune(entries: readonly CachedClipEntry[], protect: ReadonlySet<string>, now = Date.now(), limits: { maxBytes: number; olderThanDays: number } = IMAGE_CLIP_CACHE_LIMITS): string[] {
+  const valid = entries.filter((e) => isImageClipName(e.name) && Number.isFinite(e.size) && Number.isFinite(e.mtimeMs));
+  const kept = (e: CachedClipEntry) => protect.has(e.name.slice(0, -4));
+  const cutoff = now - limits.olderThanDays * 86400_000, removed = new Set<string>();
+  for (const e of valid) if (e.mtimeMs < cutoff && !kept(e)) removed.add(e.name);
+  let total = valid.filter((e) => !removed.has(e.name)).reduce((n, e) => n + e.size, 0);
+  for (const e of [...valid].sort((a, b) => a.mtimeMs - b.mtimeMs || a.name.localeCompare(b.name))) {
+    if (total <= limits.maxBytes) break;
+    if (removed.has(e.name) || kept(e)) continue;
+    removed.add(e.name); total -= e.size;
+  }
+  return valid.map((e) => e.name).filter((n) => removed.has(n));
+}
+/** Apply `planImageClipPrune` to a project's clip cache (`fig/renders/fluximg`); returns the removed names. Only
+ *  regular `fxc-*.mp4` files are candidates (a bake in flight writes a temporary name). */
+export async function pruneImageClipCache(root: string, options: { protect?: ReadonlySet<string>; now?: number; limits?: { maxBytes: number; olderThanDays: number }; dir?: string } = {}): Promise<string[]> {
+  const dir = options.dir ?? safeJoin(root, "fig/renders/fluximg"), entries: CachedClipEntry[] = [];
+  for (const name of await fs.readdir(dir).catch(() => [] as string[])) {
+    if (!isImageClipName(name)) continue;
+    const stat = await fs.lstat(path.join(dir, name)).catch(() => undefined);
+    if (stat?.isFile()) entries.push({ name, size: stat.size, mtimeMs: stat.mtimeMs });
+  }
+  const removed: string[] = [];
+  for (const name of planImageClipPrune(entries, options.protect ?? new Set(), options.now, options.limits)) {
+    try { await fs.rm(path.join(dir, name)); removed.push(name); } catch { /* another export pruned it */ }
+  }
+  return removed;
+}

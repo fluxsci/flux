@@ -58,7 +58,7 @@ import { morphJoin, pairJoin } from "../../strokeStyle";
 import { barGrow, type BarGrow } from "../growOrigin";
 import { applyWrapperBox, applyWrapperBoxComposite, carriesFlightMark, layoutBoxOf, pureMove, rigidFlight, promoteMovingWrapper, settleWrapper, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, restGridShift, plotAssetOf, type SlideRenderCtx } from "./render";
 import { modelBindingOf, modelContentFrame, modelFieldEndpoints, setSlideModelFrame } from "./model3d";
-import { fluximgTween, setSlideFluximgFrame } from "./fluximg";
+import { fluximgTween, setSlideFluximgFrame } from "../imageSeam";
 import { devicePixelRatioOf } from "./deviceGrid";
 
 /** Stage px an invisible stroke inflates a band's ink bounds by (see `bandNode`): enough for a device pixel at any presentation scale >= 1/4. */

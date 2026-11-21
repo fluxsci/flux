@@ -25,7 +25,8 @@ import { DEFAULT_STYLE_LUT } from "../fluximg/objectStyle";
 import { compileSlide, type CompileOptions } from "./compile";
 import { resolveTheme } from "./theme";
 import { fluximgAssetPath, fluximgResolvedAsset } from "../fluximg/place";
-import { imageStillRef, payloadImageAsset, slideImageChanges, trimImageManifest, IMAGE_NO_ENCODER_NOTE, type ExportImage } from "./imageExport";
+import type { CameraPose } from "./camera";
+import { imageStillRef, imageStillScale, payloadImageAsset, slideImageChanges, trimImageManifest, IMAGE_NO_ENCODER_NOTE, type ExportImage } from "./imageExport";
 
 /** The image half of `SlidePayloadIO`. */
 export interface SlideImageIO {
@@ -128,19 +129,23 @@ export async function gatherImages(o: GatherImagesOptions): Promise<{ images?: R
   // Every evaluated step state of every image (the model3d precedent: staticModels.slideModelStills): its still, keyed
   // by the request the static composer computes for the same element, and the vectors it draws.
   const options = o.compileOptions(manifests);
-  const stillJobs = new Map<string, Promise<void>>();
+  // Stills land in `drawn` as they finish and enter the payload in the order they were ASKED for (a function of the
+  // deck alone), so two exports of one deck are byte-identical however the renderer interleaves (review C2).
+  const stillJobs = new Map<string, Promise<void>>(), drawn = new Map<string, string>();
   let missingStills = false;
-  const still = (el: FluximgElement, who: string): Promise<void> | undefined => {
+  const still = (el: FluximgElement, who: string, camera?: CameraPose): Promise<void> | undefined => {
     const manifest = manifests.get(el.assetId), asset = sources.get(el.assetId);
     if (!manifest || !asset) return undefined;
     const rv = resolveView(manifest, el.view);
-    const request = fluximgStillRequest(el, asset, manifest, 2, rv), ref = imageStillRef(el.assetId, request.key);
+    // At 2x; a step whose camera rests zoomed in on the image gets the still that zoom needs (review B4).
+    const scale = camera ? imageStillScale(manifest, el, camera, deck.stage) : 2;
+    const request = fluximgStillRequest(el, asset, manifest, scale, rv), ref = imageStillRef(el.assetId, request.key);
     const jobs: Promise<unknown>[] = [furnish(el.assetId, rv, who)];
     if (!assets[ref] && !stillJobs.has(ref)) {
       if (!io.imageStill) missingStills = true;
       else stillJobs.set(ref, io.imageStill(asset, request).then((href) => {
         if (!href.startsWith("data:image/png;")) throw new Error("the still is not a PNG data URL");
-        assets[ref] = href;
+        drawn.set(ref, href);
       }).catch((error: unknown) => { warnings.push(`image "${who}": its pixels could not be drawn (${reason(error)}); exported without them`); }));
     }
     if (stillJobs.has(ref)) jobs.push(stillJobs.get(ref)!);
@@ -153,7 +158,8 @@ export async function gatherImages(o: GatherImagesOptions): Promise<{ images?: R
     const compiled = compileSlide(slide, deck.stage, options);
     const jobs: Promise<unknown>[] = [];
     for (let step = 0; step < Math.max(1, slide.beats.length); step++) {
-      for (const el of compiled.sample(step).elements) if (el.type === "fluximg") { const j = still(el as FluximgElement, label(el as FluximgElement)); if (j) jobs.push(j); }
+      const frame = compiled.sample(step);
+      for (const el of frame.elements) if (el.type === "fluximg") { const j = still(el as FluximgElement, label(el as FluximgElement), frame.camera); if (j) jobs.push(j); }
     }
     const movies = slideMovies(slide);
     for (const change of slideImageChanges(compiled)) {
@@ -221,6 +227,7 @@ export async function gatherImages(o: GatherImagesOptions): Promise<{ images?: R
     await Promise.all(jobs);
   }
   await Promise.all([...stillJobs.values()]);
+  for (const ref of stillJobs.keys()) { const href = drawn.get(ref); if (href !== undefined) assets[ref] = href; }
   if (missingStills) warnings.push("image pixels are not drawn by this export (no image renderer); each image shows its frame and vectors");
   const lutNames = [...new Set([...wantedLuts.values()].flatMap((s) => [...s]))];
   if (lutNames.length) {

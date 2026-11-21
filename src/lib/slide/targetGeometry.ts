@@ -19,9 +19,8 @@ import { viewFits, projectSeries, projectWith, guideData, guideAxes, type Fit, r
 import { plotVariant, relayoutRootInfo } from "../plot/relayout/variant";
 import type { FluximgElement } from "../fluximg/element";
 import type { FluximgTable } from "../fluximg/types";
-import { fluximgObject, imageToStage, type FluximgPartIndex } from "../fluximg/parts";
-import { resolveView } from "../fluximg/viewOps";
-import { cachedObjectStyles, missingStyle } from "../fluximg/objectStyle";
+import type { FluximgPartIndex } from "../fluximg/parts";
+import { fluximgObject, imageToStage, resolveView, cachedObjectStyles, missingStyle } from "./imageSeam";
 
 export interface GeometryCtx {
   manifest(assetId: string): FluxPlotManifest | undefined;

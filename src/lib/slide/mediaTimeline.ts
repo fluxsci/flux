@@ -6,7 +6,7 @@
 import type { Element } from "../types";
 import type { FluximgManifest } from "../fluximg/types";
 import type { FluximgPlaybackMode } from "../fluximg/element";
-import { walkableDims } from "../fluximg/playback";
+import { walkableDims } from "./imageSeam";
 import type { Slide, Track } from "./types";
 import type { VideoPlan } from "./video";
 import { resolveBeat, type StyleContext, type ManifestFor } from "./resolve";

@@ -10,7 +10,7 @@ import { lerpColor, prepareColorLerp } from "../color/interp";
 import { lerpDash } from "./tween";
 import { lagWindow, LAG_MIN_WINDOW } from "./stagger";
 import { axisFit, projectWith } from "../plot/project";
-import { keyGroups, keyPolicyApplies, memberKeys } from "../fluximg/parts";
+import { keyGroups, keyPolicyApplies, memberKeys } from "./keyMatch";
 import {
   arcStations, boundaryParams, parameterize, pointAt, openRing, morphIsClosed,
   planOutlines, sampleNodes, supportPoint, lerpGradientFill, planStrokeBand, sampleStrokeBand, trimUnderHeads, isNoneColor,

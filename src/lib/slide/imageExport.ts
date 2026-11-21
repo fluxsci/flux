@@ -16,13 +16,14 @@ import type { FluximgElement } from "../fluximg/element";
 import type { FluximgManifest, FluximgTable } from "../fluximg/types";
 import type { FluximgSvgContext } from "../fluximg/exportStatic";
 import { modelPartOpacity } from "../model3d/appearance";
-import { partIndexFromTexts, type FluximgPartIndex } from "../fluximg/parts";
+import type { FluximgPartIndex } from "../fluximg/parts";
+import { partIndexFromTexts, planViewTween, insetsOf, clampCrop, zoomedStillScale } from "./imageSeam";
+import type { CameraPose } from "./camera";
+import type { StageSize } from "./types";
 import type { ImageClip } from "../fluximg/clipPlan";
 import type { ResolvedCurve } from "./curves";
 import { compileSlide, type CompiledSlide } from "./compile";
-import { planViewTween } from "../fluximg/viewTween";
 import { isHandoff } from "./targets";
-import { insetsOf } from "../fluximg/static";
 import { familyOf } from "./family";
 import { presetParam } from "./presetCatalog";
 import { transformEndState, transformPreState } from "./tween";
@@ -100,15 +101,35 @@ export function slideImageChanges(compiled: CompiledSlide): ImageChange[] {
   return out;
 }
 
+/** The camera's resting zoom where it shows an element (its box meets the camera's view): > 1 magnifies it. 1 without
+ *  a camera, for a camera that does not zoom in, or for an element out of its view. */
+export function cameraZoomOn(el: { x: number; y: number; width: number; height: number }, camera: CameraPose | undefined, stage: StageSize): number {
+  if (!camera || !(camera.zoom > 1)) return 1;
+  const hw = stage.width / (2 * camera.zoom), hh = stage.height / (2 * camera.zoom);
+  const inView = el.x < camera.x + hw && el.x + el.width > camera.x - hw && el.y < camera.y + hh && el.y + el.height > camera.y - hh;
+  return inView ? camera.zoom : 1;
+}
+/** Still pixels per canvas px for an image at a step: 2 (the export scale), more where the step's camera rests zoomed
+ *  in on it (`crop.zoomedStillScale`, review B4). Exactly 2 for a deck without a camera zoom. */
+export function imageStillScale(manifest: FluximgManifest, el: { x: number; y: number; width: number; height: number; crop?: import("../fluximg/view").PixelRect | null }, camera: CameraPose | undefined, stage: StageSize, scale = 2): number {
+  const zoom = cameraZoomOn(el, camera, stage);
+  return zoom > 1 ? zoomedStillScale(clampCrop(manifest, el.crop), { width: el.width, height: el.height }, scale, zoom) : scale;
+}
+
 /** The static writers' image context over a payload (PDF, PPTX, Paper posters, contact sheets): `exportStatic`'s
  *  composer finds each step's still by the request it computes itself. Undefined for a payload without images. */
 export function payloadImageSvgContext(payload: PayloadImages, elements?: ReadonlyArray<{ id: string; type: string; hidden?: boolean }>,
-  partStates?: Record<string, Record<string, { opacity?: number; visible?: boolean }>>): FluximgSvgContext | undefined {
+  partStates?: Record<string, Record<string, { opacity?: number; visible?: boolean }>>, camera?: CameraPose, stage?: StageSize): FluximgSvgContext | undefined {
   const images = payload.images;
   if (!images || !Object.keys(images).length) return undefined;
   const assets = new Map(Object.entries(images).map(([id, image]) => [id, payloadImageAsset(id, image.manifest)]));
   return {
     scale: 2,
+    // A page whose camera rests zoomed in on an image draws its still at the zoom's resolution (as the gather did).
+    ...(camera && stage && camera.zoom > 1 ? { scaleOf: (id: string) => {
+      const el = elements?.find((e) => e.id === id) as unknown as (FluximgElement | undefined), m = el?.assetId ? images[el.assetId]?.manifest : undefined;
+      return el && m ? imageStillScale(m, el, camera, stage) : undefined;
+    } } : {}),
     assetOf: (id) => assets.get(id),
     manifestOf: (id) => images[id]?.manifest,
     stillOf: (key) => payload.assets?.[`${IMAGE_STILL_PREFIX}${key}`],

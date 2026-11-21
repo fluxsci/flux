@@ -14,3 +14,8 @@ export async function loadEmbedModelRuntime(): Promise<string> {
   if (!assets.model3dRuntime) throw new Error('3D runtime is missing. Rebuild Flux before exporting slide embeds.');
   return assets.model3dRuntime;
 }
+export async function loadEmbedImageRuntime(): Promise<string> {
+  const assets = await loadExportAssets();
+  if (!assets.fluximgRuntime) throw new Error('The image runtime is missing. Rebuild Flux before exporting slide embeds.');
+  return assets.fluximgRuntime;
+}

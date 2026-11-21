@@ -230,13 +230,16 @@ try {
     // ----------------------------------------------------------------------------------------------------------------
     h.section("E. the render cache");
     const before = await listCache();
-    const stamp = await Promise.all(before.map(async (n) => (await fs.stat(path.join(cacheDir, n))).mtimeMs));
+    // A hit refreshes a clip's use time (the cache's LRU prune, review C3): "untouched" is its inode and size (a bake
+    // writes a new file and renames it over), not its mtime.
+    const identity = async (n: string) => { const st = await fs.stat(path.join(cacheDir, n)); return `${st.ino}:${st.size}`; };
+    const stamp = await Promise.all(before.map(identity));
     const t1 = performance.now();
     const again = await P.slidesCore.gatherDeckPayload(P.root, "talk", undefined, { refreshSources: false });
     const warmMs = performance.now() - t1;
     const after = await listCache();
     h.ok(before.length === clips.length && before.every((n) => CP && /^fxc-[\da-f]{16}\.mp4$/.test(n)), `the clips are cached in fig/renders/fluximg by content (${before.length} files)`);
-    h.ok(JSON.stringify(after) === JSON.stringify(before) && (await Promise.all(after.map(async (n) => (await fs.stat(path.join(cacheDir, n))).mtimeMs))).every((t, i) => t === stamp[i]), "a second export bakes nothing (same files, untouched)");
+    h.ok(JSON.stringify(after) === JSON.stringify(before) && (await Promise.all(after.map(identity))).every((t, i) => t === stamp[i]), "a second export bakes nothing (same files, never rewritten)");
     h.ok(JSON.stringify(again.payload.imageClips) === JSON.stringify(payload.imageClips), `and carries the same clips (cold gather ${coldMs.toFixed(0)} ms, warm ${warmMs.toFixed(0)} ms)`);
     const hit = await bakeImageClip(P.root, asset, req(), (r) => r * r, { encoder, cacheDir: repeatDir });
     h.ok(hit.cached && hit.file === repeated.file, "the same request is a cache hit");
