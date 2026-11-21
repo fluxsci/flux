@@ -724,8 +724,22 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
     stillLayer.append(image);
   }
   function placeholder(): void {
+    if (failed) { unavailable(failed.message); return; }
     stillLayer.setAttribute("viewBox", `0 0 ${svgNum(el.width)} ${svgNum(el.height)}`);
     stillLayer.innerHTML = `<rect data-fluximg-placeholder="" x="0" y="0" width="${svgNum(el.width)}" height="${svgNum(el.height)}" fill="${PLACEHOLDER_FILL}"/>`;
+  }
+  /** An image whose bundle cannot be read (review C9): the editor element's own stand-in (FluximgElement.svelte), the
+   *  image's name under a warning sign and the reason, where a missing video says "Video unavailable". */
+  function unavailable(reason: string): void {
+    const w = Math.max(1e-6, el.width), h = Math.max(1e-6, el.height), fit = Math.max(6, Math.min(13, Math.min(w / 14, h / 5)));
+    const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const label = el.name || "Image", short = reason.length > 64 ? `${reason.slice(0, 61)}…` : reason;
+    stillLayer.setAttribute("viewBox", `0 0 ${svgNum(w)} ${svgNum(h)}`);
+    stillLayer.innerHTML = `<g data-fluximg-placeholder="" data-fluximg-unavailable="" role="img" aria-label="${esc(`${label}: ${reason}`)}"><title>${esc(reason)}</title>`
+      + `<rect x="0" y="0" width="${svgNum(w)}" height="${svgNum(h)}" fill="${PLACEHOLDER_FILL}"/>`
+      + `<text x="${svgNum(w / 2)}" y="${svgNum(h / 2 - fit * 0.4)}" text-anchor="middle" font-family="Inter, sans-serif" font-size="${svgNum(fit)}" fill="#d0a215">⚠ ${esc(label)}</text>`
+      + `<text x="${svgNum(w / 2)}" y="${svgNum(h / 2 + fit)}" text-anchor="middle" font-family="Inter, sans-serif" font-size="${svgNum(fit * 0.8)}" fill="#878580">${esc(short)}</text></g>`;
+    stillKey = "";
   }
   const publish = () => {
     const live = !!surface?.shown, c = liveCanvas();
@@ -788,7 +802,7 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
         if (!stillLayer.firstChild) placeholder();
         if (ctx.fluximg && !needing) {
           needing = true;
-          ctx.fluximg.need(el.assetId).then(() => { needing = false; handle.flush(); }, (error: unknown) => { failed = error instanceof Error ? error : new Error(String(error)); root.dataset.fluximgError = failed.message; });
+          ctx.fluximg.need(el.assetId).then(() => { needing = false; handle.flush(); }, (error: unknown) => { failed = error instanceof Error ? error : new Error(String(error)); root.dataset.fluximgError = failed.message; if (!disposed) unavailable(failed.message); });
         }
         return;
       }

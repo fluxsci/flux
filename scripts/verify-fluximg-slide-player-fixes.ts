@@ -317,6 +317,20 @@ async function budgetRun(decks: { a: unknown; b: unknown }): Promise<unknown> {
   return { withA, both, aShows, bShows, afterLoss, afterB, end: FX.slideHostStats(), errors };
 }
 
+// ---- C9: a bundle that cannot be read ------------------------------------------------------------------------------------
+async function missingRun(deck: unknown): Promise<unknown> {
+  const T = (window as any).__T;
+  const P = T.newPlayer(deck);
+  P.player.goTo(0, 0); await P.player.readyMedia().catch(() => undefined); await T.sleep(100);
+  const root = P.mount.querySelector('[data-slide-fluximg-root="gone"]');
+  const g = root?.querySelector("[data-fluximg-unavailable]");
+  const out = { stand: !!g, texts: g ? [...g.querySelectorAll("text")].map((t: Element) => t.textContent) : [], issues: P.player.state().issues, ok: !!P.mount.querySelector('[data-slide-fluximg-root="ok"] canvas') };
+  P.player.destroy(); P.host.dispose(); P.mount.remove();
+  return out;
+}
+const missingDeck = { schemaVersion: "0.8.0", id: "m", title: "missing", created: "", modified: "", stage: STAGE, theme: "flux-dark", defaults: { transition: "none" }, assets: [],
+  slides: [{ id: "m0", elements: [{ type: "fluximg", id: "gone", name: "Lost scan", x: 20, y: 20, width: 200, height: 150, rotation: 0, assetId: "nope" }, { ...plainImg(0, 300), id: "ok" }], beats: [{ id: "n0", tracks: [] }] }] };
+
 // ---- bundle, serve, run -------------------------------------------------------------------------------------------------
 const server = createServer(async (req, res) => {
   try {
@@ -389,6 +403,12 @@ try {
     h.ok(b.afterLoss.stats.direct === 6, `the budget stays right after the loss (${b.afterLoss.stats.direct} direct)`);
     h.eq(b.errors, [], "no exception from the loss");
     h.ok(b.afterB.direct === 5 && b.end.direct === 0 && b.end.contexts === 0, `disposal gives the slots back (${b.afterB.direct} after the second host, ${b.end.direct} at the end)`);
+  }
+  if (!only || only.has("missing")) {
+    const m = await page.evaluate(missingRun as (d: unknown) => Promise<any>, missingDeck) as any;
+    h.section("C9: a bundle that cannot be read");
+    h.ok(m.stand && m.texts[0] === "⚠ Lost scan" && /nope/.test(m.texts[1] ?? ""), `the image shows the editor's stand-in: its name under a warning and the reason (${m.texts.join(" / ")})`);
+    h.ok(m.issues.some((i: any) => i.target === "gone" && /^Image unavailable/.test(i.reason)), `the player's issues name it (${m.issues.map((i: any) => i.reason).join("; ")})`);
   }
   if (r.across) {
     h.section("A1: a running movie runs on across later steps");
