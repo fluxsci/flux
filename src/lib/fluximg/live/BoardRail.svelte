@@ -286,7 +286,7 @@
       <!-- The movie key: its ring is the progress instrument while the file is written (no animation at rest). -->
       <span class="moviewrap" class:writing={movie.writing} data-fxb-movie={dim} data-progress={movie.writing ? movie.progress.toFixed(3) : undefined}>
         <svg class="ring" viewBox="0 0 30 30" aria-hidden="true"><circle class="base" cx="15" cy="15" r="13.5" />{#if movie.writing}<circle class="go" cx="15" cy="15" r="13.5" pathLength="100" stroke-dasharray={`${Math.round(movie.progress * 1000) / 10} 100`} />{/if}</svg>
-        <PaperKey round size={20} glyph="movie" label={movie.label} hotkey="M" on={movie.writing} id={`movie:${dim}`} onpress={() => onmovie?.()} onenter={onmovieenter} onleave={onmovieleave} />
+        <PaperKey round size={20} glyph="movie" label={movie.label} hotkey="⇧R" on={movie.writing} id={`movie:${dim}`} onpress={() => onmovie?.()} onenter={onmovieenter} onleave={onmovieleave} />
       </span>
     {/if}
     <PaperKey size={22} glyph="project" label={run ? `Projection: ${mode}` : "Projection · or Shift-drag a run on the rail"} hotkey="E" on={!!run} id={`project:${dim}`} onpress={onproject} />

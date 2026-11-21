@@ -51,7 +51,7 @@ export const imageStillRef = (assetId: string, requestKey: string): string => `$
 
 /** Static documents note this once when a step of a deck moves an image's pixels (the `MODEL_STILL_NOTE` of images),
  *  and say how to get the movie itself: the board's "Movie as MP4" key (W10). */
-export const IMAGE_STILL_NOTE = "image movies are exported as stills; to get one as a video file, open the image's board (R) and press Movie as MP4 (M)";
+export const IMAGE_STILL_NOTE = "image movies are exported as stills; to get one as a video file, open the image's board (R) and press Movie as MP4 (Shift+R)";
 /** Said once per deck export when clips could not be baked. Neither text may match Paper's refusal pattern. */
 export const IMAGE_NO_ENCODER_NOTE = "image movies were exported as stills: the video encoder is not installed";
 

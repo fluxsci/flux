@@ -112,7 +112,7 @@ try {
   {
     const { IMAGE_STILL_NOTE } = await import("../src/lib/slide/imageExport");
     const refusal = /its element will show a placeholder|missing from the export|no parts tree/;
-    h.ok(/Movie as MP4/.test(IMAGE_STILL_NOTE) && /\(M\)/.test(IMAGE_STILL_NOTE) && !/\.\s/.test(IMAGE_STILL_NOTE) && !refusal.test(IMAGE_STILL_NOTE), `the PDF / PowerPoint note is one sentence naming the board key: "${IMAGE_STILL_NOTE}"`);
+    h.ok(/Movie as MP4/.test(IMAGE_STILL_NOTE) && /\(Shift\+R\)/.test(IMAGE_STILL_NOTE) && !/\.\s/.test(IMAGE_STILL_NOTE) && !refusal.test(IMAGE_STILL_NOTE), `the PDF / PowerPoint note is one sentence naming the board key: "${IMAGE_STILL_NOTE}"`);
     const src2 = await fs.readFile("src/lib/slide/export/deckPptx.ts", "utf8") + await fs.readFile("src/lib/slide/export/deckPdf.ts", "utf8");
     h.eq((src2.match(/warnings\.push\(IMAGE_STILL_NOTE\)/g) ?? []).length, 2, "PowerPoint and PDF each push it once per export (the guards stand)");
   }

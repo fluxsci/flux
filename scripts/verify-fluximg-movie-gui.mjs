@@ -9,7 +9,7 @@
 //     equal to the pure planner's words); nothing is written (no request, no history step, the project unchanged).
 //   * Press: what is on screen is saved first, then ONE request (element, dimension, range, speed; on a slide its
 //     deckId/slideId, at a step its beat); the key becomes the progress instrument (lit, its ring filled to the
-//     progress); press again cancels (the job id); M from the keyboard does the same; completion reports where it went.
+//     progress); press again cancels (the job id); Shift+R from the keyboard does the same; completion reports where it went.
 //   * A clean console; nothing animates at rest before and after (document.getAnimations, live frames over a second).
 //   * Frame gaps of a playing board while a real export runs in another process, against the same board without one
 //     (measured; needs the pinned encoder, else said).
@@ -109,7 +109,7 @@ async function exercise(label, id, onSlide, step) {
   };
   h.ok(await clear("t") && await clear("z"), `${label}: clear of the rail's well, its flag, its Play key and its projection key`);
   const st = await keyState("t");
-  h.ok(st.label === "Movie as MP4" && st.hk === "M" && !st.on && !st.writing, `${label}: labelled "${st.label}" with its key M; not lit at rest`);
+  h.ok(st.label === "Movie as MP4" && st.hk === "⇧R" && !st.on && !st.writing, `${label}: labelled "${st.label}" with its key Shift+R; not lit at rest`);
   await page.screenshot({ path: `${SHOTS}/movie-${onSlide ? "slide" : "figure"}-rest.png` });
   let rest = await atRest();
   h.ok(rest.animations.length === 0 && rest.frames === 0, `${label}: nothing animates at rest (${rest.animations.length} animations, ${rest.frames} live frames in a second)`);
@@ -158,11 +158,11 @@ async function exercise(label, id, onSlide, step) {
   await waitFor(page, () => !document.querySelector('[data-fxb-movie="t"]')?.classList.contains("writing"), null, { label: "the key back at rest", timeout: 3000 });
   h.ok(/Movie stopped/.test(await readout() ?? ""), `${label}: the readout says it stopped: "${await readout()}"`);
 
-  // M from the keyboard: the rail in hand (time), to completion.
+  // Shift+R from the keyboard: the rail in hand (time), to completion.
   await F(() => window.__flux.fluximg.live.armLive("pos:t"));
-  await press("m");
+  await press("r", ["Shift"]);
   await waitFor(page, () => window.__movie.calls.length === 2, null, { label: "the keyboard's request", timeout: 5000 });
-  h.ok((await seam()).calls[1].dim === "t", `${label}: M writes the movie of the rail in hand`);
+  h.ok((await seam()).calls[1].dim === "t", `${label}: Shift+R writes the movie of the rail in hand`);
   await finish();
   await waitFor(page, () => /Saved/.test(document.querySelector("[data-fxb-movieline]")?.textContent ?? ""), null, { label: "the report", timeout: 3000 });
   h.ok(/^Saved · 8 frames · 4\.0 s · [\w-]+\.mp4$/.test(await readout()) && /\/exports\/[\w-]+\.mp4$/.test(await F(() => document.querySelector("[data-fxb-movieline]").getAttribute("data-tip"))), `${label}: completion reports where it went: "${await readout()}" (the full path on its label)`);

@@ -84,7 +84,7 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   properties have the same controls; agents use `set-image-view --beat --speed --blend`,
   `--playback`, and `set-video-track` on an image.
 - **An image's movie as a file.** Beside each rail's Play key on the image's board, **Movie as
-  MP4** (M) writes what Play plays as an H.264 video for PowerPoint, Keynote, a browser or a
+  MP4** (Shift+R) writes what Play plays as an H.264 video for PowerPoint, Keynote, a browser or a
   journal's supplement: the image as drawn, with its layers and annotations and the time stamp
   advancing, at the data's own rate. Hover it to see the frames, length and size it would write;
   while it writes, its ring fills and the board stays live; press it again to stop. PDF and

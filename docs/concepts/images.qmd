@@ -268,7 +268,7 @@ panels past its edge could not be seen). Nothing else on the figure moves.
 | **w** | Position stamp | Where along depth or time the picture is |
 | **c** | Channel names | Each in its channel's colour |
 | **g** | Calibration bar | Each shown channel's colours from its black point to its white point, with both values |
-| **m** | Movie as MP4 | Beside each rail's Play key: what Play plays, written as a video file (see [below](#an-images-movie-as-a-file)) |
+| **Shift+R** | Movie as MP4 | Beside each rail's Play key: what Play plays, written as a video file (see [below](#an-images-movie-as-a-file)) |
 
 A key that is on is lit. The four annotations are drawn as vectors on the image, and each one
 that is shown is a thing you can take hold of on the picture:
@@ -388,7 +388,7 @@ series in one step: footprints fly into their traces. See
 
 # An image's movie as a file
 
-Each rail's Play key has a **Movie as MP4** key beside it (**M** plays the rail in hand). It writes
+Each rail's Play key has a **Movie as MP4** key beside it (**Shift+R** for the rail in hand). It writes
 what Play would play as an MP4 video that PowerPoint, Keynote, a web browser and a journal's
 supplement all open: the image as it is drawn, with its frame, its channels and contrast, its
 layers and their styling, and its annotations, the time or depth stamp advancing with the frames.

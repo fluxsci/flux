@@ -34,7 +34,7 @@
   import { cancelImageMovie, imageMovieJob, movieFacts, movieOf, startImageMovie } from "./movie";
   import { deckOverlay, editDestination } from "../../slide/store";
   import {
-    LIVE_KEYS, PROJECTION_MODES, autoContrast, autoPlan, backOut, channelInHand, cycleFurnitureCorner, defaultArmed, dimKeys, dimLength, holdRail, liveContext, makeInset,
+    LIVE_KEYS, MOVIE_KEY, PROJECTION_MODES, autoContrast, autoPlan, backOut, channelInHand, cycleFurnitureCorner, defaultArmed, dimKeys, dimLength, holdRail, liveContext, makeInset,
     nudgeFurniture, nudgeGamma, nudgeLayerOpacity, nudgeStyleRange, nudgeWindow, panFrame, railDims, resetChannel, resetFrame, resizeProjection, setChannel, setPosition, setProjectionMode, setRun,
     setWindow, soloChannel, splitChannels, splitPlan, stepPosition, stepSpeed, takeChannel, toggleChannel, toggleFurniture, togglePlayback, toggleSmooth, zoomFrame, zoomInset, newElementsOff,
   } from "./actions";
@@ -317,6 +317,13 @@
       done(); return; // an open choice swallows stray keys rather than firing some other key
     }
     if (k === "r" && !e.altKey && !e.shiftKey) { done(); if (!e.repeat) closeFluximgLive(); return; }
+    if (k === MOVIE_KEY.key && e.shiftKey && !e.altKey) {
+      // Shift+R: the movie of the rail in hand (else the first one Play can play), or stop the one being written.
+      const d = live.armed?.startsWith("pos:") ? live.armed.slice(4) : dims.find((x) => ctx.view.projection?.dim !== x);
+      done();
+      if (d && !e.repeat && ctx.view.projection?.dim !== d) { strike(`movie:${d}`); movieKey(d); }
+      return;
+    }
     if (k === "f" && !e.altKey) { done(); settleLiveEdit(); fluxFigMenuOpen.set(true); return; }
     // Digits are the channels (by the physical key, so Shift and Alt keep their digit): take in hand, show, or solo.
     const digit = /^Digit([1-9])$/.exec(e.code);
@@ -344,12 +351,6 @@
       return;
     }
     if (k === "Enter" && live.armed === "inset") { done(); insetKey(); return; }
-    if (k === LIVE_KEYS.movie && !e.shiftKey) {
-      const d = live.armed?.startsWith("pos:") ? live.armed.slice(4) : dims.find((x) => ctx.view.projection?.dim !== x);
-      done();
-      if (d && !e.repeat && ctx.view.projection?.dim !== d) { strike(`movie:${d}`); movieKey(d); }
-      return;
-    }
     done(); // the board owns unmodified keys: nothing leaks to canvas shortcuts (no stray Delete or nudge)
     if (e.repeat) return;
     for (const d of dims) if (keys[d] === k) {
