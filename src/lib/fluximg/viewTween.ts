@@ -53,7 +53,7 @@ import type {
   FluximgProjection, FluximgView, PixelRect, ResolvedChannel, ResolvedFurniture, ResolvedLayer, ResolvedView,
 } from "./view";
 import { contributingChannelIndices, pixelKey, positionDims, resolveView } from "./viewOps";
-import { clampCrop } from "./still";
+import { clampCrop } from "./crop";
 import { prepareColorLerp } from "../color/interp";
 import { hexToRgb } from "./lut";
 import { positionText } from "./furniture";
