@@ -13,9 +13,6 @@
 //
 // UI tier (dev server via FLUX_URL), runtime tsx (it writes the bundle with the TS writer).
 // Run: FLUX_URL=http://127.0.0.1:<port>/ env -u WAYLAND_DISPLAY -u DISPLAY node --import tsx scripts/verify-fluximg-slide-player-gui.mjs
-//
-// Until work package W1b admits images into decks, the deck fold drops them (deckProject.foldSlide); this gate needs a dev
-// server where that drop is lifted (W2 ran it with a scratch Vite transform doing exactly that, see the W2 report).
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -98,10 +95,12 @@ try {
   await waitFor(page, () => !!window.__flux?.get(window.__flux.slide.deckOverlay), null, { timeout: 15000, label: "deck load" });
   const placed = await page.evaluate((asset) => {
     const F = window.__flux, sid = F.get(F.fig.activeFigureId);
+    // Placed the normal way (ops.addFluximg onto the slide's figure), then its id renamed for the Change below.
     F.fig.commit((p) => {
-      if (!p.assets.some((a) => a.id === asset.id)) p.assets.push(asset);
       const fig = p.figures.find((f) => f.id === sid);
-      fig.elements = [{ type: "fluximg", id: "movie", x: 60, y: 30, width: 300, height: 300, rotation: 0, assetId: asset.id, view: { index: { t: 0 }, layers: { cells: { visible: true } }, furniture: { stamp: {} } } }];
+      fig.elements = [];
+      const id = F.ops.addFluximg(p, { figureId: sid, asset, x: 60, y: 30, width: 300, view: { index: { t: 0 }, layers: { cells: { visible: true } }, furniture: { stamp: {} } } });
+      fig.elements.find((e) => e.id === id).id = "movie";
     });
     F.slide.commitDeckLive((d) => {
       const s = F.slideOps.slideById(d, sid);

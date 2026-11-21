@@ -48,27 +48,29 @@ const report = await writeFluximg(nodeBundleWriter(path.join(scratch, "img.fluxi
   axes: { t: { unit: "s", scale: 0.1 }, y: { unit: "µm", scale: 0.5 }, x: { unit: "µm", scale: 0.5 } },
   channels: [{ name: "a", color: "#ff00ff", range: [100, 3000] }, { name: "b", color: "#00ff00", range: [100, 3500] }],
   layers: [
-    { kind: "labels", id: "cells", name: "cells", data: labels, visible: true },
+    { kind: "labels", id: "cells", name: "cells", data: labels, visible: true, key: "label", table: { key: "label", columns: { label: [1, 2, 3, 4], kind: ["x", "y", "x", "z"] } } },
     { kind: "vector", id: "marks", name: "marks", count: 2, body: '<circle id="marks/p" data-key="p" cx="12.5" cy="30.5" r="3"/><line id="marks/q" data-key="q" x1="40" y1="5" x2="60" y2="20"/>', visible: true },
     { kind: "intensity", id: "glow", name: "glow", data: glow, dtype: "uint16", color: "#ffd400", range: [0, 1000], opacity: 0.6, visible: false },
   ],
 });
 const manifest = report.manifest;
-const layerText: Record<string, string> = {};
-for (const l of manifest.layers) if (l.kind === "labels") layerText[l.outlines] = await readFile(path.join(scratch, "img.fluximg", l.outlines), "utf8");
+const layerText: Record<string, string> = {}, tables: Record<string, unknown> = {};
+for (const l of manifest.layers) if (l.kind === "labels") { layerText[l.outlines] = await readFile(path.join(scratch, "img.fluximg", l.outlines), "utf8"); tables[l.table] = JSON.parse(await readFile(path.join(scratch, "img.fluximg", l.table), "utf8")); }
   else if (l.kind === "vector") layerText[l.path] = await readFile(path.join(scratch, "img.fluximg", l.path), "utf8");
 const glowLayer = manifest.layers.find((l) => l.id === "glow")!;
 h.ok(manifest.pixels.levels.length === 1 && glowLayer.kind === "intensity", "a synthetic bundle written by the TS writer (one level, every layer kind)");
 
 // ---- the deck: Design + one Change per kind of thing an image can do --------------------------------------------------
-const base = { layers: { cells: { visible: true }, marks: { visible: true } }, furniture: { stamp: {}, scalebar: {} } };
+// The label layer is styled by a column of its table (W4 styleBy): colour by category.
+const CELLS = { visible: true, styleBy: { color: { column: "kind" } } };
+const base = { layers: { cells: CELLS, marks: { visible: true } }, furniture: { stamp: {}, scalebar: {} } };
 const view = (patch: Record<string, unknown>) => structuredClone({ ...base, ...patch });
 const V0 = view({ index: { t: 0 } });
 const V1 = view({ index: { t: 20 } });                                                                       // walk the time axis
 const V2 = view({ index: { t: 20 }, channels: [{ range: [600, 2200] }, { range: [300, 1800], gamma: 1.6, norm: "gamma" }] }); // contrast
 const CROP3 = { x: 16, y: 12, width: 32, height: 24 };                                                        // zoom in (crop)
 const V4 = view({ index: { t: 20 }, channels: [{ range: [600, 2200], color: "#00ffff" }, { range: [300, 1800], gamma: 1.6, norm: "gamma" }],
-  layers: { cells: { visible: true, opacity: 0.25 }, marks: { visible: true }, glow: { visible: true, opacity: 0.6 } } });     // colour switch (two pictures), layer fades
+  layers: { cells: { ...CELLS, opacity: 0.25 }, marks: { visible: true }, glow: { visible: true, opacity: 0.6 } } });     // colour switch (two pictures), layer fades
 const V5 = structuredClone(V4); (V5 as { index: Record<string, number> }).index = { t: 4 };                     // blend walk back
 const track = (id: string, state: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({ id, target: "im", preset: "transform", start: 0, duration: 1000, easing: "linear", to: { state }, ...extra });
 const deck = {
@@ -89,7 +91,7 @@ const deck = {
 };
 
 // ---- the page ---------------------------------------------------------------------------------------------------------
-interface PageData { manifest: typeof manifest; layerText: Record<string, string>; data: string; glow: string; deck: typeof deck; T: number; C: number; H: number; W: number }
+interface PageData { manifest: typeof manifest; layerText: Record<string, string>; tables: Record<string, any>; data: string; glow: string; deck: typeof deck; T: number; C: number; H: number; W: number }
 
 async function pageRun(D: PageData): Promise<unknown> {
   const FX = (window as any).FX;
@@ -161,9 +163,10 @@ async function pageRun(D: PageData): Promise<unknown> {
   };
   const mountOf = () => { const m = document.createElement("div"); document.body.append(m); return m; };
   const layerTextOf = (_: string, p: string) => D.layerText[p];
+  const tableOf = (_: string, p: string) => D.tables[p];
   const newPlayer = (delay = { ms: 0 }) => {
     const counts = { planes: 0 }, host = FX.createFluximgSlideHost(makeSource(delay, counts)), mount = mountOf();
-    const player = FX.createPlayer(mount, deck, { theme, mode: "present", reducedMotion: false, fluximg: host, fluximgManifest: () => manifest, fluximgLayerText: layerTextOf });
+    const player = FX.createPlayer(mount, deck, { theme, mode: "present", reducedMotion: false, fluximg: host, fluximgManifest: () => manifest, fluximgLayerText: layerTextOf, fluximgTable: tableOf });
     return { host, mount, player, counts, delay };
   };
   const at = async (P: any, beat: number, ms: number) => { P.player.seek(0, beat, ms); await P.player.captureMedia([], ms); };
@@ -177,7 +180,7 @@ async function pageRun(D: PageData): Promise<unknown> {
       return stills.get(key);
     };
     const host = mountOf();
-    FX.renderStaticAt(host, slide, deck.stage, 2, { theme, fluximgManifest: () => manifest, fluximgStill: stillOf, fluximgLayerText: layerTextOf });
+    FX.renderStaticAt(host, slide, deck.stage, 2, { theme, fluximgManifest: () => manifest, fluximgStill: stillOf, fluximgLayerText: layerTextOf, fluximgTable: tableOf });
     const image = host.querySelector("[data-fluximg-still] image");
     const canvas = host.querySelector<HTMLCanvasElement>("canvas[data-slide-fluximg]")!;
     const end2 = plan(2).plan.end;
@@ -229,6 +232,18 @@ async function pageRun(D: PageData): Promise<unknown> {
     const f = plan(4).plan.frame(0.5, 0.5);
     const g = P.mount.querySelector('g[data-layer="cells"]');
     out.layerFade = { attr: g?.getAttribute("opacity") ?? "1", want: f.overlay.view.layers.find((l: any) => l.id === "cells").opacity };
+  }
+  // A styled label layer in a playing slide: every object's computed stroke is the at-rest element's (static.ts, the
+  // same composition the element at rest and every export draw).
+  {
+    await at(P, 1, 500);
+    const pre = FX.transformPreState(slide, "im", 1), rv = FX.resolveView(manifest, pre.view);
+    const cellsLayer = manifest.layers.find((l: any) => l.id === "cells");
+    const holder = document.createElementNS("http://www.w3.org/2000/svg", "svg"); document.body.append(holder);
+    holder.innerHTML = FX.fluximgStaticSvg({ manifest, view: rv, crop: FX.clampCrop(manifest, null), box: { width: 320, height: 240 }, stillHref: null, layerSvg: { cells: D.layerText[cellsLayer.outlines] }, idPrefix: "rest-", tables: { cells: D.tables[cellsLayer.table] } });
+    const stroke = (root: Element) => Object.fromEntries([...root.querySelectorAll('[data-layer="cells"] [data-key]')].map((n) => [n.getAttribute("data-key"), getComputedStyle(n).stroke]));
+    out.styled = { rest: stroke(holder), playing: stroke(P.mount) };
+    holder.remove();
   }
   // The overlay is updated, not rebuilt, across a zoom.
   {
@@ -325,6 +340,7 @@ try {
         `export { planeKey, layerKey } from "./src/lib/fluximg/service";`,
         `export { transformPreState, transformEndState } from "./src/lib/slide/tween";`,
         `export { FLUX_DARK } from "./src/lib/slide/theme";`,
+        `export { fluximgStaticSvg } from "./src/lib/fluximg/static";`,
       ].join("\n"),
     },
   });
@@ -337,7 +353,7 @@ try {
   await page.evaluate("window.__name = (value) => value");
   await page.addScriptTag({ url: `${origin}fx.js` });
   const b64 = (a: Uint16Array) => Buffer.from(a.buffer, a.byteOffset, a.byteLength).toString("base64");
-  const r = await page.evaluate(pageRun as (d: PageData) => Promise<any>, { manifest, layerText, data: b64(data), glow: b64(glow), deck, T, C, H, W } as PageData) as any;
+  const r = await page.evaluate(pageRun as (d: PageData) => Promise<any>, { manifest, layerText, tables, data: b64(data), glow: b64(glow), deck, T, C, H, W } as PageData) as any;
 
   h.section("at rest: the still");
   h.ok(r.static.image, "a static render (no host) shows the still as an <image>");
@@ -350,6 +366,10 @@ try {
   for (const s of r.sampled) h.ok(s.ok, `${s.name} raw ${s.raw}: t ${s.t}${s.mix ? ` mix ${(+s.mix).toFixed(2)}` : ""}${s.blend ? ` blend ${s.blend.other}@${(+s.blend.weight).toFixed(2)}` : ""}: max diff ${s.max} (${s.over} px over 1)`);
   for (const e of r.ends) h.ok(e.max <= 1, `beat ${e.beat}: the last frame is the element's own picture at that step (max diff ${e.max})`);
   h.ok(Math.abs(Number(r.layerFade.attr) - r.layerFade.want) < 1e-3, `a label layer's opacity follows the frame (${r.layerFade.attr} = ${(+r.layerFade.want).toFixed(4)})`);
+  {
+    const keys = Object.keys(r.styled.rest), colours = new Set(Object.values(r.styled.rest));
+    h.ok(keys.length === 4 && colours.size === 3 && keys.every((k) => r.styled.playing[k] === r.styled.rest[k]), `a styled label layer mid-tween: each object's computed stroke is the at-rest element's (${keys.map((k) => `${k} ${r.styled.playing[k]}`).join(", ")})`);
+  }
   h.ok(r.overlay.same && r.overlay.moved, `the overlay's ${r.overlay.count} nodes are the same objects before and after a zoom, and its layer transform moved`);
 
   h.section("purity");

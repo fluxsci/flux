@@ -5,7 +5,7 @@
  * decoder and WebGL (`appSlideHost.ts`, in the app) or none at all (static documents, the exported deck) is injected
  * through `SlideRenderCtx`. A player without a host never allocates GPU and shows each image as its still.
  */
-import type { FluximgManifest } from "./types";
+import type { FluximgManifest, FluximgTable } from "./types";
 import type { TweenPicture, ViewTweenFrame } from "./viewTween";
 
 export interface FluximgSlideHost {
@@ -58,6 +58,9 @@ export interface FluximgSlideContext {
   fluximgStill?: (assetId: string, picture: TweenPicture, outWidth: number, outHeight: number) => string | undefined;
   /** Layer SVG text (outlines, vector layers) by asset id and bundle path, when loaded; a miss draws no shapes. */
   fluximgLayerText?: (assetId: string, path: string) => string | undefined;
-  /** Colour-map tables for the calibration bar (absent: a colour map's bar is gray). */
+  /** Colour-map tables for the calibration bar and colour-by-number styles (absent: gray). */
   fluximgLut?: (name: string) => string[] | null;
+  /** A layer's object table (styled layers only: `styleBy`), when loaded; a miss loads it and draws the layer unstyled
+   *  until it lands (exactly as the element at rest does). */
+  fluximgTable?: (assetId: string, path: string) => FluximgTable | null | undefined;
 }

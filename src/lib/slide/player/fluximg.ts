@@ -20,7 +20,8 @@ import { pixelKey, resolveView } from "../../fluximg/viewOps";
 import { clampCrop, tieredStillSize } from "../../fluximg/crop";
 import { cropTransform, FURNITURE_FONT, FURNITURE_WEIGHT, imageStrokeWidth, layerMarkup, namePlacements, namesFontPx, objectIndex, preciseNum, svgNum, type LayerObject } from "../../fluximg/layers";
 import { furnitureSvg } from "../../fluximg/furniture";
-import { fluximgIdPrefix, layerSvgPath, PLACEHOLDER_FILL, unflipTransform } from "../../fluximg/static";
+import { fluximgIdPrefix, layerStyles, layerSvgPath, layerTablePath, PLACEHOLDER_FILL, stylesToDraw, unflipTransform, wantsTable } from "../../fluximg/static";
+import { missingStyle, type ObjectLegend, type ObjectStyles } from "../../fluximg/objectStyle";
 import { presetParam } from "../presetCatalog";
 import { isHandoff } from "../targets";
 import { transformEndState, transformPreState } from "../tween";
@@ -120,6 +121,13 @@ export function fluximgTween(pre: FluximgElement, end: FluximgElement, ctx: Slid
 // ---------------------------------------------------------------------------------------------
 
 interface LayerGroup { g: SVGGElement; sig: string; tint: boolean; last: Record<string, string | null> }
+/** A colour no layer file or style writes: a tinted layer is BUILT in it, then every shape that took it reads the
+ *  layer's colour from a custom property instead (styled shapes keep their own colours). */
+const TINT_SENTINEL = "#fd03fb";
+/** Identity of a table or a styles object in a build signature (the stores hand out the same object until it changes). */
+const identities = new WeakMap<object, number>();
+let identitySerial = 0;
+const identity = (o: object | null | undefined): number => { if (!o) return 0; let n = identities.get(o); if (!n) identities.set(o, n = ++identitySerial); return n; };
 interface NamesGroup { g: SVGGElement; sig: string; index: LayerObject[]; nodes: Map<string, SVGTextElement>; place: string }
 
 /** Set an attribute only when its value changes (a frame that changes nothing writes nothing). */
@@ -183,11 +191,14 @@ class Overlay {
       const source = this.layerText(manifest, assetId, lv);
       if (!source || source.text === undefined) continue;
       const tint = lv.color !== null;
-      const sig = `${source.text.length}|${tint ? "tint" : "own"}|${cullKey}`;
+      // A layer styled by its table (W4 styleBy): per-object colours and opacities, from the same objectStyle cache the
+      // element at rest uses; they change only when styleBy, the table or the colour maps change (never per frame).
+      const styles = this.stylesOf(source.layer, lv, assetId);
+      const sig = `${source.text.length}|${tint ? "tint" : "own"}|${cullKey}|${lv.styleBy ? JSON.stringify(lv.styleBy) : ""}|${identity(styles)}`;
       let group = entry;
       if (!group || group.sig !== sig) {
         group?.g.remove();
-        group = this.buildLayer(source.layer, source.text, lv, cull, box, sig);
+        group = this.buildLayer(source.layer, source.text, lv, cull, box, sig, styles);
         this.layers.set(lv.id, group);
         this.order = "";
       }
@@ -209,33 +220,46 @@ class Overlay {
     this.updateNames(manifest, assetId, el, pic, box, fade.names);
     // The calibration bar draws a colour map's own colours: its markup changes when the tables land.
     const lut = rv.furniture.colorbar ? rv.channels.find((c) => c.lut)?.lut : undefined;
-    const furnSig = JSON.stringify([rv.furniture, rv.index, rv.projection, rv.channels, rv.composite, rv.solo, crop, box, lut ? !!this.ctx.fluximgLut?.(lut) : false]);
+    // The key (a legend of a styled layer) draws the legends of the styled layers, as the element at rest does.
+    let legends: Record<string, ObjectLegend | null> | undefined;
+    if (rv.furniture.key) {
+      legends = {};
+      for (const lv of rv.layers) { const layer = lv.kind === "intensity" ? undefined : manifest.layers.find((l) => l.id === lv.id); if (layer) { const st = this.stylesOf(layer, lv, assetId); if (st) legends[lv.id] = st.legend; } }
+    }
+    const furnSig = JSON.stringify([rv.furniture, rv.index, rv.projection, rv.channels, rv.composite, rv.solo, rv.furniture.key ? rv.layers : null, crop, box, lut ? !!this.ctx.fluximgLut?.(lut) : false, legends ? Object.values(legends).map((l) => identity(l)) : null]);
     if (furnSig !== this.furnSig) {
       this.furnSig = furnSig; this.opacitySig = "";
       let markup = "";
-      try { markup = furnitureSvg(manifest, rv, crop, box, this.prefix, this.ctx.fluximgLut); } catch { markup = ""; }
+      try { markup = furnitureSvg(manifest, rv, crop, box, this.prefix, this.ctx.fluximgLut, legends); } catch { markup = ""; }
       this.furnG.innerHTML = markup;
     }
     const opacitySig = JSON.stringify(fade);
     if (opacitySig !== this.opacitySig) { this.opacitySig = opacitySig; this.fadeFurniture(fade); }
   }
 
-  private buildLayer(layer: FluximgLayer, text: string, lv: ResolvedLayer, cull: PixelRect, box: { width: number; height: number }, sig: string): LayerGroup {
+  /** The styles a shown layer is drawn with (null when it is not styled or its table has not landed). */
+  private stylesOf(layer: FluximgLayer, lv: ResolvedLayer, assetId: string): ObjectStyles | null {
+    if (!wantsTable(lv)) return null;
+    const path = layerTablePath(layer);
+    const table = path ? this.ctx.fluximgTable?.(assetId, path) : null;
+    return stylesToDraw(layerStyles(layer, lv, table, this.ctx.fluximgLut));
+  }
+
+  private buildLayer(layer: FluximgLayer, text: string, lv: ResolvedLayer, cull: PixelRect, box: { width: number; height: number }, sig: string, styles: ObjectStyles | null): LayerGroup {
     let markup = "";
+    const tint = lv.color !== null;
     // A layer file anyone may have written can be refused by the sanitizer: draw nothing rather than break the slide.
-    try { markup = layerMarkup(layer, text, { ...lv, visible: true, opacity: 1 }, cull, box, this.prefix); } catch { markup = ""; }
+    try { markup = layerMarkup(layer, text, { ...lv, visible: true, opacity: 1, ...(tint ? { color: TINT_SENTINEL } : {}) }, cull, box, this.prefix, styles?.byKey, styles ? missingStyle(lv.styleBy) : null); } catch { markup = ""; }
     const holder = document.createElementNS(SVG, "svg");
     holder.innerHTML = markup;
     const g = (holder.firstElementChild as SVGGElement | null) ?? document.createElementNS(SVG, "g");
-    const tint = lv.color !== null;
     if (tint) {
       // One colour for the whole layer: shapes read it from a custom property, so a colour tween writes ONE style per
       // frame instead of every shape's stroke and fill.
-      const color = lv.color!;
       for (const node of [g, ...Array.from(g.children)]) for (const name of ["stroke", "fill"]) {
-        if (node.getAttribute(name) === color) { node.removeAttribute(name); (node as SVGElement).style.setProperty(name, "var(--fx-tint)"); }
+        if (node.getAttribute(name) === TINT_SENTINEL) { node.removeAttribute(name); (node as SVGElement).style.setProperty(name, "var(--fx-tint)"); }
       }
-      g.style.setProperty("--fx-tint", color);
+      g.style.setProperty("--fx-tint", lv.color!);
     }
     this.layersG.append(g);
     return { g, sig, tint, last: { "--tint": lv.color, transform: g.getAttribute("transform"), "stroke-width": g.getAttribute("stroke-width"), "fill-opacity": g.getAttribute("fill-opacity"), opacity: g.getAttribute("opacity"), display: null } };
@@ -294,6 +318,7 @@ class Overlay {
       stamp: [`[id="${this.prefix}stamp"]`],
       channelLabels: [`[data-part="channel"]`],
       colorbar: [`[id="${this.prefix}colorbar"]`],
+      key: [`[id="${this.prefix}key"]`],
     };
     for (const [piece, selectors] of Object.entries(pieces) as [keyof typeof pieces, string[]][]) {
       const v = fade[piece];

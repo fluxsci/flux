@@ -14,6 +14,7 @@ import type { FluximgSlideContext, FluximgSlideHost } from "./slideHost";
 import { createFluximgSlideHost, pictureView } from "./slideSurfaces";
 import { fluximgBundle, fluximgIdentity, fluximgLayerText, fluximgLutsReady, fluximgManifests, fluximgService, needLayerText, needLuts, needManifest, resolveLut } from "./store";
 import { pixelKey } from "./viewOps";
+import { fluximgTables, needTable, tableOf } from "./live/objectTables";
 import type { TweenPicture } from "./viewTween";
 
 type FluximgAsset = Asset & { kind: "fluximg" };
@@ -28,6 +29,17 @@ function deckImageAssets(deck: Deck): Map<string, FluximgAsset> {
   if (!ids.size) return out;
   for (const asset of get(project).assets) if (ids.has(asset.id) && asset.kind === "fluximg") out.set(asset.id, structuredClone(asset) as FluximgAsset);
   return out;
+}
+
+/** A styled layer's table for the player's overlay, loading it on a miss (the store update reaches the host's listeners). */
+function layerTable(find: (id: string) => FluximgAsset | undefined) {
+  return (assetId: string, path: string) => {
+    const asset = find(assetId);
+    if (!asset) return undefined;
+    const table = tableOf(get(fluximgTables), asset, path);
+    if (!table) needTable(asset, path);
+    return table ?? undefined;
+  };
 }
 
 /** Layer text for the player's overlay, loading it on a miss (the store update reaches the host's listeners). */
@@ -65,7 +77,7 @@ export function createAppFluximgHost(deck: Deck): AppFluximg | undefined {
   const listeners = new Set<() => void>();
   let primed = false;
   const fire = () => { if (primed) for (const l of [...listeners]) l(); };
-  const unsubscribe = [fluximgManifests.subscribe(fire), fluximgLayerText.subscribe(fire), fluximgLutsReady.subscribe(fire)];
+  const unsubscribe = [fluximgManifests.subscribe(fire), fluximgLayerText.subscribe(fire), fluximgLutsReady.subscribe(fire), fluximgTables.subscribe(fire)];
   primed = true;
   const host: FluximgSlideHost = {
     ...core,
@@ -76,7 +88,8 @@ export function createAppFluximgHost(deck: Deck): AppFluximg | undefined {
     fluximg: host,
     fluximgManifest: (id) => (assets.has(id) ? get(fluximgManifests)[id] : undefined),
     fluximgLayerText: layerText(assets),
-    fluximgLut: resolveLut,
+    fluximgTable: layerTable((id) => assets.get(id)),
+    fluximgLut: (name) => { const t = resolveLut(name); if (!t) void needLuts(); return t; },
     dispose: () => host.dispose(),
   };
 }
@@ -89,7 +102,7 @@ export function createAppFluximgHost(deck: Deck): AppFluximg | undefined {
 export function createAppFluximgStills(signal: AbortSignal): { context: FluximgSlideContext; settle(): Promise<boolean> } {
   const assetOf = (id: string): FluximgAsset | undefined => get(project).assets.find((a): a is FluximgAsset => a.id === id && a.kind === "fluximg");
   const stills = new Map<string, { asset: FluximgAsset; picture: TweenPicture; w: number; h: number }>();
-  const manifests = new Set<string>(), texts = new Map<string, { asset: FluximgAsset; path: string }>();
+  const manifests = new Set<string>(), texts = new Map<string, { asset: FluximgAsset; path: string }>(), tables = new Map<string, { asset: FluximgAsset; path: string }>();
   let luts = false;
   const context: FluximgSlideContext = {
     fluximgManifest(id) {
@@ -110,19 +123,27 @@ export function createAppFluximgStills(signal: AbortSignal): { context: FluximgS
       if (text === undefined) { const asset = assetOf(id); if (asset) texts.set(`${id}|${path}`, { asset, path }); }
       return text;
     },
+    fluximgTable(id, path) {
+      const asset = assetOf(id);
+      if (!asset) return undefined;
+      const table = tableOf(get(fluximgTables), asset, path);
+      if (!table) tables.set(`${id}|${path}`, { asset, path });
+      return table ?? undefined;
+    },
     fluximgLut(name) { const t = resolveLut(name); if (!t && !get(fluximgLutsReady)) luts = true; return t; },
   };
   return {
     context,
     async settle() {
-      const wantStills = [...stills.entries()], wantManifests = [...manifests], wantTexts = [...texts.values()], wantLuts = luts;
-      stills.clear(); manifests.clear(); texts.clear(); luts = false;
-      if (!wantStills.length && !wantManifests.length && !wantTexts.length && !wantLuts) return false;
+      const wantStills = [...stills.entries()], wantManifests = [...manifests], wantTexts = [...texts.values()], wantTables = [...tables.values()], wantLuts = luts;
+      stills.clear(); manifests.clear(); texts.clear(); tables.clear(); luts = false;
+      if (!wantStills.length && !wantManifests.length && !wantTexts.length && !wantTables.length && !wantLuts) return false;
       const svc = fluximgService();
       await Promise.all([
         ...wantStills.map(([key, s]) => svc.still(key, { bundle: fluximgBundle(s.asset), view: pictureView(s.picture.view), crop: s.picture.crop, outWidth: s.w, outHeight: s.h }).catch(() => undefined)),
         ...wantManifests.map((id) => { const asset = assetOf(id); return asset ? needManifest(asset).catch(() => undefined) : undefined; }),
         ...wantTexts.map(({ asset, path }) => { needLayerText(asset, path); return svc.text(fluximgBundle(asset), path).catch(() => undefined); }),
+        ...wantTables.map(({ asset, path }) => { needTable(asset, path); return svc.table(fluximgBundle(asset), path).then(() => new Promise((r) => setTimeout(r, 0))).catch(() => undefined); }),
         ...(wantLuts ? [needLuts().catch(() => undefined)] : []),
       ]);
       return !signal.aborted;
