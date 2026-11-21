@@ -128,7 +128,9 @@ export async function gatherImages(o: GatherImagesOptions): Promise<{ images?: R
   // Every evaluated step state of every image (the model3d precedent: staticModels.slideModelStills): its still, keyed
   // by the request the static composer computes for the same element, and the vectors it draws.
   const options = o.compileOptions(manifests);
-  const stillJobs = new Map<string, Promise<void>>();
+  // Stills land in `drawn` as they finish and enter the payload in the order they were ASKED for (a function of the
+  // deck alone), so two exports of one deck are byte-identical however the renderer interleaves (review C2).
+  const stillJobs = new Map<string, Promise<void>>(), drawn = new Map<string, string>();
   let missingStills = false;
   const still = (el: FluximgElement, who: string): Promise<void> | undefined => {
     const manifest = manifests.get(el.assetId), asset = sources.get(el.assetId);
@@ -140,7 +142,7 @@ export async function gatherImages(o: GatherImagesOptions): Promise<{ images?: R
       if (!io.imageStill) missingStills = true;
       else stillJobs.set(ref, io.imageStill(asset, request).then((href) => {
         if (!href.startsWith("data:image/png;")) throw new Error("the still is not a PNG data URL");
-        assets[ref] = href;
+        drawn.set(ref, href);
       }).catch((error: unknown) => { warnings.push(`image "${who}": its pixels could not be drawn (${reason(error)}); exported without them`); }));
     }
     if (stillJobs.has(ref)) jobs.push(stillJobs.get(ref)!);
@@ -221,6 +223,7 @@ export async function gatherImages(o: GatherImagesOptions): Promise<{ images?: R
     await Promise.all(jobs);
   }
   await Promise.all([...stillJobs.values()]);
+  for (const ref of stillJobs.keys()) { const href = drawn.get(ref); if (href !== undefined) assets[ref] = href; }
   if (missingStills) warnings.push("image pixels are not drawn by this export (no image renderer); each image shows its frame and vectors");
   const lutNames = [...new Set([...wantedLuts.values()].flatMap((s) => [...s]))];
   if (lutNames.length) {
