@@ -13992,3 +13992,28 @@ a lamp, the flip, the composite's colour followed by coloured panels (in `ops.se
   175 µs in the gate and 51 µs bundled until the per-arrangement closures were hoisted (26 µs either way).
 - The board's key handler swallows a bare Shift (stopImmediatePropagation on unmodified keys): a listener that only
   watches modifiers must be registered in the capture phase.
+
+### 2026-11-21 — Images on slides, fix package F1a: the player (Claude Opus 5.5, `s2/fix-player`)
+**Work:** A1: a movie runs on across later steps (`fluximgMedia.begin` folds the elapsed time before moving the
+origin); every navigation does to it what it does to a video clip: Back and a jump land it PAUSED at the pure clock's
+position of the target step (an animated rewind seeks it at once, `player.prev`, image slides only), Next resumes it,
+blank / hidden document hold it. C7: the movie controller wakes only at plane boundaries and only where the binding
+draws planes (live host) or the overlay names the plane (a stamp; `binding.movieNeeds`); a baked clip with no stamp,
+or a movie a stills-only export cannot show (`FluximgSurface.movie` false: the step's still stays, stamp included),
+wakes nothing. Boundaries > 2 frames away use ONE timer that draws at the boundary. The clip host compares the video
+with the clock's own time (not a frame's middle) from a 2 s timer, re-sync past half a plane (measured ~3 ms drift per
+loop seam). B4: the image controller reads the camera's zoom from the camera layer only while the slide RESTS
+(`images.flush(moving)`); under a zoom that magnifies the data the canvas holds exactly the crop's pixels and CSS
+magnifies them (`pixelated` unless smooth); stills asked at `crop.zoomedStillScale`. C8: while a Change moves, the
+canvas keeps the larger end's size (`FluximgMotion.boxes`). C10: ONE direct-context budget per document
+(`slideSurfaces.documentDirect`), eviction across hosts, recovery from `webglcontextlost` on a new canvas. C9: an
+unreadable bundle draws the editor element's stand-in; Slide mode's issue list names a missing asset record. Parts:
+pulse on an object by its own box; a fadeRise lift follows a crop Change of the same step (`fluximgShownCrop`); an
+OPEN outline whose points are collinear flies with fill none (`correspondence.shownFill`: a plot's spines without a
+fill attribute merged into a black "L" triangle).
+**Learnings:**
+- `images?.flush(expr)` does not evaluate `expr` when `images` is undefined: optional calls are free for decks
+  without images.
+- A string such as `[data-slide-fluximg-root=...]` in `player.ts` lands in every deck's runtime and fails
+  `verify-slide-runtime-images`: DOM lookups of image nodes belong in the kit (`player/fluximg.ts`).
+- Counting canvas "reallocations" by width/height setters counts two per resize: coalesce per task.

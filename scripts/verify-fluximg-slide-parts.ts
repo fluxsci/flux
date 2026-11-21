@@ -346,6 +346,8 @@ try {
         `export { transformPreState, transformEndState } from "./src/lib/slide/tween";`,
         `export { fluximgPartNode, partIndexFromTexts, imageToStage, applyMatrix } from "./src/lib/fluximg/parts";`,
         `export { lerpColor, parseColor } from "./src/lib/color/interp";`,
+        `export { pulsePeak } from "./src/lib/slide/growOrigin";`,
+        `export { imageObjectStageOutlines } from "./src/lib/slide/targetGeometry";`,
       ].join("\n") },
     });
     const server = createServer(async (req, res) => {
@@ -398,9 +400,11 @@ try {
       for (const name of ["popIn", "scaleIn", "pulse", "scale", "rotate", "popOut", "scaleOut"]) { const ref = name === "popIn" || name === "scaleIn" ? P(name).end : P(name).rest; h.ok(Math.abs(P(name).mid.x - ref.x) < 0.6 && Math.abs(P(name).mid.y - ref.y) < 0.6, `${name} pivots about the object's own centre (mid centre ${P(name).mid.x.toFixed(1)},${P(name).mid.y.toFixed(1)} = ${ref.x.toFixed(1)},${ref.y.toFixed(1)})`); }
       for (const name of ["fade", "fadeRise", "popIn", "scaleIn", "drawOn", "growBaseline", "writeOn", "highlight", "dim", "pulse", "encircle", "move", "scale", "rotate"]) h.ok(P(name).endOpacity > (name === "dim" ? 0.1 : 0.99), `${name}: the object is shown at its end (${(+P(name).endOpacity).toFixed(2)})`);
       for (const name of ["fadeOut", "popOut", "scaleOut", "drawOff", "wipeOut"]) { const e = P(name); h.ok(e.endOpacity < 0.01 || e.end.w < 0.01 || e.endState.visibility === "hidden" || e.endState.display === "none" || /100%/.test(e.endState.clip) || /^0(px)?,/.test(e.endState.dash) || (parseFloat(e.endState.dash) > 0 && Math.abs(parseFloat(e.endState.offset)) >= parseFloat(e.endState.dash) - 0.01), `${name}: the object has left at its end (${JSON.stringify(e.endState)}, opacity ${(+e.endOpacity).toFixed(2)}, width ${e.end.w.toFixed(2)})`); }
+      h.ok(Math.abs(r.pulse.got - r.pulse.own) < 0.02 * r.pulse.own && Math.abs(r.pulse.own - r.pulse.whole) > 0.05, `pulse on an image object peaks at the scale its OWN box asks (${r.pulse.got.toFixed(3)} = ${r.pulse.own.toFixed(3)}; the whole image's would be ${r.pulse.whole.toFixed(3)})`);
       h.ok(Math.abs(P("move").end.x - P("move").rest.x - 20) < 0.6, `move by 20 stage px moves the object 20 stage px (${(P("move").end.x - P("move").rest.x).toFixed(2)})`);
       h.ok(/\d/.test(String(P("drawOn").midState.dash)) && P("drawOn").midState.dash !== "none", `drawOn draws along the outline (mid dash ${P("drawOn").midState.dash})`);
       h.ok(Math.abs(r.rise.lift - 12) < 0.6, `fadeRise lifts an image object by its authored stage px (${r.rise.lift.toFixed(2)} of 12)`);
+      h.ok(r.riseCrop.every((x: any) => Math.abs(x.lift - x.want) < 0.6), `fadeRise in a step that zooms the crop 2x: the lift follows the crop, the authored stage px at every moment (${r.riseCrop.map((x: any) => `${x.lift.toFixed(2)}/${x.want.toFixed(2)}`).join(", ")})`);
     } finally { await browser.close(); server.close(); }
   }
 } finally {
@@ -432,12 +436,17 @@ async function w8Page(D: { manifest: any; byPath: Record<string, string>; tableB
   const s2 = fp.find((o: any) => o.key === "s2");
   const CROP = { x: Math.max(0, s2.cx - W / 4), y: Math.max(0, s2.cy - H / 4), width: W / 2, height: H / 2 };
   const lin = { easing: "linear" };
+  const db = index.layers.find((l: any) => l.id === "discs").objects.find((o: any) => o.key === "b");
+  // (the step before rests on CROP, half the picture: this one zooms 2x further, onto disc b)
+  const CROP2 = { x: Math.max(0, Math.min(W * 3 / 4, db.cx - W / 8)), y: Math.max(0, Math.min(H * 3 / 4, db.cy - H / 8)), width: W / 4, height: H / 4 };
   const deck = { schemaVersion: "0.8.0", id: "d", title: "w8", created: "", modified: "", stage: { width: 640, height: 360 }, theme: "flux-dark", defaults: { transition: "none" }, assets: [],
     slides: [
       { id: "s0", elements: [el(V)], beats: [{ id: "b0", tracks: [] },
         { id: "b1", tracks: [{ id: "ap", target: "img", part: "layer:footprints", preset: "fade", start: 0, duration: 300, ...lin, stagger: { perMs: 100 } }] },
         { id: "b2", tracks: [{ id: "cz", target: "img", preset: "transform", start: 0, duration: 1000, ...lin, to: { state: { crop: CROP } } }, { id: "dm", target: "img", part: "footprints/s2", preset: "dim", start: 0, duration: 1000, ...lin, params: { level: 0.3 } }] },
-        { id: "b3", tracks: [{ id: "rz", target: "img", part: "discs/a", preset: "fadeRise", start: 0, duration: 400, ...lin, params: { y: 12 } }] }] },
+        { id: "b3", tracks: [{ id: "rz", target: "img", part: "discs/a", preset: "fadeRise", start: 0, duration: 400, ...lin, params: { y: 12 } }] },
+        // a fadeRise in a step that also zooms the crop 2x: the lift is the authored stage px at every moment
+        { id: "b4", tracks: [{ id: "rz2", target: "img", part: "discs/b", preset: "fadeRise", start: 0, duration: 400, ...lin, params: { y: 12 } }, { id: "cz2", target: "img", preset: "transform", start: 0, duration: 400, ...lin, to: { state: { crop: CROP2 } } }] }] },
       { id: "s1", elements: [el(V)], beats: [{ id: "c0", tracks: [] }, { id: "c1", tracks: [{ id: "ac", target: "img", part: "layer:footprints", preset: "fade", start: 0, duration: 300, ...lin, stagger: { perMs: 100, by: { column: "pixels" } } }] }] },
       { id: "s2", elements: [el(V)], beats: [{ id: "e0", tracks: [] }, { id: "e1", tracks: [{ id: "st", target: "img", preset: "transform", start: 0, duration: 1000, ...lin, to: { state: { view: VS } } }] }] },
       { id: "s3", elements: [el(VS)], beats: [{ id: "f0", tracks: [] }] },
@@ -476,6 +485,17 @@ async function w8Page(D: { manifest: any; byPath: Record<string, string>; tableB
   // 3. fadeRise: the lift in stage px
   await at(0, 3, 0); const r0 = centre(node("discs/a")); await at(0, 3, 400); const r1 = centre(node("discs/a"));
   out.rise = { lift: r0.y - r1.y, debug: [node("discs/a").parentElement!.outerHTML.slice(0, 300), node("discs/a").parentElement!.parentElement!.getAttribute("transform")] };
+  {
+    // 3b. under a crop tween: how far below its resting place at this frame's crop the object still is
+    const preB = FX.transformPreState(deck.slides[0], "img", 4), endB = FX.transformEndState(preB, deck.slides[0].beats[4].tracks[1]);
+    const planB = FX.planViewTween(manifest, { view: preB.view, crop: preB.crop }, { view: endB.view, crop: endB.crop }, { blend: false });
+    out.riseCrop = [];
+    for (const raw of [0.25, 0.5, 0.75]) {
+      await at(0, 4, raw * 400);
+      const crop = planB.frame(raw, raw).overlay.crop, m = FX.imageToStage(manifest, { ...el(V), crop }), rest = FX.applyMatrix(m, db.cx, db.cy);
+      out.riseCrop.push({ raw, lift: centre(node("discs/b")).y - rest.y, want: 12 * (1 - raw) });   // (it starts y below and rises)
+    }
+  }
   out.identity = [];
   // 4. column stagger (another slide)
   const c1 = FX.compileSlide(deck.slides[1], deck.stage, compileOpts);
@@ -515,6 +535,13 @@ async function w8Page(D: { manifest: any; byPath: Record<string, string>; tableB
       await at3(i, 1, 400); const endN = shapeOf(), end = c3(endN);
       const endState = { visibility: getComputedStyle(endN).visibility, clip: getComputedStyle(endN.parentElement!).clipPath, dash: getComputedStyle(endN).strokeDasharray, offset: getComputedStyle(endN).strokeDashoffset, display: getComputedStyle(endN).display };
       out.presets.push({ preset, rest, mid, end, midState, endState, endOpacity: opacityOf(endN), sameNode: endN === n, errors: 0 });
+    }
+    // the pulse's peak: sized by the object's OWN stage box (its outline through the crop matrix), not the whole image's (review)
+    {
+      const i = PRESETS.indexOf("pulse"), e = sweep.slides[i].elements[0] as any;
+      const box = FX.imageObjectStageOutlines(e, index, ["discs/b"])[0]?.bbox;
+      const p = out.presets[i];
+      out.pulse = { got: p.mid.w / p.rest.w, own: FX.pulsePeak(undefined, box, sweep.stage), whole: FX.pulsePeak(undefined, { x: e.x, y: e.y, w: e.width, h: e.height }, sweep.stage) };
     }
     P3.destroy(); host3.dispose();
   }

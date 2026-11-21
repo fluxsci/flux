@@ -40,6 +40,7 @@ export const flushSlideFluximgs: K["flushSlideFluximgs"] = (...a) => need().flus
 export const fillFluximg: K["fillFluximg"] = (...a) => need().fillFluximg(...a);
 export const fluximgTween: K["fluximgTween"] = (...a) => need().fluximgTween(...a);
 export const setSlideFluximgFrame: K["setSlideFluximgFrame"] = (...a) => need().setSlideFluximgFrame(...a);
+export const fluximgShownCrop: K["fluximgShownCrop"] = (...a) => need().fluximgShownCrop(...a);
 export const createFluximgMovieController: K["createFluximgMovieController"] = (...a) => need().createFluximgMovieController(...a);
 export const joinMedia: K["joinMedia"] = (...a) => need().joinMedia(...a);
 export const slideMovieTargets: K["slideMovieTargets"] = (...a) => need().slideMovieTargets(...a);

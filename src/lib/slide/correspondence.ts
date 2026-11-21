@@ -793,12 +793,36 @@ function planPair(pair: CorrespondencePair): void {
 // batches. No key construction, geometry planning or cache lookup in sampling.
 const batches = new Map<string, CorrespondencePlan>();
 const BATCH_CACHE_MAX = 4;
+/**
+ * The fill an outline's render actually shows. An OPEN outline whose points (nodes and handles) lie on one line encloses
+ * nothing, so its fill paints nothing (an SVG path with no fill attribute is black by default: a plot's spine, a tick).
+ * Merged with another chain, or morphed into a ring, that fill would suddenly enclose area the render never showed: the
+ * two spines of a whole plot merged into one "L" flew as a black triangle (review, stage 2 parts 7c). So such a fill is
+ * "none" for the flight, at every moment of every policy. Text and raster boxes keep theirs (their fill is the ink).
+ */
+function shownFill(o: StageOutline): void {
+  if (o.closed || o.paint.text || o.paint.raster || isNoneColor(o.paint.fill) || o.nodes.length < 2) return;
+  const pts: Array<{ x: number; y: number }> = [];
+  for (const n of o.nodes) { pts.push(n); if (n.hIn) pts.push({ x: n.x + n.hIn.dx, y: n.y + n.hIn.dy }); if (n.hOut) pts.push({ x: n.x + n.hOut.dx, y: n.y + n.hOut.dy }); }
+  const p0 = pts[0];
+  let far = p0, len = 0;
+  for (const p of pts) { const d = Math.hypot(p.x - p0.x, p.y - p0.y); if (d > len) { len = d; far = p; } }
+  if (len > 1e-9) {
+    const ux = (far.x - p0.x) / len, uy = (far.y - p0.y) / len;
+    for (const p of pts) if (Math.abs((p.x - p0.x) * uy - (p.y - p0.y) * ux) > 1e-6 * Math.max(1, len)) return;
+  }
+  o.paint = { ...o.paint, fill: "none" };
+  delete o.paint.fillOpacity; delete o.paint.fillMap;
+}
+
 export function planCorrespondence(A: StageOutline[], B: StageOutline[], opts: { pair?: PairPolicy; data?: DataHint; method?: TransformMethod } = {}): CorrespondencePlan {
   const key = JSON.stringify([A, B, opts.pair ?? "auto", opts.data, opts.method ?? DEFAULT_TRANSFORM_METHOD]);
   const hit = batches.get(key);
   if (hit) return hit;
   // A later edit to a producer's arrays must not alter a cached earlier frame.
   A = structuredClone(A); B = structuredClone(B);
+  for (const o of A) shownFill(o);
+  for (const o of B) shownFill(o);
   const as = mergeChains(A), bs = mergeChains(B);
   let policy = opts.pair && opts.pair !== "auto" ? opts.pair : choosePolicy(as, bs, opts.data);
   let pairs: CorrespondencePair[];

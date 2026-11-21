@@ -1,6 +1,7 @@
 /**
- * The slide player's image host over a plane source: ONE WebGL renderer for the whole player document, shared by
- * every image surface (D3). A surface asks for a frame; the renderer draws each picture of it into its offscreen
+ * The slide player's image host over a plane source. Each LIVE surface draws on its own WebGL context, within ONE
+ * budget per document shared by every host (call 39, review C10); beyond it a surface draws through the host's ONE
+ * shared offscreen renderer. A surface asks for a frame; the shared renderer draws each picture of it into its offscreen
  * buffer (a mix: the second picture over the first at the mix weight, then the blend neighbour(s) at theirs, all in GL:
  * per component `(1 - w)·x + w·y`, the reference meaning of a mix) and the buffer is handed to the surface's canvas as
  * a bitmap, without a copy (`transferToImageBitmap` into a `bitmaprenderer` context). Frames never block (D4): a frame whose planes are not in hand yet leaves the newest complete earlier frame
@@ -65,8 +66,13 @@ export function neighbourPicture(p: TweenPicture, blend: { dim: string; other: n
 
 const PLANE_BUDGET = 192 * 1024 * 1024;
 const TEXTURE_BUDGET = 128 * 1024 * 1024;
-/** Live surfaces with their own WebGL context at once, per document (the browser caps active contexts at ~16). */
+/** Live surfaces with their own WebGL context at once, per DOCUMENT (the browser caps a document's active contexts at
+ *  ~16): one budget shared by every host in it (the editor preview, Present, a second player: review C10). Each host
+ *  adds at most its one shared offscreen renderer. */
 export const MAX_DIRECT = 6;
+/** The direct surfaces of this document, of every host: the one budget. */
+interface DirectSlot { lastDraw: number; demote(): void }
+const documentDirect = new Set<DirectSlot>();
 /** A direct surface drawn this recently is playing: its slot is not taken from it. */
 const BUSY_MS = 250;
 
@@ -165,12 +171,13 @@ export function createFluximgSlideHost(source: SlideHostSource): FluximgSlideHos
     rebudget();
     return renderer;
   }
-  /** A slot for a direct context: a free one, else the one of the least recently drawn surface when that one is at
-   *  rest (it moves to the shared renderer, its picture redrawn there); none while all six are drawing. */
+  /** A slot for a direct context in the DOCUMENT's budget: a free one, else the one of the least recently drawn surface
+   *  of any host when that one is at rest (it moves to its own host's shared renderer, its picture redrawn there);
+   *  none while all six are drawing. */
   function slotFor(wanting: SurfaceImpl): boolean {
-    if (direct.size < MAX_DIRECT) return true;
-    let lru: SurfaceImpl | null = null;
-    for (const s of direct) if (s !== wanting && (!lru || s.lastDraw < lru.lastDraw)) lru = s;
+    if (documentDirect.size < MAX_DIRECT) return true;
+    let lru: DirectSlot | null = null;
+    for (const s of documentDirect) if (s !== wanting && (!lru || s.lastDraw < lru.lastDraw)) lru = s;
     if (!lru || performance.now() - lru.lastDraw < BUSY_MS) return false;
     lru.demote();
     return true;
@@ -217,8 +224,23 @@ export function createFluximgSlideHost(source: SlideHostSource): FluximgSlideHos
       } catch { this.own = null; this.shared = true; return; }
       this.used = true;
       contextMs.push({ ms: performance.now() - t0, where });
-      direct.add(this);
+      direct.add(this); documentDirect.add(this);
       rebudget();
+      // A context the browser takes away (GPU reset, too many contexts, `loseContext`): its slot is given back and the
+      // picture is drawn again on a new canvas and context (review C10), never left blank, never thrown.
+      const canvas = this.canvas;
+      canvas.addEventListener("webglcontextlost", () => { setTimeout(() => this.recover(canvas), 0); }, { once: true });
+    }
+    private recover(canvas: HTMLCanvasElement): void {
+      if (disposed || this.canvas !== canvas || !this.own?.lost) return;
+      this.dropOwn();
+      this.fresh();
+      if (!this.recent.length) { this.shown = false; return; }
+      // Redraw the newest frame (its planes are normally still in hand: drawn in this task); until it lands the
+      // binding shows its still (`shown` false and a change notified).
+      this.shown = false; this.drawn = 0;
+      this.attempt();
+      notify();
     }
     /** Give the direct slot up and keep the picture: redrawn through the shared renderer. */
     demote(): void {
@@ -231,7 +253,7 @@ export function createFluximgSlideHost(source: SlideHostSource): FluximgSlideHos
     private dropOwn(): void {
       this.own?.dispose();   // loseContext(): the GPU memory goes now, not at garbage collection
       this.own = null;
-      direct.delete(this);
+      direct.delete(this); documentDirect.delete(this);
       rebudget();
     }
 

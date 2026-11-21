@@ -17,9 +17,9 @@ import type { PixelRect, ResolvedFurniture, ResolvedLayer } from "../../fluximg/
 import { planViewTween, withIndex, type TweenPicture, type ViewTweenFrame, type ViewTweenPlan } from "../../fluximg/viewTween";
 import { pixelKey, resolveView } from "../../fluximg/viewOps";
 // crop.ts, never still.ts: the exported deck's runtime loads this module, and still.ts pulls the reader and renderer.
-import { clampCrop, tieredStillSize } from "../../fluximg/crop";
+import { clampCrop, tieredStillSize, zoomedStillScale } from "../../fluximg/crop";
 import { cropTransform, FURNITURE_FONT, FURNITURE_WEIGHT, imageStrokeWidth, layerMarkup, namePlacements, namesFontPx, objectIndex, preciseNum, sanitizeLayerSvg, svgNum, type LayerObject } from "../../fluximg/layers";
-import { furnitureSvg } from "../../fluximg/furniture";
+import { furnitureSvg, stampLines } from "../../fluximg/furniture";
 import { fluximgIdPrefix, insetRect, layerStyles, layerSvgPath, layerTablePath, PLACEHOLDER_FILL, stylesToDraw, unflipTransform, wantsTable } from "../../fluximg/static";
 import { columnKind, DEFAULT_STYLE_LUT, missingStyle, objectStyleTween, shownObjects, styleTweenAt, type ObjectLegend, type ObjectPaint, type ObjectStyle, type ObjectStyles, type ObjectStyleTween } from "../../fluximg/objectStyle";
 import { fluximgPartNode } from "../../fluximg/parts";
@@ -34,6 +34,9 @@ const SVG = "http://www.w3.org/2000/svg";
 /** Still pixels per stage pixel: the editor's own resting density (FluximgElement BASE_SCALE), so a slide at rest
  *  finds the still the canvas already drew. */
 const STILL_SCALE = 2;
+/** Backing pixels a live canvas may hold where a camera zoom asks for more than the unzoomed size (review B4): a 4K
+ *  screen's worth. The unzoomed size keeps its old bound (4096 px a side). */
+const LIVE_MAX_PIXELS = 8_388_608;
 /** How often (ms) a playing Change asks the host to decode ahead along its path. */
 const AHEAD_EVERY_MS = 120;
 const AHEAD_PICTURES = 12;
@@ -107,6 +110,8 @@ export function fluximgTween(pre: FluximgElement, end: FluximgElement, ctx: Slid
   // What a host playing baked clips needs to find this Change's clip (exported deck); the live host ignores it.
   const id = { blend, ...(ctx.fluximgTrack ? { track: ctx.fluximgTrack } : {}), ...(ctx.durationMs !== undefined ? { durationMs: ctx.durationMs } : {}), ...(ctx.fluximgCurve ? { curve: ctx.fluximgCurve } : {}) };
   let plan: ViewTweenPlan | undefined;
+  // The boxes at the Change's two ends: a binding sizes its canvas once for the larger one while it moves (review C8).
+  const boxes = { pre: { width: pre.width, height: pre.height }, end: { width: end.width, height: end.height } };
   const make = (manifest: FluximgManifest) => { plan = fluximgPlan(manifest, pre, end, blend); };
   const known = manifestOf(ctx, pre.assetId);
   if (known) make(known);
@@ -117,7 +122,7 @@ export function fluximgTween(pre: FluximgElement, end: FluximgElement, ctx: Slid
   } : undefined;
   return {
     frame: (u, raw) => (plan ? plan.frame(u, raw) : null),
-    motion: (raw) => (plan ? { plan, raw, ease, ...id } : undefined),
+    motion: (raw) => (plan ? { plan, raw, ease, boxes, ...id } : undefined),
     ...(ready ? { ready } : {}),
   };
 }
@@ -522,7 +527,9 @@ class Overlay {
 // The binding
 // ---------------------------------------------------------------------------------------------
 
-export interface FluximgMotion extends FluximgSurfaceMotion { plan: ViewTweenPlan; raw: number; ease: (raw: number) => number }
+export interface FluximgMotion extends FluximgSurfaceMotion { plan: ViewTweenPlan; raw: number; ease: (raw: number) => number;
+  /** The element's box at the Change's start and end (stage units). */
+  boxes?: { pre: { width: number; height: number }; end: { width: number; height: number } } }
 
 export interface SlideFluximgBinding {
   readonly root: HTMLElement;
@@ -541,7 +548,13 @@ export interface SlideFluximgBinding {
   /** The Change driving this binding at its last frame (decode-ahead). */
   readonly motion: FluximgMotion | undefined;
   /** The live surface's output size in device pixels for the current state. */
-  outSize(): { width: number; height: number };
+  outSize(): { width: number; height: number; native?: boolean };
+  /**
+   * The camera's RESTING zoom on this image (> 1 magnifies it; 1 when it rests out of the camera's view or without a
+   * camera zoom). The player's image controller sets it only when the slide rests (review B4: the canvas and the still
+   * are re-rendered for it once, when a camera move ends; during the move the camera's CSS scales them).
+   */
+  setCameraZoom(zoom: number): void;
   /** Let the surface go live: make its GL context now (idle time, or play's readiness; never inside a frame). */
   prepare(): void;
   /**
@@ -550,6 +563,14 @@ export interface SlideFluximgBinding {
    * Takes effect at the next `flush()`, which may be called outside the player's paint() for this binding alone.
    */
   setIndexOverride(override: { dim: string; index: number; clock?: FluximgMovieClock } | null): void;
+  /**
+   * What a running movie along `dim` needs from its clock while it runs (asked by the movie controller to plan its
+   * wake-ups, review C7): "frames" = this binding draws every plane (the live host); "overlay" = the surface plays the
+   * movie by itself (a baked clip) but the overlay names the plane (a stamp on `dim`), so it is redrawn at each plane;
+   * "none" = nothing to draw until the clock's state changes (a clip that plays natively with no stamp on `dim`, or a
+   * movie the surface cannot show at all: the image stays the step's still).
+   */
+  movieNeeds(dim: string): "frames" | "overlay" | "none";
   /** Decode ahead along `dim`: the next `count` positions in `direction` (+1 / -1) at `stride`, from the shown frame. */
   decodeAhead(dim: string, direction: 1 | -1, stride?: number, count?: number): void;
   /** The picture this binding shows now (its crop and `insetOf`), or null before its manifest is known. */
@@ -582,9 +603,19 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
   const wholeImage = !!ctx.fluximgPartImages?.has(element.id);
   const liveCanvas = (): HTMLCanvasElement => surface?.canvas ?? canvas;
   /** The frame shown: the Change's (or the resting state), with a running clip's position over it. */
+  /** Whether the surface can show the running movie: a baked-clip surface without the movie's clip cannot (an export
+   *  without the encoder), and then the image is the step's own picture, its overlay included (review C7). */
+  let movieOk: { o: object; a: TweenPicture; ok: boolean } | null = null;
+  const movieShowable = (f: ViewTweenFrame): boolean => {
+    const s = surface;
+    if (!override?.clock || !s?.clocked || !s.movie) return true;
+    if (movieOk && movieOk.o === override && movieOk.a === f.a) return movieOk.ok;
+    movieOk = { o: override, a: f.a, ok: s.movie(el.assetId, f.a, override.clock) };
+    return movieOk.ok;
+  };
   const shown = (manifest: FluximgManifest): ViewTweenFrame => {
     const f = frame ?? resting(manifest);
-    if (!override) return f;
+    if (!override || !movieShowable(f)) return f;
     if (overridden && overridden.from === f && overridden.dim === override.dim && overridden.index === override.index) return overridden.out;
     overridden = { from: f, dim: override.dim, index: override.index, out: withIndexLocal(f, override.dim, override.index) };
     return overridden.out;
@@ -609,11 +640,53 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
     rest = { el, manifest, frame: { a: pic, b: null, mix: 0, blend: null, overlay: pic, furnitureOpacity: {} } };
     return rest.frame;
   };
-  function outSize(): { width: number; height: number } {
+  let cameraZoom = 1;
+  /** Device pixels per stage unit on the unzoomed stage. */
+  const baseScale = (): number => {
     const scale = Math.max(.01, typeof ctx.pixelScale === "function" ? ctx.pixelScale() : ctx.pixelScale ?? 1);
-    const dpr = Math.max(1, (typeof window !== "undefined" && window.devicePixelRatio) || 1);
-    const factor = Math.min(scale * dpr, 4096 / Math.max(1, el.width, el.height));
-    return { width: Math.max(1, Math.round(el.width * factor)), height: Math.max(1, Math.round(el.height * factor)) };
+    return scale * Math.max(1, (typeof window !== "undefined" && window.devicePixelRatio) || 1);
+  };
+  /**
+   * Backing pixels of a box showing `crop` (review B4). Without a camera zoom: the box at the display's scale, exactly
+   * as before. Under the camera's resting zoom: the box at scale x zoom, but never more than the crop's own pixels:
+   * where the zoom magnifies the data the canvas holds exactly the crop's pixels and the display magnifies them as the
+   * image says (`magnification`: true pixels unless smooth), which is what the editor's element does (its still is
+   * the crop's true pixels, `image-rendering: pixelated`). Bounded by 4096 px a side and, where the zoom asks for more
+   * than the unzoomed size, LIVE_MAX_PIXELS. `native`: the backing is exactly the crop's pixels.
+   */
+  const sizeFor = (box: { width: number; height: number }, crop: PixelRect, base: number): { width: number; height: number; native: boolean } => {
+    const w = Math.max(1, box.width), h = Math.max(1, box.height);
+    const plain = Math.min(base, 4096 / Math.max(w, h));
+    if (cameraZoom > 1) {
+      const native = Math.max(crop.width / w, crop.height / h);
+      if (base * cameraZoom >= native) {
+        const cw = Math.max(1, Math.round(crop.width)), ch = Math.max(1, Math.round(crop.height));
+        const k = Math.min(1, 4096 / Math.max(cw, ch), Math.sqrt(LIVE_MAX_PIXELS / (cw * ch)));
+        if (k === 1) return { width: cw, height: ch, native: true };
+        return { width: Math.max(1, Math.round(cw * k)), height: Math.max(1, Math.round(ch * k)), native: false };
+      }
+      const factor = Math.max(plain, Math.min(base * cameraZoom, 4096 / Math.max(w, h), Math.sqrt(LIVE_MAX_PIXELS / (w * h))));
+      return { width: Math.max(1, Math.round(box.width * factor)), height: Math.max(1, Math.round(box.height * factor)), native: false };
+    }
+    return { width: Math.max(1, Math.round(box.width * plain)), height: Math.max(1, Math.round(box.height * plain)), native: false };
+  };
+  function outSize(): { width: number; height: number; native: boolean } {
+    const base = baseScale(), m = motion;
+    // While a Change moves (0 < raw < 1) the canvas keeps ONE size, the larger of its two ends' (review C8: a Change
+    // that scales the image reallocated the GL drawing buffer every frame); the CSS box scales it in between, and both
+    // ends are drawn at their exact size.
+    if (m?.boxes && m.raw > 0 && m.raw < 1) {
+      const a = sizeFor(m.boxes.pre, m.plan.start.crop, base), b = sizeFor(m.boxes.end, m.plan.end.crop, base);
+      return { width: Math.max(a.width, b.width), height: Math.max(a.height, b.height), native: false };
+    }
+    const manifest = manifestOf(ctx, el.assetId);
+    return sizeFor(el, manifest ? shown(manifest).a.crop : { x: 0, y: 0, width: 1, height: 1 }, base);
+  }
+  /** A canvas that holds exactly the crop's pixels and that the display magnifies (a camera zoom past them) is
+   *  magnified as the image says: true pixels unless it is smooth, as the editor's element does. */
+  function magnification(size: { width: number; native: boolean }, smooth: boolean): void {
+    const c = liveCanvas(), want = size.native && !smooth && el.width * baseScale() * cameraZoom > size.width * 1.01 ? "pixelated" : "";
+    if (c.style.imageRendering !== want) c.style.imageRendering = want;
   }
   // A plan's pictures are shared and read-only (viewTween): one picture object = one key per output size.
   const keys = new WeakMap<TweenPicture, { w: number; h: number; key: string }>();
@@ -631,7 +704,9 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
   }
   /** The still of a picture under the canvas (and instead of it with no host): kept until a newer one lands. */
   function showStill(manifest: FluximgManifest, pic: TweenPicture): void {
-    const size = tieredStillSize(pic.crop, { width: el.width, height: el.height }, STILL_SCALE);
+    const box = { width: el.width, height: el.height };
+    // At the camera's resting zoom, by the exports' own rule (an exported deck finds the still it wrote for that step).
+    const size = tieredStillSize(pic.crop, box, cameraZoom > 1 ? zoomedStillScale(pic.crop, box, STILL_SCALE, cameraZoom) : STILL_SCALE);
     const key = `${el.assetId}|${pixelKey(manifest, pic.view, pic.crop, size.width, size.height)}`;
     if (key === stillKey) return;
     const href = ctx.fluximg ? ctx.fluximg.still(el.assetId, pic, size.width, size.height) : ctx.fluximgStill?.(el.assetId, pic, size.width, size.height);
@@ -649,8 +724,22 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
     stillLayer.append(image);
   }
   function placeholder(): void {
+    if (failed) { unavailable(failed.message); return; }
     stillLayer.setAttribute("viewBox", `0 0 ${svgNum(el.width)} ${svgNum(el.height)}`);
     stillLayer.innerHTML = `<rect data-fluximg-placeholder="" x="0" y="0" width="${svgNum(el.width)}" height="${svgNum(el.height)}" fill="${PLACEHOLDER_FILL}"/>`;
+  }
+  /** An image whose bundle cannot be read (review C9): the editor element's own stand-in (FluximgElement.svelte), the
+   *  image's name under a warning sign and the reason, where a missing video says "Video unavailable". */
+  function unavailable(reason: string): void {
+    const w = Math.max(1e-6, el.width), h = Math.max(1e-6, el.height), fit = Math.max(6, Math.min(13, Math.min(w / 14, h / 5)));
+    const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const label = el.name || "Image", short = reason.length > 64 ? `${reason.slice(0, 61)}…` : reason;
+    stillLayer.setAttribute("viewBox", `0 0 ${svgNum(w)} ${svgNum(h)}`);
+    stillLayer.innerHTML = `<g data-fluximg-placeholder="" data-fluximg-unavailable="" role="img" aria-label="${esc(`${label}: ${reason}`)}"><title>${esc(reason)}</title>`
+      + `<rect x="0" y="0" width="${svgNum(w)}" height="${svgNum(h)}" fill="${PLACEHOLDER_FILL}"/>`
+      + `<text x="${svgNum(w / 2)}" y="${svgNum(h / 2 - fit * 0.4)}" text-anchor="middle" font-family="Inter, sans-serif" font-size="${svgNum(fit)}" fill="#d0a215">⚠ ${esc(label)}</text>`
+      + `<text x="${svgNum(w / 2)}" y="${svgNum(h / 2 + fit)}" text-anchor="middle" font-family="Inter, sans-serif" font-size="${svgNum(fit * 0.8)}" fill="#878580">${esc(short)}</text></g>`;
+    stillKey = "";
   }
   const publish = () => {
     const live = !!surface?.shown, c = liveCanvas();
@@ -674,6 +763,20 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
       allowLive = true;
     },
     setIndexOverride(next) { override = next; },
+    setCameraZoom(zoom) { cameraZoom = zoom > 1 ? zoom : 1; },
+    movieNeeds(dim) {
+      if (!surface?.clocked) return "frames";
+      const manifest = manifestOf(ctx, el.assetId);
+      if (!manifest) return "none";
+      const f = frame ?? resting(manifest);
+      if (!movieShowable(f)) return "none";
+      // The overlay names the plane only through a stamp line of `dim` (layers, names and the rest do not move with it).
+      const rv = f.overlay.view;
+      if (!rv.furniture.stamp) return "none";
+      const n = manifest.pixels.shape[manifest.pixels.dims.indexOf(dim)] ?? 0, here = rv.index[dim] ?? 0;
+      const other = { ...rv, index: { ...rv.index, [dim]: here + 1 < n ? here + 1 : Math.max(0, here - 1) } };
+      return stampLines(manifest, rv).join("\n") === stampLines(manifest, other).join("\n") ? "none" : "overlay";
+    },
     decodeAhead(dim, direction, stride = 1, count = 8) {
       const manifest = manifestOf(ctx, el.assetId), host = ctx.fluximg;
       if (!manifest || !host) return;
@@ -699,7 +802,7 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
         if (!stillLayer.firstChild) placeholder();
         if (ctx.fluximg && !needing) {
           needing = true;
-          ctx.fluximg.need(el.assetId).then(() => { needing = false; handle.flush(); }, (error: unknown) => { failed = error instanceof Error ? error : new Error(String(error)); root.dataset.fluximgError = failed.message; });
+          ctx.fluximg.need(el.assetId).then(() => { needing = false; handle.flush(); }, (error: unknown) => { failed = error instanceof Error ? error : new Error(String(error)); root.dataset.fluximgError = failed.message; if (!disposed) unavailable(failed.message); });
         }
         return;
       }
@@ -722,7 +825,8 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
       }
       // Not live until the surface's context was made outside a frame (prepare): the still stands in until then.
       if (!allowLive) { showStill(manifest, f.a); publish(); return; }
-      const { width, height } = outSize();
+      const size = outSize(), { width, height } = size;
+      magnification(size, f.a.view.smooth);
       const key = frameKey(manifest, f, width, height);
       // A frame that waited for its planes is drawn by the surface the moment they land: nothing to ask again.
       if (key === drawnKey && pending && surface?.exact) { pending = false; setPending(handle, false); }
@@ -788,6 +892,13 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
 export function fluximgBindingOf(root: HTMLElement): SlideFluximgBinding | undefined {
   return bindings.get(root) ?? (root.querySelector<HTMLElement>("[data-slide-fluximg-root]") ? bindings.get(root.querySelector<HTMLElement>("[data-slide-fluximg-root]")!) : undefined);
 }
+/** The crop an image shows at this frame (its Change's frame or its resting state), or null before its manifest is
+ *  known, found under `scope` by its element id: the player converts an object effect's stage-px lift by it while a
+ *  Change moves the crop (review, parts 7b). */
+export function fluximgShownCrop(scope: ParentNode, elementId: string): PixelRect | null {
+  const root = scope.querySelector<HTMLElement>(`[data-slide-fluximg-root="${CSS.escape(elementId)}"]`);
+  return (root && bindings.get(root)?.current()?.crop) ?? null;
+}
 export function setSlideFluximgFrame(root: HTMLElement, element: FluximgElement, frame: ViewTweenFrame | null, motion?: FluximgMotion): void {
   fluximgBindingOf(root)?.set(element, frame, motion);
 }
@@ -820,7 +931,7 @@ interface ImageChange { beat: number; assetId: string; target: string; plan?: Vi
 /** Created by the player for a slide that holds images, and only when a live host is present. Warms what the slide
  *  will show in idle time, gates play until the first frames of each Change can draw, flushes every binding once per
  *  frame, decodes ahead along a playing Change's path, and frees everything with the slide. */
-export function createFluximgController(root: HTMLElement, compiled: CompiledSlide, ctx: SlideRenderCtx, onIssue: (target: string, reason: string) => void = () => {}) {
+export function createFluximgController(root: HTMLElement, compiled: CompiledSlide, ctx: SlideRenderCtx, onIssue: (target: string, reason: string) => void = () => {}, stage?: { width: number; height: number }) {
   const host = ctx.fluximg!;
   const slide = compiled.resolvedSlide;
   let disposed = false;
@@ -898,9 +1009,33 @@ export function createFluximgController(root: HTMLElement, compiled: CompiledSli
   let aheadAt = -Infinity;
   const lastRaw = new WeakMap<SlideFluximgBinding, number>();
   const insets = hasInsets(slide.elements, changes.map((c) => c.end));
-  function flush(): void {
+  /**
+   * The camera's resting zoom on each image (review B4), read from the camera layer's transform (`translate() scale()`,
+   * origin 0 0: the player's camera pose) only while the slide RESTS: a camera move keeps the sizes it started with and
+   * its CSS scales them; where it lands, each image is drawn once at the new zoom. The zoom counts only for an image
+   * the camera's view meets (as the exports' `cameraZoomOn`).
+   */
+  let cameraKey: string | null = null, cameraList: SlideFluximgBinding[] | null = null;
+  function restZoom(bs: SlideFluximgBinding[]): void {
+    const t = root.style.transform;
+    if (t === cameraKey && bs === cameraList) return;
+    cameraKey = t; cameraList = bs;
+    const m = /translate\(\s*(-?[\d.e+-]+)px,\s*(-?[\d.e+-]+)px\)\s*scale\(\s*([\d.e+-]+)\s*\)/.exec(t);
+    const tx = m ? Number(m[1]) : 0, ty = m ? Number(m[2]) : 0, z = m ? Number(m[3]) : 1;
+    for (const b of bs) {
+      const e = b.element;
+      let zoom = 1;
+      if (z > 1 && Number.isFinite(z)) {
+        const x0 = -tx / z, y0 = -ty / z, x1 = stage ? (stage.width - tx) / z : Infinity, y1 = stage ? (stage.height - ty) / z : Infinity;
+        if (e.x < x1 && e.x + e.width > x0 && e.y < y1 && e.y + e.height > y0) zoom = z;
+      }
+      b.setCameraZoom(zoom);
+    }
+  }
+  function flush(moving = false): void {
     if (disposed) return;
     const bs = list();
+    if (!moving) restZoom(bs);
     if (insets) linkInsets(bs);
     for (const b of bs) b.flush();
     // Decode ahead along a playing Change's own path, at a low rate (never per frame).

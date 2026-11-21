@@ -766,7 +766,7 @@
   // Change content/hand-off reads as "topology unavailable" (a warning the author can never clear).
   // glyphStatus: a text ↔ shape Become whose font has no readable outlines lands
   // as boxes; the revision re-derives once a font settles (oct2 W3).
-  const animationIssues=$derived(activeSlide && $glyphFontsRevision >= 0 ? compileSlide(activeSlide,stage,{animStyles:overlay?.animStyles,modelManifest:id=>$scene3dManifests[id],plotManifest:id=>$plotManifests[id],modelAsset:id=>$project.assets.find(a=>a.id===id),glyphStatus:textGlyphStatus,fluximgManifest:id=>$fluximgManifests[id],fluximgIssue:id=>$fluximgIssues[id]}).issues : []);
+  const animationIssues=$derived(activeSlide && $glyphFontsRevision >= 0 ? compileSlide(activeSlide,stage,{animStyles:overlay?.animStyles,modelManifest:id=>$scene3dManifests[id],plotManifest:id=>$plotManifests[id],modelAsset:id=>$project.assets.find(a=>a.id===id),glyphStatus:textGlyphStatus,fluximgManifest:id=>$fluximgManifests[id],fluximgIssue:id=>$project.assets.some(a=>a.id===id&&a.kind==="fluximg")?$fluximgIssues[id]:"Image file missing"}).issues : []);
   function inspectIssue(trackId?:string){
     if(!activeSlide||!trackId)return;
     const bi=activeSlide.beats.findIndex(b=>b.tracks.some(t=>t.id===trackId));

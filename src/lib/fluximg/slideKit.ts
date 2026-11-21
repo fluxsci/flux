@@ -8,7 +8,7 @@
  *     `export/fluximgRuntime.ts`). A document without images carries none of this code.
  * A new export here is a new reach of the engine into image code: add it to `imageSeam.ts`, never import it directly.
  */
-export { createFluximgController, flushSlideFluximgs, fillFluximg, fluximgTween, setSlideFluximgFrame } from "../slide/player/fluximg";
+export { createFluximgController, flushSlideFluximgs, fillFluximg, fluximgTween, setSlideFluximgFrame, fluximgShownCrop } from "../slide/player/fluximg";
 export { createFluximgMovieController, joinMedia, slideMovieTargets } from "../slide/player/fluximgMedia";
 export {
   fluximgObject, fluximgPartIdOf, fluximgPartNode, fluximgPartNodes, fluximgPartsLookup, fluximgPartsPending, fluximgPartTargets,

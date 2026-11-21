@@ -41,7 +41,7 @@ function tracesManifest() {
     series: TRACES.map((name) => ({ id: `trace-${name}`, name, svg: { line: `trace-${name}.line` } })),
     build: { order: [] },
     parts: { id: "figure", role: "figure", kind: "container", children: [{ id: "plot-area", role: "plot-area", kind: "container", children: [
-      { id: "axis.x", role: "axis", axis: "x", kind: "container", children: [{ ref: "axis.x.spine", kind: "line" }] },
+      { id: "axis.x", role: "axis", axis: "x", kind: "container", children: [{ ref: "axis.x.spine", kind: "line" }, { ref: "axis.x.tick.0", kind: "line" }, { ref: "axis.x.label", kind: "text" }] },
       { id: "axis.y", role: "axis", axis: "y", kind: "container", children: [{ ref: "axis.y.spine", kind: "line" }] },
       ...TRACES.map((name) => ({ id: `trace-${name}`, role: "series", kind: "container", children: [{ ref: `trace-${name}.line`, kind: "line" }] })),
     ] }] },
@@ -49,7 +49,8 @@ function tracesManifest() {
 }
 function tracesSvg() {
   const t = [`<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200"><g id="figure">`,
-    `<path id="axis.x.spine" d="M40 180H280" stroke="#100f0f"/><path id="axis.y.spine" d="M40 20V180" stroke="#100f0f"/>`];
+    `<path id="axis.x.spine" d="M40 180H280" stroke="#100f0f"/><path id="axis.y.spine" d="M40 20V180" stroke="#100f0f"/>`,
+    `<path id="axis.x.tick.0" d="M160 180V185" stroke="#100f0f" fill="none"/><text id="axis.x.label" x="160" y="196" font-size="10" text-anchor="middle" fill="#100f0f">time</text>`];
   TRACES.forEach((name, i) => t.push(`<path id="trace-${name}.line" d="M40 ${160 - i * 35}L100 ${140 - i * 35}L160 ${150 - i * 35}L220 ${120 - i * 35}L280 ${135 - i * 35}" fill="none" stroke="${["#4385be", "#da702c", "#8b7ec8", "#35ab49"][i]}" stroke-width="1.5"/>`));
   t.push(`</g></svg>`);
   return t.join("");
@@ -218,14 +219,36 @@ try {
   }, bk.id);
   h.ok(planned.policy === "key" && planned.both === 3, `the planner pairs three footprints with their traces by the series' names (policy ${planned.policy}, ${planned.both} pairs)`);
   h.ok(planned.named === 0 && planned.series > 0, `asked plainly, the plot's outlines carry no series name (${planned.named} of ${planned.series} series parts)`);
-  // the preview plays it (a screenshot mid-flight for the eye)
+  // the preview plays it (a screenshot mid-flight for the eye), sampled at 25 %, 50 % and 75 % of the flight: every open
+  // outline flies unfilled (the plot's spines carry no fill attribute, so SVG's default black: merged into one "L" they
+  // flew as a black triangle), no flight path has a fill its outlines did not ask for, and the plot's parts without a
+  // counterpart (spines, a tick, the axis label, the unmatched trace) fade in DURING the flight (review, parts 7c)
+  const inks = await F((id) => [...new Set([...document.querySelectorAll(`[data-editor-element-id="${id}"] [data-layer="footprints"] [data-key]`)].map((n) => getComputedStyle(n).fill.replace(/^rgba?\(([^,]+),\s*([^,]+),\s*([^,)]+).*$/, "$1,$2,$3")))], IMG);
+  const dur = (await authored()).beats[3].tracks.find((t) => t.id === bk.id)?.duration ?? 1000;
   await F(() => { for (const b of document.querySelectorAll(".step-controls button")) if (b.title === "Replay this step") b.click(); });
   await waitFor(page, () => !!document.querySelector(".preview-overlay"), null, { label: "the preview", timeout: 4000 });
-  await sleep(550);
-  await page.screenshot({ path: `${SHOTS}/become-by-key-midflight.png` });
-  const flying = await F(() => document.querySelectorAll(".preview-overlay svg path").length);
-  h.ok(flying > 0, `the step preview plays the flight (${flying} paths in the preview)`);
-  await sleep(1500);
+  const t0 = Date.now(), flights = [];
+  for (const f of [0.25, 0.5, 0.75]) {
+    while (Date.now() - t0 < f * dur) await sleep(4);
+    if (f === 0.5) await page.screenshot({ path: `${SHOTS}/become-by-key-midflight.png` });
+    flights.push({ f, ...await F(() => {
+      const ov = document.querySelector(".preview-overlay"), op = (n) => { let o = 1; for (let x = n; x && x !== ov; x = x.parentElement) o *= Number(getComputedStyle(x).opacity); return o; };
+      const paths = [...ov.querySelectorAll(".sl-handoff-path")].map((p) => ({ open: !/z\s*$/i.test((p.getAttribute("d") ?? "").trim()), fill: getComputedStyle(p).fill, o: op(p) }));
+      const label = [...ov.querySelectorAll('[id*="clone"][id$="axis.x.label"]')].map(op);
+      return { paths, label };
+    }) });
+  }
+  const rgbOf = (c) => { const m = /^rgba?\(([^,]+),\s*([^,]+),\s*([^,)]+)(?:,\s*([^)]+))?\)/.exec(c); return m ? { rgb: `${m[1]},${m[2]},${m[3]}`, a: m[4] === undefined ? 1 : Number(m[4]) } : null; };
+  for (const fl of flights) {
+    const open = fl.paths.filter((p) => p.open), badOpen = open.filter((p) => p.fill !== "none");
+    const foreign = fl.paths.filter((p) => !p.open && p.fill !== "none" && (rgbOf(p.fill)?.a ?? 0) > 0 && !inks.includes(rgbOf(p.fill)?.rgb));
+    h.ok(open.length > 0 && badOpen.length === 0, `at ${fl.f * 100} %: every open outline flies unfilled (${open.length} open, ${badOpen.length} filled: ${badOpen.map((p) => p.fill).join(", ")})`);
+    h.eq(foreign.map((p) => p.fill), [], `at ${fl.f * 100} %: no flight path carries a fill its outlines did not ask for (footprint inks ${inks.join(" | ")})`);
+  }
+  const late = flights[2], fading = late.paths.filter((p) => p.open && p.o > 0.05 && p.o < 0.95);
+  h.ok(fading.length >= 3 && late.label.some((o) => o > 0.05 && o < 0.95), `at 75 % the plot's parts without a counterpart are fading in, not waiting for the landing (${fading.length} open paths at ${fading.map((p) => p.o.toFixed(2)).join(", ")}; the axis label at ${late.label.map((o) => o.toFixed(2)).join(", ")})`);
+  h.ok(flights[0].paths.length > 0, `the step preview plays the flight (${flights[0].paths.length} paths at 25 %)`);
+  await sleep(dur + 400);
 
   h.section("a part-bound track on an image nobody has asked about yet");
   {

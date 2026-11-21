@@ -85,6 +85,10 @@ export interface FluximgSurface {
   /** A surface that plays baked clips is told the clock of EVERY frame a Change drives it, even when the picture is the
    *  same as the last one (it keeps its decoder in step with the clock). Absent: draw only when the picture changes. */
   readonly clocked?: boolean;
+  /** A clocked surface (baked clips) says whether it can play this running movie (its clip is in the payload). False:
+   *  the movie cannot be shown (an export without the encoder), so the image stays the step's still and nothing runs
+   *  for it. Absent: the surface draws every plane itself (the live host). */
+  movie?(assetId: string, picture: TweenPicture, clock: FluximgMovieClock): boolean;
   /** True when the last frame passed to `draw()` is exactly on the canvas (it may land after `draw` returned false). */
   readonly exact: boolean;
   /** Capture: resolves when the last frame passed to `draw()` is exactly on the canvas. */

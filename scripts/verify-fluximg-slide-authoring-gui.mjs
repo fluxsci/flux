@@ -419,7 +419,9 @@ try {
   await sleep(1300);
   const a1 = await F(() => window.__flux.fluximgSlide.stats.asked), r1 = await F(() => window.__mvRaf);
   h.ok(a1 - a0 >= 6, `at rest the movie keeps drawing new planes (${a1 - a0} frames asked in 1.3 s at 8 planes a second)`);
-  h.ok(r1 - r0 > 0, "…on its own frame loop (media may run while the slide rests)");
+  // (review C7: a movie whose planes are more than two frames apart draws each one from one timer at its boundary, so
+  // a running movie at rest costs no animation frame at all)
+  h.eq(r1 - r0, 0, "…on its own clock, one timer per plane: no animation frame while the slide rests");
   await F(() => [...document.querySelectorAll(".transport button")].find((b) => b.textContent.includes("Stop")).click());
   await waitFor(page, () => !document.querySelector(".preview-overlay [data-slide-fluximg-root]"), null, { timeout: 5000, label: "the preview closed" }).catch(() => null);
   await sleep(200);

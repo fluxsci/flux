@@ -67,7 +67,8 @@ export function createAppFluximgHost(deck: Deck): AppFluximg | undefined {
   const service = fluximgService();
   const core = createFluximgSlideHost({
     manifest: (id) => (assets.has(id) ? get(fluximgManifests)[id] : undefined),
-    need: (id) => { const asset = assets.get(id); return asset ? needManifest(asset) : Promise.reject(new Error(`Image ${id} is not part of this deck`)); },
+    // (an image whose asset record is gone: the editor element's own words, review C9)
+    need: (id) => { const asset = assets.get(id); return asset ? needManifest(asset) : Promise.reject(new Error("Image file missing")); },
     bundle: (id) => { const asset = assets.get(id); return asset ? fluximgBundle(asset) : undefined; },
     identity: (id) => { const asset = assets.get(id); return asset ? fluximgIdentity(asset) : id; },
     planes: service,

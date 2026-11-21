@@ -1,7 +1,7 @@
 /**
  * Image movies on a slide (stage 2, plan D7): Start / Pause / Stop on an image with a dimension to play. The video
  * controller's twin (`player/media.ts`): the same API, the same events (`mediaTimeline.videoEvents`), the same pure
- * clock (`sampleImagePlayback` / `playbackPlane`). Like a video's decoder, a running movie runs on its own frame loop
+ * clock (`sampleImagePlayback` / `playbackPlane`). Like a video's decoder, a running movie wakes on its own clock
  * while the slide rests (media are allowed to); it re-draws only the image it drives (the binding's `flush`), pauses
  * with the player, the host and a hidden document, and stops costing anything when nothing runs: no frame loop, no
  * listener. Seeks and capture are exact: the plane comes from the pure clock at that time.
@@ -33,6 +33,10 @@ export interface MediaController {
 
 /** How often (ms) a running movie asks for the planes ahead of it, and how many. */
 const AHEAD_EVERY_MS = 120, AHEAD_PLANES = 8;
+/** A plane boundary this close (ms, two frames) is waited for on animation frames (a short period runs on them); a later
+ *  one with ONE timer at the boundary, which draws there (what it draws is presented on the next frame, as a draw in that
+ *  frame's animation callback would be). */
+const RAF_WITHIN_MS = 34;
 
 interface Movie { id: string; playback: ResolvedPlayback; running: boolean; started: boolean; position: number; origin: number; shown: number | null; shownRunning?: boolean }
 
@@ -51,7 +55,7 @@ export function createFluximgMovieController(root: HTMLElement, slide: Slide, ct
   const targets = slideMovieTargets(slide, resolvedTracks);
   const elements = new Map(slide.elements.filter((e): e is FluximgElement => e.type === "fluximg" && targets.includes(e.id)).map((e) => [e.id, e]));
   const movies = new Map<string, Movie>();
-  let destroyed = false, loop = 0, activeEvents: VideoEvent[] = [], nextEvent = 0;
+  let destroyed = false, loop = 0, timer: ReturnType<typeof setTimeout> | undefined, activeEvents: VideoEvent[] = [], nextEvent = 0;
 
   const movie = (id: string): Movie | null => {
     const hit = movies.get(id);
@@ -94,23 +98,41 @@ export function createFluximgMovieController(root: HTMLElement, slide: Slide, ct
   function frame(now: number): void {
     loop = 0;
     if (destroyed) return;
-    let any = false;
     for (const m of movies.values()) {
       if (!m.running) continue;
       const p = playbackPlane(positionNow(m, now), m.playback.passMs, m.playback.mode, m.playback.planes);
       if (p.done) { m.position = m.playback.passMs; m.running = false; onChange(); }
       show(m, p.plane);
       if (m.running) ahead(m, now);
-      any ||= m.running;
     }
-    if (any && !pauseReasons.size) loop = requestAnimationFrame(frame);
+    schedule();
   }
-  /** The frame loop runs only while a movie runs and nothing pauses media. */
+  /**
+   * The next wake-up, and only one (review C7: no callback while nothing needs drawing). A movie whose binding draws
+   * its planes, or whose overlay names them, wakes at its next plane boundary; one a clip plays natively (or one that
+   * cannot be shown) wakes only where a "once" pass ends. A boundary more than two frames away is waited for with a
+   * timer that draws at the boundary, so a plane reaches the screen on the same frame as a continuous loop would draw it
+   * (a short period simply runs on animation frames). Nothing runs while media is paused.
+   */
   function schedule(): void {
-    const want = !destroyed && !pauseReasons.size && [...movies.values()].some((m) => m.running);
-    if (want && !loop) loop = requestAnimationFrame(frame);
-    else if (!want && loop) { cancelAnimationFrame(loop); loop = 0; }
+    if (loop) { cancelAnimationFrame(loop); loop = 0; }
+    if (timer !== undefined) { clearTimeout(timer); timer = undefined; }
+    if (destroyed || pauseReasons.size) return;
+    const now = performance.now();
+    let wait = Infinity;
+    for (const m of movies.values()) {
+      if (!m.running) continue;
+      const p = m.playback, pos = positionNow(m, now);
+      if (p.mode === "once") wait = Math.min(wait, p.passMs - pos);
+      if (bindingOf(m.id)?.movieNeeds(p.dim) === "none") continue;
+      const k = Math.floor(Math.max(0, pos) / p.periodMs + 1e-9);
+      wait = Math.min(wait, (k + 1) * p.periodMs - pos);
+    }
+    if (!Number.isFinite(wait)) return;
+    if (wait <= RAF_WITHIN_MS) loop = requestAnimationFrame(frame);
+    else timer = setTimeout(() => { timer = undefined; if (!destroyed && !pauseReasons.size) frame(performance.now()); }, wait + 1);
   }
+  const planeAt = (m: Movie, now: number): number => playbackPlane(positionNow(m, now), m.playback.passMs, m.playback.mode, m.playback.planes).plane;
   function freeze(now = performance.now()): void { for (const m of movies.values()) if (m.running) { m.position = positionNow(m, now); m.origin = now; } }
 
   function apply(event: VideoEvent, lateMs: number): void {
@@ -118,7 +140,7 @@ export function createFluximgMovieController(root: HTMLElement, slide: Slide, ct
     if (!m) return;
     const now = performance.now();
     if (event.command === "videoStart") { m.running = true; m.started = true; m.position = Math.max(0, lateMs); m.origin = now; show(m, 0, true); }
-    else if (event.command === "videoPause") { m.position = positionNow(m, now); m.running = false; if (m.shown !== null) show(m, m.shown, true); }
+    else if (event.command === "videoPause") { m.position = positionNow(m, now); m.running = false; if (m.shown !== null) show(m, planeAt(m, now), true); }
     else { m.running = false; m.started = false; m.position = 0; show(m, null, true); }
     onChange();
   }
@@ -136,10 +158,13 @@ export function createFluximgMovieController(root: HTMLElement, slide: Slide, ct
   }
   return {
     begin(from, to) {
+      // A movie running into this step runs on (review A1), as a video clip does (`media.ts` begin leaves running clips
+      // alone): its elapsed time is folded into its position BEFORE the origin moves. One the player or a seek held
+      // (pause reasons) gained no time meanwhile, so the fold leaves it where it stood.
+      const now = performance.now();
+      for (const m of movies.values()) { m.position = positionNow(m, now); m.origin = now; }
       pauseReasons.delete("seek"); pauseReasons.delete("player");
       activeEvents = videoEvents(slide, (beat) => (beat >= from && beat <= to ? 0 : undefined), { resolvedTracks }).filter((e) => elements.has(e.target)); nextEvent = 0;
-      const now = performance.now();
-      for (const m of movies.values()) m.origin = now;
       schedule();
     },
     tick(time) {
@@ -151,7 +176,9 @@ export function createFluximgMovieController(root: HTMLElement, slide: Slide, ct
       if (paused) { freeze(); pauseReasons.add(reason); }
       else { pauseReasons.delete(reason); if (reason === "player") pauseReasons.delete("seek"); const now = performance.now(); if (!pauseReasons.size) for (const m of movies.values()) m.origin = now; }
       // The images learn the new running state (a no-op unless it changed: a host playing baked clips pauses its video).
-      for (const m of movies.values()) if (m.started && m.shown !== null) show(m, m.shown);
+      // (where nothing woke at each plane, `shown` is the plane of the last state change: the clock's plane is read now)
+      const at = performance.now();
+      for (const m of movies.values()) if (m.started && m.shown !== null) show(m, planeAt(m, at));
       schedule(); onChange();
     },
     seek(beat, time, fromBeat = beat) {
@@ -187,7 +214,8 @@ export function createFluximgMovieController(root: HTMLElement, slide: Slide, ct
     destroy() {
       destroyed = true;
       if (loop) cancelAnimationFrame(loop);
-      loop = 0;
+      if (timer !== undefined) clearTimeout(timer);
+      loop = 0; timer = undefined;
       for (const m of movies.values()) bindingOf(m.id)?.setIndexOverride(null);
       movies.clear();
     },

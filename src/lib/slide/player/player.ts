@@ -73,7 +73,7 @@ import { cueEnd } from "../video";
 import { isVideoCommand, type VideoEvent } from "../mediaTimeline";
 import { createVideoController } from "./media";
 import { createModel3dController, flushSlideModels } from "./model3d";
-import { createFluximgController, flushSlideFluximgs, fluximgPartIdOf, fluximgPartNode, fluximgPartNodes, fluximgPartsLookup, imageToBox, isFluximgPartIndex, partIndexFromTexts, createFluximgMovieController, joinMedia, slideMovieTargets } from "../imageSeam";
+import { createFluximgController, flushSlideFluximgs, fluximgShownCrop, fluximgPartIdOf, fluximgPartNode, fluximgPartNodes, fluximgPartsLookup, imageToBox, isFluximgPartIndex, partIndexFromTexts, createFluximgMovieController, joinMedia, slideMovieTargets } from "../imageSeam";
 import type { FluximgPartsLookup } from "../../fluximg/parts";
 import { imageStaggerCoordinates } from "../compile";
 import { imageObjectStageOutlines } from "../targetGeometry";
@@ -547,6 +547,13 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           const boxes = new Map<string, { x: number; y: number; w: number; h: number }[]>();
           for (const o of partStageOutlines(trackCtx.element as never, ids, geometry)) if (o.owner.partId) boxes.set(o.owner.partId, [...(boxes.get(o.owner.partId) ?? []), o.bbox]);
           trackCtx.partBox = (node) => { const found = boxes.get(((node as unknown as { id?: string }).id ?? "").slice(prefix.length)); return found && unionRect(found) || undefined; };
+        } else if (effective === "pulse" && trackCtx.element?.type === "fluximg" && hasPartBinding(track)) {
+          // an image's object, likewise, by its OWN stage box (its outline through the image's crop matrix), never the whole image's
+          const el = trackCtx.element, index = imagePartsLookup(opts)?.(el.assetId);
+          if (index) {
+            const boxes = new Map(imageObjectStageOutlines(el, index, nodes.map(n => fluximgPartIdOf(n as never) ?? ""), opts).map(o => [o.owner.partId, o.bbox]));
+            trackCtx.partBox = (node) => boxes.get(fluximgPartIdOf(node as never) ?? "");
+          }
         }
         if (groupWord(track) === "group") {
           // the tracks of this cue that start together on whole elements with the same word move about ONE point (manim animates a VGroup about its centre)
@@ -570,7 +577,24 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       const imagePart = imageIds.size > 0 && imageIds.has(track.target) && hasPartBinding(track);
       if (imagePart && nodeAnims.some((na) => na.keyframes.some((k) => typeof k.transform === "string" && k.transform.includes("px")))) {
         const el = transformPreState(slide, track.target, bi), index = el?.type === "fluximg" ? imagePartsLookup(opts)?.(el.assetId) : undefined;
-        if (el?.type === "fluximg" && index) { const scale = imageToBox(index.manifest, el.crop, el); for (const na of nodeAnims) na.keyframes = imageUnits(scale, na.keyframes); }
+        if (el?.type === "fluximg" && index) {
+          const scale = imageToBox(index.manifest, el.crop, el);
+          // A Change of this image's crop in the same step changes its pixel scale while the effect plays: the lift then
+          // follows the crop frame by frame (the stage px stay the authored ones), read from the crop the image shows.
+          const cropMoves = live && cue.tracks.some((o) => !o.track.disabled && o.track.target === track.target && o.track.preset === "transform" && !!o.track.to?.state && "crop" in o.track.to.state);
+          for (const na of nodeAnims) {
+            na.keyframes = imageUnits(scale, na.keyframes);
+            if (!cropMoves || na.sample) continue;
+            const base = frameSampler({ keyframes: na.keyframes, ease: ct.ease, transient: na.transient } as Spec);
+            na.sample = (raw) => {
+              const frame = base(raw);
+              const crop = fluximgShownCrop(cameraLayer, track.target);
+              if (!crop) return frame;
+              const now = imageToBox(index.manifest, crop, el);
+              return imageUnits([now[0] / scale[0], 0, 0, now[3] / scale[3]], [frame])[0];
+            };
+          }
+        }
       }
       const n = nodes.length;
       const from = track.stagger?.from ?? "start";
@@ -1238,7 +1262,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     if (ctx.fluximg && compiled.resolvedSlide.elements.some(el => el.type === "fluximg")) images = createFluximgController(cameraLayer, compiled, ctx, (target, reason) => {
       if (!issues.some(issue => issue.target === target && issue.reason === reason)) issues = [...issues, { target, reason }];
       emit("change");
-    });
+    }, stage);
     durations = Array.from({ length: beats() }, (_, beat) => Math.max(0, compiled.cues[beat]?.duration ?? 0, ...specs.filter((s) => s.beatIndex === beat).map((s) => s.delay + s.duration)));
     media = createVideoController(cameraLayer, compiled.resolvedSlide, durations, !!opts.manualSteps, () => emit("change"), (target, reason) => {
       if (!issues.some(issue => issue.target === target && issue.reason === reason)) issues = [...issues, { target, reason }];
@@ -1255,7 +1279,8 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     applyAt(runSpecs ?? specs, bi, time, native);
     // Mesh parts sample the same run as the re-based DOM specs (selectRun).
     models?.flush(modelAppearance?.sample(bi, time, runFrom).partStates);
-    images?.flush();
+    // (moving: a camera move keeps the image sizes it started with; the images are re-sized for the camera where it rests)
+    images?.flush(playing && time < duration);
     if (playing && clockMode !== "rewinding") media?.tick(time);
     if (playing && time < duration) {
       keeper.flying();
@@ -1447,6 +1472,10 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     for (const spec of specs) if (spec.refreshCamera) cameraChanged = spec.refreshCamera() || cameraChanged;
     if (cameraChanged) { disposeSlideAnims(specs, false); if (runSpecs) disposeSlideAnims(runSpecs, false); }
     duration = runMs; time = fromTime;
+    // An image movie does on Back what a video clip does (a slide with a video jumps): it lands at once where the jump
+    // lands it (the pure clock at the target step, paused by the seek), while the Changes rewind; the landing seek
+    // then finds it there. Only a slide with images has movies (a kind check; a deck without images skips this).
+    if (images) media?.seek(target, Infinity);
     rewind = { from: fromTime, to: target, rate: rewindRate(runMs, opts.backScale ?? BACK_SCALE_DEFAULT) };
     clockMode = "rewinding"; playing = true;
     paint(); emit("change");

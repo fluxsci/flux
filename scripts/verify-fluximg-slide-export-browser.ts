@@ -285,6 +285,109 @@ try {
     }
   }
 
+  // Review (parts leftover 7d): the offline deck of a slide where a layer's objects appear one by one: at each step the
+  // objects born by then are shown and the unborn hidden.
+  {
+    h.section("objects that appear one by one, in the offline deck");
+    await standardDeck(P);
+    await P.slidesCore.mutateDeck(P.root, "talk", "fixture", (d: any) => {
+      const s = d.slides[0], e = s.elements.find((x: any) => x.type === "fluximg");
+      s.beats = [s.beats[0],
+        { id: "o1", tracks: [{ id: "o1t", target: e.id, parts: ["cells/1", "cells/2"], preset: "fade", start: 0, duration: 300 }] },
+        { id: "o2", tracks: [{ id: "o2t", target: e.id, part: "layer:cells", preset: "fade", start: 0, duration: 300, stagger: { perMs: 100 } }] }];
+    });
+    const out2 = await P.slidesCore.exportDeck(P.root, "talk", { refreshSources: false, out: path.join(P.scratch, "appear.html") });
+    await page.goto(pathToFileURL(out2.path).href); await page.waitForFunction("!!window.fluxDeck?.readyMedia"); await page.evaluate("window.fluxDeck.readyMedia()");
+    const shown = () => page.evaluate(`(() => { const r = document.querySelector('[data-slide-fluximg-root="${el.id}"]'); return [...r.querySelectorAll('[data-layer="cells"] [data-key]')].filter((n) => { let o = 1; for (let x = n; x && x !== r; x = x.parentElement) { const cs = getComputedStyle(x); if (cs.display === 'none' || cs.visibility === 'hidden' || x.getAttribute('display') === 'none') return false; o *= Number(cs.opacity); } return o > 0.5; }).map((n) => n.getAttribute('data-key')).sort(); })()`);
+    const seen: string[][] = [await shown()];
+    for (let k = 0; k < 2; k++) { await page.keyboard.press("ArrowRight"); await new Promise((r) => setTimeout(r, 900)); seen.push(await shown()); }
+    h.eq(seen, [[], ["1", "2"], ["1", "2", "3", "4"]], "Design shows no object, step 1 the two born, step 2 all of them");
+    await page.evaluate("window.fluxDeck.seek(0, 1, Infinity)"); await new Promise((r) => setTimeout(r, 150));
+    h.eq(await shown(), ["1", "2"], "a jump back to step 1 hides the objects born later");
+  }
+
+  // Review C7: zero animation callbacks while nothing needs drawing. A clip the <video> loops natively needs none; an
+  // overlay that names the plane (a stamp) is redrawn only at plane boundaries; a stills-only export runs nothing.
+  {
+    h.section("a running movie at rest: callbacks and re-syncs (review C7)");
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const mdeck = await movieDeck(P);
+    const mel = mdeck.slides[0].elements.find((e: any) => e.playback) as any;
+    const noStamp = async () => P.slidesCore.mutateDeck(P.root, "talk", "fixture", (d: any) => { const e = d.slides[0].elements.find((x: any) => x.id === mel.id); e.view = { ...e.view, furniture: { scalebar: {} } }; });
+    const exportAs = async (name: string, withEncoder: boolean) => {
+      const saved = process.env.FLUX_VIDEO_ENCODER;
+      if (!withEncoder) process.env.FLUX_VIDEO_ENCODER = path.join(P.scratch, "no-such-encoder", "ffmpeg");
+      try { return await P.slidesCore.exportDeck(P.root, "talk", { refreshSources: false, out: path.join(P.scratch, `${name}.html`) }); }
+      finally { if (saved === undefined) delete process.env.FLUX_VIDEO_ENCODER; else process.env.FLUX_VIDEO_ENCODER = saved; }
+    };
+    const open = async (file: string) => { await page.goto(pathToFileURL(file).href); await page.waitForFunction("!!window.fluxDeck?.readyMedia"); await page.evaluate("window.fluxDeck.readyMedia()"); };
+    const video = () => page.evaluate(`(() => { const v = document.querySelector('[data-slide-fluximg-root="${mel.id}"] video[data-slide-fluximg-clip]'); return v ? { t: v.currentTime, paused: v.paused, shown: v.style.display === 'block' } : null; })()`);
+    const stamp = () => page.evaluate(`[...document.querySelectorAll('[data-slide-fluximg-root="${mel.id}"] [data-part="stamp"] text')].map((t) => t.textContent).join('|')`);
+    const callbacks = async (ms: number) => { await page.evaluate("window.__rafs = 0"); await wait(ms); return page.evaluate("window.__rafs") as Promise<number>; };
+    const start = async () => { await page.keyboard.press("ArrowRight"); await wait(400); };
+    if (encoder) {
+      // the fixture's movie shows a stamp of t: the overlay is redrawn at each plane (10 a second), never every frame
+      const stamped = await exportAs("movie-stamp", true);
+      await open(stamped.path); await start();
+      const rafs = await callbacks(2000), v = await video(), st = await page.evaluate("window.fluxDeck.state()") as any;
+      h.ok(v?.shown && !v.paused && st.mediaPlaying, "with a stamp: the clip plays natively while the slide rests");
+      h.ok(rafs <= 4, `with a stamp on t: ${rafs} animation callbacks over 2 s of a 10-plane-a-second movie (the stamp is redrawn by one timer per plane; a frame loop is 120)`);
+      await noStamp();
+      const plain = await exportAs("movie-plain", true);
+      await open(plain.path); await start();
+      const r2 = await callbacks(2000), v2 = await video();
+      h.ok(v2?.shown && !v2.paused, `without a stamp: the clip plays natively (t ${v2?.t.toFixed(2)} s)`);
+      h.eq(r2, 0, "without a stamp: zero animation callbacks over 2 s of a running movie (the <video> loops by itself)");
+      const s0 = await page.evaluate("window.fluxDeck.imageClips()") as any;
+      const seen: string[] = [];
+      for (let k = 0; k < 6; k++) { await wait(5000); const s = await page.evaluate("window.fluxDeck.imageClips()") as any; seen.push(`${(k + 1) * 5} s: ${(s.drift * 1000).toFixed(0)}`); }
+      const s1 = await page.evaluate("window.fluxDeck.imageClips()") as any, v3 = await video();
+      console.log(`  measured: drift of a natively looped movie clip from the slide's clock over 30 s (30 loops), running max in ms: ${seen.join(", ")}; re-syncs ${s1.resyncs - s0.resyncs}`);
+      h.ok(!v3?.paused && s1.resyncs - s0.resyncs <= 2, `over 30 s of a looped movie: ${s1.resyncs - s0.resyncs} re-syncs (a drift check every 2 s, past half a plane only; was ~2 a second)`);
+      h.ok(s1.drift < 0.05 + 0.01, `the clip never strays more than half a plane (+ one check's growth) from the slide's clock (max ${(s1.drift * 1000).toFixed(0)} ms)`);
+    } else blocked("C7 callbacks of a movie that plays its clip natively");
+    // A stills-only export (no encoder): the movie cannot be shown, so nothing runs and the image is the step's still.
+    await P.slidesCore.mutateDeck(P.root, "talk", "fixture", (d: any) => { const e = d.slides[0].elements.find((x: any) => x.id === mel.id); e.view = { ...e.view, furniture: { stamp: {}, scalebar: {} } }; });
+    const stills = await exportAs("movie-stills", false);
+    h.ok(stills.warnings.some((w: string) => /encoder/i.test(w)), "the stills-only export warns once that it has no encoder");
+    await open(stills.path);
+    const before = await stamp();
+    await start();
+    const r4 = await callbacks(2000), after = await stamp();
+    h.eq(r4, 0, "no encoder: zero animation callbacks over 2 s after a movie's Start");
+    h.ok(!!before && after === before, `no encoder: the image stays the step's still and its stamp the step's own plane (${before} -> ${after})`);
+  }
+
+  // Review B4 in the exported deck: where a step's camera rests zoomed in on an image, the player asks for the still at
+  // the zoom's resolution (crop.zoomedStillScale, the rule the export wrote that step's still with) and shows it.
+  {
+    h.section("a camera step zoomed in on an image shows the zoomed still (review B4)");
+    const { imageStillScale } = await import("../src/lib/slide/imageExport");
+    await P.slidesCore.mutateDeck(P.root, "talk", "fixture", (d: any) => {
+      const s = d.slides[0], e = s.elements.find((x: any) => x.type === "fluximg" && x.id !== "blowout");
+      s.elements = s.elements.filter((x: any) => x.id !== "blowout");
+      // a 16x12 box over the 64x48 crop: 2x draws 32x24, the camera's 4x asks for the crop's own 64x48
+      Object.assign(e, { x: 300, y: 170, width: 16, height: 12, view: { index: { t: 3 } } }); delete e.crop; delete e.playback;
+      s.beats = [s.beats[0], { id: "zc", tracks: [{ id: "cam", target: "@camera", preset: "camera", start: 0, duration: 400, to: { x: 308, y: 176, zoom: 4 } }] }];
+    });
+    const zdeck = await P.slidesCore.loadDeck(P.root, "talk");
+    const zslide = zdeck.slides[0], zc = compileSlide(zslide, zdeck.stage, {});
+    const zel = zslide.elements.find((x: any) => x.type === "fluximg") as any;
+    const at = (step: number) => { const f = zc.sample(step); const e = f.elements.find((x: any) => x.id === zel.id) as any; return { e, scale: imageStillScale(manifest, e, f.camera, zdeck.stage) }; };
+    const z1 = at(1), z0 = at(0);
+    const out = await P.slidesCore.exportDeck(P.root, "talk", { refreshSources: false, out: path.join(P.scratch, "zoom.html") });
+    const payload = JSON.parse((await fs.readFile(out.path, "utf8")).split('id="flux-payload">')[1].split("</script>")[0].replace(/\\u003c/g, "<"));
+    const refOf = (x: { e: any; scale: number }) => imageStillRef(assetId, fluximgStillRequest(x.e, asset, manifest, x.scale).key);
+    h.ok(z1.scale === 4 && z0.scale === 2 && !!payload.assets[refOf(z1)] && !!payload.assets[refOf(z0)], `the export wrote step 0's still at 2x and the zoomed step's at ${z1.scale}x`);
+    await page.goto(pathToFileURL(out.path).href); await page.waitForFunction("!!window.fluxDeck?.readyMedia"); await page.evaluate("window.fluxDeck.readyMedia()");
+    const href = () => page.evaluate(`(() => { const s = document.querySelector('[data-slide-fluximg-root="${zel.id}"] [data-fluximg-still]'); return s && s.style.display !== 'none' ? s.querySelector('image')?.getAttribute('href') ?? '' : ''; })()`);
+    const h0 = await href();
+    await page.keyboard.press("ArrowRight"); await new Promise((r) => setTimeout(r, 800));
+    const h1 = await href();
+    h.ok(h0 === payload.assets[refOf(z0)], "before the camera step the image shows the 2x still");
+    h.ok(h1 === payload.assets[refOf(z1)] && h1 !== h0, "where the camera rests at zoom 4 it shows the still written for that zoom");
+  }
+
   h.section("console and CSP");
   h.eq(await page.evaluate("window.__csp ?? []").catch(() => []), [], "no CSP violation (no blocked resource)");
   h.eq(errors(page), [], "no console errors");

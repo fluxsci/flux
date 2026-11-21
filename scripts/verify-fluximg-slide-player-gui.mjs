@@ -228,6 +228,24 @@ try {
   h.ok(gpuOn.textures > 0 && gpuOff.textures === 0 && gpuOff.liveSurfaces === 0 && gpuOff.direct === 0, "leaving the image slide in Present frees every GL texture and loses its context");
   await page.keyboard.press("Escape");
   await sleep(300);
+
+  // ---- review C9: an image whose bundle is gone, in the slide's issue list, the preview and Present -------------------------
+  await page.evaluate(() => {
+    const F = window.__flux, sid = F.slide.currentDeck().slides[0].id;
+    F.fig.activeFigureId.set(sid);
+    F.fig.commit((p) => { p.figures.find((f) => f.id === sid).elements.push({ id: "lost", name: "Lost scan", type: "fluximg", assetId: "img-gone-zzz", x: 420, y: 40, width: 200, height: 150, rotation: 0 }); });
+    F.slide.activeBeat.set(0);
+  });
+  await paint(); await sleep(400);
+  const listed = await page.evaluate(() => [...document.querySelectorAll(".animation-issues button")].map((b) => b.textContent));
+  h.ok(listed.some((t) => /bundle cannot be shown: Image file missing/.test(t)), `the slide's issue list names the image whose bundle is gone (${listed.join("; ")})`);
+  await page.keyboard.press("F5");
+  await waitFor(page, () => !!document.querySelector('[data-slide-fluximg-root="lost"] [data-fluximg-unavailable]'), null, { timeout: 10000, label: "Present shows the missing image's stand-in" });
+  const stand = await page.evaluate(() => [...document.querySelectorAll('[data-slide-fluximg-root="lost"] [data-fluximg-unavailable] text')].map((t) => t.textContent));
+  h.ok(stand[0] === "⚠ Lost scan" && stand[1] === "Image file missing", `Present shows the stand-in the editor shows: its name under a warning and the reason (${stand.join(" / ")})`);
+  await page.keyboard.press("Escape");
+  await sleep(300);
+  await page.evaluate(() => { const F = window.__flux, sid = F.slide.currentDeck().slides[0].id; F.fig.commit((p) => { const f = p.figures.find((x) => x.id === sid); f.elements = f.elements.filter((e) => e.id !== "lost"); }); });
   h.eq(realErrors(page), [], "no console errors");
 } catch (error) {
   h.fail(String(error?.stack ?? error));

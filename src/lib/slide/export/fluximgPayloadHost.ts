@@ -32,6 +32,25 @@ const RUN_GAP_MS = 60;
 /** No frame from the player for this long: its clock stopped (paused, at rest mid-Change), so the video pauses. */
 const STALL_MS = 120;
 
+/** How often (ms) a natively playing movie clip is compared with the slide's clock (a timer, never an animation frame). */
+const DRIFT_CHECK_MS = 2000;
+/** Re-sync a natively playing movie clip past this drift (s) from the slide's clock: half a plane (the picture stays within
+ *  half a plane of the clock and of a stamp naming it), at least two display frames, at most 100 ms. Measured (review
+ *  C7): a natively looped clip in headless Chrome loses ~3 ms per loop seam (88 ms over 30 loops of a 1 s clip), so a
+ *  10-plane-a-second movie re-syncs (one seek: one frame's hitch) about once in 16 s, and never before. */
+const movieDriftS = (c: FluximgMovieClock): number => Math.max(2 / 60, Math.min(0.1, c.periodMs / 2000));
+/** The clip time (s) of a running movie `positionMs` after its Start: the clip is one frame per plane at the movie's
+ *  period (loop: the pass; bounce: there and back, end planes once; once: the pass, its last frame held), so the clip
+ *  runs at the movie's own rate and its time is the clock's, wrapped. */
+function movieSpan(c: FluximgMovieClock): number {
+  const n = Math.max(1, c.to - c.from);
+  return ((c.mode === "bounce" ? Math.max(1, 2 * (n - 1)) : n) * c.periodMs) / 1000;
+}
+function movieClipTime(positionMs: number, c: FluximgMovieClock): number {
+  const t = Math.max(0, positionMs) / 1000, span = movieSpan(c);
+  return c.mode === "once" ? Math.min(t, span - c.periodMs / 2000) : t % span;
+}
+
 /** A still's key without its output size (`out=WxH`) or the size-dependent `smooth` flag: a picture's identity. */
 const sizeless = (key: string): string => key.replace(/;out=\d+x\d+/, "").replace(/;smooth(?=;|$)/, "");
 
@@ -39,7 +58,7 @@ interface StillEntry { ref: string; width: number; height: number }
 
 export interface PayloadImageHost extends FluximgSlideHost {
   /** Gates: what the surfaces are doing. */
-  stats(): { surfaces: number; videos: number; seeks: number; resyncs: number; plays: number };
+  stats(): { surfaces: number; videos: number; seeks: number; resyncs: number; plays: number; drift: number };
 }
 
 export function payloadImageHost(payload: ExportPayload, options: { capture?: boolean } = {}): PayloadImageHost | undefined {
@@ -84,7 +103,7 @@ export function payloadImageHost(payload: ExportPayload, options: { capture?: bo
     }
     return url;
   };
-  const counters = { seeks: 0, resyncs: 0, plays: 0 };
+  const counters = { seeks: 0, resyncs: 0, plays: 0, drift: 0 };
   const surfaces = new Set<ClipSurface>();
   let disposed = false;
 
@@ -147,7 +166,7 @@ export function payloadImageHost(payload: ExportPayload, options: { capture?: bo
       clearTimeout(this.stall);
       // A running image movie takes precedence: its own clip, on its own clock (a Change under it moves the box only).
       if (motion?.movie) return this.drawMovie(assetId, frame, motion.movie);
-      this.movieKey = "";
+      this.movieKey = ""; this.unwatch();
       const now = performance.now();
       const raw = motion?.raw, clip = motion?.plan && raw !== undefined ? this.clipFor(assetId, motion) : null;
       if (!clip || raw === undefined || !(raw > 0 && raw < 1)) {
@@ -189,10 +208,20 @@ export function payloadImageHost(payload: ExportPayload, options: { capture?: bo
       return this.shown && this.exact;
     }
     private movieKey = "";
+    /** The running movie this surface plays natively, for the low-rate drift check (no animation frames: C7). */
+    private running: { clock: FluximgMovieClock; clip: ImageClip } | null = null;
+    private driftTimer: ReturnType<typeof setInterval> | undefined;
+    movie(assetId: string, picture: TweenPicture, clock: FluximgMovieClock): boolean {
+      const m = images![assetId]?.manifest, clips = payload.imageClips;
+      if (!m || !clips) return false;
+      return !!clips[playbackLookupKey(m, assetId, picture, clock)] || (!!this.movieKey && !!clips[this.movieKey]);
+    }
     /**
      * A running movie (plan D7): its baked clip (one pass, looped natively for loop and bounce) placed at the movie's
-     * pure clock. The clock's owner (`player/fluximgMedia.ts`) calls this on every plane it shows and whenever its running
-     * state changes, so the video plays natively between calls and pauses / seeks exactly when the clock does.
+     * pure clock. The clock's owner (`player/fluximgMedia.ts`) calls this when its state changes (Start, Pause, a seek,
+     * the player pausing) and, only where the overlay names the plane, at each plane; between those calls the video
+     * plays natively. The video's own clock and the slide's drift apart a little: a timer compares them every
+     * DRIFT_CHECK_MS and re-syncs past `movieDriftS` (review C7: measured, see there).
      * A pixel-setting Change under a running movie keeps the clip it started with and switches to the clip baked for its
      * end state at its end (the exported deck's limit; the export warns naming the step).
      */
@@ -203,21 +232,45 @@ export function payloadImageHost(payload: ExportPayload, options: { capture?: bo
       let clip = payload.imageClips?.[key] ?? null;
       if (clip) this.movieKey = key;
       else if (this.movieKey && this.clip) clip = payload.imageClips?.[this.movieKey] ?? null;
-      if (!clip) { this.hide(); this.exact = true; return true; }
+      if (!clip) { this.unwatch(); this.hide(); this.exact = true; return true; }
       const v = this.load(clip);
       if (v.loop !== !!clip.loop) v.loop = !!clip.loop;
       const now = performance.now(), position = clock.positionMs + (clock.running ? now - clock.at : 0);
-      const target = playbackClipTime(position, clock), span = clip.frames / clip.fps;
       if (clock.running && !options.capture) {
-        const off = Math.abs(((v.currentTime - target + span * 1.5) % span) - span / 2);
-        if (v.paused) { this.seekTo(target); v.play().catch(() => undefined); counters.plays++; }
-        else if (off > Math.max(DRIFT_S, 0.5 / clip.fps) && now - this.resyncAt > RESYNC_COOLDOWN_MS) { this.resyncAt = now; this.seekTo(target); counters.resyncs++; }
-        else this.target = v.currentTime;
+        // Running: the clip at the clock's own time (not a frame's middle: the video runs on from there).
+        if (v.paused) { this.seekTo(movieClipTime(position, clock) + 1e-3); v.play().catch(() => undefined); counters.plays++; }
+        else this.resync(position, clock, now);
+        this.watch(clock, clip);
       } else {
+        this.unwatch();
         if (!v.paused) v.pause();
-        this.seekTo(target);
+        this.seekTo(playbackClipTime(position, clock));
       }
       return this.reveal(v);
+    }
+    /** Re-sync a natively playing movie clip only when it is further than `movieDriftS` from the slide's clock. */
+    private resync(position: number, clock: FluximgMovieClock, now: number): void {
+      const v = this.video;
+      if (!v || v.paused || v.seeking) return;
+      const truth = movieClipTime(position, clock), span = movieSpan(clock);
+      let off = Math.abs(v.currentTime - truth);
+      if (clock.mode !== "once") off = Math.min(off, span - off);
+      counters.drift = Math.max(counters.drift, off);
+      if (off > movieDriftS(clock) && now - this.resyncAt > RESYNC_COOLDOWN_MS) { this.resyncAt = now; this.seekTo(truth + 1e-3); counters.resyncs++; }
+      else this.target = v.currentTime;
+    }
+    private watch(clock: FluximgMovieClock, clip: ImageClip): void {
+      this.running = { clock, clip };
+      this.driftTimer ??= setInterval(() => {
+        const r = this.running;
+        if (!r || disposed) { this.unwatch(); return; }
+        const now = performance.now();
+        this.resync(r.clock.positionMs + now - r.clock.at, r.clock, now);
+      }, DRIFT_CHECK_MS);
+    }
+    private unwatch(): void {
+      this.running = null;
+      if (this.driftTimer !== undefined) { clearInterval(this.driftTimer); this.driftTimer = undefined; }
     }
     private clipFor(assetId: string, motion: FluximgSurfaceMotion): ImageClip | null {
       const m = images![assetId]?.manifest, clips = payload.imageClips;
@@ -233,7 +286,7 @@ export function payloadImageHost(payload: ExportPayload, options: { capture?: bo
       if (this.exact || !this.wantVisible) return Promise.resolve();
       return new Promise((resolve) => { this.waiters.push(resolve); this.landed(); });
     }
-    release(): void { clearTimeout(this.stall); this.hide(); this.lastRaw = -1; }
+    release(): void { clearTimeout(this.stall); this.unwatch(); this.hide(); this.lastRaw = -1; }
     dispose(): void {
       this.release();
       if (this.video) { this.video.removeAttribute("src"); this.video.load(); this.video.remove(); this.video = null; }
