@@ -268,6 +268,7 @@ panels past its edge could not be seen). Nothing else on the figure moves.
 | **w** | Position stamp | Where along depth or time the picture is |
 | **c** | Channel names | Each in its channel's colour |
 | **g** | Calibration bar | Each shown channel's colours from its black point to its white point, with both values |
+| **m** | Movie as MP4 | Beside each rail's Play key: what Play plays, written as a video file (see [below](#an-images-movie-as-a-file)) |
 
 A key that is on is lit. The four annotations are drawn as vectors on the image, and each one
 that is shown is a thing you can take hold of on the picture:
@@ -376,6 +377,35 @@ says what the step does and offers **Play through**, its **Pace** and **Blend pl
 **Start**, **Pause** and **Stop movie** with loop, bounce or once. Space plays a preview that
 changes nothing. Split channels and Inset work in Design only. The
 [Slides guide](../modes/slide.qmd#images) has the details.
+
+# An image's movie as a file
+
+Each rail's Play key has a **Movie as MP4** key beside it (**M** plays the rail in hand). It writes
+what Play would play as an MP4 video that PowerPoint, Keynote, a web browser and a journal's
+supplement all open: the image as it is drawn, with its frame, its channels and contrast, its
+layers and their styling, and its annotations, the time or depth stamp advancing with the frames.
+It plays at the data's own rate (a time axis in real time, anything else at 12 planes a second)
+times the speed dial's setting, through the whole dimension, once. On a slide it plays the image's
+movie range when the movie runs along that dimension, and at **Edit after step N** it shows the
+image as that step leaves it.
+
+Rest the pointer on the key and the board shows what it would write: the walk on the rail, and
+in the readout the number of frames, the length, the rate and the size ("412 frames · 34 s at
+12 fps · 1024×768"). Pressing it saves the project, asks where to put the file, and writes it in
+the background: the key's ring fills as the frames are written, the board keeps working, and
+pressing the key again stops it and leaves nothing behind. The readout then says where the file
+went.
+
+The movie has the image's own pixels (the frame you see, at one video pixel per image pixel),
+never smaller than the image's box on the canvas while it shows annotations, so their words stay
+as large as you see them, and at most 2160 pixels on its longest side. It uses H.264 with the same
+colour settings as slide videos. The command line writes the same file with more choices: another
+dimension or a part of it, bounce (there and back once), blending planes as a Change does, a
+speed, a rate and a size:
+
+```bash
+flux export-image-movie <element-id> --out stack.mp4 --dim t --from 0 --to 120 --speed 2 --scale 2
+```
 
 # The Inspector
 

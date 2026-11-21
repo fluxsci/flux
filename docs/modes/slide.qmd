@@ -973,7 +973,11 @@ or Microsoft 365; older versions show a plain fade.
 
 Pages and slides are exactly the stage's shape; PowerPoint slides are the standard 13.33-inch
 width. Videos show their poster frame in PDF and PowerPoint, and PDF pages show where
-animations end. Fonts that are not installed on the other computer (such as Gelasio) are
+animations end. An image that moves (a walk through its planes, a movie) is a still
+on each PDF and PowerPoint page: the picture its step ends on. To show the movie itself in
+PowerPoint or Keynote, write it as a file with the image board's **Movie as MP4** key (see
+[Images](../concepts/images.qmd#an-images-movie-as-a-file)) and insert the file there; the export
+says so when a deck has such an image. Fonts that are not installed on the other computer (such as Gelasio) are
 replaced by PowerPoint.
 
 **Video…** exports the **current slide** and all of its animation steps as one continuous
