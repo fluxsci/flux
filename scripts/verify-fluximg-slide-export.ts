@@ -322,6 +322,35 @@ try {
   }
 
   // ------------------------------------------------------------------------------------------------------------------
+  // Review (parts leftover 7d): a slide where a layer's objects appear one by one, through the real writers. Each step's
+  // page draws the objects born by then and leaves the unborn out.
+  h.section("J2. PDF and PowerPoint: objects that appear one by one");
+  {
+    await P.slidesCore.mutateDeck(P.root, "talk", "fixture", (d: any) => {
+      const s = d.slides[0], e = s.elements.find((x: any) => x.type === "fluximg");
+      s.beats = [s.beats[0],
+        { id: "o1", tracks: [{ id: "o1t", target: e.id, parts: ["cells/1", "cells/2"], preset: "fade", start: 0, duration: 400 }] },
+        { id: "o2", tracks: [{ id: "o2t", target: e.id, part: "layer:cells", preset: "fade", start: 0, duration: 400, stagger: { perMs: 100 } }] }];
+    });
+    const odeck = await P.slidesCore.loadDeck(P.root, "talk"), oslide = odeck.slides[0];
+    const keysIn = (svg: string) => { const g = /data-layer="cells"[^]*?<\/g>/.exec(svg)?.[0] ?? ""; return [...g.matchAll(/data-key="([^"]+)"/g)].map((m) => m[1]).sort(); };
+    const io = { readText: (p: string) => fs.readFile(p, "utf8"), readFile: (p: string) => fs.readFile(p), ...nodeSlideImageIO(P.root, session) };
+    const pdf = await deckPdfDocument(P.root, "talk", io as any, "steps");
+    const pages = pdf.html.split('<div class="page">').slice(1);
+    h.eq(pages.map(keysIn), [[], ["1", "2"], ["1", "2", "3", "4"]], "PDF steps: page k draws the objects born by step k (Design none, then 1 and 2, then all)");
+    const { payload: op } = await gatherSlidePayload(P.root, odeck, oslide.id, io as any);
+    const rasters: string[] = [];
+    await deckPptxBytes("Talk", [{ payload: op }], async (svg) => { rasters.push(svg); return new Resvg(svg).render().asPng(); }, undefined, "animated");
+    // (a step with no object born yet draws no group for the layer: its picture is found by the image's own mark)
+    const states = [...new Set(rasters.filter((x) => x.includes("data-fluximg")).map((x) => keysIn(x).join(",")))];
+    h.ok(["", "1,2", "1,2,3,4"].every((k) => states.includes(k)), `PPTX animated: its build pictures draw the born objects only (states: ${states.map((k) => `[${k}]`).join(" ")})`);
+    rasters.length = 0;
+    await deckPptxBytes("Talk", [{ payload: op }], async (svg) => { rasters.push(svg); return new Resvg(svg).render().asPng(); }, undefined, "final");
+    h.eq(keysIn(rasters.filter((x) => x.includes("data-fluximg")).at(-1) ?? ""), ["1", "2", "3", "4"], "PPTX final: the last step, every object");
+    await standardDeck(P);
+  }
+
+  // ------------------------------------------------------------------------------------------------------------------
   h.section("K. Paper: an image deck embeds; a missing bundle refuses the portable export");
   {
     const io = { readText: (p: string) => fs.readFile(p, "utf8"), readFile: (p: string) => fs.readFile(p), ...nodeSlideImageIO(P.root, session) };

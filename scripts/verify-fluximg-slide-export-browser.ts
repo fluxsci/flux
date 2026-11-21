@@ -285,6 +285,27 @@ try {
     }
   }
 
+  // Review (parts leftover 7d): the offline deck of a slide where a layer's objects appear one by one: at each step the
+  // objects born by then are shown and the unborn hidden.
+  {
+    h.section("objects that appear one by one, in the offline deck");
+    await standardDeck(P);
+    await P.slidesCore.mutateDeck(P.root, "talk", "fixture", (d: any) => {
+      const s = d.slides[0], e = s.elements.find((x: any) => x.type === "fluximg");
+      s.beats = [s.beats[0],
+        { id: "o1", tracks: [{ id: "o1t", target: e.id, parts: ["cells/1", "cells/2"], preset: "fade", start: 0, duration: 300 }] },
+        { id: "o2", tracks: [{ id: "o2t", target: e.id, part: "layer:cells", preset: "fade", start: 0, duration: 300, stagger: { perMs: 100 } }] }];
+    });
+    const out2 = await P.slidesCore.exportDeck(P.root, "talk", { refreshSources: false, out: path.join(P.scratch, "appear.html") });
+    await page.goto(pathToFileURL(out2.path).href); await page.waitForFunction("!!window.fluxDeck?.readyMedia"); await page.evaluate("window.fluxDeck.readyMedia()");
+    const shown = () => page.evaluate(`(() => { const r = document.querySelector('[data-slide-fluximg-root="${el.id}"]'); return [...r.querySelectorAll('[data-layer="cells"] [data-key]')].filter((n) => { let o = 1; for (let x = n; x && x !== r; x = x.parentElement) { const cs = getComputedStyle(x); if (cs.display === 'none' || cs.visibility === 'hidden' || x.getAttribute('display') === 'none') return false; o *= Number(cs.opacity); } return o > 0.5; }).map((n) => n.getAttribute('data-key')).sort(); })()`);
+    const seen: string[][] = [await shown()];
+    for (let k = 0; k < 2; k++) { await page.keyboard.press("ArrowRight"); await new Promise((r) => setTimeout(r, 900)); seen.push(await shown()); }
+    h.eq(seen, [[], ["1", "2"], ["1", "2", "3", "4"]], "Design shows no object, step 1 the two born, step 2 all of them");
+    await page.evaluate("window.fluxDeck.seek(0, 1, Infinity)"); await new Promise((r) => setTimeout(r, 150));
+    h.eq(await shown(), ["1", "2"], "a jump back to step 1 hides the objects born later");
+  }
+
   // Review C7: zero animation callbacks while nothing needs drawing. A clip the <video> loops natively needs none; an
   // overlay that names the plane (a stamp) is redrawn only at plane boundaries; a stills-only export runs nothing.
   {
