@@ -339,6 +339,8 @@ try {
         `export { transformPreState, transformEndState } from "./src/lib/slide/tween";`,
         `export { fluximgPartNode, partIndexFromTexts, imageToStage, applyMatrix } from "./src/lib/fluximg/parts";`,
         `export { lerpColor, parseColor } from "./src/lib/color/interp";`,
+        `export { pulsePeak } from "./src/lib/slide/growOrigin";`,
+        `export { imageObjectStageOutlines } from "./src/lib/slide/targetGeometry";`,
       ].join("\n") },
     });
     const server = createServer(async (req, res) => {
@@ -391,6 +393,7 @@ try {
       for (const name of ["popIn", "scaleIn", "pulse", "scale", "rotate", "popOut", "scaleOut"]) { const ref = name === "popIn" || name === "scaleIn" ? P(name).end : P(name).rest; h.ok(Math.abs(P(name).mid.x - ref.x) < 0.6 && Math.abs(P(name).mid.y - ref.y) < 0.6, `${name} pivots about the object's own centre (mid centre ${P(name).mid.x.toFixed(1)},${P(name).mid.y.toFixed(1)} = ${ref.x.toFixed(1)},${ref.y.toFixed(1)})`); }
       for (const name of ["fade", "fadeRise", "popIn", "scaleIn", "drawOn", "growBaseline", "writeOn", "highlight", "dim", "pulse", "encircle", "move", "scale", "rotate"]) h.ok(P(name).endOpacity > (name === "dim" ? 0.1 : 0.99), `${name}: the object is shown at its end (${(+P(name).endOpacity).toFixed(2)})`);
       for (const name of ["fadeOut", "popOut", "scaleOut", "drawOff", "wipeOut"]) { const e = P(name); h.ok(e.endOpacity < 0.01 || e.end.w < 0.01 || e.endState.visibility === "hidden" || e.endState.display === "none" || /100%/.test(e.endState.clip) || /^0(px)?,/.test(e.endState.dash) || (parseFloat(e.endState.dash) > 0 && Math.abs(parseFloat(e.endState.offset)) >= parseFloat(e.endState.dash) - 0.01), `${name}: the object has left at its end (${JSON.stringify(e.endState)}, opacity ${(+e.endOpacity).toFixed(2)}, width ${e.end.w.toFixed(2)})`); }
+      h.ok(Math.abs(r.pulse.got - r.pulse.own) < 0.02 * r.pulse.own && Math.abs(r.pulse.own - r.pulse.whole) > 0.05, `pulse on an image object peaks at the scale its OWN box asks (${r.pulse.got.toFixed(3)} = ${r.pulse.own.toFixed(3)}; the whole image's would be ${r.pulse.whole.toFixed(3)})`);
       h.ok(Math.abs(P("move").end.x - P("move").rest.x - 20) < 0.6, `move by 20 stage px moves the object 20 stage px (${(P("move").end.x - P("move").rest.x).toFixed(2)})`);
       h.ok(/\d/.test(String(P("drawOn").midState.dash)) && P("drawOn").midState.dash !== "none", `drawOn draws along the outline (mid dash ${P("drawOn").midState.dash})`);
       h.ok(Math.abs(r.rise.lift - 12) < 0.6, `fadeRise lifts an image object by its authored stage px (${r.rise.lift.toFixed(2)} of 12)`);
@@ -508,6 +511,13 @@ async function w8Page(D: { manifest: any; byPath: Record<string, string>; tableB
       await at3(i, 1, 400); const endN = shapeOf(), end = c3(endN);
       const endState = { visibility: getComputedStyle(endN).visibility, clip: getComputedStyle(endN.parentElement!).clipPath, dash: getComputedStyle(endN).strokeDasharray, offset: getComputedStyle(endN).strokeDashoffset, display: getComputedStyle(endN).display };
       out.presets.push({ preset, rest, mid, end, midState, endState, endOpacity: opacityOf(endN), sameNode: endN === n, errors: 0 });
+    }
+    // the pulse's peak: sized by the object's OWN stage box (its outline through the crop matrix), not the whole image's (review)
+    {
+      const i = PRESETS.indexOf("pulse"), e = sweep.slides[i].elements[0] as any;
+      const box = FX.imageObjectStageOutlines(e, index, ["discs/b"])[0]?.bbox;
+      const p = out.presets[i];
+      out.pulse = { got: p.mid.w / p.rest.w, own: FX.pulsePeak(undefined, box, sweep.stage), whole: FX.pulsePeak(undefined, { x: e.x, y: e.y, w: e.width, h: e.height }, sweep.stage) };
     }
     P3.destroy(); host3.dispose();
   }

@@ -547,6 +547,13 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           const boxes = new Map<string, { x: number; y: number; w: number; h: number }[]>();
           for (const o of partStageOutlines(trackCtx.element as never, ids, geometry)) if (o.owner.partId) boxes.set(o.owner.partId, [...(boxes.get(o.owner.partId) ?? []), o.bbox]);
           trackCtx.partBox = (node) => { const found = boxes.get(((node as unknown as { id?: string }).id ?? "").slice(prefix.length)); return found && unionRect(found) || undefined; };
+        } else if (effective === "pulse" && trackCtx.element?.type === "fluximg" && hasPartBinding(track)) {
+          // an image's object, likewise, by its OWN stage box (its outline through the image's crop matrix), never the whole image's
+          const el = trackCtx.element, index = imagePartsLookup(opts)?.(el.assetId);
+          if (index) {
+            const boxes = new Map(imageObjectStageOutlines(el, index, nodes.map(n => fluximgPartIdOf(n as never) ?? ""), opts).map(o => [o.owner.partId, o.bbox]));
+            trackCtx.partBox = (node) => boxes.get(fluximgPartIdOf(node as never) ?? "");
+          }
         }
         if (groupWord(track) === "group") {
           // the tracks of this cue that start together on whole elements with the same word move about ONE point (manim animates a VGroup about its centre)
