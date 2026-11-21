@@ -489,6 +489,7 @@
       "verify-fluximg-files.ts",
       "verify-fluximg-model.ts",
       "verify-fluximg-gl.ts",
+      "verify-fluximg-slide-player.ts",
       "verify-fluximg-import.ts",
       "verify-fluximg-export.ts",
       "verify-fluximg-live.ts",
@@ -696,6 +697,7 @@
       "verify-fluximg-inspector.mjs",
       "verify-fluximg-object-style-gui.mjs",
       "verify-fluximg-slide-place-gui.mjs",
+      "verify-fluximg-slide-player-gui.mjs",
       "verify-fluximg-live-gui.mjs"
     ],
     "ui-extra": [
@@ -1676,6 +1678,7 @@
       "verify-fluximg-files.ts",
       "verify-fluximg-model.ts",
       "verify-fluximg-gl.ts",
+      "verify-fluximg-slide-player.ts",
       "verify-fluximg-import.ts",
       "verify-fluximg-place-gui.mjs",
       "verify-fluximg-export.ts",
@@ -1683,6 +1686,7 @@
       "verify-fluximg-inspector.mjs",
       "verify-fluximg-object-style-gui.mjs",
       "verify-fluximg-slide-place-gui.mjs",
+      "verify-fluximg-slide-player-gui.mjs",
       "verify-fluximg-live.ts",
       "verify-fluximg-view-tween.ts",
       "verify-fluximg-object-style.ts",
@@ -1696,6 +1700,7 @@
       "verify-fluximg-files.ts",
       "verify-fluximg-model.ts",
       "verify-fluximg-gl.ts",
+      "verify-fluximg-slide-player.ts",
       "verify-fluximg-import.ts",
       "verify-fluximg-export.ts",
       "verify-fluximg-live.ts",
@@ -1709,6 +1714,7 @@
       "verify-fluximg-inspector.mjs",
       "verify-fluximg-object-style-gui.mjs",
       "verify-fluximg-slide-place-gui.mjs",
+      "verify-fluximg-slide-player-gui.mjs",
       "verify-fluximg-live-gui.mjs"
     ]
   },
@@ -12767,6 +12773,17 @@
       "exclusive": true,
       "coverage": "behavior"
     },
+    "verify-fluximg-slide-player.ts": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "chrome"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 300000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
     "verify-fluximg-import.ts": {
       "runtime": "tsx",
       "prerequisites": [],
@@ -12830,6 +12847,17 @@
       "coverage": "behavior"
     },
     "verify-fluximg-slide-place-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 240000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-fluximg-slide-player-gui.mjs": {
       "runtime": "tsx",
       "prerequisites": [
         "server"
