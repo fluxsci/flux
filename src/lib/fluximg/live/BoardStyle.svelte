@@ -256,6 +256,7 @@
         <span class="cat" data-fxb-style-cat={e.label} onpointerenter={() => lightKeys(e.keys)}><i style={`background:${e.color}`}></i>{e.label}<b>{e.count}</b></span>
       {/each}
       {#if cats.length > 24}<span class="cat more">+{cats.length - 24}</span>{/if}
+      {#if legend?.color?.kind === "category" && legend.color.repeats}<span class="cat more" data-fxb-style-repeats>colours repeat: more values than colours</span>{/if}
     </div>
   {/if}
 
