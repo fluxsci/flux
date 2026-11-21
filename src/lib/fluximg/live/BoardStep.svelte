@@ -39,7 +39,7 @@
 <div class="stepcard" class:design={card.design} style={`width:${width}px`} bind:offsetHeight={h} data-fxb-step={card.design ? "design" : String(card.index)} onpointerdown={stop} ondblclick={stop}>
   <div class="l1">
     <span class="ttl">{card.design ? "Design" : `Step ${card.index}`}</span>
-    {#if !card.design && card.durationMs !== null && card.change}<span class="dur" data-fxb-step-duration>{seconds(card.durationMs)}{#if card.pace !== null}<i> · real time{card.pace !== 1 ? ` ${speedWords(card.pace)}` : ""}</i>{/if}</span>{/if}
+    {#if !card.design && card.durationMs !== null && card.change}<span class="dur" data-fxb-step-duration>{seconds(card.durationMs)}{#if card.pace !== null}<i>{` · real time${card.pace !== 1 ? ` ${speedWords(card.pace)}` : ""}`}</i>{/if}</span>{/if}
   </div>
   <div class="words" data-fxb-step-words>
     {#if card.design}<span class="quiet">the resting view · choose a step to animate</span>

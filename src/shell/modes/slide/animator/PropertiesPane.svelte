@@ -718,7 +718,7 @@
       <label class="f">Object
         <select aria-label="Animation target" value={curTrack.target} onchange={e => retarget(e.currentTarget.value)}>
           {#if !curTargetEl}<option value={curTrack.target}>Missing object</option>{/if}
-          {#each slide.elements.filter(e => !allMedia || e.type === "video") as e (e.id)}<option value={e.id}>{refLabel({ element: e.id }, slide, manifestFor)}</option>{/each}
+          {#each slide.elements.filter(e => !allMedia || e.type === "video" || e.type === "fluximg") as e (e.id)}<option value={e.id}>{refLabel({ element: e.id }, slide, manifestFor)}</option>{/each}
         </select>
       </label>
       {#if curTargetEl?.type === "plot" && curFamily !== "transform"}
