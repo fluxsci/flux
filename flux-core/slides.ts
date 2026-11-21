@@ -1500,7 +1500,13 @@ export async function gatherDeckPayload(
   root: string,
   deckId: string,
   slideId?: string,
-  opts: { refreshSources?: boolean; videoUrl?: import("../src/lib/slide/payload").SlidePayloadIO["videoUrl"] } = {},
+  opts: {
+    refreshSources?: boolean; videoUrl?: import("../src/lib/slide/payload").SlidePayloadIO["videoUrl"];
+    /** Where a baked image clip goes: a capture host copies the file and names it by URL; absent = base64 inline. */
+    imageClipUrl?: (file: string, clip: { key: string }) => Promise<string>;
+    signal?: AbortSignal;
+    onImageClip?: (progress: { frame: number; total: number }) => void;
+  } = {},
 ): Promise<{ payload: ExportPayload; warnings: string[] }> {
   const sourceWarnings: string[] = [];
   if (opts.refreshSources !== false && await exists(safeJoin(root, "fig/index.json"))) {
@@ -1533,6 +1539,8 @@ export async function gatherDeckPayload(
     deck.assets = deck.assets.filter(asset => used.has(asset.id));
   }
   const result = await gatherPayload(root, deck, { readText: p => fs.readFile(p, "utf8"), readFile: p => fs.readFile(p), readModelFile: p => boundedModelFile(p, GLB_LIMITS.maxBytes, root), videoUrl: opts.videoUrl,
+    // Images: the reference renderer in Node for stills, the pinned encoder for clips (fluximgClip.ts).
+    ...(deck.slides.some(s => s.elements.some(e => e.type === "fluximg")) ? await nodeImageIO(root, opts) : {}),
     // Letters of text ↔ shape Becomes: the SAME resolver the app's fonts:lookup uses.
     glyphFont: async style => (await lookupFont(style, { cacheFile: path.join(userDataDir(), "fonts-index.json") })).bytes,
     modelPoster: async (request, relative) => {
@@ -1544,6 +1552,24 @@ export async function gatherDeckPayload(
       const url = rendered.urls[request.ref]; if (!url) throw new Error("3D poster could not be rendered"); return url;
     } });
   return { ...result, warnings: [...sourceWarnings, ...result.warnings] };
+}
+
+/** The image half of the payload IO in Node: stills by the reference renderer, clips baked by the pinned encoder
+ *  (none installed: stills and one warning, `ImageClipUnavailable`). Loaded only for decks that hold an image. */
+export async function nodeImageIO(root: string, opts: { imageClipUrl?: (file: string, clip: { key: string }) => Promise<string>; signal?: AbortSignal; onImageClip?: (progress: { frame: number; total: number }) => void }): Promise<Partial<import("../src/lib/slide/payload").SlidePayloadIO>> {
+  const { fluximgRenderSession, nodeSlideImageIO } = await import("./fluximgRender");
+  const session = fluximgRenderSession();
+  let encoder: Promise<{ path: string; identity: string } | null> | undefined;
+  return {
+    ...nodeSlideImageIO(root, session),
+    imageClip: async (asset, request, ease) => {
+      const { bakeImageClip, imageClipEncoder } = await import("./fluximgClip");
+      encoder ??= imageClipEncoder();
+      const baked = await bakeImageClip(root, asset, request, ease, { session, encoder: await encoder, signal: opts.signal, onProgress: opts.onImageClip });
+      const url = opts.imageClipUrl ? await opts.imageClipUrl(baked.file, baked) : `data:video/mp4;base64,${(await fs.readFile(baked.file)).toString("base64")}`;
+      return { url, fps: baked.fps, frames: baked.frames, durationMs: baked.durationMs, width: baked.width, height: baked.height, ...(baked.loop ? { loop: true } : {}) };
+    },
+  };
 }
 
 /** export-deck: gather + emit the self-contained .html (defaults to

@@ -6,7 +6,42 @@
  * through `SlideRenderCtx`. A player without a host never allocates GPU and shows each image as its still.
  */
 import type { FluximgManifest, FluximgTable } from "./types";
-import type { TweenPicture, ViewTweenFrame } from "./viewTween";
+import type { TweenPicture, ViewTweenFrame, ViewTweenPlan } from "./viewTween";
+
+/**
+ * The Change a frame belongs to, as the player knows it (optional 5th argument of `FluximgSurface.draw`). A live host
+ * draws the frame itself and ignores it; a host that plays BAKED clips (the exported deck: no decoder) finds the clip
+ * of this Change by it (`clipPlan.clipLookupKey`) and the clip time by `raw`.
+ */
+export interface FluximgSurfaceMotion {
+  /** The Change (absent when only a movie drives the frame). */
+  plan?: ViewTweenPlan;
+  /** Linear progress of the Change, 0..1. */
+  raw?: number;
+  /** A running image movie (plan D7) overriding `index[movie.dim]` of this frame: its pure clock, so a host playing
+   *  baked clips plays the movie's own clip natively from the same clock. */
+  movie?: FluximgMovieClock;
+  track?: string;
+  durationMs?: number;
+  /** `ResolvedCurve.key` of the track. */
+  curve?: string;
+  blend?: boolean;
+}
+
+/** Where an image movie stands (`mediaTimeline.playbackPlane` maps it to a plane), sampled at `at` (performance.now). */
+export interface FluximgMovieClock {
+  dim: string;
+  mode: "loop" | "bounce" | "once";
+  /** Planes `from` (inclusive) to `to` (exclusive), each `periodMs` long (speed applied). */
+  from: number;
+  to: number;
+  periodMs: number;
+  /** ms since Start, at `at`. */
+  positionMs: number;
+  /** True while the movie's clock runs (Start, not paused by Pause, the player or the document). */
+  running: boolean;
+  at: number;
+}
 
 export interface FluximgSlideHost {
   /** The image's manifest when it is already known (sync), else undefined; `need` loads it. */
@@ -39,13 +74,17 @@ export interface FluximgSurface {
    * are still decoding, in which case the canvas keeps the newest complete earlier frame (D4: never a blend of
    * planes the frame did not ask for, never a blank).
    */
-  draw(assetId: string, frame: ViewTweenFrame, outWidth: number, outHeight: number): boolean;
+  draw(assetId: string, frame: ViewTweenFrame, outWidth: number, outHeight: number, motion?: FluximgSurfaceMotion): boolean;
   /** The canvas the surface draws on now (the binding's, or the one that replaced it in the same place). */
   readonly canvas: HTMLCanvasElement;
   /** Make the surface's own GL context now, ahead of its first frame (idle time); a no-op when no slot is free. */
   prepare(): void;
-  /** True once any frame has reached the canvas since the last `release`. */
+  /** True once any frame has reached the canvas since the last `release`. A surface may hand the picture back to the
+   *  still (false again): the binding then shows the still of the frame it asked for. */
   readonly shown: boolean;
+  /** A surface that plays baked clips is told the clock of EVERY frame a Change drives it, even when the picture is the
+   *  same as the last one (it keeps its decoder in step with the clock). Absent: draw only when the picture changes. */
+  readonly clocked?: boolean;
   /** True when the last frame passed to `draw()` is exactly on the canvas (it may land after `draw` returned false). */
   readonly exact: boolean;
   /** Capture: resolves when the last frame passed to `draw()` is exactly on the canvas. */

@@ -8,6 +8,7 @@ import { figureToSvg } from "../export";
 import { compileSlide, type CompiledSlide, type SlideFrame } from "./compile";
 import { remapBecomeTarget } from "./handoffTargets";
 import { resolveTheme } from "./theme";
+import { payloadImageSvgContext } from "./imageExport";
 import type { PlayerOpts } from "./player/player";
 
 const xml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
@@ -111,7 +112,10 @@ export function renderSlidePosterSvg(payload: ExportPayload, step = 0): string {
     width: ev.stage.width, height: ev.stage.height, background: "transparent", elements: ev.elements, groups: ev.groups };
   const models = staticModelContext(payload, ev.partStates);
   fig.elements = fig.elements.map(el => staticModelElement(el, ev.slide));
-  let svg = figureToSvg(fig, id => payload.assets?.[id], ev.plotMarkup, id => payload.assetSizes?.[id], { model3d: models });
+  // Images: each step's still from the payload, keyed by the request the composer computes for the sampled element;
+  // their vector layers and furniture stay vectors. Absent without images (the options object is unchanged then).
+  const images = payloadImageSvgContext(payload, fig.elements);
+  let svg = figureToSvg(fig, id => payload.assets?.[id], ev.plotMarkup, id => payload.assetSizes?.[id], images ? { model3d: models, fluximg: images } : { model3d: models });
   const { width: w, height: h } = ev.stage;
   const c = ev.camera, camera = c ? `translate(${w / 2} ${h / 2}) scale(${c.zoom}) translate(${-c.x} ${-c.y})` : "";
   const start = svg.indexOf(">") + 1, end = svg.lastIndexOf("</svg>");

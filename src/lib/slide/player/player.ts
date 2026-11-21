@@ -407,7 +407,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           modelPoster: opts.modelPoster, pixelScale: opts.pixelScale,
           ...(preEl.type === "fluximg" ? {
             fluximg: opts.fluximg, fluximgManifest: opts.fluximgManifest, fluximgStill: opts.fluximgStill, fluximgLayerText: opts.fluximgLayerText, fluximgLut: opts.fluximgLut,
-            fluximgBlend: presetParam<boolean>(track, "blend", "transform") === true, fluximgEase: ct.ease.fn,
+            fluximgBlend: presetParam<boolean>(track, "blend", "transform") === true, fluximgEase: ct.ease.fn, fluximgTrack: track.id, fluximgCurve: ct.ease.key,
           } : {}),
           plotRoot: opts.plotRoot, plotManifest: opts.plotManifest, contentHost: contentRoots.get(track.target),
           ghostPartFactors: opts.ghostPartFactors, durationMs: ct.duration, glyphs: glyphProvider,

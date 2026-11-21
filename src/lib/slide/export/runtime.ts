@@ -1,4 +1,5 @@
 import { payloadModelHost, payloadModelContext } from "./model3dPayloadHost";
+import { imageRuntime } from "./imageRuntime";
 // ---------------------------------------------------------------------------
 // Flux Slide — the EXPORT runtime (§7.1). The one entry esbuild bundles into a
 // single IIFE inlined in the portable .html. It boots the SAME framework-agnostic
@@ -41,6 +42,11 @@ export interface ExportPayload {
    *  the characters that take part in a text ↔ shape Become: the offline file
    *  cannot read system fonts, so letters fly from these. */
   glyphs?: Record<string, BakedGlyphFont>;
+  /** Images (fluximg) by asset id: trimmed manifest, layer texts, tables, colour tables (slide/imageExport.ts). Their
+   *  stills ride in `assets` under `fluximg:` keys; the decoder never runs in an exported document. */
+  images?: Record<string, import("../imageExport").ExportImage>;
+  /** One baked MP4 per image Change that moves pixels, by `clipPlan.clipLookupKey`. */
+  imageClips?: Record<string, import("../../fluximg/clipPlan").ImageClip>;
 }
 
 export function boot(mount: HTMLElement, payload: ExportPayload): Player {
@@ -95,13 +101,20 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
   let reducedMotion = false;
   let player: Player;
   let modelHost: ReturnType<typeof payloadModelHost>;
+  // Images: stills and baked clips from the payload (no decoder in an exported document); undefined without images.
+  const images = imageRuntime();
+  let imageHost: ReturnType<NonNullable<typeof images>["payloadImageHost"]>;
+  const imageStatics = images?.payloadImageContext(payload) ?? {};
   function buildPlayer(at: { slide: number; beat: number }) {
     player?.destroy();
     modelHost?.dispose();
+    imageHost?.dispose();
     modelHost = payloadModelHost(payload);
+    imageHost = images?.payloadImageHost(payload);
     player = createPlayer(host, deck, {
       mode: "export",
       ...payloadModelContext(payload), model3d: modelHost,
+      ...(imageHost ? images!.payloadImageContext(payload, imageHost) : {}),
       pixelScale: () => Math.min(window.innerWidth / deck.stage.width, window.innerHeight / deck.stage.height),
       theme,
       assetUrl: (id) => payload.videos?.[id] ?? payload.assets?.[id],
@@ -153,7 +166,7 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
       const inner = document.createElement("div");
       inner.style.cssText = `position:relative;width:${deck.stage.width}px;height:${deck.stage.height}px;`;
       nextScaled.appendChild(inner);
-      try { renderStaticAt(inner, deck.slides[pm.nextIdx], deck.stage, Math.max(0, deck.slides[pm.nextIdx].beats.length - 1), { mode: "export", theme, animStyles: deck.animStyles, assetUrl: (id) => payload.assets?.[id], assetSize: (id) => payload.assetSizes?.[id], plotManifest: (id) => get(plotManifests)[id], ...payloadModelContext(payload), deckBackground: deck.background }); } catch (_e) { /* preview best-effort */ }
+      try { renderStaticAt(inner, deck.slides[pm.nextIdx], deck.stage, Math.max(0, deck.slides[pm.nextIdx].beats.length - 1), { mode: "export", theme, animStyles: deck.animStyles, assetUrl: (id) => payload.assets?.[id], assetSize: (id) => payload.assetSizes?.[id], plotManifest: (id) => get(plotManifests)[id], ...payloadModelContext(payload), ...imageStatics, deckBackground: deck.background }); } catch (_e) { /* preview best-effort */ }
       frame.appendChild(nextScaled);
       panel.appendChild(frame);
     }
@@ -245,6 +258,7 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
       state: () => player.state(),
       rasterBakes: () => player.rasterBakes(), settleRaster: () => player.settleRaster(),
       readyMedia: () => player.readyMedia(),
+      imageClips: () => imageHost?.stats(),
       slideCount: deck.slides.length,
       beatsOf: (s: number) => deck.slides[s]?.beats.length ?? 0,
     };

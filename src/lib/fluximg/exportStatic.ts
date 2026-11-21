@@ -21,7 +21,8 @@ import type { FluximgElement } from "./element";
 import type { FluximgManifest, FluximgTable } from "./types";
 import type { FluximgView, PixelRect, ResolvedView } from "./view";
 import { pixelKey, resolveView } from "./viewOps";
-import { clampCrop, stillSize } from "./still";
+// crop.ts, never still.ts: the exported deck's runtime reaches this module, and still.ts pulls the reader and renderer.
+import { clampCrop, stillSize } from "./crop";
 import { fluximgIdPrefix, fluximgStaticSvg, insetsOf, layerSvgPath, layerTablePath, wantsTable } from "./static";
 import { colormapLut, ensureColormapLuts } from "../color/colormapLuts";
 import { escapeXml, sanitizeLayerSvg } from "./layers";

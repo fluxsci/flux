@@ -34,7 +34,7 @@ export interface MediaController {
 /** How often (ms) a running movie asks for the planes ahead of it, and how many. */
 const AHEAD_EVERY_MS = 120, AHEAD_PLANES = 8;
 
-interface Movie { id: string; playback: ResolvedPlayback; running: boolean; started: boolean; position: number; origin: number; shown: number | null }
+interface Movie { id: string; playback: ResolvedPlayback; running: boolean; started: boolean; position: number; origin: number; shown: number | null; shownRunning?: boolean }
 
 /** Images of the slide that take a movie command, or none (then the player builds nothing). */
 export function slideMovieTargets(slide: Slide, resolvedTracks?: readonly (readonly Track[])[]): string[] {
@@ -69,12 +69,16 @@ export function createFluximgMovieController(root: HTMLElement, slide: Slide, ct
   };
   /** Put the plane the movie stands on (or the state's own plane once stopped) on its image, and draw that image alone
    *  (the binding's media hook: an index override composed with whatever frame it shows, flushed outside paint()). */
-  function show(m: Movie, plane: number | null): void {
-    if (m.shown === plane) return;
-    m.shown = plane;
+  function show(m: Movie, plane: number | null, force = false): void {
+    // A host that plays baked clips follows the movie's clock, so a change of its running state, and a jump of its
+    // position (`force`: a command, a seek), are news too (W7).
+    const running = m.running && !pauseReasons.size;
+    if (!force && m.shown === plane && m.shownRunning === running) return;
+    m.shown = plane; m.shownRunning = running;
     const b = bindingOf(m.id);
     if (!b) return;
-    b.setIndexOverride(plane === null ? null : { dim: m.playback.dim, index: m.playback.from + plane });
+    const now = performance.now(), p = m.playback;
+    b.setIndexOverride(plane === null ? null : { dim: p.dim, index: p.from + plane, clock: { dim: p.dim, mode: p.mode, from: p.from, to: p.to, periodMs: p.periodMs, positionMs: positionNow(m, now), running, at: now } });
     b.flush();
   }
   /** Decode ahead the way the movie is going, at a low rate (never per frame). */
@@ -113,9 +117,9 @@ export function createFluximgMovieController(root: HTMLElement, slide: Slide, ct
     const m = movie(event.target);
     if (!m) return;
     const now = performance.now();
-    if (event.command === "videoStart") { m.running = true; m.started = true; m.position = Math.max(0, lateMs); m.origin = now; show(m, 0); }
-    else if (event.command === "videoPause") { m.position = positionNow(m, now); m.running = false; }
-    else { m.running = false; m.started = false; m.position = 0; show(m, null); }
+    if (event.command === "videoStart") { m.running = true; m.started = true; m.position = Math.max(0, lateMs); m.origin = now; show(m, 0, true); }
+    else if (event.command === "videoPause") { m.position = positionNow(m, now); m.running = false; if (m.shown !== null) show(m, m.shown, true); }
+    else { m.running = false; m.started = false; m.position = 0; show(m, null, true); }
     onChange();
   }
   /** Sample every movie at an absolute clock position (seek and capture: exact, from the pure clock). */
@@ -127,7 +131,7 @@ export function createFluximgMovieController(root: HTMLElement, slide: Slide, ct
       m.running = s.running; m.started = s.started; m.origin = performance.now();
       // the position the pure clock stands on (a running movie continues from there when the player resumes)
       m.position = s.started ? mediaFold(events, id, at).timeMs : 0;
-      show(m, s.started ? s.plane : null);
+      show(m, s.started ? s.plane : null, true);
     }
   }
   return {
@@ -146,6 +150,8 @@ export function createFluximgMovieController(root: HTMLElement, slide: Slide, ct
     pause(paused, reason = "player") {
       if (paused) { freeze(); pauseReasons.add(reason); }
       else { pauseReasons.delete(reason); if (reason === "player") pauseReasons.delete("seek"); const now = performance.now(); if (!pauseReasons.size) for (const m of movies.values()) m.origin = now; }
+      // The images learn the new running state (a no-op unless it changed: a host playing baked clips pauses its video).
+      for (const m of movies.values()) if (m.started && m.shown !== null) show(m, m.shown);
       schedule(); onChange();
     },
     seek(beat, time, fromBeat = beat) {

@@ -1,6 +1,9 @@
 import { staticModelElement, staticModelContext } from "../staticModels";
 import { model3dStaticSvg } from "../../model3d/static";
+import { fluximgElementMarkup } from "../../fluximg/exportStatic";
+import { payloadImageSvgContext, payloadImagesMove, IMAGE_STILL_NOTE } from "../imageExport";
 import { slideModelPosterIO } from "../model3dPosterIO";
+import { slideImageStillIO } from "../imageStillIO";
 // Slide deck -> PowerPoint .pptx (2026-09-24, owner request: "export slides
 // in pptx too; vector images remain vector, so you can edit the single
 // elements").
@@ -348,6 +351,20 @@ async function elementXml(ctx: SlideContext, el: Element): Promise<string | null
       const id = await ctx.media(`3d ${svg}`, async () => ({ bytes: png, ext: "png" }));
       return picXml(ctx, el, el.x, el.y, el.width, el.height, el.rotation, `<a:blip r:embed="${id}"/>`);
     }
+    case "fluximg": {
+      // One picture per image at 2x (the model3d rule): the step's still with its vector layers and furniture
+      // rasterised over it, since a slide picture cannot hold both.
+      const images = payloadImageSvgContext(ctx.payload, ctx.ev.elements);
+      const composed = fluximgElementMarkup({ ...el, x: 0, y: 0 }, images);
+      if (!images || !composed.includes("data:image/png")) {
+        const note = `Slide ${ctx.source}: image "${el.name || el.id}" has no rendered still for this build state; showing its frame`;
+        if (!ctx.warnings.includes(note)) ctx.warnings.push(note);
+      }
+      const svg = standaloneSvg(composed, el.width, el.height);
+      const png = await ctx.rasterize(svg, Math.max(1, Math.round(el.width * 2)), Math.max(1, Math.round(el.height * 2)));
+      const id = await ctx.media(`fx ${svg}`, async () => ({ bytes: png, ext: "png" }));
+      return picXml(ctx, el, el.x, el.y, el.width, el.height, el.rotation, `<a:blip r:embed="${id}"/>`);
+    }
     default: return vectorFallbackXml(ctx, el);
   }
 }
@@ -413,6 +430,7 @@ export async function deckPptxBytes(title: string, slides: DeckPptxSlide[], rast
 
   const plan: { page: PptxPage; payload: ExportPayload; source: number }[] = [];
   if (slides.some((s) => (s.payload.deck.assets ?? []).some((a) => a.kind === "glb"))) warnings.push(MODEL_STILL_NOTE);
+  if (slides.some((s) => payloadImagesMove(s.payload))) warnings.push(IMAGE_STILL_NOTE);
   for (const [i, s] of slides.entries()) {
     try {
       for (const page of pptxPages(s.payload, pages, i + 1)) plan.push({ page, payload: s.payload, source: i + 1 });
@@ -570,7 +588,8 @@ export const domMeasure: MeasureSvg = async (svg, width, height) => {
  *  poster frame, so the movie itself is never read. */
 export async function deckPptxDocument(root: string, deckId: string, io: import("../payload").SlidePayloadIO, rasterize: Rasterize, measure?: MeasureSvg, pages: PptxPages = "animated"): Promise<DeckPptxResult> {
   const { readEmbedDeck, gatherSlidePayload } = await import("../payload");
-  const staticIO = { ...slideModelPosterIO(root, io), videoUrl: async () => "", modelData: "omit" as const };
+  // Images: each step's still through the window's image service; a page never carries a movie.
+  const staticIO = slideImageStillIO(root, { ...slideModelPosterIO(root, io), videoUrl: async () => "", modelData: "omit" as const });
   const deck = await readEmbedDeck(root, deckId, staticIO);
   const slides: DeckPptxSlide[] = [];
   const warnings: string[] = [];

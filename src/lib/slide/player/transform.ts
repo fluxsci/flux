@@ -95,6 +95,10 @@ export interface TransformCtx extends SlideRenderCtx {
    *  samples the path the clock will take). */
   fluximgBlend?: boolean;
   fluximgEase?: (raw: number) => number;
+  /** The track's id and its curve's key (`ResolvedCurve.key`): with `durationMs`, a host that plays BAKED clips (the
+   *  exported deck) finds the clip of this Change by them. The live host ignores them. */
+  fluximgTrack?: string;
+  fluximgCurve?: string;
 }
 
 /** The wrapper's local CSS frame in stage px for a frame of state `el`: where its
