@@ -10,7 +10,7 @@ import type { FluximgManifest, FluximgTable } from "./types";
 import type { FluximgView } from "./view";
 import { positionDims } from "./viewOps";
 import { hexToRgb } from "./lut";
-import { columnKind } from "./objectStyle";
+import { DEFAULT_PALETTE, categoriesOf, columnKind } from "./objectStyle";
 
 const MODES = ["max", "mean", "min", "sum", "std"];
 const CORNERS = ["bottom-right", "bottom-left", "top-right", "top-left"];
@@ -164,7 +164,11 @@ export function checkViewPatch(manifest: FluximgManifest, patch: unknown, option
         if (table && typeof c.column === "string" && Array.isArray(table.columns[c.column])) {
           const kind = columnKind(table.columns[c.column]);
           if (kind === "category" && (c.lut != null || c.range != null)) warnings.push(`${w}.color: column "${c.column}" is categorical; its values take palette colours, so "lut" and "range" do not apply`);
-          if (kind === "empty") warnings.push(`${w}.color: column "${c.column}" has no values, so every object is drawn as "missing"`);
+          if (kind === "empty") problems.push(`${w}.color.column: column "${c.column}" has no values to colour by`);
+          const pal = Array.isArray(c.palette) && c.palette.length ? c.palette.length : DEFAULT_PALETTE.length;
+          const categorical = kind === "category" || (kind === "number" && Array.isArray(c.palette) && c.palette.length > 0 && c.lut == null);
+          const n = categorical ? categoriesOf(table.columns[c.column]).length : 0;
+          if (n > pal) warnings.push(`${w}.color: column "${c.column}" has ${n} values but the palette ${pal} colours, so some values share a colour (the key says so)`);
         }
       }
     }
@@ -220,8 +224,9 @@ export function checkViewPatch(manifest: FluximgManifest, patch: unknown, option
       item("colorbar", ["corner", "color", "fontSize"]);
       const ky = item("key", ["layer", "corner", "fontSize", "color"]);
       if (ky && ky.layer !== undefined && ky.layer !== null) {
-        const objects = manifest.layers.filter((l) => l.kind !== "intensity").map((l) => l.id);
-        if (typeof ky.layer !== "string" || !objects.includes(ky.layer)) problems.push(`furniture.key.layer: ${JSON.stringify(ky.layer)} is not a vector or label layer (this image has ${list(objects)})`);
+        // The key explains a layer styled by its table: only a layer with a table can be.
+        const withTable = manifest.layers.filter((l) => l.kind === "labels" || (l.kind === "vector" && !!l.table)).map((l) => l.id);
+        if (typeof ky.layer !== "string" || !withTable.includes(ky.layer)) problems.push(`furniture.key.layer: ${JSON.stringify(ky.layer)} is not a layer with a table (this image has ${list(withTable)})`);
       }
       const nm = item("names", ["layers", "fontSize"]);
       if (nm && nm.layers !== undefined) {

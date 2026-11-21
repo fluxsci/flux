@@ -87,13 +87,50 @@ async function rowKey(id) {
   await page.mouse.move(row.x + 20, row.cy);
   await waitFor(page, (id) => { const e = document.querySelector(`[data-fxb-key='${id}']`); return !!e && e.getBoundingClientRect().width > 0; }, id, { label: `the row's ${id} key` });
   const k = await rect(`[data-fxb-key='${id}']`);
-  await page.mouse.move(k.cx, k.cy);
+  await page.mouse.move(k.cx, k.cy, { steps: 3 });
   await page.mouse.click(k.cx, k.cy);
   await waitForFrame(page);
 }
+/** Give the layers card the keyboard (d) and walk its cursor to a layer's row. */
+async function cardTo(layerId) {
+  await page.mouse.move(10, 900, { steps: 2 });
+  if (!(await page.$("[data-fxb-layers].keys"))) await press("d");
+  for (let i = 0; i < 12; i++) {
+    const at = await page.evaluate(() => document.querySelector("[data-fxb-layers] .row.sel")?.getAttribute("data-rid"));
+    if (at === `layer:${layerId}`) return;
+    await press("ArrowDown");
+  }
+  throw new Error(`the card's cursor never reached ${layerId}`);
+}
+const preview = () => page.evaluate(() => { const F = window.__flux; return structuredClone(F.get(F.fluximg.live.fluximgStylePreview)); });
+/** How much styling work the app did, and which of this image's tables it read (A1). */
+const work = () => page.evaluate(async (id) => {
+  const F = window.__flux, os = await import("/src/lib/fluximg/objectStyle.ts"), ot = await import("/src/lib/fluximg/live/objectTables.ts");
+  let t = {}; ot.fluximgTables.subscribe((v) => (t = v))();
+  const el = F.figures().flatMap((f) => f.elements).find((e) => e.id === id);
+  return { summaries: os.styleWork?.summaries ?? NaN, tables: Object.keys(t).filter((k) => k.startsWith(`${el.assetId}|`)).length };
+}, ID);
+const viewChanges = async (n) => { for (let i = 0; i < n; i++) { await page.evaluate(({ id, i }) => { window.__flux.fig.commit((p) => { const el = p.figures[0].elements.find((e) => e.id === id); el.view = { ...(el.view ?? {}), channels: [{ range: [1 + i * 0.1, 30] }] }; }); }, { id: ID, i }); await waitForFrame(page); } };
 const colKey = (part, col) => `[data-fxb-style='${part}:footprints'] [data-fxb-style-col='${col}']`;
 
 try {
+  h.section("0. selecting an unstyled image reads no table; view changes sum no columns (A1)");
+  {
+    await page.evaluate((id) => { document.activeElement?.blur?.(); window.__flux.fig.selectOnly(id); }, ID);
+    await waitFor(page, () => !!document.querySelector('.inspector [data-fluximg-inspector="layers"]'), null, { label: "the Inspector's layers", timeout: 15000 });
+    await sleep(200);
+    const w0 = await work();
+    await viewChanges(30);
+    const w1 = await work();
+    h.ok(w1.tables === 0 && w1.summaries === w0.summaries, `selected and changed 30 times (a contrast drag): no table read, no columns summed (tables ${w1.tables}, summaries +${w1.summaries - w0.summaries})`);
+    await page.click(".inspector [data-fluximg-style-open='footprints']");
+    await waitFor(page, () => document.querySelectorAll(".inspector [data-fluximg-style-color] option").length >= 3, null, { label: "the Inspector's columns", timeout: 5000 });
+    const w2 = await work();
+    await viewChanges(30);
+    const w3 = await work();
+    h.ok(w2.tables === 1 && w2.summaries - w1.summaries === 1 && w3.summaries === w2.summaries, `asked for ("Style by a column"): its table read once and summed once; 30 more view changes sum nothing (+${w3.summaries - w2.summaries})`);
+    await page.evaluate((id) => { const F = window.__flux; F.fig.commit((p) => { p.figures[0].elements.find((e) => e.id === id).view = {}; }); F.fig.resetHistory(); }, ID);
+  }
   await openLive();
   h.section("A. the row's keys open the columns, with pictures");
   {
@@ -111,17 +148,17 @@ try {
   {
     const m0 = await model();
     const k = await rect(colKey("color", "dendrite"));
-    await page.mouse.move(k.cx, k.cy);
+    await page.mouse.move(k.cx, k.cy, { steps: 3 });
     await waitFor(page, (sel) => document.querySelector(sel)?.getAttribute("stroke") === "#4385be", LIVE("s1"), { label: "the preview on the image", timeout: 3000 });
     const pre = await outlines();
     h.ok(pre.s1.stroke === rgb(PALETTE[0]) && pre.s3.stroke === rgb(PALETTE[1]), `resting on "dendrite" shows its colours on the image (${pre.s1.stroke}, ${pre.s3.stroke})`);
     const m1 = await model();
     h.ok(m1.past === m0.past && !m1.view.layers?.footprints?.styleBy, "…and writes nothing");
     await page.screenshot({ path: `${SHOTS}/1-preview-dendrite.png` });
-    await page.mouse.move(k.cx, k.cy + 120);
+    await page.mouse.move(k.cx, k.cy + 120, { steps: 2 });
     await waitFor(page, (sel) => !document.querySelector(sel)?.getAttribute("stroke"), LIVE("s1"), { label: "the preview gone", timeout: 3000 });
     h.ok(true, "leaving the key puts the image back");
-    await page.mouse.move(k.cx, k.cy);
+    await page.mouse.move(k.cx, k.cy, { steps: 2 });
     await page.mouse.click(k.cx, k.cy);
     await waitFor(page, () => !!window.__flux.figures().flatMap((f) => f.elements).find((e) => e.type === "fluximg")?.view?.layers?.footprints?.styleBy, null, { label: "written" });
     const m2 = await model();
@@ -133,6 +170,20 @@ try {
     h.ok(o.s1.stroke === rgb(PALETTE[0]) && o.s2.stroke === rgb(PALETTE[0]) && o.s3.stroke === rgb(PALETTE[1]), `each outline's computed stroke is its category's colour (s1, s2: d1 ${o.s1.stroke}; s3: d2 ${o.s3.stroke})`);
     h.ok(o.s7.stroke === rgb(DIM) && Math.abs(Number(o.s7.opacity) - 0.35) < 1e-6, `the one without a dendrite is dimmed (${o.s7.stroke}, opacity ${o.s7.opacity})`);
     h.ok(!!(await page.$("[data-fxb-layers] [data-fxb-style-chip='footprints']")), "the layer's row shows a chip of its colours at rest");
+    // A2: a pick by click closes the drawer, and a drawer the mouse used owns no key: the board's digits still work.
+    h.ok(!(await page.$("[data-fxb-style]")), "A2: a pick by click closes the drawer");
+    const before = await styleBy();
+    await press("2");
+    const live2 = await page.evaluate(() => window.__flux.get(window.__flux.fluximg.live.fluximgLive));
+    h.ok(live2.channel === 1 && JSON.stringify(await styleBy()) === JSON.stringify(before), `A2: then 2 takes channel 2, as on the board everywhere (channel ${live2.channel + 1}), and the styling is untouched`);
+    await press("Escape"); // let go of the channel
+    await rowKey("style-color:footprints");
+    await waitFor(page, () => !!document.querySelector("[data-fxb-style='color:footprints'] [data-fxb-style-cat]"), null, { label: "the drawer again" });
+    await press("2");
+    h.ok(JSON.stringify(await styleBy()) === JSON.stringify(before) && (await page.evaluate(() => window.__flux.get(window.__flux.fluximg.live.fluximgLive).channel)) === 1, "A2: an open drawer the mouse opened takes no digit either");
+    await press("Escape");
+    if (!(await page.$("[data-fxb-style]"))) await rowKey("style-color:footprints");
+    await waitFor(page, () => !!document.querySelector("[data-fxb-style='color:footprints'] [data-fxb-style-cat]"), null, { label: "the drawer open" });
     const cats = await page.$$eval("[data-fxb-style='color:footprints'] [data-fxb-style-cat]", (n) => n.map((e) => e.getAttribute("data-fxb-style-cat")));
     h.eq(cats, ["d1", "d2"], "the drawer lists the categories with their colours");
   }
@@ -140,7 +191,7 @@ try {
   h.section("C. hovering a category, and the card beside the pointer");
   {
     const c = await rect("[data-fxb-style='color:footprints'] [data-fxb-style-cat='d1']");
-    await page.mouse.move(c.cx, c.cy);
+    await page.mouse.move(c.cx, c.cy, { steps: 3 });
     await waitFor(page, () => document.querySelectorAll("[data-fluximg-live] .fx-hot").length === 2, null, { label: "d1's objects lit", timeout: 3000 });
     h.eq(await page.$$eval("[data-fluximg-live] .fx-hot", (n) => n.map((e) => e.getAttribute("data-key")).sort()), ["s1", "s2"], "resting on a category lights its objects on the image");
     await page.mouse.move(10, 900);
@@ -163,7 +214,9 @@ try {
     const keys = await page.$$eval("[data-fxb-style='opacity:footprints'] [data-fxb-style-col]", (n) => n.map((e) => e.getAttribute("data-fxb-style-col")));
     h.eq(keys, ["", "pixels"], "opacity offers only columns of numbers");
     const k = await rect(colKey("opacity", "pixels"));
-    await page.mouse.move(k.cx, k.cy); await page.mouse.click(k.cx, k.cy);
+    await page.mouse.move(k.cx, k.cy, { steps: 3 }); await page.mouse.click(k.cx, k.cy);
+    await waitFor(page, () => !document.querySelector("[data-fxb-style]"), null, { label: "the drawer closed by the click" });
+    await rowKey("style-opacity:footprints");
     await waitFor(page, () => !!document.querySelector("[data-fxb-style='opacity:footprints'] [data-fxb-style-knob='hi']"), null, { label: "the range strip" });
     const m1 = await model();
     h.ok(m1.past - m0.past === 1 && m1.view.layers.footprints.styleBy.opacity?.column === "pixels" && m1.view.layers.footprints.styleBy.color?.column === "dendrite", "opacity by pixels: one undo step, the colour kept");
@@ -182,7 +235,7 @@ try {
     h.ok(Math.abs(Number((await outlines()).s2.opacity) - 1) < 1e-6 && Number((await outlines()).s1.opacity) > 0.62, "…and the objects follow (s1 brighter, s2 still opaque)");
     // The wheel over the strip moves the nearer handle.
     const strip = await rect("[data-fxb-style='opacity:footprints'] [data-fxb-stylewell]");
-    await page.mouse.move(strip.x + 3, strip.cy);
+    await page.mouse.move(strip.x + 3, strip.cy, { steps: 2 });
     await page.mouse.wheel({ deltaY: -100 }); await sleep(60); await page.mouse.wheel({ deltaY: -100 });
     await settled();
     const r2 = (await styleBy()).opacity.range, m4 = await model();
@@ -191,10 +244,12 @@ try {
     await page.screenshot({ path: `${SHOTS}/3-opacity-range.png` });
   }
 
-  h.section("E. numbers through a colour map, and the chooser's keys");
+  h.section("E. numbers through a colour map, and the chooser's keys (the card holds the keyboard)");
   {
-    await rowKey("style-color:footprints");
-    await waitFor(page, () => !!document.querySelector("[data-fxb-style='color:footprints']"), null, { label: "colour drawer" });
+    if (await page.$("[data-fxb-style]")) await rowKey("style-opacity:footprints"); // close the opacity drawer
+    await cardTo("footprints");
+    await press("b");
+    await waitFor(page, () => !!document.querySelector("[data-fxb-style='color:footprints']"), null, { label: "colour drawer (b)" });
     const m0 = await model();
     await press("Digit2"); // "pixels": 0 = none, 1 = dendrite, 2 = pixels
     await waitFor(page, () => !!document.querySelector("[data-fxb-style='color:footprints'] [data-fxb-style-map]"), null, { label: "the colour maps" });
@@ -203,17 +258,51 @@ try {
     const o = await outlines();
     h.ok(o.s1.stroke !== o.s2.stroke && o.s2.stroke !== rgb(PALETTE[0]), `numbers go through viridis (s2 ${o.s2.stroke}, s7 ${o.s7.stroke})`);
     const mg = await rect("[data-fxb-style='color:footprints'] [data-fxb-style-map='magma']");
-    await page.mouse.click(mg.cx, mg.cy); await waitForFrame(page);
+    await page.mouse.move(mg.cx, mg.cy, { steps: 3 }); await page.mouse.click(mg.cx, mg.cy); await waitForFrame(page);
     h.eq((await styleBy()).color.lut, "magma", "a map swatch sets the colour map");
     const o2 = await outlines();
     h.ok(o2.s2.stroke !== o.s2.stroke, `…and the outlines take its colours (${o2.s2.stroke})`);
     await press("ArrowRight"); // walk to "none" (index 0), previewed
     await waitFor(page, (sel) => !document.querySelector(sel)?.getAttribute("stroke"), LIVE("s1"), { label: "the walked key previewed", timeout: 3000 });
     h.ok(!!(await styleBy()).color, "arrows walk the keys and preview each (none: the outlines lose their colours), nothing written");
+    // B2: the preview is one override over the model: a model change under it shows, and t (another part) clears it.
+    await page.evaluate((id) => window.__flux.fig.commit((p) => { const el = p.figures[0].elements.find((e) => e.id === id); el.view.layers.footprints.styleBy.opacity = { column: "pixels", range: [25, 32] }; }), ID);
+    await waitForFrame(page); await waitForFrame(page);
+    h.ok(Math.abs(Number((await outlines()).s1.opacity) - 0.15) < 1e-6 && !(await page.evaluate((sel) => document.querySelector(sel)?.getAttribute("stroke"), LIVE("s1"))), "B2: under a preview (colour: none), a model change (opacity window) shows at once, the preview still applied");
+    await press("t");
+    await waitFor(page, () => !!document.querySelector("[data-fxb-style='opacity:footprints']"), null, { label: "t: the opacity drawer" });
+    await waitForFrame(page); await waitForFrame(page);
+    h.ok((await preview()) === null && !!(await page.evaluate((sel) => document.querySelector(sel)?.getAttribute("stroke"), LIVE("s1"))), "B2: t opens the opacity drawer and the colour preview is gone (the image shows the model)");
+    await press("b");
+    await waitFor(page, () => !!document.querySelector("[data-fxb-style='color:footprints']"), null, { label: "b again" });
     await press("Digit1");
     h.eq((await styleBy()).color, { column: "dendrite" }, "1: dendrite again, starting afresh (no map from the numbers)");
     await press("Escape");
     h.ok(!(await page.$("[data-fxb-style]")) && (await isOpen()), "Esc closes the drawer, the view stays open");
+    await press("Escape"); // the keys back to the board
+    h.ok(!(await page.$("[data-fxb-layers].keys")), "…and Esc again gives the keys back to the board");
+  }
+
+  h.section("E2. nothing is previewed under a pointer that has not moved (B1)");
+  {
+    await rowKey("style-color:footprints");
+    await waitFor(page, () => !!document.querySelector("[data-fxb-style='color:footprints'] [data-fxb-style-col='pixels']"), null, { label: "drawer" });
+    const k = await rect(colKey("color", "pixels"));
+    await rowKey("style-color:footprints"); // closes it
+    await waitFor(page, () => !document.querySelector("[data-fxb-style]"), null, { label: "closed" });
+    await page.mouse.move(k.cx, k.cy, { steps: 3 }); // rest where the key will appear
+    await cardTo("footprints");
+    await page.mouse.move(k.cx, k.cy, { steps: 2 });
+    await press("b");
+    await waitFor(page, () => !!document.querySelector("[data-fxb-style='color:footprints']"), null, { label: "opened under the still pointer" });
+    await sleep(250); await waitForFrame(page);
+    const under = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest("[data-fxb-style-col]")?.getAttribute("data-fxb-style-col") ?? null, { x: k.cx, y: k.cy });
+    h.ok(under === "pixels" && (await preview()) === null, `B1: the drawer opened under a still pointer (now over "${under}"): nothing previewed`);
+    await page.mouse.move(k.cx + 4, k.cy, { steps: 3 });
+    await waitFor(page, () => { const F = window.__flux; return F.get(F.fluximg.live.fluximgStylePreview)?.column === "pixels"; }, null, { label: "previewed once moved", timeout: 3000 });
+    h.ok(true, "…once it moves, the key under it is previewed");
+    await press("Escape"); await press("Escape");
+    await page.mouse.move(10, 900, { steps: 2 });
   }
 
   h.section("F. the key on the picture");
@@ -232,7 +321,7 @@ try {
     // Hovering a row of the key lights its objects.
     await sleep(60); await waitForFrame(page);
     const row = await rect("[data-fluximg-live] [data-part='key.entry'][data-legend-row='0']");
-    await page.mouse.move(row.cx - 2, row.cy); await page.mouse.move(row.cx, row.cy);
+    await page.mouse.move(row.cx - 2, row.cy, { steps: 2 }); await page.mouse.move(row.cx, row.cy);
     await waitFor(page, () => document.querySelectorAll("[data-fluximg-live] .fx-hot").length === 2, null, { label: "d1 lit from the key", timeout: 3000 });
     h.eq(await page.$$eval("[data-fluximg-live] .fx-hot", (n) => n.map((e) => e.getAttribute("data-key")).sort()), ["s1", "s2"], "resting on a row of the key lights that category's objects");
     await page.screenshot({ path: `${SHOTS}/4-key-hover.png` });
@@ -281,7 +370,8 @@ try {
   h.section("I. the Inspector writes the same view");
   {
     await page.evaluate((id) => { const F = window.__flux; F.fig.commit((p) => { const el = p.figures[0].elements.find((e) => e.id === id); el.view = {}; }); F.fig.selectOnly(id); }, ID);
-    await waitFor(page, () => !!document.querySelector(".inspector [data-fluximg-style='footprints'] [data-fluximg-style-color]"), null, { label: "the Inspector's style fields", timeout: 10000 });
+    await waitFor(page, () => !!document.querySelector(".inspector [data-fluximg-style='footprints'] [data-fluximg-style-color]") || !!document.querySelector(".inspector [data-fluximg-style-open='footprints']"), null, { label: "the Inspector's style fields", timeout: 10000 });
+    if (await page.$(".inspector [data-fluximg-style-open='footprints']")) await page.click(".inspector [data-fluximg-style-open='footprints']");
     await waitFor(page, () => document.querySelectorAll(".inspector [data-fluximg-style-color] option").length >= 3, null, { label: "the columns", timeout: 5000 });
     const m0 = await model();
     await page.select(".inspector [data-fluximg-style-color]", "dendrite");
@@ -316,7 +406,7 @@ try {
     h.eq(await page.evaluate(() => document.getAnimations().filter((a) => !a.effect?.target?.closest?.(".toasts")).length), 0, "nothing animates at rest with the drawer open (200 ms after the last change)");
     h.ok(await page.evaluate(() => [...document.querySelectorAll("[data-fxb-style] *")].every((e) => { const s = getComputedStyle(e); return (s.filter === "none" || !s.filter) && (s.backdropFilter === "none" || !s.backdropFilter); }) && !document.querySelector("[data-fxb-style] [title]")), "no filter, no browser tooltips in the drawer");
     const k = await rect(colKey("color", "dendrite"));
-    await page.mouse.click(k.cx, k.cy); await waitForFrame(page);
+    await page.mouse.move(k.cx, k.cy, { steps: 3 }); await page.mouse.click(k.cx, k.cy); await waitForFrame(page);
     const before = await model();
     await page.mouse.move(10, 900);
     await press("z", ["Control"]);
@@ -324,6 +414,34 @@ try {
     h.ok(!after.view.layers?.footprints?.styleBy && after.past === before.past - 1, "Ctrl+Z takes the choice back in one step");
     await page.screenshot({ path: `${SHOTS}/6-board-drawer.png` });
     await closeLive();
+  }
+
+  h.section("L. styling that cannot apply is said, never shown as a palette (B4)");
+  {
+    await page.evaluate((id) => window.__flux.fig.commit((p) => { p.figures[0].elements.find((e) => e.id === id).view = { layers: { footprints: { styleBy: { color: { column: "gone" } } } } }; }), ID);
+    await openLive();
+    await waitFor(page, () => !!document.querySelector("[data-fxb-style-chip='footprints'][data-fxb-style-bad]"), null, { label: "the warning chip", timeout: 5000 });
+    h.ok(await page.evaluate(() => { const c = document.querySelector("[data-fxb-style-chip='footprints']"); return /gone/.test(c.getAttribute("data-tip")) && !/gradient/.test(getComputedStyle(c).backgroundImage); }), "B4: the row's chip warns that \"gone\" is not in the table (no palette)");
+    const chip = await rect("[data-fxb-style-chip='footprints']");
+    await page.mouse.move(chip.cx, chip.cy, { steps: 3 }); await page.mouse.click(chip.cx, chip.cy);
+    await waitFor(page, () => !!document.querySelector("[data-fxb-style-problem]"), null, { label: "the drawer says why" });
+    h.ok(/no column "gone"/.test(await page.evaluate(() => document.querySelector("[data-fxb-style-problem]").textContent)), "…its drawer says why");
+    const clear = await rect("[data-fxb-style-problem] [data-fxb-key='style-clear']");
+    await page.mouse.move(clear.cx, clear.cy, { steps: 3 }); await page.mouse.click(clear.cx, clear.cy); await waitForFrame(page);
+    h.eq(await styleBy(), null, "…and clears it on request");
+    await closeLive();
+    await page.evaluate((id) => { const F = window.__flux; F.fig.commit((p) => { p.figures[0].elements.find((e) => e.id === id).view = { layers: { footprints: { styleBy: { color: { column: "gone" } } } } }; }); F.fig.selectOnly(id); }, ID);
+    await waitFor(page, () => !!document.querySelector(".inspector [data-fluximg-style-problem]"), null, { label: "the Inspector says why", timeout: 5000 });
+    h.ok(await page.evaluate(() => /gone/.test(document.querySelector(".inspector [data-fluximg-style-problem]").textContent) && [...document.querySelectorAll(".inspector [data-fluximg-style-color] option")].some((o) => /not in the table/.test(o.textContent) && o.selected)), "B4: the Inspector shows the missing column as such, and says why");
+    await page.click(".inspector [data-fluximg-style-clear]"); await waitForFrame(page);
+    h.eq(await styleBy(), null, "…and clears it");
+  }
+
+  h.section("M. an object hidden by its styling has no name (B5)");
+  {
+    await page.evaluate((id) => window.__flux.fig.commit((p) => { p.figures[0].elements.find((e) => e.id === id).view = { layers: { footprints: { styleBy: { color: { column: "dendrite" }, missing: "hide" } } }, furniture: { names: { layers: ["footprints"] } } }; }), ID);
+    await waitFor(page, () => !!document.querySelector("svg[data-fluximg] [id$='name.footprints/s1']") && !document.querySelector("svg[data-fluximg] [data-layer='footprints'] [data-key='s7']"), null, { label: "styled at rest with names", timeout: 5000 });
+    h.ok(!(await page.$("svg[data-fluximg] [id$='name.footprints/s7']")), "B5: at rest, s7 (no dendrite, hidden) has no name; s1 has one");
   }
 
   h.section("K. console");

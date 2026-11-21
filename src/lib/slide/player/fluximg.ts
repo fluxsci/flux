@@ -21,7 +21,7 @@ import { clampCrop, tieredStillSize } from "../../fluximg/crop";
 import { cropTransform, FURNITURE_FONT, FURNITURE_WEIGHT, imageStrokeWidth, layerMarkup, namePlacements, namesFontPx, objectIndex, preciseNum, svgNum, type LayerObject } from "../../fluximg/layers";
 import { furnitureSvg } from "../../fluximg/furniture";
 import { fluximgIdPrefix, insetRect, layerStyles, layerSvgPath, layerTablePath, PLACEHOLDER_FILL, stylesToDraw, unflipTransform, wantsTable } from "../../fluximg/static";
-import { missingStyle, type ObjectLegend, type ObjectStyles } from "../../fluximg/objectStyle";
+import { missingStyle, shownObjects, type ObjectLegend, type ObjectStyles } from "../../fluximg/objectStyle";
 import { presetParam } from "../presetCatalog";
 import { isHandoff } from "../targets";
 import { transformEndState, transformPreState } from "../tween";
@@ -280,7 +280,9 @@ class Overlay {
       const source = this.layerText(manifest, assetId, lv);
       if (!source || source.text === undefined) continue;
       const color = lv.color ?? source.layer.color ?? "#ffffff";
-      const sig = `${source.text.length}|${n.fontSize}|${color}`;
+      // An object hidden by its styling (missing: "hide") has no name either (as at rest).
+      const st = lv.styleBy?.missing === "hide" ? this.stylesOf(source.layer, lv, assetId) : null;
+      const sig = `${source.text.length}|${n.fontSize}|${color}|${identity(st)}`;
       let group = this.names.get(id);
       if (!group || group.sig !== sig) {
         group?.g.remove();
@@ -288,7 +290,7 @@ class Overlay {
         g.setAttribute("id", `${this.prefix}names.${id}`); g.setAttribute("data-part", "names"); g.setAttribute("fill", color);
         g.setAttribute("font-family", FURNITURE_FONT); g.setAttribute("font-weight", String(FURNITURE_WEIGHT)); g.setAttribute("font-size", svgNum(namesFontPx(n.fontSize)));
         let index: LayerObject[] = [];
-        try { index = objectIndex(source.text); } catch { index = []; }
+        try { index = shownObjects(objectIndex(source.text), st?.byKey, st ? missingStyle(lv.styleBy) : null).slice(); } catch { index = []; }
         group = { g, sig, index, nodes: new Map(), place: "" };
         this.names.set(id, group);
         this.namesG.append(g);

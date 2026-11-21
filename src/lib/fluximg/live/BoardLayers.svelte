@@ -17,10 +17,10 @@
   import { fluximgLayerText, needLayerText } from "../store";
   import { objectIndex } from "../layers";
   import { layerSvgPath } from "../static";
-  import { cellText, fluximgTables, needTable, tableOf } from "./objectTables";
+  import { cellText, fluximgTableIssues, fluximgTables, needTable, tableKey, tableOf } from "./objectTables";
   import PaperKey from "./PaperKey.svelte";
   import BoardStyle from "./BoardStyle.svelte";
-  import { DEFAULT_PALETTE, cachedObjectStyles } from "../objectStyle";
+  import { cachedObjectStyles } from "../objectStyle";
   import { fluximgLutsReady, resolveLut } from "../store";
   import { cycleFurnitureCorner, moveLayer, setLayer, toggleFurniture, toggleLayer, type LiveContext } from "./actions";
   import { armLive, cancelLiveEdit, fluximgHover, liveView, settleLiveEdit } from "./session";
@@ -65,18 +65,34 @@
     if (styling && asset && L && L.kind !== "intensity") needTable(asset, L.table);
   }
   $effect(() => { if (styling && !ctx.view.layers.some((l) => l.id === styling!.id)) styling = null; });
-  /** A styled layer at rest says so on its row: its first colours, or its colour map, or its fade. */
-  function chipOf(id: string): string | null {
+  /**
+   * A styled layer at rest says so on its row: its first colours, or its colour map, or its fade; and when its styling
+   * cannot apply (a column its table does not have, a table that cannot be read), it says THAT, never a palette.
+   * `problems` by part ("color" / "opacity"; "table" for the whole table). No chip while the table is on its way.
+   */
+  function styleState(id: string): { chip: string | null; problems: Record<string, string> } {
+    const none = { chip: null, problems: {} };
     const L = ctx.view.layers.find((l) => l.id === id), layer = byId.get(id);
-    if (!L?.styleBy || !layer || layer.kind === "intensity" || !asset) return null;
+    if (!L?.styleBy || !layer || layer.kind === "intensity" || !asset) return none;
+    const failed = $fluximgTableIssues[tableKey(asset, layer.table)];
+    if (failed) return { chip: null, problems: { table: `Its table could not be read (${failed}): drawn without this styling` } };
+    const table = tableOf($fluximgTables, asset, layer.table);
+    if (!table) return none;
     void $fluximgLutsReady;
-    const legend = cachedObjectStyles(tableOf($fluximgTables, asset, layer.table), layer.key ?? null, L.styleBy, resolveLut).legend;
+    const st = cachedObjectStyles(table, layer.key ?? null, L.styleBy, resolveLut);
+    const problems: Record<string, string> = {};
+    for (const x of st.issues) {
+      const m = /^(colour|opacity): (.*)$/.exec(x);
+      problems[m ? (m[1] === "colour" ? "color" : "opacity") : "table"] = m ? `${m[1] === "colour" ? "Colour" : "Opacity"} by: ${m[2]}` : x;
+    }
+    return { chip: chipOf(L, layer, st.legend), problems };
+  }
+  function chipOf(L: (typeof ctx.view.layers)[number], layer: { color?: string | null }, legend: ReturnType<typeof cachedObjectStyles>["legend"]): string | null {
     const c = legend?.color;
     if (c?.kind === "category") { const e = c.entries.slice(0, 4); return e.length ? `linear-gradient(90deg,${e.map((x, i) => `${x.color} ${(i / e.length) * 100}% ${((i + 1) / e.length) * 100}%`).join(",")})` : null; }
     if (c?.kind === "number") return `linear-gradient(90deg,${c.stops.filter((_, i) => i % 2 === 0).join(",")})`;
     if (legend?.opacity) return `linear-gradient(90deg, color-mix(in srgb, ${L.color ?? layer.color ?? "#fffcf0"} 15%, transparent), ${L.color ?? layer.color ?? "#fffcf0"})`;
-    // Its table has not arrived: the default colours stand in.
-    return L.styleBy.color ? `linear-gradient(90deg,${DEFAULT_PALETTE.slice(0, 3).join(",")})` : null;
+    return null;
   }
 
   const needle = $derived(filter.trim().toLowerCase());
@@ -100,7 +116,7 @@
     const table = layer.kind !== "intensity" ? tableOf($fluximgTables, asset, layer.table) : null;
     const keyCol = table ? table.columns[table.key] : null;
     const rowOf = new Map<string, number>();
-    if (keyCol) keyCol.forEach((v, i) => rowOf.set(String(v), i));
+    if (keyCol) keyCol.forEach((v, i) => { if (v !== null && v !== undefined && !rowOf.has(String(v))) rowOf.set(String(v), i); }); // first row wins, a null key names nothing
     const names = table ? Object.keys(table.columns).filter((c) => c !== table.key && c !== "label") : [];
     return index.map((o) => {
       const r = rowOf.get(o.key);
@@ -205,17 +221,17 @@
       else e.stopImmediatePropagation();
       return;
     }
-    // An open styling drawer answers its own keys wherever the keyboard is: digits pick (0 = none), arrows walk
-    // (each key previewed on the image), Enter picks, Esc closes.
-    if (styling && styleEl) {
+    if (!keys) return;
+    // An open styling drawer answers keys only while the card holds the keyboard (`d`, never a click): digits pick
+    // (0 = none), arrows walk (each key previewed on the image), Enter picks, Esc closes.
+    if (styling && styleEl && !e.altKey) {
       const digit = /^Digit([0-9])$/.exec(e.code);
       const n = styleEl.count();
-      if (digit && !e.shiftKey && !e.altKey) { done(); if (Number(digit[1]) < n) styleEl.pickAt(Number(digit[1])); return; }
-      if (k === "ArrowRight" || k === "ArrowLeft") { done(); styleChoice = ((styleChoice < 0 ? (k === "ArrowRight" ? -1 : 0) : styleChoice) + (k === "ArrowRight" ? 1 : n - 1)) % n; styleEl.previewAt(styleChoice); return; }
+      if (digit && !e.shiftKey) { done(); if (Number(digit[1]) < n) styleEl.pickAt(Number(digit[1])); return; }
+      if ((k === "ArrowRight" || k === "ArrowLeft") && !e.shiftKey) { done(); styleChoice = ((styleChoice < 0 ? (k === "ArrowRight" ? -1 : 0) : styleChoice) + (k === "ArrowRight" ? 1 : n - 1)) % n; styleEl.previewAt(styleChoice); return; }
       if ((k === "Enter" || k === " ") && styleChoice >= 0) { done(); styleEl.pickAt(styleChoice); return; }
       if (k === "Escape") { done(); styling = null; return; }
     }
-    if (!keys) return;
     if (k === "Escape") { if (drawer) { done(); drawer = null; } return; } // otherwise the board takes the keys back
     const id = current?.layerId;
     switch (k) {
@@ -263,9 +279,9 @@
           style={`--ink:${ink}`} onclick={() => { cursor = r.id; if (L.kind !== "intensity") open = { ...open, [L.id]: !open[L.id] }; }} onpointerenter={() => hover(null)}>
           <button class="lamp" type="button" aria-label={L.visible ? `Hide ${L.name}` : `Show ${L.name}`} aria-pressed={L.visible} data-tip={L.visible ? "Hide" : "Show"} onclick={(e) => { e.stopPropagation(); toggleLayer(L.id); }}></button>
           <span class="name">{L.name}</span>
-          {#if L.styleBy}{@const chip = chipOf(L.id)}{#if chip}<!-- svelte-ignore a11y_click_events_have_key_events --><span class="chip" role="button" tabindex="-1" style={`background:${chip}`} data-fxb-style-chip={L.id}
-            data-tip={[L.styleBy.color ? `Colour by ${L.styleBy.color.column}` : "", L.styleBy.opacity ? `opacity by ${L.styleBy.opacity.column}` : ""].filter(Boolean).join(" · ")}
-            onpointerdown={(e) => e.stopPropagation()} onclick={(e) => { e.stopPropagation(); openStyle(L.id, L.styleBy?.color ? "color" : "opacity"); }}></span>{/if}{/if}
+          {#if L.styleBy}{@const ss = styleState(L.id)}{@const bad = Object.values(ss.problems)}{#if ss.chip || bad.length}<!-- svelte-ignore a11y_click_events_have_key_events --><span class="chip" class:bad={bad.length > 0} role="button" tabindex="-1" style={ss.chip && !bad.length ? `background:${ss.chip}` : ""} data-fxb-style-chip={L.id} data-fxb-style-bad={bad.length ? "1" : undefined}
+            data-tip={bad.length ? `${bad.join(" · ")} · click to clear it or pick another` : [L.styleBy.color ? `Colour by ${L.styleBy.color.column}` : "", L.styleBy.opacity ? `opacity by ${L.styleBy.opacity.column}` : ""].filter(Boolean).join(" · ")}
+            onpointerdown={(e) => e.stopPropagation()} onclick={(e) => { e.stopPropagation(); openStyle(L.id, ss.problems.opacity && !ss.problems.color ? "opacity" : L.styleBy?.color ? "color" : "opacity"); }}>{bad.length ? "!" : ""}</span>{/if}{/if}
           <span class="rkeys">
             {#if L.kind !== "intensity"}<PaperKey quiet size={18} glyph="names" label="Names on the image" on={namesOn(L.id)} onpress={() => toggleNames(L.id)} />{/if}
             <PaperKey quiet size={18} glyph="color" label="Colour" on={drawer === L.id} onpress={() => { styling = null; drawer = drawer === L.id ? null : L.id; }} />
@@ -282,7 +298,11 @@
         </div>
         {#if styling?.id === L.id && layer && layer.kind !== "intensity"}
           <div class="styledrawer" bind:offsetHeight={styleH}>
-            <BoardStyle bind:this={styleEl} bind:choice={styleChoice} {layer} lv={L} table={tableOf($fluximgTables, asset ?? { id: "" }, layer.table)} part={styling.part} width={width - 2} onpicked={() => { styleChoice = -1; }} />
+            {#key styling.part}
+              {@const ss = styleState(L.id)}
+              <BoardStyle bind:this={styleEl} bind:choice={styleChoice} {layer} lv={L} table={tableOf($fluximgTables, asset ?? { id: "" }, layer.table)} part={styling.part} width={width - 2}
+                problem={ss.problems[styling.part] ?? ss.problems.table ?? ""} onpicked={(byClick) => { styleChoice = -1; if (byClick) styling = null; }} />
+            {/key}
           </div>
         {/if}
         {#if drawer === L.id}
@@ -361,6 +381,8 @@
   /* A styled layer's chip: what its colours (or fade) are, at rest, beside its name. Click: change it. */
   .row.lay .name:has(+ .chip) { margin-right: 0; }
   .chip { margin-right: auto; flex: none; width: 22px; height: 8px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6); cursor: var(--cursor-cross-hover); }
+  /* Styling that cannot apply: a hollow warning chip, never a palette. */
+  .chip.bad { width: 14px; height: 13px; display: inline-grid; place-items: center; box-shadow: inset 0 0 0 1.2px var(--c-warning, #d0a215); color: var(--c-warning, #d0a215); font: 700 9px/1 var(--font-mono); }
   .chip:hover { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 0 2.5px color-mix(in oklab, var(--fxb-pink) 70%, transparent); }
   .styledrawer { border-top: 1px solid var(--fxb-line); border-bottom: 1px solid var(--fxb-line); background: color-mix(in oklab, var(--fxb-plate) 40%, var(--fxb-card)); }
   .sw { flex: none; width: 15px; height: 15px; padding: 0; border-radius: 50%; border: 1px solid rgba(255, 252, 240, 0.28); cursor: var(--cursor-cross-hover); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }

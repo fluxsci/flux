@@ -276,7 +276,9 @@ function keyMarkup(legend: ObjectLegend, layerId: string, k: { corner: Furniture
     title("title", c.column);
     if (c.kind === "category") {
       c.entries.slice(0, KEY_MAX_ROWS).forEach((e, i) => row(`row.${i}`, e.color, 1, e.label, String(i)));
-      if (c.entries.length > KEY_MAX_ROWS) { out.push(text(`${idPrefix}key.more`, textX, y + CAP * fs, `+${c.entries.length - KEY_MAX_ROWS} more`, anchor, ` data-part="key.more"`)); y += lh; }
+      // More values than colours: some share one, and the key says so rather than repeating a swatch silently.
+      if (c.entries.length > KEY_MAX_ROWS) { out.push(text(`${idPrefix}key.more`, textX, y + CAP * fs, `+${c.entries.length - KEY_MAX_ROWS} more${c.repeats ? " share colours" : ""}`, anchor, ` data-part="key.more"`)); y += lh; }
+      else if (c.repeats) { out.push(text(`${idPrefix}key.more`, textX, y + CAP * fs, "some values share a colour", anchor, ` data-part="key.more"`)); y += lh; }
     } else {
       bar("ramp", c.stops.map((col, i) => `<stop offset="${svgNum(i / (c.stops.length - 1))}" stop-color="${escapeXml(col)}"/>`).join(""), valueText(c.range[0]), valueText(c.range[1]));
     }

@@ -14,7 +14,7 @@ import * as ops from "../src/lib/ops";
 import type { Asset, CropRect, Figure, Project } from "../src/lib/types";
 import type { FluximgElement } from "../src/lib/fluximg/element";
 import type { FluximgManifest, FluximgTable } from "../src/lib/fluximg/types";
-import { columnSummaries, describeStyleBy } from "../src/lib/fluximg/objectStyle";
+import { columnSummaries, describeStyleBy, objectStyles } from "../src/lib/fluximg/objectStyle";
 import { layerTablePath } from "../src/lib/fluximg/static";
 import type { FluximgView, ResolvedView } from "../src/lib/fluximg/view";
 import { describeFluximg, fluximgAsset, fluximgAssetId, fluximgDisplayName, fluximgInfo, fluximgResolvedAsset } from "../src/lib/fluximg/place";
@@ -155,20 +155,25 @@ const slideFigure = (deck: Deck, slide: Slide): Figure => ({ id: slide.id, name:
   width: deck.stage.width, height: deck.stage.height, background: "", elements: slide.elements } as Figure);
 
 /** Plane, projection and channels in words: what an agent (or a person) sees in this element right now. */
-export function describeView(manifest: FluximgManifest, rv: ResolvedView): { position: string[]; channels: string[]; objects: string[] } {
+export function describeView(manifest: FluximgManifest, rv: ResolvedView, tables: Record<string, FluximgTable | null> = {}): { position: string[]; channels: string[]; objects: string[] } {
   const position: string[] = [];
   if (rv.projection) position.push(describeProjection(manifest, rv.projection));
   for (const d of positionDims(manifest)) if (!(rv.projection && rv.projection.dim === d)) position.push(describePosition(manifest, d, rv.index[d] ?? 0));
   const shown = rv.composite === "single" ? rv.channels.filter((c) => c.index === rv.solo) : rv.channels.filter((c) => c.visible);
   const channels = shown.map((c) => `${c.name}: ${c.color ?? c.lut}${c.invert ? " inverted" : ""}, ${c.range[0]}–${c.range[1]}${c.norm !== "linear" ? ` (${c.norm}${c.norm === "gamma" ? ` ${c.gamma}` : ""})` : ""}`);
   // "footprints coloured by dendrite, opacity by distance": shown layers styled by their table.
-  const objects = rv.layers.filter((l) => l.visible && l.styleBy).map((l) => describeStyleBy(l.name, l.styleBy)).filter(Boolean);
+  // With the table at hand, a styling that cannot apply (a column it no longer has) is said, never claimed.
+  const objects = rv.layers.filter((l) => l.visible && l.styleBy).map((l) => {
+    const layer = manifest.layers.find((x) => x.id === l.id), table = tables[l.id];
+    const issues = table && layer && layer.kind !== "intensity" ? objectStyles(table, layer.key ?? null, l.styleBy, () => null).issues : [];
+    return describeStyleBy(l.name, l.styleBy, issues);
+  }).filter(Boolean);
   return { position, channels, objects };
 }
 
-function elementSummary(figure: Figure, element: FluximgElement, manifest: FluximgManifest) {
+function elementSummary(figure: Figure, element: FluximgElement, manifest: FluximgManifest, tables: Record<string, FluximgTable | null> = {}) {
   const rv = resolveView(manifest, element.view), crop = clampCrop(manifest, element.crop);
-  const words = describeView(manifest, rv);
+  const words = describeView(manifest, rv, tables);
   const still = fluximgStillRequest(element, { id: element.assetId, path: "", sha256: undefined }, manifest, fluximgSurfaceScale("figure"), rv);
   return {
     elementId: element.id, figureId: figure.id, name: element.name ?? null,
@@ -284,7 +289,7 @@ async function placeBundle(root: string, figureId: string, bundlePath: string, o
         assetId: asset.id, reused: !imported, deckId: onSlide.deckId, slideId: onSlide.slideId,
         ...(imported ? { copy: imported.method } : {}),
         image: describeFluximg(asset.fluximg ?? fluximgInfo(manifest)),
-        ...elementSummary(placedOnSlide.figure, element, manifest),
+        ...elementSummary(placedOnSlide.figure, element, manifest, await tablesForPatch(root, asset, manifest, element.view)),
         warnings,
       };
     }
@@ -306,7 +311,7 @@ async function placeBundle(root: string, figureId: string, bundlePath: string, o
       assetId: asset.id, reused: !imported,
       ...(imported ? { copy: imported.method } : {}),
       image: describeFluximg(asset.fluximg ?? fluximgInfo(manifest)),
-      ...elementSummary(placed.figure, element, manifest),
+      ...elementSummary(placed.figure, element, manifest, await tablesForPatch(root, asset, manifest, element.view)),
       warnings,
     };
   } catch (error) {
@@ -395,9 +400,10 @@ export async function setImageView(root: string, elementId: string, patch: unkno
   };
   if (options.slide === undefined) {
     const { element } = findImage(before, elementId);
-    const { manifest, view, crop } = await prepare(element, imageAsset(before, element.assetId));
+    const asset = imageAsset(before, element.assetId);
+    const { manifest, view, crop } = await prepare(element, asset);
     const after = await mutateFigModel(root, "set_image_view", ({ project }) => applyImageEdit(project, elementId, manifest, view, crop));
-    return { ...elementSummary(after.figure, after.element, manifest), warnings };
+    return { ...elementSummary(after.figure, after.element, manifest, await tablesForPatch(root, asset, manifest, after.element.view)), warnings };
   }
   const where = await findSlideTarget(root, options.slide);
   if (!where) throw new NotFoundError(`Slide not found: ${options.slide}`);
@@ -410,7 +416,8 @@ export async function setImageView(root: string, elementId: string, patch: unkno
     return { slide, element: el };
   };
   const { element } = imageOn(await loadDeck(root, where.deckId));
-  const { manifest, view, crop } = await prepare(element, await deckImageAsset(root, before, element));
+  const slideAsset = await deckImageAsset(root, before, element);
+  const { manifest, view, crop } = await prepare(element, slideAsset);
   const manifestFor = (id: string): FluximgManifest | undefined => (id === element.assetId ? manifest : undefined);
   const result = await mutateDeck(root, where.deckId, "set_image_view", async (deck) => {
     const { slide } = imageOn(deck);
@@ -452,7 +459,7 @@ export async function setImageView(root: string, elementId: string, patch: unkno
     }
     return { ...edited, trackIds };
   });
-  return { ...elementSummary(result.figure, result.element, manifest), deckId: where.deckId, slideId: where.slideId,
+  return { ...elementSummary(result.figure, result.element, manifest, await tablesForPatch(root, slideAsset, manifest, result.element.view)), deckId: where.deckId, slideId: where.slideId,
     ...(options.beatId !== undefined ? { beatId: options.beatId, trackIds: (result as { trackIds?: string[] }).trackIds ?? [] } : {}),
     ...(options.playback !== undefined ? { playback: (result.element as FluximgElement).playback ?? null } : {}), warnings };
 }
@@ -524,11 +531,11 @@ export async function imageInfo(root: string, target: string) {
       return {
         id: l.id, kind: l.kind, name: l.name, visibleByDefault: l.visible ?? false,
         ...(l.kind !== "intensity" ? { objects: typeof l.count === "number" ? l.count : null, ...(l.kind === "labels" || l.table ? { key: l.key ?? null } : {}) } : { range: l.range, opacity: l.opacity }),
-        ...(table ? { columns: columnSummaries(table).map((c) => ({ name: c.name, kind: c.kind, distinct: c.distinct, ...(c.range ? { range: c.range } : {}), ...(c.missing ? { missing: c.missing } : {}) })) } : {}),
+        ...(table ? { columns: columnSummaries(table, l).map((c) => ({ name: c.name, kind: c.kind, distinct: c.distinct, ...(c.range ? { range: c.range } : {}), ...(c.missing ? { missing: c.missing } : {}) })) } : {}),
       };
     })),
     regions: manifest.regions.map((r) => ({ id: r.id, name: r.name, rect: r.rect })),
     ...(manifest.defaults ? { defaults: manifest.defaults } : {}),
-    ...(placed ? { element: elementSummary(placed.figure, placed.element, manifest) } : {}),
+    ...(placed ? { element: elementSummary(placed.figure, placed.element, manifest, await tablesForPatch(root, asset, manifest, placed.element.view)) } : {}),
   };
 }
