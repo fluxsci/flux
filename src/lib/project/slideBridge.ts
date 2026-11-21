@@ -4,7 +4,8 @@ import { slideAssetIds } from "../slide/deckProject";
 import { readScene3dSidecars, scene3dSidecarWrites } from "../model3d/persistence";
 import { scene3dManifests, scene3dRecipes, primeScene3dSidecars, clearScene3dSidecars } from "../model3d/store";
 import { storedAssetPath } from "./assetPath";
-import { FLUXIMG_NOT_IN_SLIDES } from "../fluximg/policy";
+import { fluximgResolvedAsset } from "../fluximg/place";
+import type { FluximgManifest } from "../fluximg/types";
 import { generationBridgeIO } from "./generationBridgeIO";
 import { withIpcLock } from "../references/libLock";
 import { preparePlot } from "../plot/parse";
@@ -297,8 +298,9 @@ export async function resolveDeckAssets(root: string, deck: Deck, isCurrent: () 
     if (!a.path) continue;
     try {
       if (a.kind === "glb") { await readModel(a, `slides/${deck.id}`); assets.push({ ...a }); continue; }
-      // Stage 1 keeps fluximg out of decks (the deck schema refuses the kind); never read a bundle directory as bytes.
-      if (a.kind === "fluximg") throw new Error(FLUXIMG_NOT_IN_SLIDES);
+      // A deck never owns an image bundle (the deck schema has no such asset kind): a deck-local one is refused, and a bundle
+      // directory is never read as bytes. Images resolve by id from the project below.
+      if (a.kind === "fluximg") throw new Error("Image bundles belong to the project (fig/assets), not to a deck's own assets");
       if (a.kind === "mp4") {
         // Native range streaming keeps large clips out of renderer memory. A
         // browser-only fixture may use its injected bridge and small data URLs.
@@ -353,8 +355,9 @@ export async function resolveDeckAssets(root: string, deck: Deck, isCurrent: () 
           assets.push({ ...fa, path: `fig/${fa.path}` }); have.add(assetId); external.add(assetId);
           await readModel(fa, "fig"); return;
         }
-        // A fluximg is never resolved into a deck (stage 1), and its bundle directory is never read as bytes.
-        if (fa.kind === "fluximg") { diagnostics.push({ severity: "warning", assetId, reason: FLUXIMG_NOT_IN_SLIDES }); return; }
+        // An image bundle is resolved by id exactly as a GLB is (its record, never its bytes: the window's image service reads
+        // the bundle in ranged pieces). Its path stays relative to fig/, as every image asset's does.
+        if (fa.kind === "fluximg") { assets.push({ ...fa }); have.add(assetId); external.add(assetId); return; }
         const bytes = new Uint8Array(await fig.readFile(joinPath(root, "fig", fa.path)));
         if (isCurrent() && fa.kind === "svg" && !isAssetDirty(assetId)) {
           const manifest = await readManifestFile(`fig/assets/${assetId}.fluxplot.json`);
@@ -439,11 +442,30 @@ export async function resolveDeckAssets(root: string, deck: Deck, isCurrent: () 
     });
   };
 
+  // An image the fig index does not list (imported onto a slide: that never writes the figure index) is found at its one
+  // place, fig/assets/<id>.fluximg, and its record rebuilt from the bundle's manifest (one small read through the bundle
+  // reader, never a walk of its files). Missing: a warning, and the element draws its stand-in.
+  const resolveImage = async (assetId: string, sha256: string | undefined): Promise<void> => {
+    if (have.has(assetId)) return;
+    if (figAssets.some((x) => x.id === assetId && x.kind === "fluximg")) return resolveExternal(assetId, null);
+    const bundle = `fig/assets/${assetId}.fluximg`;
+    try {
+      const text = fig.readFluximg
+        ? new TextDecoder().decode(await fig.readFluximg({ root, bundle, path: "fluximg.json", offset: 0, length: -1 }))
+        : await fig.readText(joinPath(root, bundle, "fluximg.json"));
+      assets.push(fluximgResolvedAsset(assetId, JSON.parse(text) as FluximgManifest, sha256));
+      have.add(assetId); external.add(assetId);
+    } catch {
+      diagnostics.push({ severity: "warning", assetId, path: bundle, reason: `Image bundle "${assetId}" is missing (${bundle}): its element shows a placeholder` });
+    }
+  };
+
   // 2. Elements referencing assets the deck does not own.
   for (const s of deck.slides) {
     for (const el of s.elements) {
       if (el.type === "plot") await resolveExternal(el.assetId, el.source ?? null);
       else if (el.type === "image" || el.type === "model3d") await resolveExternal(el.assetId, null);
+      else if (el.type === "fluximg") await resolveImage(el.assetId, el.source?.sha256);
     }
     // Targets referenced only by Change/morph effects need the same accepted
     // asset and sidecar resolution as placed plots.

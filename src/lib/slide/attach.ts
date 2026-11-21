@@ -356,7 +356,7 @@ export function attachTargetAt(elements: Element[], p: Pt, opts: { exclude?: str
 }
 
 /** CONTENT a line points INTO (a plot, an image, a 3D model, a video): an end released on it keeps the exact spot. */
-const POINTS_INTO = new Set(["plot", "image", "model3d", "video"]);
+const POINTS_INTO = new Set(["plot", "image", "model3d", "video", "fluximg"]);
 /** The point `p` as a fraction of `el`'s own (unrotated, unflipped) box: the `{ fx, fy }` anchor `sidePoint` maps back to `p`. */
 export function pointAnchor(el: Element, p: Pt): { fx: number; fy: number } {
   const s = shapeOf(el), l = rot({ x: p.x - s.c.x, y: p.y - s.c.y }, -s.deg);

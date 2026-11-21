@@ -46,7 +46,7 @@ export function trackKindLabel(t: Track, deck: StyleContext = {}): string {
 /** Element type → a compact glyph for tree rows / chip labels (the figure
  *  element union — slides-are-figures). */
 export const EL_GLYPH: Record<string, string> = {
-  model3d: "◇", plot: "▤", text: "¶", image: "▣", video: "▶", rect: "▭", ellipse: "◯", line: "╱", path: "〰",
+  model3d: "◇", plot: "▤", text: "¶", image: "▣", fluximg: "▦", video: "▶", rect: "▭", ellipse: "◯", line: "╱", path: "〰",
 };
 
 /** A compact label for a track chip (prefixed with a P-tag when the slide has

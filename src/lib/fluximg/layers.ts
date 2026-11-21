@@ -11,6 +11,7 @@
  */
 import type { FluximgLayer, FluximgTable } from "./types";
 import type { PixelRect, ResolvedLayer } from "./view";
+import type { ObjectStyle } from "./objectStyle";
 
 // ---------------------------------------------------------------------------------------------
 // Small shared string helpers (furniture.ts and static.ts use them too)
@@ -357,8 +358,15 @@ const attrText = (o: Record<string, string>, keys: readonly string[]): string =>
  * replaces the file's fill opacity; `lv.opacity` is the group's; `lv.strokeWidth` is in SCREEN px. Shapes keep
  * their true image-space size. Shapes wholly outside the crop are left out: cheaper, and resvg aborts on a
  * layered node (opacity < 1) lying far outside its canvas (guide §9). "" when there is nothing to draw.
+ *
+ * `styles` (from `objectStyle.objectStyles`, when the layer is styled by its table) are per-object PRESENTATION
+ * ATTRIBUTES on each shape, never CSS (Chromium and resvg must draw the same): a style's colour replaces the stroke
+ * and every fill that is not `none` (over the layer's own colour), its opacity is the shape's `opacity` (the
+ * layer's opacity, stroke width and fill opacity still apply on top), `hidden` leaves the shape out. A shape whose
+ * key has no style gets `unlisted` (the "missing" style: it has no row in the table).
  */
-export function layerMarkup(layer: FluximgLayer, svgText: string, lv: ResolvedLayer, crop: PixelRect, box: { width: number; height: number }, idPrefix: string): string {
+export function layerMarkup(layer: FluximgLayer, svgText: string, lv: ResolvedLayer, crop: PixelRect, box: { width: number; height: number }, idPrefix: string,
+  styles?: ReadonlyMap<string, ObjectStyle> | null, unlisted?: ObjectStyle | null): string {
   if (!lv.visible || layer.kind === "intensity" || !(lv.opacity > 0)) return "";
   if (!(crop.width > 0 && crop.height > 0 && box.width > 0 && box.height > 0)) return "";
   const p = parsed(svgText);
@@ -369,12 +377,22 @@ export function layerMarkup(layer: FluximgLayer, svgText: string, lv: ResolvedLa
   const color = lv.color;
   const recolor = (v: string | undefined): string | undefined => (color && v !== undefined && v !== "none" ? color : v);
   const shapes: string[] = [];
+  // What a shape inherits when it says nothing itself: the layer group's paint (as written below).
+  const groupStroke = color ?? p.groupAttrs.stroke ?? layer.color ?? "#ffffff";
+  const groupFill = p.groupAttrs.fill === undefined || p.groupAttrs.fill === "none" ? "none" : color ?? p.groupAttrs.fill;
   p.shapes.forEach((s, i) => {
     const b = p.boxes[i];
     if (!b || b.x1 < cx0 || b.x0 > cx1 || b.y1 < cy0 || b.y0 > cy1) return;
+    const st = styles ? styles.get(s.key) ?? unlisted ?? undefined : undefined;
+    if (st?.hidden) return;
     const own: Record<string, string> = { ...s.attrs };
     delete own["stroke-width"]; delete own["fill-opacity"]; // the resolved view owns these
     if (color) { own.stroke = recolor(own.stroke)!; own.fill = recolor(own.fill)!; }
+    if (st?.color) {
+      if ((own.stroke ?? groupStroke) !== "none") own.stroke = st.color;
+      if ((own.fill ?? groupFill) !== "none") own.fill = st.color;
+    }
+    if (st?.opacity !== undefined) own.opacity = svgNum(Math.min(1, Math.max(0, st.opacity)));
     const geo = [...GEOMETRY[s.tag], ...(GEOMETRY_OPTIONAL[s.tag] ?? [])];
     shapes.push(`<${s.tag} id="${escapeXml(`${idPrefix}${layer.id}/${s.key}`)}" data-key="${escapeXml(s.key)}"${s.label !== undefined ? ` data-label="${escapeXml(s.label)}"` : ""}${attrText(own, geo)}${attrText(own, ORDER)}/>`);
   });

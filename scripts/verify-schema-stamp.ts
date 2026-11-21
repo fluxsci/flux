@@ -1,7 +1,7 @@
 #!/usr/bin/env -S npx tsx
 // WP 3.0 (manim study, FINAL_PLAN ruling X3): content-derived schema stamps. A deck is written as 0.7.0 only while it holds a feature an
-// older build would break on, a canvas as 0.3.0 likewise (0.4.0 for a fluximg, 0.2.0 for a 3D model, 0.1.0 legacy; the index 0.3.0 / 0.2.0 for fluximg / GLB assets); everything else keeps its bytes. The read
-// guards understand 0.7.0 / 0.4.0 / index 0.3.0 and refuse anything newer.
+// older build would break on (0.8.0 while it holds an N-dimensional image, fluximg stage 2 plan D6), a canvas as 0.3.0 likewise (0.4.0 for a fluximg, 0.2.0 for a 3D model, 0.1.0 legacy; the index 0.3.0 / 0.2.0 for fluximg / GLB assets); everything else keeps its bytes. The read
+// guards understand 0.8.0 / 0.4.0 / index 0.3.0 and refuse anything newer.
 //   npx tsx scripts/verify-schema-stamp.ts
 import { promises as fs, readFileSync, readdirSync, statSync } from "node:fs";
 import * as path from "node:path";
@@ -9,7 +9,7 @@ import * as os from "node:os";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { harness } from "./lib/harness.mjs";
-import { DECK_SCHEMA_VERSION, DECK_BASE_SCHEMA_VERSION, type Deck } from "../src/lib/slide/types";
+import { DECK_SCHEMA_VERSION, DECK_BASE_SCHEMA_VERSION, DECK_ATTACH_SCHEMA_VERSION, DECK_FLUXIMG_SCHEMA_VERSION, type Deck } from "../src/lib/slide/types";
 import { DECK_FEATURES, CANVAS_FEATURES, INDEX_FEATURES, deckSchemaFor, canvasSchemaFor, indexSchemaFor, compareSchema, supportsDeckSchema, DECK_EDITABLE, type SchemaFeature } from "../src/lib/slide/schemaStamp";
 import { CANVAS_SCHEMA_VERSION, CANVAS_MODEL3D_SCHEMA_VERSION, CANVAS_ATTACH_SCHEMA_VERSION, CANVAS_FLUXIMG_SCHEMA_VERSION, FIG_INDEX_SCHEMA_VERSION, FIG_INDEX_MODEL3D_SCHEMA_VERSION, FIG_INDEX_FLUXIMG_SCHEMA_VERSION, LEGACY_FIG_SCHEMA_VERSION, isNewerSchema } from "../src/lib/project/types";
 import type { Asset } from "../src/lib/types";
@@ -24,7 +24,9 @@ const require = createRequire(import.meta.url);
 const twin = require("../electron/deckSchemaSupport.cjs") as { DECK_EDITABLE: RegExp; supportsDeckSchema(v: unknown): boolean };
 
 h.section("constants and the pure stamp");
-h.ok(DECK_SCHEMA_VERSION === "0.7.0" && DECK_BASE_SCHEMA_VERSION === "0.6.0", "decks: read 0.7.0, write 0.6.0 unless a feature says otherwise");
+// fluximg stage 2 (plan D6) moved the READ format to 0.8.0: a deck holding an image is written as 0.8.0; attach / radial stay 0.7.0
+h.ok(DECK_SCHEMA_VERSION === "0.8.0" && DECK_BASE_SCHEMA_VERSION === "0.6.0" && DECK_ATTACH_SCHEMA_VERSION === "0.7.0" && DECK_FLUXIMG_SCHEMA_VERSION === "0.8.0", "decks: read 0.8.0, write 0.6.0 unless a feature says otherwise (attach / radial 0.7.0, an image 0.8.0)");
+h.eq(DECK_FEATURES.map((f) => `${f.name}@${f.version}`), ["attach@0.7.0", "radial@0.7.0", "fluximg@0.8.0"], "the registered deck features and their stamps");
 h.ok(CANVAS_SCHEMA_VERSION === "0.4.0" && CANVAS_FLUXIMG_SCHEMA_VERSION === "0.4.0" && CANVAS_ATTACH_SCHEMA_VERSION === "0.3.0" && CANVAS_MODEL3D_SCHEMA_VERSION === "0.2.0" && LEGACY_FIG_SCHEMA_VERSION === "0.1.0", "canvases: read 0.4.0, write 0.4.0 for a fluximg, 0.3.0 for an attachment, 0.2.0 for a 3D model, 0.1.0 otherwise");
 h.ok(FIG_INDEX_SCHEMA_VERSION === "0.3.0" && FIG_INDEX_FLUXIMG_SCHEMA_VERSION === "0.3.0" && FIG_INDEX_MODEL3D_SCHEMA_VERSION === "0.2.0", "fig/index.json: read 0.3.0, write 0.3.0 with a fluximg asset, 0.2.0 with a GLB, 0.1.0 otherwise");
 h.ok(compareSchema("0.7.0", "0.6.0") > 0 && compareSchema("0.6.0", "0.6.0") === 0 && compareSchema("0.10.0", "0.9.0") > 0, "versions compare numerically (0.10 > 0.9)");
@@ -45,7 +47,7 @@ h.ok(isNewerSchema("0.4.0", "0.3.0") && isNewerSchema("0.3.0", "0.2.0"), "a buil
 
 h.section("accept checks: one regex, its CommonJS twin");
 h.ok(String(DECK_EDITABLE) === String(twin.DECK_EDITABLE), "electron/deckSchemaSupport.cjs is the same regex as schemaStamp.ts DECK_EDITABLE");
-for (const [v, want] of [["0.2.0", true], ["0.6.0", true], ["0.7.0", true], ["0.7.3", true], ["0.8.0", false], ["0.1.0", false], ["1.7.0", false], [7, false]] as const)
+for (const [v, want] of [["0.2.0", true], ["0.6.0", true], ["0.7.0", true], ["0.7.3", true], ["0.8.0", true], ["0.8.2", true], ["0.9.0", false], ["0.1.0", false], ["1.7.0", false], [7, false]] as const)
   h.ok(supportsDeckSchema(v) === want && twin.supportsDeckSchema(v) === want, `editable ${JSON.stringify(v)}: ${want}`);
 
 h.section("the write point and the read guards, on disk");
@@ -72,10 +74,10 @@ try {
     h.ok(JSON.parse(await fs.readFile(file, "utf8")).schemaVersion === "0.6.0", "removing the feature lowers the stamp again (an exact derivation, not a ratchet)");
   } finally { DECK_FEATURES.splice(DECK_FEATURES.indexOf(marker), 1); }
   // a deck newer than this build is refused, bytes untouched
-  const raw = JSON.parse(first); raw.schemaVersion = "0.8.0"; await fs.writeFile(file, JSON.stringify(raw));
+  const raw = JSON.parse(first); raw.schemaVersion = "0.9.0"; await fs.writeFile(file, JSON.stringify(raw));
   const newer = await fs.readFile(file, "utf8");
   let refused = false; try { await loadDeck(root, "plain"); } catch { refused = true; }
-  h.ok(refused && await fs.readFile(file, "utf8") === newer && isNewerSchema("0.8.0", DECK_SCHEMA_VERSION), "a 0.8.0 deck is refused and never rewritten");
+  h.ok(refused && await fs.readFile(file, "utf8") === newer && isNewerSchema("0.9.0", DECK_SCHEMA_VERSION), "a 0.9.0 deck is refused and never rewritten");
 } finally { await fs.rm(root, { recursive: true, force: true }); }
 
 h.section("source: every version regex is one of the sanctioned ones");
@@ -96,6 +98,6 @@ for (const f of ["src", "flux-core", "electron"].flatMap((d) => scan(path.join(r
   if (n) hits.set(path.relative(repo, f).split(path.sep).join("/"), n); // posix keys: the sanctioned list is written with "/" (Windows walks with "\\")
 }
 h.ok([...hits].every(([f, n]) => SANCTIONED.get(f) === n) && [...SANCTIONED].every(([f]) => hits.has(f)), `the only deck version regex literals are the sanctioned ones (${[...hits].map(([f, n]) => `${f}×${n}`).join(", ")})`);
-h.ok(/pattern: "\^0\\\\\.\[234567\]\\\\\."/.test(readFileSync(path.join(repo, "src/lib/project/schemas.ts"), "utf8")), "the deck JSON schema's schemaVersion pattern accepts 0.2-0.7");
+h.ok(/pattern: "\^0\\\\\.\[2345678\]\\\\\."/.test(readFileSync(path.join(repo, "src/lib/project/schemas.ts"), "utf8")), "the deck JSON schema's schemaVersion pattern accepts 0.2-0.8");
 
 await h.done();
