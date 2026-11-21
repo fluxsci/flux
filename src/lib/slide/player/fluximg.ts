@@ -16,7 +16,8 @@ import type { FluximgSurface } from "../../fluximg/slideHost";
 import type { PixelRect, ResolvedFurniture, ResolvedLayer } from "../../fluximg/view";
 import { planViewTween, type TweenPicture, type ViewTweenFrame, type ViewTweenPlan } from "../../fluximg/viewTween";
 import { pixelKey, resolveView } from "../../fluximg/viewOps";
-import { clampCrop, tieredStillSize } from "../../fluximg/still";
+// crop.ts, never still.ts: the exported deck's runtime loads this module, and still.ts pulls the reader and renderer.
+import { clampCrop, tieredStillSize } from "../../fluximg/crop";
 import { cropTransform, FURNITURE_FONT, FURNITURE_WEIGHT, imageStrokeWidth, layerMarkup, namePlacements, namesFontPx, objectIndex, preciseNum, svgNum, type LayerObject } from "../../fluximg/layers";
 import { furnitureSvg } from "../../fluximg/furniture";
 import { fluximgIdPrefix, layerSvgPath, PLACEHOLDER_FILL, unflipTransform } from "../../fluximg/static";
@@ -36,6 +37,15 @@ const AHEAD_EVERY_MS = 120;
 const AHEAD_PICTURES = 12;
 
 const bindings = new WeakMap<HTMLElement, SlideFluximgBinding>();
+/** Counters for the dev handle and the GUI gate's measurements (a few increments per drawn frame; nothing else reads them).
+ *  `mark` / `firstAfterMark`: a gate sets `mark` (performance.now()) and `firstAfterMark = -1` before Play, and reads how long
+ *  the first frame with new pixels took. */
+export const slideFluximgStats = { asked: 0, late: 0, pending: 0, mark: 0, firstAfterMark: -1 };
+const pendingBindings = new Set<object>();
+function setPending(b: object, on: boolean): void {
+  if (on) pendingBindings.add(b); else pendingBindings.delete(b);
+  slideFluximgStats.pending = pendingBindings.size;
+}
 /** Bumped whenever a binding is made or dropped: a controller re-lists its bindings only then, not every frame. */
 let bindingGeneration = 0;
 let mountSerial = 0;
@@ -147,7 +157,15 @@ class Overlay {
     return { layer, text: this.ctx.fluximgLayerText?.(assetId, path) };
   }
 
+  private last: { manifest: FluximgManifest; el: FluximgElement; pic: TweenPicture; fade: object; cull: PixelRect } | null = null;
+  /** Something the overlay waits for landed (a layer file): the next update must look again. */
+  invalidate(): void { this.last = null; }
+
   update(manifest: FluximgManifest, assetId: string, el: FluximgElement, pic: TweenPicture, fade: ViewTweenFrame["furnitureOpacity"], cull: PixelRect): void {
+    // The plan's pictures are shared and read-only: the same overlay picture on the same element state is nothing new.
+    const L = this.last;
+    if (L && L.manifest === manifest && L.el === el && L.pic === pic && L.fade === fade && L.cull === cull) return;
+    this.last = { manifest, el, pic, fade, cull };
     const box = { width: Math.max(1e-6, el.width), height: Math.max(1e-6, el.height) };
     const vb = `0 0 ${svgNum(box.width)} ${svgNum(box.height)}`;
     if (vb !== this.viewBox) { this.viewBox = vb; this.svg.setAttribute("viewBox", vb); }
@@ -303,6 +321,8 @@ export interface SlideFluximgBinding {
   set(element: FluximgElement, frame?: ViewTweenFrame | null, motion?: FluximgMotion): void;
   /** Render this frame if it differs from what is on screen (paint() calls it once per frame). */
   flush(): void;
+  /** Something the host was waiting for landed (a plane, a still, a layer file): look again, then flush. */
+  refresh(): void;
   /** Resolves when the last frame asked for is exactly on screen (capture). */
   settled(): Promise<void>;
   dispose(): void;
@@ -355,10 +375,19 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
     const factor = Math.min(scale * dpr, 4096 / Math.max(1, el.width, el.height));
     return { width: Math.max(1, Math.round(el.width * factor)), height: Math.max(1, Math.round(el.height * factor)) };
   }
+  // A plan's pictures are shared and read-only (viewTween): one picture object = one key per output size.
+  const keys = new WeakMap<TweenPicture, { w: number; h: number; key: string }>();
+  const pictureKey = (manifest: FluximgManifest, p: TweenPicture, w: number, h: number): string => {
+    const hit = keys.get(p);
+    if (hit && hit.w === w && hit.h === h) return hit.key;
+    const key = pixelKey(manifest, p.view, p.crop, w, h);
+    keys.set(p, { w, h, key });
+    return key;
+  };
   function frameKey(manifest: FluximgManifest, f: ViewTweenFrame, w: number, h: number): string {
-    const b = f.b && f.mix > 0 ? pixelKey(manifest, f.b.view, f.b.crop, w, h) : "";
-    const bl = f.blend && f.blend.weight > 0 ? `${f.blend.dim}:${f.blend.other}:${f.blend.weight}` : "";
-    return `${pixelKey(manifest, f.a.view, f.a.crop, w, h)}#${b}#${b ? f.mix : 0}#${bl}`;
+    const b = f.b && f.mix > 0 ? pictureKey(manifest, f.b, w, h) : "";
+    const bl = f.blend && f.blend.weight > 0 ? `${f.blend.dim}:${f.blend.other}:${f.blend.end ?? ""}:${f.blend.weight}` : "";
+    return `${pictureKey(manifest, f.a, w, h)}#${b}#${b ? f.mix : 0}#${bl}`;
   }
   /** The still of a picture under the canvas (and instead of it with no host): kept until a newer one lands. */
   function showStill(manifest: FluximgManifest, pic: TweenPicture): void {
@@ -397,6 +426,7 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
       if (nextMotion && !cullFrom.has(nextMotion.plan)) { cullFrom.add(nextMotion.plan); widen(nextMotion.plan.start.crop); widen(nextMotion.plan.end.crop); }
     },
     outSize,
+    refresh() { overlay.invalidate(); handle.flush(); },
     flush() {
       if (disposed) return;
       const manifest = manifestOf(ctx, el.assetId);
@@ -418,16 +448,24 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
       if (!intersects || !liveVisible(root)) {
         // Hidden surfaces own no backing store and no textures; the still stands in (nobody sees it while hidden).
         surface?.release();
-        drawnKey = ""; pending = false;
+        drawnKey = ""; pending = false; setPending(handle, false);
         showStill(manifest, f.a); publish();
         return;
       }
       const { width, height } = outSize();
       const key = frameKey(manifest, f, width, height);
+      // A frame that waited for its planes is drawn by the surface the moment they land: nothing to ask again.
+      if (key === drawnKey && pending && surface?.exact) { pending = false; setPending(handle, false); }
       if (key !== drawnKey || pending) {
         if (!surface?.shown) showStill(manifest, f.a);
         surface ??= ctx.fluximg.surface(canvas);
         pending = !surface.draw(el.assetId, f, width, height);
+        if (key !== drawnKey) {
+          slideFluximgStats.asked++;
+          if (pending) slideFluximgStats.late++;
+          if (slideFluximgStats.mark && slideFluximgStats.firstAfterMark < 0 && !pending) slideFluximgStats.firstAfterMark = performance.now() - slideFluximgStats.mark;
+        }
+        setPending(handle, pending);
         drawnKey = key;
       }
       publish();
@@ -441,7 +479,7 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
     dispose() {
       if (disposed) return;
       disposed = true; bindingGeneration++;
-      observer?.disconnect(); surface?.dispose(); surface = undefined;
+      observer?.disconnect(); surface?.dispose(); surface = undefined; setPending(handle, false);
       canvas.width = 0; canvas.height = 0; bindings.delete(root);
     },
     probe: () => ({ key: drawnKey, pending, live: !!surface?.shown, still: stillKey, overlay: overlay.nodes() }),
@@ -489,7 +527,7 @@ export function createFluximgController(root: HTMLElement, compiled: CompiledSli
       if (pre?.type !== "fluximg") continue;
       const end = transformEndState(pre, track);
       if (end.type !== "fluximg") continue;
-      changes.push({ beat: bi, assetId: pre.assetId, target: track.target, pre, end, blend: presetParam<boolean>(track, "blend") === true, ease: ct.ease.fn });
+      changes.push({ beat: bi, assetId: pre.assetId, target: track.target, pre, end, blend: presetParam<boolean>(track, "blend", "transform") === true, ease: ct.ease.fn });
     }
   });
   const planOf = (c: ImageChange): ViewTweenPlan | undefined => {
@@ -530,6 +568,8 @@ export function createFluximgController(root: HTMLElement, compiled: CompiledSli
         host.warm(el.assetId, [{ view: resolveView(manifest, el.view), crop: clampCrop(manifest, el.crop) }], s.width, s.height);
       }
       for (const c of changes) { const s = sizeOf(c.pre); host.warm(c.assetId, planOf(c)?.upcoming(0, 1, c.ease, 6) ?? [], s.width, s.height); }
+      // Marks every Change ready once its first frames can draw, so a later Play starts without waiting a turn.
+      void ready().catch(() => undefined);
     });
   });
 
@@ -557,7 +597,7 @@ export function createFluximgController(root: HTMLElement, compiled: CompiledSli
     }
   }
   // A plane, a still, a layer file or the colour maps landed: bindings that waited draw now (no frame loop at rest).
-  const off = host.onChange(() => { if (!disposed) for (const b of list()) b.flush(); });
+  const off = host.onChange(() => { if (!disposed) for (const b of list()) b.refresh(); });
   async function settled(): Promise<void> { await ready(); await Promise.all(list().map((b) => b.settled())); }
   return {
     isReady, ready, flush, settled,

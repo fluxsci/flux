@@ -621,8 +621,12 @@ export class FluximgLiveRenderer {
   /**
    * Draw one frame. A channel or layer whose plane has not arrived yet is simply left out of this frame; so are
    * channels beyond MAX_LIVE_CHANNELS and layers beyond MAX_LIVE_LAYERS.
+   *
+   * `over` (the slide player's mixes; the live view never passes it): draw this frame OVER what the buffer holds at
+   * that weight, every component straight-lerped (`(1 - over)·old + over·new`), the reference meaning of a mix. The
+   * frame must have the buffer's size.
    */
-  draw(frame: LiveFrame): void {
+  draw(frame: LiveFrame, over?: number): void {
     const gl = this.gl;
     if (this.lost) return;
     const canvas = this.canvas;
@@ -673,7 +677,10 @@ export class FluximgLiveRenderer {
     gl.uniform1fv(p.uNdF, this.ndF);
     gl.uniform1iv(p.uOrg, this.org);
     if (layers.length) { gl.uniform4fv(p.uLM, this.lm); gl.uniform4fv(p.uLW, this.lw); }
+    const mixing = over !== undefined && over < 1;
+    if (mixing) { gl.enable(gl.BLEND); gl.blendColor(0, 0, 0, Math.max(0, over)); gl.blendFunc(gl.CONSTANT_ALPHA, gl.ONE_MINUS_CONSTANT_ALPHA); }
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    if (mixing) gl.disable(gl.BLEND);
     this.trim(keep);
   }
 

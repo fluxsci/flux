@@ -18,17 +18,16 @@
 // Pure tier, prerequisite "chrome". Hermetic: the bundle and the page script live in a mkdtemp directory removed at
 // the end; the server listens on an ephemeral port.
 // Run: npx tsx scripts/verify-fluximg-slide-player.ts
-// (Before work package W1a lands, `FLUXIMG_VIEWTWEEN=<path>` substitutes a local test double of planViewTween.)
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
-import { build, type Plugin } from "esbuild";
+import { build } from "esbuild";
 import { launch, errors } from "./lib/driver.mjs";
 import { harness } from "./lib/harness.mjs";
 import { writeFluximg, arraySource } from "../src/lib/fluximg/writer";
-import { nodeBundleWriter, nodeZstd } from "./lib/fluximgFixtures";
+import { nodeBundleWriter, nodeZstd } from "../flux-core/fluximgIo";
 
 const h = harness("verify-fluximg-slide-player");
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -85,7 +84,7 @@ const deck = {
         { id: "b4", tracks: [track("switch", { view: V4 })] },
         { id: "b5", tracks: [track("blend", { view: V5 }, { params: { blend: true } })] },
       ] },
-    { id: "s1", elements: [{ type: "rect", id: "r", x: 100, y: 100, width: 200, height: 100, rotation: 0, fill: "#4385be", stroke: "none", strokeWidth: 0 }], beats: [{ id: "c0", tracks: [] }] },
+    { id: "s1", elements: [{ type: "rect", id: "r", x: 100, y: 100, width: 200, height: 100, rotation: 0, fill: "#4385be", stroke: "none", strokeWidth: 0, cornerRadius: 0 }], beats: [{ id: "c0", tracks: [] }] },
   ],
 };
 
@@ -133,17 +132,24 @@ async function pageRun(D: PageData): Promise<unknown> {
     });
   }
   const lerp = (a: Uint8ClampedArray, b: Uint8ClampedArray, w: number) => { const o = new Uint8ClampedArray(a.length); for (let i = 0; i < a.length; i++) o[i] = Math.round(a[i] * (1 - w) + b[i] * w); return o; };
-  const neighbour = (p: any, dim: string, other: number) => ({ crop: p.crop, view: { ...p.view, index: { ...p.view.index, [dim]: other } } });
+  const neighbour = (p: any, bl: any) => (p.view.projection?.dim === bl.dim && bl.end ? { crop: p.crop, view: { ...p.view, projection: { ...p.view.projection, [bl.end]: bl.other } } } : { crop: p.crop, view: { ...p.view, index: { ...p.view.index, [bl.dim]: bl.other } } });
   /** The CPU reference of a whole frame: a, b mixed by `mix`, then the blend neighbour(s) at their weight. */
   function frameReference(f: any, w: number, h: number): Uint8ClampedArray {
     const one = (p: any) => (f.b && f.mix > 0 ? lerp(reference(p.a, w, h), reference(p.b, w, h), f.mix) : reference(p.a, w, h));
     const here = one({ a: f.a, b: f.b });
     if (!f.blend || !(f.blend.weight > 0)) return here;
-    const there = one({ a: neighbour(f.a, f.blend.dim, f.blend.other), b: f.b ? neighbour(f.b, f.blend.dim, f.blend.other) : null });
+    const there = one({ a: neighbour(f.a, f.blend), b: f.b ? neighbour(f.b, f.blend) : null });
     return lerp(here, there, f.blend.weight);
   }
   const diff = (a: ArrayLike<number>, b: ArrayLike<number>) => { let max = 0, over = 0; if (a.length !== b.length) return { max: 999, over: -1 }; for (let i = 0; i < a.length; i += 4) { let worst = 0; for (let k = 0; k < 4; k++) worst = Math.max(worst, Math.abs(a[i + k] - b[i + k])); max = Math.max(max, worst); if (worst > 1) over++; } return { max, over }; };
-  const pixels = (mount: HTMLElement) => { const c = mount.querySelector<HTMLCanvasElement>("canvas[data-slide-fluximg]")!; return c.width && c.height ? c.getContext("2d")!.getImageData(0, 0, c.width, c.height).data : new Uint8ClampedArray(0); };
+  // The surface's canvas holds a transferred bitmap: read it back through a 2D copy.
+  const pixels = (mount: HTMLElement) => {
+    const c = mount.querySelector<HTMLCanvasElement>("canvas[data-slide-fluximg]")!;
+    if (!c.width || !c.height) return new Uint8ClampedArray(0);
+    const k = Object.assign(document.createElement("canvas"), { width: c.width, height: c.height }).getContext("2d")!;
+    k.drawImage(c, 0, 0);
+    return k.getImageData(0, 0, c.width, c.height).data;
+  };
   const binding = (mount: HTMLElement) => FX.fluximgBindingOf(mount.querySelector("[data-slide-fluximg-root]"));
   const theme = FX.FLUX_DARK;
   const deck = D.deck;
@@ -293,14 +299,6 @@ async function pageRun(D: PageData): Promise<unknown> {
 }
 
 // ---- bundle, serve, run -------------------------------------------------------------------------------------------------
-const double = process.env.FLUXIMG_VIEWTWEEN ? path.resolve(process.env.FLUXIMG_VIEWTWEEN) : null;
-const tweenDouble: Plugin = {
-  name: "viewtween-double",
-  setup(b) {
-    if (!double) return;
-    b.onResolve({ filter: /fluximg\/viewTween$/ }, (args) => (args.importer === double ? undefined : { path: double }));
-  },
-};
 const server = createServer(async (req, res) => {
   try {
     const js = req.url === "/fx.js";
@@ -312,7 +310,6 @@ let browser: Awaited<ReturnType<typeof launch>>["browser"] | null = null;
 try {
   await build({
     absWorkingDir: root, bundle: true, format: "iife", globalName: "FX", platform: "browser", target: "es2022", outfile: path.join(scratch, "fx.js"), logLevel: "silent",
-    plugins: [tweenDouble],
     stdin: {
       resolveDir: root, loader: "ts", sourcefile: "fluximg-slide-player-entry.ts",
       contents: [
@@ -341,7 +338,6 @@ try {
   await page.addScriptTag({ url: `${origin}fx.js` });
   const b64 = (a: Uint16Array) => Buffer.from(a.buffer, a.byteOffset, a.byteLength).toString("base64");
   const r = await page.evaluate(pageRun as (d: PageData) => Promise<any>, { manifest, layerText, data: b64(data), glow: b64(glow), deck, T, C, H, W } as PageData) as any;
-  if (double) console.log(`  (planViewTween: LOCAL TEST DOUBLE ${path.relative(root, double)})`);
 
   h.section("at rest: the still");
   h.ok(r.static.image, "a static render (no host) shows the still as an <image>");

@@ -1,9 +1,9 @@
 /**
  * The slide player's image host over a plane source: ONE WebGL renderer for the whole player document, shared by
- * every image surface (D3). A surface asks for a frame; the renderer draws each picture of it on its own offscreen
- * canvas and the surface copies the result into its own 2D canvas (a mix: the second picture over the first at
- * the mix weight, then the blend neighbour(s) at theirs: per component, `(1 - w)·x + w·y`, the reference meaning of a
- * mix). Frames never block (D4): a frame whose planes are not in hand yet leaves the newest complete earlier frame
+ * every image surface (D3). A surface asks for a frame; the renderer draws each picture of it into its offscreen
+ * buffer (a mix: the second picture over the first at the mix weight, then the blend neighbour(s) at theirs, all in GL:
+ * per component `(1 - w)·x + w·y`, the reference meaning of a mix) and the buffer is handed to the surface's canvas as
+ * a bitmap, without a copy (`transferToImageBitmap` into a `bitmaprenderer` context). Frames never block (D4): a frame whose planes are not in hand yet leaves the newest complete earlier frame
  * on the canvas, and is drawn the moment its planes land (no animation frame is requested for that).
  *
  * Browser-only (WebGL, canvases). The app binds it to the window's service (`appSlideHost.ts`); gates bind it to a
@@ -53,14 +53,25 @@ export function pictureView(rv: ResolvedView): FluximgView {
   };
 }
 
-/** The picture `p` drawn at the blend neighbour's position along `dim` (a projection along `dim` moves its run). */
-export function neighbourPicture(p: TweenPicture, dim: string, other: number): TweenPicture {
+/** The picture `p` drawn at the blend neighbour's position along `dim`: `index[dim] = other`, or, for a stepping
+ *  projection run, that run end (`end`) replaced by `other` (viewTween's `ViewTweenFrame.blend`). */
+export function neighbourPicture(p: TweenPicture, blend: { dim: string; other: number; end?: "from" | "to" }): TweenPicture {
   const pr = p.view.projection;
-  if (pr && pr.dim === dim) return { crop: p.crop, view: { ...p.view, projection: { ...pr, from: other, to: other + (pr.to - pr.from) } } };
-  return { crop: p.crop, view: { ...p.view, index: { ...p.view.index, [dim]: other } } };
+  if (pr && pr.dim === blend.dim && blend.end) return { crop: p.crop, view: { ...p.view, projection: { ...pr, [blend.end]: blend.other } } };
+  return { crop: p.crop, view: { ...p.view, index: { ...p.view.index, [blend.dim]: blend.other } } };
 }
 
 const PLANE_BUDGET = 192 * 1024 * 1024;
+const TEXTURE_BUDGET = 128 * 1024 * 1024;
+
+/** Every host alive in this document (dev handle and gates: `slideHostStats`). */
+const hosts = new Set<{ stats(): SlideHostStats }>();
+/** What the live image hosts of this document hold right now, summed (dev handle: `__flux.fluximgSlide.hosts()`). */
+export function slideHostStats(): SlideHostStats & { hosts: number } {
+  const sum: SlideHostStats & { hosts: number } = { draws: 0, glDraws: 0, textures: 0, textureBytes: 0, liveSurfaces: 0, renderer: false, planesHeld: 0, listeners: 0, surfaces: 0, hosts: hosts.size };
+  for (const h of hosts) { const s = h.stats(); for (const k of Object.keys(s) as (keyof SlideHostStats)[]) if (k === "renderer") sum.renderer ||= s.renderer; else (sum[k] as number) += s[k] as number; }
+  return sum;
+}
 
 export function createFluximgSlideHost(source: SlideHostSource): FluximgSlideHost & { stats(): SlideHostStats } {
   /** Planes in hand for synchronous drawing, least recently used first (the service keeps its own, larger cache). */
@@ -131,19 +142,23 @@ export function createFluximgSlideHost(source: SlideHostSource): FluximgSlideHos
     if (renderer && !renderer.lost) return renderer;
     renderer?.dispose();
     glCanvas = source.glCanvas?.() ?? (typeof OffscreenCanvas === "function" ? new OffscreenCanvas(1, 1) : document.createElement("canvas"));
-    renderer = new FluximgLiveRenderer(glCanvas);
+    // A smaller texture budget than the live view's (384 MiB): a slide keeps the planes of the frames around the playhead
+    // resident, not a whole walked stack; the service still holds the decoded planes, so a texture comes back in one upload.
+    renderer = new FluximgLiveRenderer(glCanvas, TEXTURE_BUDGET);
     return renderer;
   }
 
   interface Entry { n: number; assetId: string; frame: ViewTweenFrame; w: number; h: number }
   class SurfaceImpl implements FluximgSurface {
     private ctx: CanvasRenderingContext2D | null = null;
+    private bitmaps: ImageBitmapRenderingContext | null = null;
     private recent: Entry[] = [];
     private n = 0;
     private drawn = 0;
     private waiters: Array<{ resolve: () => void; reject: (e: Error) => void }> = [];
     private error: Error | null = null;
     shown = false;
+    get exact(): boolean { return this.drawn === this.n; }
     constructor(private canvas: HTMLCanvasElement) { surfaces.add(this); }
 
     draw(assetId: string, frame: ViewTweenFrame, outWidth: number, outHeight: number): boolean {
@@ -193,26 +208,34 @@ export function createFluximgSlideHost(source: SlideHostSource): FluximgSlideHos
       if (bl && wt > 0) {
         // (1-w)·[(1-m)·a + m·b] + w·[(1-m)·a' + m·b'], drawn as a, b@m, a'@α, b'@β with β = w·m, α = w·(1-m)/(1-β).
         const beta = f.b && m > 0 ? wt * m : 0, alpha = beta >= 1 ? 0 : (wt * (1 - (f.b && m > 0 ? m : 0))) / (1 - beta);
-        if (alpha > 0) out.push([neighbourPicture(f.a, bl.dim, bl.other), alpha]);
-        if (f.b && beta > 0) out.push([neighbourPicture(f.b, bl.dim, bl.other), beta]);
+        if (alpha > 0) out.push([neighbourPicture(f.a, bl), alpha]);
+        if (f.b && beta > 0) out.push([neighbourPicture(f.b, bl), beta]);
       }
       return out;
     }
 
     private render(e: Entry, pictures: Array<[TweenPicture, number]>, needs: Need[]): void {
       const r = gl();
-      if (this.canvas.width !== e.w || this.canvas.height !== e.h) { this.canvas.width = e.w; this.canvas.height = e.h; }
-      this.ctx ??= this.canvas.getContext("2d", { alpha: true });
-      const ctx = this.ctx!;
+      // Every picture of the frame is drawn into the ONE GL buffer, each later one over it at its weight (the renderer's
+      // `over`: a straight per-component lerp), so a mix costs GL draws, not canvas copies.
       pictures.forEach(([p, weight], i) => {
         const need = needs[i];
         const { frame } = liveFrameOf(need.manifest, p.view, p.crop, need.level, need.wants, (key) => touch(key)!, tables, e.w, e.h);
-        r.draw(frame); glDraws++;
-        ctx.globalCompositeOperation = i === 0 ? "copy" : "source-over";
-        ctx.globalAlpha = i === 0 ? 1 : weight;
-        ctx.drawImage(glCanvas as CanvasImageSource, 0, 0);
+        r.draw(frame, i === 0 ? undefined : weight); glDraws++;
       });
-      ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
+      if (this.canvas.width !== e.w || this.canvas.height !== e.h) { this.canvas.width = e.w; this.canvas.height = e.h; }
+      // The hand-over: the GL buffer becomes this canvas's bitmap without a copy (an OffscreenCanvas transfers it); a
+      // canvas without that path copies it in 2D.
+      const offscreen = glCanvas as OffscreenCanvas;
+      if (!this.ctx && typeof offscreen.transferToImageBitmap === "function") {
+        this.bitmaps ??= this.canvas.getContext("bitmaprenderer");
+        if (this.bitmaps) { this.bitmaps.transferFromImageBitmap(offscreen.transferToImageBitmap()); draws++; this.shown = true; return; }
+      }
+      this.ctx ??= this.canvas.getContext("2d", { alpha: true });
+      const ctx = this.ctx!;
+      ctx.globalCompositeOperation = "copy";
+      ctx.drawImage(glCanvas as CanvasImageSource, 0, 0);
+      ctx.globalCompositeOperation = "source-over";
       draws++;
       this.shown = true;
     }
@@ -232,14 +255,14 @@ export function createFluximgSlideHost(source: SlideHostSource): FluximgSlideHos
       const was = this.shown;
       this.drawn = this.n; this.recent = []; this.shown = false;
       this.flushWaiters();
+      this.bitmaps?.transferFromImageBitmap(null);
       if (this.canvas.width || this.canvas.height) { this.canvas.width = 0; this.canvas.height = 0; }
-      this.ctx = null;
       if (was && ![...surfaces].some((s) => s.shown)) { renderer?.clear(); planes.clear(); planeBytes = 0; }
     }
     dispose(): void { this.release(); surfaces.delete(this); }
   }
 
-  return {
+  const self: FluximgSlideHost & { stats(): SlideHostStats } = {
     manifest: (id) => source.manifest(id),
     need: (id) => source.need(id),
     still(assetId, picture, outWidth, outHeight) {
@@ -270,7 +293,10 @@ export function createFluximgSlideHost(source: SlideHostSource): FluximgSlideHos
       for (const s of [...surfaces]) s.dispose();
       listeners.clear(); planes.clear(); inflight.clear();
       renderer?.dispose(); renderer = null; glCanvas = null;
+      hosts.delete(self);
     },
     stats: () => ({ draws, glDraws, textures: renderer?.textureCount ?? 0, textureBytes: renderer?.bytes ?? 0, liveSurfaces: [...surfaces].filter((s) => s.shown).length, renderer: !!renderer, planesHeld: planes.size, listeners: listeners.size, surfaces: surfaces.size }),
   };
+  hosts.add(self);
+  return self;
 }

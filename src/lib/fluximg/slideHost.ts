@@ -38,6 +38,8 @@ export interface FluximgSurface {
   draw(assetId: string, frame: ViewTweenFrame, outWidth: number, outHeight: number): boolean;
   /** True once any frame has reached the canvas since the last `release`. */
   readonly shown: boolean;
+  /** True when the last frame passed to `draw()` is exactly on the canvas (it may land after `draw` returned false). */
+  readonly exact: boolean;
   /** Capture: resolves when the last frame passed to `draw()` is exactly on the canvas. */
   settled(): Promise<void>;
   /** Give back GPU memory (offscreen or hidden): the canvas is emptied and the next draw renders afresh. */
