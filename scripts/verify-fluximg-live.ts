@@ -11,11 +11,11 @@ import {
   axisValue, framePeriod, niceStep, niceStride, playStep, profileLevel, profileShape, railIndex, railPos, railSpan, railTicks, resizeRun, slideRun, stepIndex,
   type PlayMode, type PlayState,
 } from "../src/lib/fluximg/live/rail";
-import { BOARD, boardLayout, type Box } from "../src/lib/fluximg/live/boardLayout";
+import { BOARD, boardClear, boardFit, boardLayout, boardOptions, fitNeeds, type BoardLayout, type BoardNeeds, type Box } from "../src/lib/fluximg/live/boardLayout";
 import {
   AUTO_STEPS, autoStepOf, autoWindow, clippedShares, formatShare, histDomain, histogramPath, moveWindow, nextAutoStep, nudgeStep, shareBelow, snapValue, transferPath, valueToX, viewHistogram, xToValue,
 } from "../src/lib/fluximg/live/histogram";
-import { gridCells, insetLayout, splitLayout, type PanelBox } from "../src/lib/fluximg/panelLayout";
+import { boundsOf, familyOf, gridCells, insetLayout, splitLayout, type PanelBox } from "../src/lib/fluximg/panelLayout";
 import { roundNeighbour } from "../src/lib/fluximg/furniture";
 import { patchView, resolveView } from "../src/lib/fluximg/viewOps";
 import type { FluximgManifest, FluximgStats } from "../src/lib/fluximg/types";
@@ -519,6 +519,188 @@ h.section("the board: where its instruments stand round the image");
   h.ok(lost === null, `every instrument asked for is given a place${lost ? ` (counter-example ${show(lost)})` : ""}`);
   const same = find(cases, (c) => JSON.stringify(boardLayout(c)) !== JSON.stringify(boardLayout(structuredClone(c))));
   h.ok(same === null, "the layout is a pure function of its inputs");
+}
+
+// ---------------------------------------------------------------------------------------------
+// The board keeps its image's own panels in view; every instrument is counted (review B6); the view makes room
+// ---------------------------------------------------------------------------------------------
+h.section("the board: kept panels (split channels, insets), the give-way order, every instrument inside the canvas");
+{
+  const meets = (a: Box, b: Box): boolean => a.x < b.x + b.w - 0.5 && b.x < a.x + a.w - 0.5 && a.y < b.y + b.h - 0.5 && b.y < a.y + a.h - 0.5;
+  const insideHost = (host: { w: number; h: number }, b: Box): boolean => b.x >= BOARD.pad - 0.5 && b.y >= BOARD.pad - 0.5 && b.x + b.w <= host.w - BOARD.pad + 0.5 && b.y + b.h <= host.h - BOARD.pad + 0.5;
+  const instruments = (l: BoardLayout): Box[] => [l.console, ...(l.step ? [l.step] : []), ...(l.layers ? [l.layers] : []), ...(l.depth ? [l.depth] : []), ...l.rows];
+  /** Inside the canvas, and nothing squeezed out of sight (the step card at its height, the others at least `lostH`). */
+  const inSight = (n: BoardNeeds, l: BoardLayout): boolean => instruments(l).every((b) => insideHost(n.host, b) && b.w > 0)
+    && l.console.h >= Math.min(n.console.h, BOARD.lostH) - 0.5 && (!l.layers || l.layers.h >= Math.min(n.layers!.h, BOARD.lostH) - 0.5) && (!l.step || l.step.h >= n.step!.h - 0.5);
+  const hits = (l: BoardLayout, kept: readonly Box[]): { image: boolean; kept: boolean; pile: boolean } => {
+    const all = instruments(l);
+    return { image: all.some((b) => meets(b, l.stage)), kept: all.some((b) => kept.some((k) => meets(b, k))), pile: all.some((a, i) => all.some((b, k) => k > i && meets(a, b))) };
+  };
+
+  // Review B6, exactly as reproduced: the step card pushed the layers card out of the canvas with no height.
+  const b6: BoardNeeds = { host: { w: 1100, h: 430 }, image: { x: 230, y: 35, w: 640, h: 360 }, depth: false, rows: 0, console: { w: 230, h: 330 }, layers: { w: 210, h: 220 }, step: { w: 230, h: 86 } };
+  const l6 = boardLayout(b6);
+  h.ok(inSight(b6, l6), `B6: on a 1100 × 430 canvas with the step card, every instrument (layers and step card included) stands inside the canvas at a height it can be read at (${show({ console: l6.console, step: l6.step, layers: l6.layers })})`);
+  const b6b = { ...b6, host: { w: 1300, h: 380 }, image: { x: 330, y: 10, w: 640, h: 360 } };
+  h.ok(inSight(b6b, boardLayout(b6b)), "B6: …and on 1300 × 380");
+
+  // Split channels beside the image: the console stands past the panels (or at the free side), never on them.
+  const host = { w: 1600, h: 900 }, C = { w: 252, h: 380 };
+  const img: Box = { x: 300, y: 150, w: 260, h: 260 };
+  const two = [1, 2].map((i) => ({ x: img.x + i * (img.w + 6), y: img.y, w: img.w, h: img.h }));
+  const s2 = boardLayout({ host, image: img, depth: true, rows: 1, console: C, layers: null, kept: two });
+  h.eq([s2.covers, s2.console.side, s2.depth?.side, s2.rowsAt], ["none", "right", "left", "below"], "two channel panels to the right: nothing covers them; depth keeps the image's left, time its foot, and the console stands at the right…");
+  h.ok(s2.console.x >= two[1].x + two[1].w + BOARD.gap - 0.5, "…past the last panel, a gap from it");
+  const old2 = boardLayout({ host, image: img, depth: true, rows: 1, console: C, layers: null });
+  h.ok(meets(old2.console, two[0]), "(without the kept boxes the console would stand exactly on the first panel: the owner's report)");
+  // No room past them: the console takes the image's other side.
+  const img4: Box = { ...img, x: 420 };
+  const four = [1, 2, 3, 4].map((i) => ({ x: img4.x + i * (img4.w + 6), y: img4.y, w: img4.w, h: img4.h }));
+  const s4 = boardLayout({ host, image: img4, depth: true, rows: 1, console: C, layers: null, kept: four });
+  h.eq([s4.covers, s4.console.side], ["none", "left"], "four panels to the canvas's edge: the console stands at the image's left (with depth), clear of every panel");
+  // An inset pulled out below: the time rail lies above the image rather than over the inset.
+  const below = [{ x: img.x, y: img.y + img.h + 8, w: 200, h: 200 }];
+  const sb = boardLayout({ host, image: img, depth: false, rows: 1, console: C, layers: null, kept: below });
+  h.eq([sb.covers, sb.rowsAt], ["none", "above"], "an inset below the image: the time rail lies above the image, clear of the inset");
+  // Right and below both.
+  const both = [two[0], { x: img.x, y: img.y + img.h + 8, w: 200, h: 200 }];
+  h.eq(boardLayout({ host, image: img, depth: true, rows: 1, console: C, layers: { w: 244, h: 200 }, kept: both }).covers, "none", "an inset at the right and one below: nothing covers either");
+  // An inset ON its image (no room beside): it lies inside the picture, which the instruments already avoid.
+  const inside = [{ x: img.x + img.w - 108, y: img.y + 8, w: 100, h: 100 }];
+  h.eq(boardLayout({ host, image: img, depth: true, rows: 1, console: C, layers: null, kept: inside }).covers, "none", "an inset inside the image's corner: nothing stands on it");
+
+  // The sweep: canvases (figure windows and the short slide canvases, with and without the animator dock) × images ×
+  // kept panels (none, right ×2, right ×4, below, right and below, inside) × the step card × layers / rails.
+  const hosts = [{ w: 1200, h: 900 }, { w: 1440, h: 800 }, { w: 1100, h: 430 }, { w: 1300, h: 380 }, { w: 1440, h: 520 }, { w: 1100, h: 377 }];
+  const keptOf = (i: Box, kind: string): Box[] => {
+    const right = (k: number): Box[] => Array.from({ length: k }, (_, j) => ({ x: i.x + (j + 1) * (i.w + 6), y: i.y, w: i.w, h: i.h }));
+    const under = { x: i.x, y: i.y + i.h + 8, w: Math.min(i.w, 0.7 * i.h), h: Math.min(i.w, 0.7 * i.h) };
+    return kind === "right2" ? right(2) : kind === "right4" ? right(4) : kind === "below" ? [under] : kind === "both" ? [...right(1), under] : kind === "inside" ? [{ x: i.x + i.w * 0.55, y: i.y + 6, w: i.w * 0.4, h: i.h * 0.4 }] : [];
+  };
+  const sweep: BoardNeeds[] = [];
+  for (const hs of hosts) {
+    const s = Math.min(1, hs.h / 900);
+    const images: Box[] = [
+      { x: hs.w * 0.3, y: hs.h * 0.2, w: 240 * s, h: 180 * s }, { x: hs.w * 0.25, y: hs.h * 0.1, w: 420 * s, h: 320 * s }, { x: 60, y: hs.h * 0.15, w: 600 * s, h: 220 * s },
+      { x: 20, y: 20, w: 300 * s, h: 300 * s }, { x: hs.w - 360 * s, y: hs.h * 0.3, w: 320 * s, h: 240 * s }, { x: (hs.w - 640) / 2, y: (hs.h - 360) / 2, w: 640, h: 360 },
+    ];
+    for (const im of images) for (const kind of ["none", "right2", "right4", "below", "both", "inside"]) for (const step of [null, { w: 252, h: 86 }]) for (let r = 0; r < 2; r++) {
+      sweep.push({ host: hs, image: im, depth: R() < 0.5, rows: int(0, 1), console: { w: 252, h: int(220, 420) }, layers: R() < 0.4 ? { w: 244, h: int(120, 360) } : null, step, kept: keptOf(im, kind) });
+    }
+  }
+  let lostCase: BoardNeeds | null = null, missedClear: BoardNeeds | null = null, keptFirst: BoardNeeds | null = null, imageFirst: BoardNeeds | null = null, oracleMiss: BoardNeeds | null = null;
+  let clearCount = 0, keptCount = 0, imageCount = 0;
+  for (const n of sweep) {
+    const l = boardLayout(n), opts = boardOptions(n), k = hits(l, n.kept ?? []);
+    const usable = opts.filter((o) => !o.lost && o.pile <= 0.5);
+    if (usable.length && !inSight(n, l) && !lostCase) lostCase = n;
+    if (usable.some((o) => o.kept <= 0.5 && o.image <= 0.5) && (k.image || k.kept || k.pile) && !missedClear) missedClear = n;
+    // The give-way order: a kept panel is covered only when no arrangement keeps both it and the picture clear; the
+    // picture only when none keeps the picture clear.
+    if (k.kept && !k.image && usable.some((o) => o.kept <= 0.5 && o.image <= 0.5) && !keptFirst) keptFirst = n;
+    if (k.image && usable.some((o) => o.image <= 0.5) && !imageFirst) imageFirst = n;
+    if (!k.image && !k.kept && !k.pile) clearCount++; else if (!k.image) keptCount++; else imageCount++;
+    // An oracle that knows nothing of arrangements: the console alone, beside the picture (left or right) or under it,
+    // at any height in 8 px steps. When such a spot exists clear of the picture and the kept panels, the law must find one.
+    if (!n.depth && !n.rows && !n.layers && !n.step && !oracleMiss) {
+      const { pad } = BOARD, ch = Math.min(n.console.h, n.host.h - 2 * pad), cw = n.console.w, st = l.stage, kept = n.kept ?? [];
+      let found = false;
+      for (let y = pad; !found && y + ch <= n.host.h - pad + 0.5; y += 8) for (let x = pad; !found && x + cw <= n.host.w - pad + 0.5; x += 8) {
+        const b = { x, y, w: cw, h: ch };
+        const beside = x >= st.x + st.w + BOARD.gap - 0.5 || x + cw <= st.x - BOARD.gap + 0.5;
+        if (beside && !meets(b, st) && !kept.some((q) => meets(b, q))) found = true;
+      }
+      if (found && (k.image || k.kept)) oracleMiss = n;
+    }
+  }
+  h.ok(lostCase === null, `every instrument asked for stands wholly inside the canvas at a readable height (${sweep.length} cases incl. the slide canvases 1100×430, 1300×380, 1440×520, 1100×377)${lostCase ? ` (counter-example ${show(lostCase)} → ${show(boardLayout(lostCase))})` : ""}`);
+  h.ok(missedClear === null, `whenever an arrangement keeps the picture, the kept panels and the instruments clear of each other, the board takes one${missedClear ? ` (counter-example ${show(missedClear)})` : ""}`);
+  h.ok(keptFirst === null, `a kept panel is covered only after every arrangement has been tried${keptFirst ? ` (counter-example ${show(keptFirst)})` : ""}`);
+  h.ok(imageFirst === null, `the picture is covered last${imageFirst ? ` (counter-example ${show(imageFirst)})` : ""}`);
+  h.ok(oracleMiss === null, `an independent oracle (the console alone at any spot beside the picture) never finds a clear spot the law missed${oracleMiss ? ` (counter-example ${show(oracleMiss)})` : ""}`);
+  h.ok(clearCount > 0 && keptCount + imageCount > 0, `the sweep exercises every class (${clearCount} clear, ${keptCount} over a kept panel, ${imageCount} over the picture, before any view change)`);
+
+  // The step card beside the console before the console is squeezed (rearrange before compacting).
+  const short: BoardNeeds = { host: { w: 1440, h: 420 }, image: { x: 200, y: 20, w: 380, h: 300 }, depth: false, rows: 0, console: { w: 252, h: 360 }, layers: null, step: { w: 252, h: 86 } };
+  const ls = boardLayout(short);
+  h.eq([ls.step?.beside, ls.covers, ls.whole, ls.console.h], [true, "none", true, 360], "a short canvas: the step card stands beside the console, so the console keeps its whole height");
+  h.ok(ls.step!.x >= ls.console.x + ls.console.w + BOARD.gap - 0.5, "…one column further out, level with it");
+}
+
+h.section("the board: the view makes room (boardFit)");
+{
+  const C = { w: 252, h: 380 };
+  // Nothing to do: everything already stands clear (the image stays where the eye is).
+  const fine: BoardNeeds = { host: { w: 1600, h: 900 }, image: { x: 300, y: 150, w: 260, h: 260 }, depth: true, rows: 1, console: C, layers: null };
+  h.eq(boardFit(fine), null, "everything already clear: the view does not move");
+  // An image that fills the canvas (the user zoomed in on it): the board stands over its edges, the view stays.
+  h.eq(boardFit({ ...fine, image: { x: -100, y: -100, w: 2000, h: 1400 } }), null, "an image larger than the canvas: the view stays (the board stands over its edges)");
+  // Panels that run off the canvas's right edge: a pan is enough.
+  const off: BoardNeeds = { ...fine, image: { x: 900, y: 150, w: 260, h: 260 }, kept: [1, 2].map((i) => ({ x: 900 + i * 266, y: 150, w: 260, h: 260 })) };
+  const f1 = boardFit(off);
+  h.ok(!!f1 && f1.scale === 1 && f1.dx < 0 && f1.dy === 0, `two panels off the right edge: a pan to the left, no zoom (${show(f1)})`);
+  if (f1) {
+    h.ok(boardClear(fitNeeds(off, f1)), "…after which everything stands clear and on screen");
+    // The shortest pan: one pixel less and it would not do.
+    h.ok(!boardClear(fitNeeds(off, { ...f1, dx: f1.dx + 2 })), "…and it is the shortest pan (two px less and something is off or covered)");
+  }
+  // Four channel panels and the console cannot fit at this size: the least zoom out, about the image's centre.
+  const many: BoardNeeds = { ...fine, image: { x: 300, y: 150, w: 300, h: 300 }, kept: [1, 2, 3, 4].map((i) => ({ x: 300 + i * 306, y: 150, w: 300, h: 300 })) };
+  const f4 = boardFit(many);
+  h.ok(!!f4 && f4.scale < 1 && f4.scale > 0.4 && boardClear(fitNeeds(many, f4)), `four panels too wide for the canvas: a zoom out that stands everything clear (${show(f4)})`);
+  if (f4) h.ok(!boardClear(fitNeeds(many, { ...f4, scale: Math.min(1, f4.scale + 0.02) })) || f4.scale > 0.98, "…and no more zoom out than needed (2 % less and it no longer fits, at that pan)");
+  // The short slide canvas with the animator dock open (review B6, related): 1100 × 377, an image 640 × 360 with a
+  // time rail and the step card. Today the rail lies over the image; the fit makes the room.
+  const dock: BoardNeeds = { host: { w: 1100, h: 377 }, image: { x: 230, y: 8, w: 640, h: 360 }, depth: false, rows: 1, console: { w: 252, h: 330 }, layers: null, step: { w: 252, h: 86 } };
+  const before = boardLayout(dock);
+  h.eq([before.rowsAt, before.over], ["over", true], "the slide with the animator dock open: without a fit the time rail lies over the image (the reported state)");
+  const fd = boardFit(dock);
+  h.ok(!!fd && fd.scale < 1, `…the fit zooms out (${show(fd)})`);
+  if (fd) {
+    const after = boardLayout(fitNeeds(dock, fd));
+    h.ok(boardClear(fitNeeds(dock, fd), after) && after.rowsAt !== "over", `…and then nothing covers the image and every instrument is inside (${show({ rows: after.rowsAt, console: after.console, step: after.step })})`);
+  }
+  // Over the sweep of random needs: a fit, when given, always stands the board clear; never zooms in; never moves the
+  // view when it already was.
+  let bad: unknown = null, nulls = 0, fits = 0;
+  for (let i = 0; i < 300 && !bad; i++) {
+    const hw = int(900, 1800), hh = int(360, 1000), w = int(80, 700), hg = int(60, 500);
+    const im = { x: int(-200, hw), y: int(-200, hh), w, h: hg };
+    const kept = R() < 0.5 ? Array.from({ length: int(1, 4) }, (_, j) => ({ x: im.x + (j + 1) * (w + 6), y: im.y, w, h: hg })) : R() < 0.5 ? [{ x: im.x, y: im.y + hg + 8, w: Math.min(w, hg), h: Math.min(w, hg) }] : [];
+    const n: BoardNeeds = { host: { w: hw, h: hh }, image: im, depth: R() < 0.5, rows: int(0, 1), console: { w: 252, h: int(220, 420) }, layers: R() < 0.3 ? { w: 244, h: 200 } : null, step: R() < 0.3 ? { w: 252, h: 86 } : null, kept };
+    const f = boardFit(n);
+    if (!f) { nulls++; if (boardClear(n) || w > hw - 16 || hg > hh - 16) continue; continue; }
+    fits++;
+    if (f.scale > 1 || !boardClear(fitNeeds(n, f)) || boardClear(n)) bad = { n, f };
+  }
+  h.ok(bad === null, `a fit always stands the board clear, never zooms in, and is only asked for when needed (${fits} fits, ${nulls} without)${bad ? ` (counter-example ${show(bad)})` : ""}`);
+
+  // Cost: the layout runs when the board opens and when its inputs change, never per frame.
+  const big: BoardNeeds = { host: { w: 1440, h: 520 }, image: { x: 300, y: 80, w: 360, h: 300 }, depth: true, rows: 2, console: { w: 252, h: 420 }, layers: { w: 244, h: 300 }, step: { w: 252, h: 86 },
+    kept: [1, 2, 3, 4].map((i) => ({ x: 300 + i * 366, y: 80, w: 360, h: 300 })) };
+  for (let i = 0; i < 200; i++) boardLayout(big);
+  let t0 = performance.now();
+  const N = 2000;
+  for (let i = 0; i < N; i++) boardLayout(big);
+  const per = (performance.now() - t0) / N;
+  h.ok(per < 0.1, `one layout of the largest case (two rails, depth, layers, step card, four kept panels: ${boardOptions(big).length} arrangements stood) takes ${(per * 1000).toFixed(1)} µs (< 100 µs)`);
+  t0 = performance.now();
+  for (let i = 0; i < 20; i++) boardFit(many);
+  const fitMs = (performance.now() - t0) / 20;
+  h.ok(fitMs < 8, `one fit (four panels, a zoom out) takes ${fitMs.toFixed(2)} ms (runs once when the board opens and once after a split or an inset)`);
+}
+
+h.section("panels: the family an image keeps in view");
+{
+  const el = (id: string, view: Record<string, unknown> | undefined, extra: Record<string, unknown> = {}) => ({ id, type: "fluximg", assetId: "a", x: 0, y: 0, width: 10, height: 10, rotation: 0, view, ...extra });
+  const comp = el("comp", { link: "L" }), p1 = el("p1", { link: "L", composite: "single", solo: 0 }), p2 = el("p2", { link: "L", composite: "single", solo: 1 });
+  const inset = el("ins", { link: "L", insetOf: "comp" }), other = el("oth", { link: "M" }), hid = el("hid", { link: "L" }, { hidden: true }), stray = el("str", { insetOf: "comp" }), alien = el("aln", { link: "L" }, { assetId: "b" });
+  const all = [comp, p1, p2, inset, other, hid, stray, alien];
+  h.eq(familyOf(all, comp).map((e) => e.id), ["p1", "p2", "ins", "str"], "the composite keeps its channel panels, its insets (linked or not) in view; not another link, a hidden panel or another image");
+  h.eq(familyOf(all, p1).map((e) => e.id), ["comp", "p2", "ins"], "a channel panel keeps its siblings and the composite (the link)");
+  h.eq(familyOf([el("solo", undefined), el("x", undefined)], el("solo", undefined)).length, 0, "an image with no link and no insets keeps nothing");
+  const rb = boundsOf({ x: 0, y: 0, width: 20, height: 10, rotation: 90 });
+  h.ok(Math.abs(rb.x - 5) < 1e-9 && Math.abs(rb.y + 5) < 1e-9 && Math.abs(rb.width - 10) < 1e-9 && Math.abs(rb.height - 20) < 1e-9, "a rotated panel is kept by the box it covers");
 }
 
 await h.done();
