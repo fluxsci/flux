@@ -98,6 +98,7 @@
   import { scene3dGeneration, scene3dManifests } from "../../../lib/model3d/store";
   import { fluximgManifests, fluximgIssues } from "../../../lib/fluximg/store";
   import { fluximgLive } from "../../../lib/fluximg/live/session";
+  import { tiffAsk } from "../../../lib/fluximg/tiffAsk";
   import { getAssetData } from "../../../lib/assets";
   import { assetDisplaySize } from "../../../lib/ops";
   import { sendSlideToCanvas, listFigCanvases } from "../../../lib/project/convert";
@@ -1594,6 +1595,8 @@
     if (plotsRailOwnsKey(e) && e.key !== "F5") return;
     // An image's live board (open on a slide too, stage 2) owns the unmodified keys; its own window listener handles them.
     if (get(fluximgLive) && !typing && !(e.metaKey || e.ctrlKey)) return;
+    // So does the TIFF asking surface (fluximg/TiffAskSurface.svelte): its window listener registers after this one.
+    if (get(tiffAsk) && !(e.metaKey || e.ctrlKey)) return;
     const inAnimation = !!(e.target as HTMLElement)?.closest?.('[data-command-scope="animation"]');
     if (inAnimation) {
       const mod=e.metaKey||e.ctrlKey;

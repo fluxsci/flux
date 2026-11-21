@@ -292,6 +292,10 @@ try {
   await drop(family(10, 30, 20), "slide_001.tif");
   await surface();
   h.ok(true, "a stack without metadata asks on the slide too");
+  const toolBefore = await S(() => window.__flux.get(window.__flux.fig.activeTool));
+  await page.keyboard.press("t");
+  const afterT = await S(() => ({ tool: window.__flux.get(window.__flux.fig.activeTool), transpose: window.__flux.get(window.__flux.fluximg.tiff.tiffAsk)?.answer.transpose === true }));
+  h.ok(afterT.transpose && afterT.tool === toolBefore, `its keys are its own on a slide too: T transposes, the slide's tool stays "${toolBefore}"`);
   await page.keyboard.press("Enter");
   await waitFor(page, (id) => window.__flux.figures().find((f) => f.id === id)?.elements.filter((e) => e.type === "fluximg").length === 2, slideId, { label: "second on the slide", timeout: 20000 });
   h.ok(true, "…and converts and places there");
