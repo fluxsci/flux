@@ -1447,6 +1447,10 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     for (const spec of specs) if (spec.refreshCamera) cameraChanged = spec.refreshCamera() || cameraChanged;
     if (cameraChanged) { disposeSlideAnims(specs, false); if (runSpecs) disposeSlideAnims(runSpecs, false); }
     duration = runMs; time = fromTime;
+    // An image movie does on Back what a video clip does (a slide with a video jumps): it lands at once where the jump
+    // lands it (the pure clock at the target step, paused by the seek), while the Changes rewind; the landing seek
+    // then finds it there. Only a slide with images has movies (a kind check; a deck without images skips this).
+    if (images) media?.seek(target, Infinity);
     rewind = { from: fromTime, to: target, rate: rewindRate(runMs, opts.backScale ?? BACK_SCALE_DEFAULT) };
     clockMode = "rewinding"; playing = true;
     paint(); emit("change");

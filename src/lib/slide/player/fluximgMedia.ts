@@ -136,10 +136,13 @@ export function createFluximgMovieController(root: HTMLElement, slide: Slide, ct
   }
   return {
     begin(from, to) {
+      // A movie running into this step runs on (review A1), as a video clip does (`media.ts` begin leaves running clips
+      // alone): its elapsed time is folded into its position BEFORE the origin moves. One the player or a seek held
+      // (pause reasons) gained no time meanwhile, so the fold leaves it where it stood.
+      const now = performance.now();
+      for (const m of movies.values()) { m.position = positionNow(m, now); m.origin = now; }
       pauseReasons.delete("seek"); pauseReasons.delete("player");
       activeEvents = videoEvents(slide, (beat) => (beat >= from && beat <= to ? 0 : undefined), { resolvedTracks }).filter((e) => elements.has(e.target)); nextEvent = 0;
-      const now = performance.now();
-      for (const m of movies.values()) m.origin = now;
       schedule();
     },
     tick(time) {
