@@ -396,6 +396,12 @@ try {
     ops.setFluximgView(p, a, { index: { z: 1 } });
     h.ok(el(b).view?.index?.z === 4, "an element that left the link no longer drives it");
     h.ok(validateModel(JSON.parse(JSON.stringify(p))).length === 0, "linked views pass the load gate");
+    // Objects styled by a column (styleBy) and the key: stored, loaded, and what one panel shows (never linked).
+    ops.setFluximgView(p, b, { link: "L" });
+    ops.setFluximgView(p, a, { link: "L" });
+    ops.setFluximgView(p, a, { layers: { cells: { styleBy: { color: { column: "kind", palette: ["#ff0000"], range: null }, opacity: { column: "area", range: [1, 9], to: [0.2, 1] }, missing: "hide" } } }, furniture: { key: { corner: "bottom-left", fontSize: 7 } } });
+    h.ok(validateModel(JSON.parse(JSON.stringify(p))).length === 0 && !!el(a).view?.layers?.cells?.styleBy && !!el(a).view?.furniture?.key, "a view styled by columns, with its key, passes the load gate");
+    h.ok(!el(b).view?.layers?.cells?.styleBy && !el(b).view?.furniture?.key, "…and styling is one panel's own (linked panels share position and windows only)");
   }
   h.section("crop");
   {
