@@ -921,7 +921,7 @@ step does and holds the keys for it:
   far end of time (else depth). Hover it to see the walk on the rail first. The Animate panel has
   the same button, with ▾ for another dimension or direction.
 - **Pace** (¼ ½ 1 2 4 ×) re-times the walk. Typing or dragging the duration yourself makes it
-  yours: the walk is not re-timed again.
+  yours (the dial then says *custom*): the walk is not re-timed again.
 - **Blend planes** (Shift+N) crossfades each plane into the next as it walks.
 
 **Start, Pause and Stop movie.** These play the image along one dimension as a clip does: it runs
@@ -931,8 +931,11 @@ bounce or once, its speed, its range and dimension) is one setting of the image,
 command in the Animation properties; the step card's loop key cycles the mode. Shift+Space
 starts the movie at the current step.
 
-Space on the board plays a preview and writes nothing. Split channels and Inset make new panels,
-so on a slide they work in Design only. In the Animation properties a Change of an image lists
+Space on the board plays a preview and writes nothing; while the slide's own preview plays, Space
+pauses that one instead (the two never play together). The board takes only its own keys: F5 and
+Shift+F5 still present (the board closes first, keeping what you did), F2 renames the slide, and
+PageUp and PageDown change slide. Split channels and Inset make new panels, so on a slide they work
+in Design only. In the Animation properties a Change of an image lists
 what it does, one chip per thing ("t 0.0 s → 5.0 s", "zooms in"); ✕ puts back just that one.
 
 ## Animating an image's objects
