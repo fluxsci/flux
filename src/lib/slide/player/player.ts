@@ -1238,7 +1238,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     if (ctx.fluximg && compiled.resolvedSlide.elements.some(el => el.type === "fluximg")) images = createFluximgController(cameraLayer, compiled, ctx, (target, reason) => {
       if (!issues.some(issue => issue.target === target && issue.reason === reason)) issues = [...issues, { target, reason }];
       emit("change");
-    });
+    }, stage);
     durations = Array.from({ length: beats() }, (_, beat) => Math.max(0, compiled.cues[beat]?.duration ?? 0, ...specs.filter((s) => s.beatIndex === beat).map((s) => s.delay + s.duration)));
     media = createVideoController(cameraLayer, compiled.resolvedSlide, durations, !!opts.manualSteps, () => emit("change"), (target, reason) => {
       if (!issues.some(issue => issue.target === target && issue.reason === reason)) issues = [...issues, { target, reason }];
@@ -1255,7 +1255,8 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     applyAt(runSpecs ?? specs, bi, time, native);
     // Mesh parts sample the same run as the re-based DOM specs (selectRun).
     models?.flush(modelAppearance?.sample(bi, time, runFrom).partStates);
-    images?.flush();
+    // (moving: a camera move keeps the image sizes it started with; the images are re-sized for the camera where it rests)
+    images?.flush(playing && time < duration);
     if (playing && clockMode !== "rewinding") media?.tick(time);
     if (playing && time < duration) {
       keeper.flying();

@@ -99,6 +99,17 @@ async function pageRun(D: PageData): Promise<unknown> {
   let rafs = 0;
   const realRaf = window.requestAnimationFrame.bind(window);
   window.requestAnimationFrame = (cb: FrameRequestCallback) => { rafs++; return realRaf(cb); };
+  // Backing reallocations of the live image canvases (a width or height that changes), for B4 and C8.
+  // (a width and a height set in one task are one reallocation)
+  const reallocs = { n: 0 }, inTask = new Set<HTMLCanvasElement>();
+  for (const k of ["width", "height"] as const) {
+    const d = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, k)!;
+    Object.defineProperty(HTMLCanvasElement.prototype, k, { configurable: true, get: d.get, set(this: HTMLCanvasElement, v: number) {
+      if (this.dataset.slideFluximg !== undefined && d.get!.call(this) !== v && v > 0 && !inTask.has(this)) { reallocs.n++; inTask.add(this); setTimeout(() => inTask.delete(this), 0); }
+      d.set!.call(this, v);
+    } });
+  }
+  (window as any).__T = { newPlayer, images, sleep, frame, reallocs, theme, mountOf, makeSource };
 
   // ---- A1: a running movie across steps and navigations -----------------------------------------------------------------
   if (run("movie")) {
@@ -213,6 +224,65 @@ async function pageRun(D: PageData): Promise<unknown> {
   return out;
 }
 
+// ---- B4 and C8: sizes, sharpness and reallocations (screenshots are taken from Node between page steps) ------------------
+const STAGE = { width: 640, height: 360 };
+const ckDeck = (els: unknown[], beats: unknown[]) => ({ schemaVersion: "0.8.0", id: "z", title: "zoom", created: "", modified: "", stage: STAGE, theme: "flux-dark", defaults: { transition: "none" }, assets: [], slides: [{ id: "z0", elements: els, beats }] });
+const CHK = (box: { x: number; y: number; width: number; height: number }, smooth = false) => ({ type: "fluximg", id: "ck", ...box, rotation: 0, assetId: "chk", view: { index: { z: 0 }, smooth } });
+/** Zoom 4 onto the checker, centred on it (the camera's view is 160x90 stage px of the 160x160 image). */
+const zoomDeck = (smooth = false) => ckDeck([CHK({ x: 240, y: 100, width: 160, height: 160 }, smooth)], [{ id: "y0", tracks: [] }, { id: "y1", tracks: [{ id: "cam", target: "@camera", preset: "camera", start: 0, duration: 600, easing: "linear", to: { x: 320, y: 180, zoom: 4 } }] }]);
+/** The same picture unzoomed at 4x the size: the box 640x640, its centre on the stage's centre. */
+const bigDeck = (smooth = false) => ckDeck([CHK({ x: 0, y: -140, width: 640, height: 640 }, smooth)], [{ id: "y0", tracks: [] }]);
+/** A Change that scales the image (160 -> 320, then back). */
+const scaleDeck = () => ckDeck([CHK({ x: 20, y: 20, width: 160, height: 160 })], [{ id: "y0", tracks: [] },
+  { id: "y1", tracks: [{ id: "grow", target: "ck", preset: "transform", start: 0, duration: 800, easing: "linear", to: { state: { width: 320, height: 320 } } }] },
+  { id: "y2", tracks: [{ id: "shrink", target: "ck", preset: "transform", start: 0, duration: 800, easing: "linear", to: { state: { width: 160, height: 160 } } }] }]);
+
+async function zoomStep(deck: unknown, animate: boolean): Promise<unknown> {
+  const T = (window as any).__T, FX = (window as any).FX;
+  for (const m of document.querySelectorAll("[data-zoom-mount]")) m.remove();
+  (window as any).__P?.player.destroy(); (window as any).__P?.host.dispose();
+  const P = T.newPlayer(deck); (window as any).__P = P; P.mount.dataset.zoomMount = "";
+  P.mount.style.cssText = "position:absolute;left:0;top:0;width:640px;height:360px";
+  P.player.goTo(0, 0); await P.player.readyMedia(); await P.player.captureMedia([], Infinity); await T.sleep(60);
+  const c0 = P.mount.querySelector("canvas[data-slide-fluximg]");
+  const before = c0 ? [c0.width, c0.height] : null;
+  const r0 = T.reallocs.n;
+  let during: number[] = [];
+  if (animate) {
+    P.player.next();
+    const t0 = performance.now();
+    while (performance.now() - t0 < 800) { await T.frame(); const c = P.mount.querySelector("canvas[data-slide-fluximg]"); during.push(c.width); }
+    await T.sleep(150);
+  }
+  const moved = T.reallocs.n - r0;
+  await P.player.captureMedia([], Infinity); await T.sleep(60);
+  const c = P.mount.querySelector("canvas[data-slide-fluximg]");
+  const b = FX.fluximgBindingOf(P.mount.querySelector("[data-slide-fluximg-root]"));
+  return { before, after: [c.width, c.height], reallocs: moved, rendering: c.style.imageRendering, live: b.probe().live, widths: [...new Set(during)], camera: P.mount.querySelector("[data-slide-fluximg-root]").closest("div[style*='transform-origin']")?.style.transform ?? "" };
+}
+async function scaleRun(deck: unknown): Promise<unknown> {
+  const T = (window as any).__T;
+  (window as any).__P?.player.destroy(); (window as any).__P?.host.dispose();
+  for (const m of document.querySelectorAll("[data-zoom-mount]")) m.remove();
+  const P = T.newPlayer(deck); (window as any).__P = P;
+  P.player.goTo(0, 0); await P.player.readyMedia(); await P.player.captureMedia([], Infinity); await T.sleep(60);
+  const out: Record<string, unknown> = {};
+  for (const step of [1, 2]) {
+    const r0 = T.reallocs.n, widths: number[] = [];
+    P.player.next();
+    const t0 = performance.now();
+    while (performance.now() - t0 < 1000) { await T.frame(); widths.push(P.mount.querySelector("canvas[data-slide-fluximg]").width); }
+    out[step] = { reallocs: T.reallocs.n - r0, widths: [...new Set(widths)], end: P.mount.querySelector("canvas[data-slide-fluximg]").width };
+  }
+  return out;
+}
+/** Mean absolute horizontal step of the grey level over a window (a one-pixel checker's edge energy). */
+function edgeEnergy(png: { width: number; height: number; rgba: Uint8Array }): number {
+  let sum = 0, n = 0;
+  for (let y = 0; y < png.height; y++) for (let x = 0; x + 1 < png.width; x++) { const i = (y * png.width + x) * 4; sum += Math.abs(png.rgba[i] - png.rgba[i + 4]); n++; }
+  return sum / n;
+}
+
 // ---- bundle, serve, run -------------------------------------------------------------------------------------------------
 const server = createServer(async (req, res) => {
   try {
@@ -249,6 +319,29 @@ try {
   const b64 = (a: Uint16Array) => Buffer.from(a.buffer, a.byteOffset, a.byteLength).toString("base64");
   const r = await page.evaluate(pageRun as (d: PageData) => Promise<any>, { only: only ? [...only] : null, mvManifest: mvReport.manifest, ckManifest: ckReport.manifest, mv: b64(mv), ck: b64(ck), T, MH, MW, CK, Z } as PageData) as any;
 
+  if (!only || only.has("zoom")) {
+    const { decodePng } = await import("../flux-core/fluximgPng");
+    const shot = async () => decodePng(new Uint8Array(await page.screenshot({ clip: { x: 170, y: 30, width: 300, height: 300 }, type: "png" })));
+    const z = await page.evaluate(zoomStep as (d: unknown, a: boolean) => Promise<any>, zoomDeck(), true) as any;
+    const zoomed = edgeEnergy(await shot());
+    const big = await page.evaluate(zoomStep as (d: unknown, a: boolean) => Promise<any>, bigDeck(), false) as any;
+    const ref = edgeEnergy(await shot());
+    const zs = await page.evaluate(zoomStep as (d: unknown, a: boolean) => Promise<any>, zoomDeck(true), true) as any;
+    const zSmooth = edgeEnergy(await shot());
+    const bs = await page.evaluate(zoomStep as (d: unknown, a: boolean) => Promise<any>, bigDeck(true), false) as any;
+    const refSmooth = edgeEnergy(await shot());
+    h.section("B4: a camera zoom onto an image is sharp where the camera rests");
+    h.ok(z.live && z.before?.[0] === 160 && z.after[0] === 128 && z.after[1] === 128, `the canvas is re-rendered for the resting zoom, at the crop's own pixels where the zoom magnifies them (${z.before?.join("x")} -> ${z.after.join("x")}; the 128 px checker shown at 640 px)`);
+    h.ok(z.reallocs <= 1, `${z.reallocs} backing reallocation(s) during the camera move (sizes seen while it flies: ${z.widths.join(", ")})`);
+    h.eq(z.rendering, "pixelated", "the display magnifies a not-smooth image's true pixels (image-rendering: pixelated, as the editor's element)");
+    h.ok(zoomed >= 0.9 * ref, `one-pixel checker edges at zoom 4 (energy ${zoomed.toFixed(1)}) within 10 % of the same picture drawn unzoomed at 4x the size (${ref.toFixed(1)})`);
+    h.ok(zs.rendering === "" && Math.abs(zSmooth - refSmooth) <= 0.15 * refSmooth, `a smooth image is magnified smoothly (edge energy ${zSmooth.toFixed(1)} vs ${refSmooth.toFixed(1)} unzoomed at 4x)`);
+    void big; void bs;
+    const sc = await page.evaluate(scaleRun as (d: unknown) => Promise<any>, scaleDeck()) as any;
+    h.section("C8: a Change that scales an image keeps one canvas size while it moves");
+    h.ok(sc[1].reallocs <= 2 && sc[1].end === 320, `160 -> 320: ${sc[1].reallocs} reallocation(s) over the Change (sizes: ${sc[1].widths.join(", ")}), exact at the end (${sc[1].end})`);
+    h.ok(sc[2].reallocs <= 2 && sc[2].end === 160, `320 -> 160: ${sc[2].reallocs} reallocation(s) (sizes: ${sc[2].widths.join(", ")}), exact at the end (${sc[2].end})`);
+  }
   if (r.across) {
     h.section("A1: a running movie runs on across later steps");
     for (const a of r.across) h.ok(a.ok >= a.of - 1, `${a.mode}: when step 2 begins the movie keeps its clock (${a.ok}/${a.of} samples on the clock since Start; shown/clock: ${a.seq})`);
