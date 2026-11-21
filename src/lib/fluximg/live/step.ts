@@ -22,6 +22,7 @@ import { describeViewChange, longestWalk } from "../viewTween";
 import { PACE_SPEEDS, PLAYBACK_MODES, resolvePlayback, walkableDims, type ResolvedPlayback } from "../playback";
 import { resolveView } from "../viewOps";
 import { liveElement, settleLiveEdit, previewHooks, fluximgPreview } from "./session";
+import { framePeriod, naturalRate } from "./rail";
 
 export interface StepCard {
   /** Design: the resting view (the card says so and offers nothing). */
@@ -46,6 +47,8 @@ export interface StepCard {
   playback: ResolvedPlayback | null;
   /** Dimensions the image can walk (time, depth, …). */
   dims: string[];
+  /** Each walkable dimension's own rate, in planes a second, and whether that is real time (a time axis with a period). */
+  rates: Record<string, { perSecond: number; realTime: boolean }>;
 }
 
 const fluximgManifestFor = (id: string) => get(fluximgManifests)[id];
@@ -61,7 +64,8 @@ export function stepCard(): StepCard | null {
   const bi = dest.kind === "after" ? slide.beats.findIndex((b) => b.id === dest.beatId) : 0;
   const playback = resolvePlayback(manifest, (slide.elements.find((e) => e.id === el.id) as FluximgElement | undefined)?.playback);
   const dims = walkableDims(manifest);
-  const base = { slideId: sid, playback, dims };
+  const rates = Object.fromEntries(dims.map((d) => [d, { perSecond: naturalRate(manifest, d), realTime: framePeriod(manifest.axes?.[d]) !== null }]));
+  const base = { slideId: sid, playback, dims, rates };
   if (bi < 1) return { design: true, index: 0, beatId: slide.beats[0]?.id ?? "", words: [], walk: null, change: null, durationMs: null, pace: null, blend: false, movie: null, movieState: "stopped", ...base };
   const beat = slide.beats[bi];
   const pre = transformPreState(slide, el.id, bi) as FluximgElement | null;

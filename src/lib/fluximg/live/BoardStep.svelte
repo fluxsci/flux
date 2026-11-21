@@ -30,9 +30,13 @@
   const MODE_WORDS = { loop: "loops", bounce: "bounces back and forth", once: "plays once" } as const;
   const MODE_VERB = { loop: "loop", bounce: "bounce back and forth", once: "play once" } as const;
   const NEXT_MODE = { loop: "bounce", bounce: "once", once: "loop" } as const;
-  /** The rate a paced walk keeps, in words: a time axis plays in real time; any other at the data's own rate. */
-  const rateWords = (dim: string | undefined): string => (dim === "t" ? "real time" : "own rate");
-  const pacedWords = (dim: string | undefined): string => (dim === "t" ? "in real time" : "at the image's own rate");
+  /** The rate a paced walk keeps, in words: a time axis plays in real time (× the pace), any other at its planes a second. */
+  const rateWords = (dim: string | undefined, pace: number): string => {
+    const r = dim ? card.rates[dim] : undefined;
+    if (!r || r.realTime) return `${pace !== 1 ? `${speedWords(pace)} ` : ""}real time`;
+    return `${Number((r.perSecond * pace).toPrecision(3))} planes/s`;
+  };
+  const pacedWords = (dim: string | undefined): string => { const r = dim ? card.rates[dim] : undefined; return !r || r.realTime ? "in real time" : `at ${Number(r.perSecond.toPrecision(3))} planes a second`; };
   /** What Play through walks along (the first rail), in words. */
   const throughWords = $derived(card.dims[0] === "t" ? "time" : card.dims[0] === "z" ? "depth" : card.dims[0] ?? "");
   let h = $state(0);
@@ -45,7 +49,7 @@
 <div class="stepcard" class:design={card.design} style={`width:${width}px`} bind:offsetHeight={h} data-fxb-step={card.design ? "design" : String(card.index)} onpointerdown={stop} ondblclick={stop}>
   <div class="l1">
     <span class="ttl">{card.design ? "Design" : `Step ${card.index}`}</span>
-    {#if !card.design && card.durationMs !== null && card.change}<span class="dur" data-fxb-step-duration>{seconds(card.durationMs)}{#if card.pace !== null}<i>{` · ${card.pace !== 1 ? `${speedWords(card.pace)} ` : ""}${rateWords(card.walk?.dim)}`}</i>{/if}</span>{/if}
+    {#if !card.design && card.durationMs !== null && card.change}<span class="dur" data-fxb-step-duration>{seconds(card.durationMs)}{#if card.pace !== null}<i>{` · ${rateWords(card.walk?.dim, card.pace)}`}</i>{/if}</span>{/if}
   </div>
   <div class="words" data-fxb-step-words>
     {#if card.design}<span class="quiet">the image before any step · choose a step to animate it</span>

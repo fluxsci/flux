@@ -9,8 +9,8 @@
    * (`actions.ts` `LIVE_KEYS`; the whole key map, as data, is `keys.ts`). What is "in hand" (a rail, a channel's point, the frame) is lit pink: the wheel and
    * a drag on the image drive it.
    *
-   * It owns the keyboard and the wheel while the live view is open and changes nothing itself: every change is an
-   * `actions.ts` call.
+   * It takes exactly the keys of its key map (`keys.ts`; F5, F2, PageDown and every Ctrl / Cmd chord go on to the
+   * mode) and the wheel over what is in hand, and changes nothing itself: every change is an `actions.ts` call.
    */
   import { get } from "svelte/store";
   import { yieldsToShellModal, isAnnotateChord } from "../../../shell/agent/annotationVisibility";
