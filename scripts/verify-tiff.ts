@@ -289,6 +289,29 @@ try {
     h.ok(probe.resolution?.trusted === true && Math.abs(probe.resolution.pixelSize! - 0.25) < 1e-12 && proposals[0].answer.pixelSize?.x === 0.25, "40000 pixels per cm → 0.25 µm, trusted, prefilled");
     h.ok(probe.fingerprintParts.name === "run_N_NHz.tif" && !JSON.stringify(probe.fingerprintParts).includes("007"), "the fingerprint keeps the file name's pattern, never the name");
   }
+  // The period is also read from the PICTURES (stage 2 follow-up): two channels that are equally bright but show
+  // different things, noisy frame by frame, with the middle of every page masked (not numbers). And it is not read
+  // where there is none: one channel with a fixed picture, and a stack that changes smoothly from page to page.
+  {
+    const W = 160, H = 240, N = 24; // 153,600 bytes a page: more than one 64 KB window, so where the probe looks matters
+    let seed = 12345; const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+    const picture = (fx: number, fy: number, phase: number) => Float32Array.from({ length: W * H }, (_, i) => 100 + 40 * Math.sin((i % W) * fx + phase) * Math.cos(Math.floor(i / W) * fy));
+    const A = picture(0.21, 0.05, 0), B = picture(0.05, 0.19, 1.3), C = picture(0.11, 0.11, 2.1);
+    const maskRow = (y: number) => y >= 60 && y < 190; // the middle rows are unscanned
+    const page = (base: (i: number) => number, masked: boolean) => Float32Array.from({ length: W * H }, (_, i) => (masked && maskRow(Math.floor(i / W)) ? NaN : base(i) + (rnd() - 0.5) * 120));
+    const file = (pages: Float32Array[]) => writeTiff({ bigTiff: true, layout: "ifds-at-end", pages: pages.map((data) => pageSpec({ width: W, height: H, dtype: "float32", data })) });
+    const periodOf = async (bytes: Uint8Array) => (await probeOf(bytes, "pages.tif")).probe.hints.find((h2) => h2.source === "periodicity");
+    const two = await periodOf(file(Array.from({ length: N }, (_, i) => page((j) => (i % 2 ? B : A)[j], true))));
+    h.ok(!!two && JSON.stringify(two.dims) === JSON.stringify([{ name: "t", size: "rest" }, { name: "c", size: 2 }]) && /show the same picture/.test(two.reasons[0]), `two equally bright channels with different pictures, noisy and masked in the middle, are suggested as two interleaved channels by their pictures (${two?.reasons[0] ?? "no hint"})`);
+    const three = await periodOf(file(Array.from({ length: 36 }, (_, i) => page((j) => [A, B, C][i % 3][j], true))));
+    h.ok(!!three && three.dims?.[1].size === 3, `three such channels are suggested as three (${three?.reasons[0] ?? "no hint"})`);
+    const one = await periodOf(file(Array.from({ length: N }, () => page((j) => A[j], true))));
+    h.ok(!one, `one channel with a fixed picture suggests no period (${one?.reasons[0] ?? "none"})`);
+    const drift = await periodOf(file(Array.from({ length: N }, (_, i) => page((j) => A[j] * (1 - i / N) + B[j] * (i / N), false))));
+    h.ok(!drift, `a stack that changes smoothly from page to page suggests no period (${drift?.reasons[0] ?? "none"})`);
+    const noise = await periodOf(file(Array.from({ length: N }, () => page(() => 100, false))));
+    h.ok(!noise, `pure noise suggests no period (${noise?.reasons[0] ?? "none"})`);
+  }
 
   // ------------------------------------------------------------------------------------------------------------------
   h.section("E. refusals");

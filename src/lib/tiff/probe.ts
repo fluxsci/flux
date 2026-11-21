@@ -107,8 +107,8 @@ export async function probeFile(file: TiffFile, opts: ProbeOptions = {}): Promis
     hints.push({ source: "samples", confidence: "high", samples: rgb ? "rgb" : "c", reasons: [rgb ? `RGB${L.samples === 4 ? "A" : ""} pixels (${L.samples} samples, photometric RGB)${L.samples === 4 ? "; the alpha sample is dropped" : ""}` : `${L.samples} samples per pixel, read as channels`] });
   }
   if (opts.periodicity && pages >= 8 && !hints.some((h) => h.dims?.length)) {
-    const period = await brightnessPeriod(file, series[0].first, series[0].count, opts.signal).catch(() => null);
-    if (period) hints.push({ source: "periodicity", confidence: "low", dims: [{ name: "t", size: "rest" }, { name: "c", size: period.period }], reasons: [`the first pages alternate in brightness with a period of ${period.period} (ratio ${period.ratio.toPrecision(3)}): perhaps ${period.period} interleaved channels, channel fastest`] });
+    const period = await pagePeriod(file, series[0].first, series[0].count, opts.signal).catch(() => null);
+    if (period) hints.push({ source: "periodicity", confidence: "low", dims: [{ name: "t", size: "rest" }, { name: "c", size: period.period }], reasons: [`${period.reason}: perhaps ${period.period} interleaved channels, channel fastest`] });
   }
 
   const keyNames = pj.keys ? pj.keys.keys.map((k) => k.key).sort() : [];
@@ -151,32 +151,88 @@ export async function probeTiff(src: RangedSource, opts: ProbeOptions = {}): Pro
   return { file, probe: await probeFile(file, opts) };
 }
 
+/** A period is read from the pages' PICTURES when pages a period apart correlate at least this well ... */
+const PATTERN_WITHIN = 0.6;
+/** ... and at least this much better than pages of different phases do. */
+const PATTERN_GAP = 0.25;
+
 /**
- * Mean brightness of a sample of each of the first pages (uncompressed files only: 64 KB from the middle of each),
- * and the smallest period 2..4 whose groups differ far more than they vary. A suggestion, never a decision.
+ * Whether the first pages repeat with a period (interleaved channels), from a sample of each of the first pages
+ * (uncompressed files only: the same 64 KB window of every page's data). The smallest period 2..4 for which either
+ *   - the pages' mean brightness falls into groups that differ far more than they vary, or
+ *   - the pages' pictures do: within a group, the average of every other page looks like the average of the rest
+ *     (two halves of one channel), far more than it looks like the other groups' (two channels that are equally
+ *     bright but show different things; noise averages out over the halves, so single frames may be noisy).
+ * Samples that are not numbers (a mask of unscanned pixels) are left out, pixel by pixel. A suggestion, never a decision.
  */
-async function brightnessPeriod(file: TiffFile, first: number, count: number, signal?: AbortSignal): Promise<{ period: number; ratio: number } | null> {
+async function pagePeriod(file: TiffFile, first: number, count: number, signal?: AbortSignal): Promise<{ period: number; reason: string } | null> {
   const L = file.pages[first].layout;
   if (L.compression !== 1 || !L.dtype || L.samples !== 1) return null;
   const bps = L.bits / 8, n = Math.min(64, count);
-  const means: number[] = [];
-  for (let i = 0; i < n; i++) {
-    const p = file.pages[first + i];
+  const le = file.littleEndian;
+  const value = (dv: DataView, j: number): number =>
+    L.dtype === "float32" ? dv.getFloat32(j, le) : L.dtype === "float64" ? dv.getFloat64(j, le) : L.dtype === "uint16" ? dv.getUint16(j, le) : L.dtype === "int16" ? dv.getInt16(j, le)
+      : L.dtype === "uint32" ? dv.getUint32(j, le) : L.dtype === "int32" ? dv.getInt32(j, le) : L.dtype === "int8" ? dv.getInt8(j) : dv.getUint8(j);
+  // A window of at most 64 KB at `at` (0..1) through a page's data: that strip, and that far into it.
+  const windowAt = async (page: number, at: number): Promise<Float64Array | null> => {
+    const p = file.pages[first + page];
     const offs = await refValues(file, p.offsets, signal), cnts = await refValues(file, p.counts, signal);
-    const k = offs.length >> 1;
+    const k = Math.min(offs.length - 1, Math.round(at * (offs.length - 1)));
     const len = Math.min(cnts[k], 65536) - (Math.min(cnts[k], 65536) % bps);
-    if (!(len > 0) || offs[k] + len > file.size) return null;
-    const b = await file.source.read(offs[k], len, signal);
-    const dv = new DataView(b.buffer, b.byteOffset, b.byteLength), le = file.littleEndian;
-    let s = 0, c = 0;
-    for (let j = 0; j + bps <= len; j += bps) {
-      const v = L.dtype === "float32" ? dv.getFloat32(j, le) : L.dtype === "float64" ? dv.getFloat64(j, le) : L.dtype === "uint16" ? dv.getUint16(j, le) : L.dtype === "int16" ? dv.getInt16(j, le)
-        : L.dtype === "uint32" ? dv.getUint32(j, le) : L.dtype === "int32" ? dv.getInt32(j, le) : L.dtype === "int8" ? dv.getInt8(j) : dv.getUint8(j);
-      if (Number.isFinite(v)) { s += v; c++; }
-    }
-    means.push(c ? s / c : NaN);
+    const start = offs[k] + Math.floor(((offs.length > 1 ? 0.5 : at) * (cnts[k] - len)) / bps) * bps;
+    if (!(len > 0) || start + len > file.size) return null;
+    const b = await file.source.read(start, len, signal);
+    const dv = new DataView(b.buffer, b.byteOffset, b.byteLength), vals = new Float64Array(len / bps);
+    for (let j = 0, q = 0; j + bps <= len; j += bps, q++) vals[q] = value(dv, j);
+    return vals;
+  };
+  // Where to look: the middle; and where the picture is masked there (unscanned pixels are not numbers), the windows of
+  // the first page that hold the most numbers, best first, until one of them shows a period. One strip per page is
+  // common, and its first bytes are the picture's edge.
+  const ranked: { at: number; finite: number }[] = [];
+  let masked = false;
+  for (const at of [0.5, 0.35, 0.65, 0.2, 0.8, 0.05, 0.95]) {
+    const vals = await windowAt(0, at);
+    if (!vals) return null;
+    let finite = 0;
+    for (let j = 0; j < vals.length; j++) if (Number.isFinite(vals[j])) finite++;
+    ranked.push({ at, finite });
+    if (finite === vals.length && !masked) break;
+    masked = true;
   }
+  ranked.sort((x, y) => y.finite - x.finite);
+  for (const { at, finite } of ranked.slice(0, masked ? 3 : 1)) {
+    if (finite < 256) break;
+    const samples: Float64Array[] = [];
+    for (let i = 0; i < n; i++) { const vals = await windowAt(i, at); if (!vals) return null; samples.push(vals); }
+    const found = periodOf(samples);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** The period test itself, on one sample per page (see pagePeriod). */
+function periodOf(samples: Float64Array[]): { period: number; reason: string } | null {
+  const means = samples.map((vals) => { let s = 0, c = 0; for (let j = 0; j < vals.length; j++) if (Number.isFinite(vals[j])) { s += vals[j]; c++; } return c ? s / c : NaN; });
   if (means.some((m) => !Number.isFinite(m))) return null;
+  const size = Math.min(...samples.map((v) => v.length));
+  // The average picture of some pages (finite samples only), and how alike two such pictures are (Pearson, over the
+  // samples both have; too few in common says nothing).
+  const average = (pages: number[]): Float64Array => {
+    const sum = new Float64Array(size), seen = new Uint16Array(size);
+    for (const i of pages) { const v = samples[i]; for (let j = 0; j < size; j++) if (Number.isFinite(v[j])) { sum[j] += v[j]; seen[j]++; } }
+    for (let j = 0; j < size; j++) sum[j] = seen[j] ? sum[j] / seen[j] : NaN;
+    return sum;
+  };
+  const alike = (a: Float64Array, b: Float64Array): number => {
+    let m = 0, sa = 0, sb = 0;
+    for (let j = 0; j < size; j++) if (Number.isFinite(a[j]) && Number.isFinite(b[j])) { m++; sa += a[j]; sb += b[j]; }
+    if (m < 256) return NaN;
+    const ma = sa / m, mb = sb / m;
+    let xy = 0, xx = 0, yy = 0;
+    for (let j = 0; j < size; j++) if (Number.isFinite(a[j]) && Number.isFinite(b[j])) { const x = a[j] - ma, y = b[j] - mb; xy += x * y; xx += x * x; yy += y * y; }
+    return xx > 0 && yy > 0 ? xy / Math.sqrt(xx * yy) : NaN;
+  };
   for (const period of [2, 3, 4]) {
     const usable = means.length - (means.length % period);
     if (usable < period * 3) continue;
@@ -186,7 +242,22 @@ async function brightnessPeriod(file: TiffFile, first: number, count: number, si
     const all = gm.reduce((a, b) => a + b, 0) / period;
     const between = gm.reduce((a, m) => a + (m - all) ** 2, 0) / Math.max(1, period - 1);
     const ratio = between / Math.max(within, 1e-12 * Math.abs(all) + 1e-30);
-    if (ratio > 25 && new Set(gm.map((m) => m.toPrecision(3))).size === period) return { period, ratio };
+    if (ratio > 25 && new Set(gm.map((m) => m.toPrecision(3))).size === period)
+      return { period, reason: `the first pages alternate in brightness with a period of ${period} (ratio ${ratio.toPrecision(3)})` };
+    // The pictures: each group's pages split into two halves (every other one), averaged.
+    if (usable < period * 4) continue;
+    const halves = Array.from({ length: period }, (_, g) => {
+      const members = Array.from({ length: usable / period }, (_, k) => g + k * period);
+      return [average(members.filter((_, k) => k % 2 === 0)), average(members.filter((_, k) => k % 2 === 1))] as const;
+    });
+    let same = 0, other = 0, pairs = 0;
+    for (let g = 0; g < period; g++) {
+      same += alike(halves[g][0], halves[g][1]);
+      for (let o = 0; o < period; o++) if (o !== g) { other += alike(halves[g][0], halves[o][1]); pairs++; }
+    }
+    same /= period; other /= pairs;
+    if (Number.isFinite(same) && Number.isFinite(other) && same >= PATTERN_WITHIN && same - other >= PATTERN_GAP)
+      return { period, reason: `the first pages alternate with a period of ${period}: pages ${period} apart show the same picture, neighbours do not (likeness ${same.toFixed(2)} against ${other.toFixed(2)})` };
   }
   return null;
 }
