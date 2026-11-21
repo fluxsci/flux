@@ -63,12 +63,14 @@ export function handoffKeyPairs(slide: Slide, source: readonly ResolvedTarget[],
   lookups: { plotManifest?: (assetId: string) => FluxPlotManifest | undefined }): { pairs: number; source: number; destination: number; auto: boolean } {
   const members = (targets: readonly ResolvedTarget[]) => targets.flatMap(t => {
     const el = slide.elements.find(e => e.id === t.elementId);
-    if (!el || t.partIds === null) return [];
-    if (el.type === "fluximg") return t.partIds.map(id => { const p = parseFluximgPartId(id); return { keys: memberKeys({ key: p?.key }) }; });
+    if (!el) return [];
+    if (el.type === "fluximg") return (t.partIds ?? []).map(id => { const p = parseFluximgPartId(id); return { keys: memberKeys({ key: p?.key }) }; });
     if (el.type !== "plot") return [];
     const manifest = lookups.plotManifest?.(el.assetId), index = buildPartIndex(manifest);
     const names = new Map((manifest?.series ?? []).map(s => [s.id, s.name ?? ""]));
-    return t.partIds.map(id => { const series = index[id]?.series; return { keys: memberKeys({ series, seriesName: series ? names.get(series) : undefined }) }; });
+    // a whole plot flies as all its parts: those of a series answer to its key
+    const ids = t.partIds ?? Object.values(index).filter(p => p.series && p.role !== "point" || p.series && p.index != null).map(p => p.id);
+    return ids.map(id => { const series = index[id]?.series; return { keys: memberKeys({ series, seriesName: series ? names.get(series) : undefined }) }; });
   });
   const a = members(source), b = members(destination);
   const distinct = (side: { keys: readonly string[] }[]) => new Set(side.map(m => m.keys.join("\u0000")).filter(Boolean)).size;
