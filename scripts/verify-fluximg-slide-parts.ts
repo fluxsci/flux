@@ -250,7 +250,189 @@ try {
     for (const d of decksWithoutImages()) h.eq(deckDigest(d), BASE[d.id], `${d.id}: cues, issues and samples byte-identical to the base`);
     void (null as unknown as Deck);
   }
+
+  // ---- L. the player in headless Chrome: the real overlay, the real effects ------------------------------------------------
+  h.section("L. the player (headless Chrome)");
+  {
+    const { build } = await import("esbuild");
+    const { createServer } = await import("node:http");
+    const { launch } = await import("./lib/driver.mjs");
+    const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+    await build({
+      absWorkingDir: root, bundle: true, format: "iife", globalName: "FX", platform: "browser", target: "es2022", outfile: path.join(scratch, "fx.js"), logLevel: "silent",
+      stdin: { resolveDir: root, loader: "ts", sourcefile: "w8-entry.ts", contents: [
+        `export { createPlayer } from "./src/lib/slide/player/player";`,
+        `export { fluximgBindingOf } from "./src/lib/slide/player/fluximg";`,
+        `export { createFluximgSlideHost } from "./src/lib/fluximg/slideSurfaces";`,
+        `export { planViewTween } from "./src/lib/fluximg/viewTween";`,
+        `export { pixelMaps } from "./src/lib/fluximg/still";`,
+        `export { planeKey, layerKey } from "./src/lib/fluximg/service";`,
+        `export { FLUX_DARK } from "./src/lib/slide/theme";`,
+        `export { compileSlide } from "./src/lib/slide/compile";`,
+        `export { transformPreState, transformEndState } from "./src/lib/slide/tween";`,
+        `export { fluximgPartNode, partIndexFromTexts, imageToStage, applyMatrix } from "./src/lib/fluximg/parts";`,
+        `export { lerpColor, parseColor } from "./src/lib/color/interp";`,
+      ].join("\n") },
+    });
+    const server = createServer(async (req, res) => {
+      const js = req.url === "/fx.js";
+      res.setHeader("Content-Type", js ? "text/javascript" : "text/html");
+      res.end(js ? await readFile(path.join(scratch, "fx.js")) : '<!doctype html><html><head><link rel="icon" href="data:,"><style>body{margin:0}</style></head><body></body></html>');
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const origin = `http://127.0.0.1:${(server.address() as import("node:net").AddressInfo).port}/`;
+    const { browser, page } = await launch({ width: 1280, height: 720 });
+    try {
+      const pageErrors: string[] = [];
+      page.on("pageerror", (e: Error) => pageErrors.push(e.message));
+      await page.goto(origin);
+      await page.evaluate("window.__name = (value) => value");
+      await page.addScriptTag({ url: `${origin}fx.js` });
+      const byPath: Record<string, string> = {}, tableByPath: Record<string, unknown> = {};
+      for (const l of manifest.layers) { const p = layerSvgPath(l); if (p) byPath[p] = texts[l.id]; if (l.kind !== "intensity" && l.table) tableByPath[l.table] = tables[l.id]; }
+      const r = await page.evaluate(w8Page as (d: unknown) => Promise<any>, { manifest, byPath, tableByPath }) as any;
+      h.eq(pageErrors, [], "no page errors");
+      // 1. stagger over a layer, by index: the player's opacities are the compiler's at every sampled time
+      for (const s of r.stagger) h.ok(s.player.every((v: number, i: number) => Math.abs(v - s.compiled[i]) < 0.02), `index stagger at ${s.ms} ms: player ${s.player.map((v: number) => v.toFixed(2)).join(" ")} = compiler ${s.compiled.map((v: number) => v.toFixed(2)).join(" ")}`);
+      h.ok(r.stagger.some((s: any) => s.player[0] > s.player[1] && s.player[1] > s.player[3]), "objects appear one by one in the layer's order");
+      for (const s of r.column) h.ok(s.player.every((v: number, i: number) => Math.abs(v - s.compiled[i]) < 0.02), `column stagger (pixels) at ${s.ms} ms: player ${s.player.map((v: number) => v.toFixed(2)).join(" ")} = compiler`);
+      h.ok(r.column.some((s: any) => s.player[3] > 0 && s.player[1] === 0), "by the pixels column the smallest object (s7) appears first, the largest (s2) last");
+      // 2. composition with a crop tween
+      for (const s of r.crop) h.ok(Math.abs(s.got.x - s.want.x) < 0.6 && Math.abs(s.got.y - s.want.y) < 0.6, `crop tween raw ${s.raw}: the dimming object stays on its place on the picture (${s.got.x.toFixed(2)}, ${s.got.y.toFixed(2)} vs ${s.want.x.toFixed(2)}, ${s.want.y.toFixed(2)})`);
+      h.ok(r.crop.every((s: any) => Math.abs(s.opacity - s.wantOpacity) < 0.03), `… while its own opacity is its effect's (${r.crop.map((s: any) => `${(+s.opacity).toFixed(2)}/${(+s.wantOpacity).toFixed(2)}`).join(", ")})`);
+      h.ok(r.crop.every((s: any) => !s.inlinePaint), "a Change that keeps the styling writes no per-object paint");
+      // 3. node identity
+      h.ok(r.identity.every(Boolean), `an object's node is the same object through a crop tween, a styling change and back (${r.identity.map(String).join(", ")})`);
+      // 4. the per-object style tween
+      h.ok(r.style.mid.every((m: any) => m.ok), `styling change mid-flight: each object's stroke is the OKLab lerp of its two ends (${r.style.mid.map((m: any) => `${m.key} ${m.got}~${m.want}`).join("; ")})`);
+      h.ok(Math.abs(r.style.s7opacity - (1 + 0.35) / 2) < 0.02, `an object without a value dims halfway at mid-flight (${r.style.s7opacity})`);
+      h.ok(r.style.endClean, "at the end the objects carry the end's own styling (no tween paint left)");
+      // 5. a styled layer waits for its table
+      h.ok(r.hold.hiddenWhileWaiting, "a styled layer is not shown before its table lands");
+      h.ok(!r.hold.settledEarly, "settled() does not resolve before the table lands");
+      h.ok(r.hold.settledAfter && r.hold.styledAfter, "once the table lands the layer shows, styled, and settled() resolves");
+      h.eq(r.hold.unstyledFrames, 0, "no frame ever showed the styled layer unstyled");
+      // 6. rise in stage px under the crop's scale
+      if (Math.abs(r.rise.lift - 12) >= 0.6) console.log(JSON.stringify(r.rise.debug));
+      h.ok(Math.abs(r.rise.lift - 12) < 0.6, `fadeRise lifts an image object by its authored stage px (${r.rise.lift.toFixed(2)} of 12)`);
+    } finally { await browser.close(); server.close(); }
+  }
 } finally {
   await rm(scratch, { recursive: true, force: true });
 }
 await h.done();
+
+// ---- the page of section L (runs in headless Chrome; FX = the real player bundle) -------------------------------------
+async function w8Page(D: { manifest: any; byPath: Record<string, string>; tableByPath: Record<string, any> }): Promise<unknown> {
+  const FX = (window as any).FX, { manifest } = D, out: Record<string, any> = {};
+  const shape = manifest.pixels.shape, H = shape[shape.length - 2], W = shape[shape.length - 1];
+  const maps = FX.pixelMaps(manifest);
+  const source = () => ({
+    manifest: (id: string) => (id === "A" ? manifest : undefined),
+    need: () => Promise.resolve(manifest), bundle: () => "B", identity: () => "B-sha",
+    planes: {
+      plane: (b: string, level: number, leading: number[]) => Promise.resolve({ key: FX.planeKey(b, level, leading), width: W, height: H, dtype: "uint16", data: new Uint16Array(W * H), map: maps[leading[0]] ?? maps[0] }),
+      projection: () => Promise.reject(new Error("none")),
+      layer: (b: string, id: string, f: number) => Promise.resolve({ key: FX.layerKey(b, id, f), width: W, height: H, dtype: "uint16", data: new Uint16Array(W * H), map: null }),
+    },
+    still: () => Promise.reject(new Error("no stills")), stillNow: () => undefined, resolveLut: () => null,
+  });
+  const index = FX.partIndexFromTexts(manifest, (p: string) => D.byPath[p]);
+  const fp = index.layers.find((l: any) => l.id === "footprints").objects, ids = fp.map((o: any) => o.partId);
+  const hidden = Object.fromEntries(manifest.layers.filter((l: any) => l.kind === "intensity").map((l: any) => [l.id, { visible: false }]));
+  const V = { layers: { ...hidden, footprints: { visible: true }, discs: { visible: true }, prox_lines: { visible: false } } };
+  const VS = { layers: { ...V.layers, footprints: { visible: true, styleBy: { color: { column: "dendrite" } } } } };
+  const el = (view: unknown) => ({ type: "fluximg", id: "img", x: 40, y: 30, width: 256, height: 160, rotation: 0, assetId: "A", view });
+  const s2 = fp.find((o: any) => o.key === "s2");
+  const CROP = { x: Math.max(0, s2.cx - W / 4), y: Math.max(0, s2.cy - H / 4), width: W / 2, height: H / 2 };
+  const lin = { easing: "linear" };
+  const deck = { schemaVersion: "0.8.0", id: "d", title: "w8", created: "", modified: "", stage: { width: 640, height: 360 }, theme: "flux-dark", defaults: { transition: "none" }, assets: [],
+    slides: [
+      { id: "s0", elements: [el(V)], beats: [{ id: "b0", tracks: [] },
+        { id: "b1", tracks: [{ id: "ap", target: "img", part: "layer:footprints", preset: "fade", start: 0, duration: 300, ...lin, stagger: { perMs: 100 } }] },
+        { id: "b2", tracks: [{ id: "cz", target: "img", preset: "transform", start: 0, duration: 1000, ...lin, to: { state: { crop: CROP } } }, { id: "dm", target: "img", part: "footprints/s2", preset: "dim", start: 0, duration: 1000, ...lin, params: { level: 0.3 } }] },
+        { id: "b3", tracks: [{ id: "rz", target: "img", part: "discs/a", preset: "fadeRise", start: 0, duration: 400, ...lin, params: { y: 12 } }] }] },
+      { id: "s1", elements: [el(V)], beats: [{ id: "c0", tracks: [] }, { id: "c1", tracks: [{ id: "ac", target: "img", part: "layer:footprints", preset: "fade", start: 0, duration: 300, ...lin, stagger: { perMs: 100, by: { key: "pixels" } } }] }] },
+      { id: "s2", elements: [el(V)], beats: [{ id: "e0", tracks: [] }, { id: "e1", tracks: [{ id: "st", target: "img", preset: "transform", start: 0, duration: 1000, ...lin, to: { state: { view: VS } } }] }] },
+      { id: "s3", elements: [el(VS)], beats: [{ id: "f0", tracks: [] }] },
+    ] };
+  let release = true;
+  const tableOf = (_: string, p: string) => (release ? D.tableByPath[p] ?? null : undefined);
+  const opts = { theme: FX.FLUX_DARK, mode: "present", reducedMotion: false, fluximgManifest: () => manifest, fluximgLayerText: (_: string, p: string) => D.byPath[p], fluximgTable: tableOf };
+  const compileOpts = { fluximgParts: () => index, fluximgTable: (_: string, p: string) => D.tableByPath[p] };
+  const mount = document.createElement("div"); document.body.append(mount);
+  const host = FX.createFluximgSlideHost(source());
+  const P = FX.createPlayer(mount, deck, { ...opts, fluximg: host });
+  const at = async (slide: number, beat: number, ms: number) => { P.seek(slide, beat, ms); await P.captureMedia([], ms); };
+  const rootOf = () => mount.querySelector("[data-slide-fluximg-root]")!;
+  const node = (id: string) => FX.fluximgPartNode(rootOf(), id) as SVGElement;
+  const opacityOf = (n: Element) => { let o = 1; for (let x: Element | null = n; x && x !== mount; x = x.parentElement) o *= Number(getComputedStyle(x).opacity); return o; };
+  const ownOpacity = (n: Element) => Number(getComputedStyle(n).opacity) * Number(getComputedStyle(n.parentElement!).opacity);
+  const origin = mount.getBoundingClientRect();
+  const centre = (n: Element) => { const r = n.getBoundingClientRect(); return { x: r.left - origin.left + r.width / 2, y: r.top - origin.top + r.height / 2 }; };
+  // 1. stagger by index, against the compiler
+  const c0 = FX.compileSlide(deck.slides[0], deck.stage, compileOpts);
+  out.stagger = [];
+  for (const ms of [0, 100, 150, 250, 400]) { await at(0, 1, ms); out.stagger.push({ ms, player: ids.map((id: string) => ownOpacity(node(id))), compiled: ids.map((id: string) => c0.sample(1, ms).presentation.partStates.img?.[id]?.opacity ?? 1) }); }
+  const before = ids.map(node);
+  // 2. the crop tween with a dim on s2
+  const pre = FX.transformPreState(deck.slides[0], "img", 2), end = FX.transformEndState(pre, deck.slides[0].beats[2].tracks[0]);
+  const plan = FX.planViewTween(manifest, { view: pre.view, crop: pre.crop }, { view: end.view, crop: end.crop }, { blend: false });
+  out.crop = [];
+  for (const raw of [0, 0.25, 0.5, 1]) {
+    await at(0, 2, raw * 1000);
+    const crop = plan.frame(raw, raw).overlay.crop, m = FX.imageToStage(manifest, { ...el(V), crop }), want = FX.applyMatrix(m, s2.cx, s2.cy);
+    out.crop.push({ raw, got: centre(node("footprints/s2")), want, opacity: ownOpacity(node("footprints/s2")), wantOpacity: c0.sample(2, raw * 1000).presentation.partStates.img?.["footprints/s2"]?.opacity ?? 1,
+      inlinePaint: ids.some((id: string) => node(id).style.stroke || node(id).style.fill) });
+  }
+  // 3. fadeRise: the lift in stage px
+  await at(0, 3, 0); const r0 = centre(node("discs/a")); await at(0, 3, 400); const r1 = centre(node("discs/a"));
+  out.rise = { lift: r0.y - r1.y, debug: [node("discs/a").parentElement!.outerHTML.slice(0, 300), node("discs/a").parentElement!.parentElement!.getAttribute("transform")] };
+  out.identity = [];
+  // 4. column stagger (another slide)
+  const c1 = FX.compileSlide(deck.slides[1], deck.stage, compileOpts);
+  out.column = [];
+  for (const ms of [0, 50, 150, 250, 400, 700]) { await at(1, 1, ms); out.column.push({ ms, player: ids.map((id: string) => ownOpacity(node(id))), compiled: ids.map((id: string) => c1.sample(1, ms).presentation.partStates.img?.[id]?.opacity ?? 1) }); }
+  // 5. the styling change, object by object
+  await at(2, 1, 0); const n2 = ids.map(node);
+  const strokes = () => ids.map((id: string) => getComputedStyle(node(id)).stroke);
+  const s0 = strokes(); await at(2, 1, 500); const sm = strokes(); const s7mid = Number(getComputedStyle(node("footprints/s7")).opacity);
+  out.identity.push(ids.every((id: string, i: number) => node(id) === n2[i] && n2[i].isConnected));
+  await at(2, 1, 1000); const s1 = strokes();
+  out.identity.push(ids.every((id: string, i: number) => node(id) === n2[i] && n2[i].isConnected));
+  const rgb = (c: string) => { const p = FX.parseColor(c); return p ? [p.r, p.g, p.b] : [NaN, NaN, NaN]; };
+  out.style = { s7opacity: s7mid, endClean: ids.every((id: string) => !node(id).style.stroke && !node(id).style.fill),
+    mid: ids.map((id: string, i: number) => { const want = rgb(FX.lerpColor(s0[i], s1[i], 0.5)), got = rgb(sm[i]); const k = want[0] > 1.5 ? 1 : 255; return { key: id.split("/")[1], got: sm[i], want: FX.lerpColor(s0[i], s1[i], 0.5), ok: got.every((v, j) => Math.abs(v - want[j]) * k <= 2.5) }; }) };
+  // back to slide 0: the first slide's nodes are rebuilt with the slide (a new mount), so identity is pinned within a slide
+  await at(0, 1, 400); const n0 = ids.map(node);
+  for (const [beat, ms] of [[2, 300], [2, 1000], [3, 200], [1, 0], [0, 0]] as const) { await at(0, beat, ms); out.identity.push(ids.every((id: string, i: number) => node(id) === n0[i] && n0[i].isConnected)); }
+  void before;
+  // 6. a styled layer waits for its table
+  release = false;
+  const mount2 = document.createElement("div"); document.body.append(mount2);
+  const host2 = FX.createFluximgSlideHost(source());
+  let unstyledFrames = 0;
+  const watch = new MutationObserver(() => {
+    const g = mount2.querySelector('[data-layer="footprints"]') as SVGElement | null;
+    if (!g || g.getAttribute("display") === "none" || g.closest('[style*="display: none"]')) return;
+    if ([...g.querySelectorAll("[data-key]")].some((s) => !s.getAttribute("stroke") || s.getAttribute("stroke") === g.getAttribute("stroke"))) unstyledFrames++;
+  });
+  watch.observe(mount2, { subtree: true, childList: true, attributes: true });
+  const P2 = FX.createPlayer(mount2, { ...deck, slides: [deck.slides[3]] }, { ...opts, fluximg: host2 });
+  P2.seek(0, 0, 0);
+  const g2 = () => mount2.querySelector('[data-layer="footprints"]') as SVGElement | null;
+  let settled = false;
+  const done = P2.captureMedia([], 0).then(() => { settled = true; });
+  await new Promise((r) => setTimeout(r, 150));
+  const hiddenWhileWaiting = !g2() || g2()!.getAttribute("display") === "none";
+  const settledEarly = settled;
+  release = true;
+  FX.fluximgBindingOf(mount2.querySelector("[data-slide-fluximg-root]")).refresh();
+  await Promise.race([done, new Promise((r) => setTimeout(r, 2000))]);
+  const shapes = [...(g2()?.querySelectorAll("[data-key]") ?? [])];
+  out.hold = { hiddenWhileWaiting, settledEarly, settledAfter: settled, styledAfter: !!g2() && g2()!.getAttribute("display") !== "none" && shapes.length > 0 && shapes.every((s) => !!s.getAttribute("stroke")), unstyledFrames };
+  watch.disconnect();
+  P.destroy(); P2.destroy(); host.dispose(); host2.dispose();
+  return out;
+}
+

@@ -74,7 +74,7 @@ import { isVideoCommand, type VideoEvent } from "../mediaTimeline";
 import { createVideoController } from "./media";
 import { createModel3dController, flushSlideModels } from "./model3d";
 import { createFluximgController, flushSlideFluximgs } from "./fluximg";
-import { fluximgPartIdOf, fluximgPartNode, fluximgPartNodes, fluximgPartsLookup, isFluximgPartIndex, partIndexFromTexts, type FluximgPartsLookup } from "../../fluximg/parts";
+import { fluximgPartIdOf, fluximgPartNode, fluximgPartNodes, fluximgPartsLookup, imageToBox, isFluximgPartIndex, partIndexFromTexts, type FluximgPartsLookup } from "../../fluximg/parts";
 import { imageStaggerCoordinates } from "../compile";
 import { imageObjectStageOutlines } from "../targetGeometry";
 import { createFluximgMovieController, joinMedia, slideMovieTargets, type MediaController } from "./fluximgMedia";
@@ -128,10 +128,10 @@ function nodePart(node: TargetNode, target: string, image: boolean): string {
   return image ? fluximgPartIdOf(node as never) ?? "" : ((node as unknown as { id?: string }).id ?? "").slice(partDomId(target, "").length);
 }
 /** A translate an effect writes in stage px, on an image object: the object sits in its layer group's IMAGE-pixel space
- *  (scaled by the crop), so the lift is divided by the group's scale to rise the authored stage px. */
-function imageUnits(node: TargetNode, keyframes: Keyframe[]): Keyframe[] {
-  const m = /matrix\(\s*([-\d.e]+)[\s,]+[-\d.e]+[\s,]+[-\d.e]+[\s,]+([-\d.e]+)/.exec((node.parentNode as Element | null)?.getAttribute?.("transform") ?? "");
-  const sx = m ? Math.abs(Number(m[1])) : 1, sy = m ? Math.abs(Number(m[2])) : 1;
+ *  (scaled by the crop the image shows when the step starts), so the lift is divided by that scale to rise the authored
+ *  stage px. (A crop Change in the SAME step rescales the lift with the picture.) */
+function imageUnits(scale: readonly number[], keyframes: Keyframe[]): Keyframe[] {
+  const sx = Math.abs(scale[0]), sy = Math.abs(scale[3]);
   if (!(sx > 0 && sy > 0) || (sx === 1 && sy === 1)) return keyframes;
   const px = (v: string, s: number) => `${Number(v) / s}px`;
   return keyframes.map((k) => typeof k.transform !== "string" ? k : { ...k, transform: k.transform
@@ -159,7 +159,7 @@ function resolveNodes(track: Track, slide: Slide, rendered: RenderedSlide, camer
   if (hasPartBinding(track)) {
     const manifest = manifestFor(track.target, slide, opts, beatIndex);
     // An image's objects: the overlay's own shapes, found by their layer and key in whatever host drew them (W8).
-    if (isFluximgPartIndex(manifest)) return fluximgPartNodes<SVGElement>(content, targetPartIds(track, manifest)).filter((n): n is SVGElement => !!n);
+    if (isFluximgPartIndex(manifest)) return fluximgPartNodes<SVGElement>(content, targetPartIds(track, manifest)).flatMap((n) => n ? [imageEffectNode(n)] : []);
     if (!manifest && transformPreState(slide, track.target, beatIndex)?.type === "fluximg") return [];
     const ids = targetPartIds(track, manifest);
     const domIds = ids.map((id) => partDomId(track.target, id));
@@ -273,6 +273,20 @@ function effectNode(node: TargetNode): TargetNode {
   parent?.insertBefore(g, node);
   g.appendChild(node);
   return g as unknown as TargetNode;
+}
+
+/** The node an effect on an image OBJECT animates: a neutral `<g data-sl-fx>` made once around the shape. The shape's own
+ *  `opacity` is its STYLE (styleBy: opacity by a column, a dimmed object without a value) and can change at a later step
+ *  (a styling Change, per object): the effect's opacity and transform must multiply it, never replace it, so they live on
+ *  the wrapper. Idempotent (an existing wrapper holding only this shape is reused); the shape is moved, never cloned. */
+function imageEffectNode(shape: SVGElement): SVGElement {
+  const parent = shape.parentNode as SVGElement | null;
+  if (parent?.getAttribute?.("data-sl-fx") === "1" && parent.childNodes.length === 1) return parent;
+  const g = shape.ownerDocument.createElementNS(SVG_NS, "g");
+  g.setAttribute("data-sl-fx", "1");
+  parent?.insertBefore(g, shape);
+  g.appendChild(shape);
+  return g as unknown as SVGElement;
 }
 
 /** Flatten a slide's beats → timed per-node specs (the static-state + play substrate). */
@@ -552,7 +566,10 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       for (const na of nodeAnims) if (na.keyframes.some((k) => "transform" in k)) na.node = effectNode(na.node);
       // An image object lives in its layer's image-pixel space: an effect's stage-px lift is converted (one kind test per track).
       const imagePart = imageIds.size > 0 && imageIds.has(track.target) && hasPartBinding(track);
-      if (imagePart) for (const na of nodeAnims) if (na.keyframes.some((k) => typeof k.transform === "string" && k.transform.includes("px"))) na.keyframes = imageUnits(na.node, na.keyframes);
+      if (imagePart && nodeAnims.some((na) => na.keyframes.some((k) => typeof k.transform === "string" && k.transform.includes("px")))) {
+        const el = transformPreState(slide, track.target, bi), index = el?.type === "fluximg" ? imagePartsLookup(opts)?.(el.assetId) : undefined;
+        if (el?.type === "fluximg" && index) { const scale = imageToBox(index.manifest, el.crop, el); for (const na of nodeAnims) na.keyframes = imageUnits(scale, na.keyframes); }
+      }
       const n = nodes.length;
       const from = track.stagger?.from ?? "start";
       const by = staggerKey(track.stagger?.by);

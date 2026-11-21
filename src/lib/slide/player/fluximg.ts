@@ -342,7 +342,8 @@ class Overlay {
       if (k === null) continue;
       keep.add(k);
       const old = group.nodes.get(k);
-      if (!old) { g.insertBefore(n, before && before.parentNode === g ? before : null); group.nodes.set(k, n); before = n; continue; }
+      // (a node the player wrapped for an effect sits one level down: insert before its wrapper)
+      if (!old) { const at = before?.parentNode === g ? before : before?.parentNode?.parentNode === g ? before.parentNode : null; g.insertBefore(n, at); group.nodes.set(k, n); before = n; continue; }
       for (const a of Array.from(old.attributes)) if (a.name !== "style" && !n.hasAttribute(a.name)) old.removeAttribute(a.name);
       for (const a of Array.from(n.attributes)) if (a.name !== "style" && old.getAttribute(a.name) !== a.value) old.setAttribute(a.name, a.value);
       for (const name of ["stroke", "fill"]) { const v = n.style.getPropertyValue(name); if (v) old.style.setProperty(name, v); else old.style.removeProperty(name); }

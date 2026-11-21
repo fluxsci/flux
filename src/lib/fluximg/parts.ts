@@ -249,7 +249,8 @@ export function fluximgPartNode<T = Element>(root: QueryRoot | null | undefined,
   const p = parseFluximgPartId(partId);
   if (!root || !p) return null;
   const group = `[data-layer=${cssString(p.layer)}]`;
-  return (root.querySelector(p.key === undefined ? group : `${group} > [data-key=${cssString(p.key)}]`) as T | null) ?? null;
+  // a descendant, not a child: the player wraps an animated object in an effect group of its own (player.imageEffectNode)
+  return (root.querySelector(p.key === undefined ? group : `${group} [data-key=${cssString(p.key)}]`) as T | null) ?? null;
 }
 
 /** Many parts at once: one walk of the image's layer groups instead of a query per object (a 2,000-object stagger). */
@@ -257,11 +258,11 @@ export function fluximgPartNodes<T = Element>(root: QueryRoot | null | undefined
   if (!root) return partIds.map(() => null);
   if (partIds.length <= 8) return partIds.map((id) => fluximgPartNode<T>(root, id));
   const byLayer = new Map<string, Map<string, T>>();
-  for (const g of Array.from(root.querySelectorAll("[data-layer]")) as Array<{ getAttribute(n: string): string | null; children: ArrayLike<{ getAttribute(n: string): string | null }> }>) {
+  for (const g of Array.from(root.querySelectorAll("[data-layer]")) as Array<{ getAttribute(n: string): string | null; querySelectorAll(s: string): ArrayLike<{ getAttribute(n: string): string | null }> }>) {
     const id = g.getAttribute("data-layer");
     if (!id || byLayer.has(id)) continue;
     const keys = new Map<string, T>();
-    for (const c of Array.from(g.children)) { const k = c.getAttribute("data-key"); if (k !== null && !keys.has(k)) keys.set(k, c as unknown as T); }
+    for (const c of Array.from(g.querySelectorAll("[data-key]"))) { const k = c.getAttribute("data-key"); if (k !== null && !keys.has(k)) keys.set(k, c as unknown as T); }
     byLayer.set(id, keys);
   }
   return partIds.map((id) => {
@@ -270,9 +271,14 @@ export function fluximgPartNodes<T = Element>(root: QueryRoot | null | undefined
   });
 }
 
-/** The part id of a drawn object node (its `data-key` and its group's `data-layer`), or null. */
-export function fluximgPartIdOf(node: { getAttribute?(n: string): string | null; parentElement?: { getAttribute?(n: string): string | null } | null } | null | undefined): string | null {
-  const key = node?.getAttribute?.("data-key"), layer = node?.parentElement?.getAttribute?.("data-layer");
+interface PartNodeLike { getAttribute?(n: string): string | null; parentElement?: PartNodeLike | null; firstElementChild?: PartNodeLike | null }
+/** The part id of a drawn object node (its `data-key` and its layer group's `data-layer`), or of the player's effect
+ *  wrapper around one; null for anything else. */
+export function fluximgPartIdOf(node: PartNodeLike | null | undefined): string | null {
+  const shape = node?.getAttribute?.("data-key") != null ? node : node?.getAttribute?.("data-sl-fx") ? node.firstElementChild : null;
+  const key = shape?.getAttribute?.("data-key");
+  let up = shape?.parentElement, layer: string | null | undefined = null;
+  for (let i = 0; up && i < 3 && !layer; i++, up = up.parentElement) layer = up.getAttribute?.("data-layer");
   return key != null && layer ? objectPartId(layer, key) : null;
 }
 
