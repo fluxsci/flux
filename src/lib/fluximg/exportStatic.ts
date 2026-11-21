@@ -130,6 +130,8 @@ export interface FluximgSvgContext {
   insetsOf?(elementId: string): Array<{ id: string; crop: PixelRect }>;
   /** Colour-map tables for the calibration bar (loaded by the preparation when a shown bar needs one). */
   resolveLut?(name: string): string[] | null;
+  /** A slide step's rest state of an element's objects (part id → opacity; 0 = not drawn), for slide stills (W8). */
+  partOpacityOf?(elementId: string): Record<string, number> | undefined;
 }
 
 /** What an engine supplies. Every call may throw: the element is then drawn as the stand-in and the reason reported. */
@@ -295,7 +297,7 @@ export function fluximgElementMarkup(e: FluximgElement, ctx?: FluximgSvgContext)
     manifest, view: rv, crop: request.crop, tables, box: { width: Math.max(0, e.width), height: Math.max(0, e.height) },
     stillHref: ctx.stillOf(request.key) ?? null, layerSvg, idPrefix: fluximgExportIdPrefix(e.id, ctx.namespace),
     flipX: !!e.flipX, flipY: !!e.flipY,
-    insets: ctx.insetsOf?.(e.id) ?? [], resolveLut: ctx.resolveLut,
+    insets: ctx.insetsOf?.(e.id) ?? [], resolveLut: ctx.resolveLut, partOpacity: ctx.partOpacityOf?.(e.id),
   };
   let inner: string;
   try { inner = fluximgStaticSvg(input); }

@@ -41,6 +41,9 @@ import type { Deck, Slide, Track, StageSize, DeckTheme } from "../types";
 
 export interface PlayerOpts extends Omit<SlideRenderCtx, "theme"> {
   animStyles?: Deck["animStyles"];
+  /** An image's object index (stage 2, W8). Absent: derived from the image context (manifest + layer texts), else the
+   *  window's registered provider. */
+  fluximgParts?: FluximgPartsLookup;
   theme: DeckTheme;
   /** assetId → its plot manifest (for role/series/index part targeting). */
   plotManifest?: (assetId: string) => FluxPlotManifest | undefined;
@@ -71,6 +74,9 @@ import { isVideoCommand, type VideoEvent } from "../mediaTimeline";
 import { createVideoController } from "./media";
 import { createModel3dController, flushSlideModels } from "./model3d";
 import { createFluximgController, flushSlideFluximgs } from "./fluximg";
+import { fluximgPartIdOf, fluximgPartNode, fluximgPartNodes, fluximgPartsLookup, imageToBox, isFluximgPartIndex, partIndexFromTexts, type FluximgPartsLookup } from "../../fluximg/parts";
+import { imageStaggerCoordinates } from "../compile";
+import { imageObjectStageOutlines } from "../targetGeometry";
 import { createFluximgMovieController, joinMedia, slideMovieTargets, type MediaController } from "./fluximgMedia";
 
 // --- target resolution -------------------------------------------------------
@@ -87,11 +93,51 @@ function spatialCoord(node: TargetNode, axis: "x" | "y"): number | null {
   return at(`data-${axis}`) ?? at(axis) ?? at(axis === "x" ? "cx" : "cy");
 }
 
-/** The plot manifest backing a slide element (its assetId → manifest), or none. */
-function manifestFor(target: string, slide: Slide, opts: PlayerOpts, beatIndex = 0): FluxPlotManifest | import('../../model3d/types').Scene3dManifest | undefined {
+/** The plot manifest backing a slide element (its assetId → manifest), or none; an image's object index. */
+function manifestFor(target: string, slide: Slide, opts: PlayerOpts, beatIndex = 0): FluxPlotManifest | import('../../model3d/types').Scene3dManifest | import("../../fluximg/parts").FluximgPartIndex | undefined {
   const el = transformPreState(slide, target, beatIndex);
   const assetId = el && "assetId" in el ? (el as { assetId: string }).assetId : undefined;
-  return assetId ? el?.type === 'model3d' ? opts.modelManifest?.(assetId) : opts.plotManifest?.(assetId) : undefined;
+  return assetId ? el?.type === 'model3d' ? opts.modelManifest?.(assetId) : el?.type === "fluximg" ? imagePartsLookup(opts)?.(assetId) : opts.plotManifest?.(assetId) : undefined;
+}
+
+/** How this player finds an image's object index: given, else from its image context (the manifest and the layer
+ *  texts the overlay draws: the exported deck has exactly these), else the window's provider. */
+export function imagePartsLookup(opts: Omit<PlayerOpts, "theme">): FluximgPartsLookup | undefined {
+  if (opts.fluximgParts) return opts.fluximgParts;
+  const text = opts.fluximgLayerText;
+  if (text && (opts.fluximg || opts.fluximgManifest)) return (assetId) => {
+    const m = opts.fluximg?.manifest(assetId) ?? opts.fluximgManifest?.(assetId);
+    return m ? partIndexFromTexts(m, (path) => text(assetId, path)) : undefined;
+  };
+  return fluximgPartsLookup();
+}
+/** Image options for a slide with images (the lookup above, bound once); a slide without images keeps `opts` as is. */
+function withImageParts<T extends Omit<PlayerOpts, "theme">>(slide: Slide, opts: T): T {
+  return slide.elements.some((el) => el.type === "fluximg") ? { ...opts, fluximgParts: imagePartsLookup(opts) } : opts;
+}
+/** The images whose objects a compiled slide animates (their overlay is built at mount, uncropped: render.fluximgPartImages). */
+function partImages(compiled: CompiledSlide): Set<string> | undefined {
+  const out = new Set<string>();
+  const image = (id: string, beat: number) => compiled.preState(id, beat)?.type === "fluximg";
+  for (const cue of compiled.cues) for (const ct of cue.tracks) if (ct.parts.length && image(ct.track.target, ct.beat)) out.add(ct.track.target);
+  for (const h of compiled.handoffs) for (const t of [...h.source, ...h.destination]) if (t.partIds && image(t.elementId, h.beat)) out.add(t.elementId);
+  return out.size ? out : undefined;
+}
+/** The part id of a track's node: an image object by its attributes, a plot part by its prefixed id. */
+function nodePart(node: TargetNode, target: string, image: boolean): string {
+  return image ? fluximgPartIdOf(node as never) ?? "" : ((node as unknown as { id?: string }).id ?? "").slice(partDomId(target, "").length);
+}
+/** A translate an effect writes in stage px, on an image object: the object sits in its layer group's IMAGE-pixel space
+ *  (scaled by the crop the image shows when the step starts), so the lift is divided by that scale to rise the authored
+ *  stage px. (A crop Change in the SAME step rescales the lift with the picture.) */
+function imageUnits(scale: readonly number[], keyframes: Keyframe[]): Keyframe[] {
+  const sx = Math.abs(scale[0]), sy = Math.abs(scale[3]);
+  if (!(sx > 0 && sy > 0) || (sx === 1 && sy === 1)) return keyframes;
+  const px = (v: string, s: number) => `${Number(v) / s}px`;
+  return keyframes.map((k) => typeof k.transform !== "string" ? k : { ...k, transform: k.transform
+    .replace(/translate\(\s*([-\d.e]+)px\s*,\s*([-\d.e]+)px\s*\)/g, (_, x, y) => `translate(${px(x, sx)}, ${px(y, sy)})`)
+    .replace(/translateX\(\s*([-\d.e]+)px\s*\)/g, (_, x) => `translateX(${px(x, sx)})`)
+    .replace(/translateY\(\s*([-\d.e]+)px\s*\)/g, (_, y) => `translateY(${px(y, sy)})`) });
 }
 
 /** A track → the DOM nodes it animates (whole element, a plot part, a plot
@@ -111,7 +157,11 @@ function resolveNodes(track: Track, slide: Slide, rendered: RenderedSlide, camer
   // only path that reaches axis parts (spine/ticks/labels/gridlines live in the
   // parts tree, not the series part-index).
   if (hasPartBinding(track)) {
-    const ids = targetPartIds(track, manifestFor(track.target, slide, opts, beatIndex));
+    const manifest = manifestFor(track.target, slide, opts, beatIndex);
+    // An image's objects: the overlay's own shapes, found by their layer and key in whatever host drew them (W8).
+    if (isFluximgPartIndex(manifest)) return fluximgPartNodes<SVGElement>(content, targetPartIds(track, manifest)).flatMap((n) => n ? [imageEffectNode(n)] : []);
+    if (!manifest && transformPreState(slide, track.target, beatIndex)?.type === "fluximg") return [];
+    const ids = targetPartIds(track, manifest);
     const domIds = ids.map((id) => partDomId(track.target, id));
     if (domIds.length <= 16) {
       return domIds.map((id) => content.querySelector<SVGElement>(`[id="${id}"]`)).filter((n): n is SVGElement => !!n);
@@ -196,6 +246,9 @@ function encircleFor(track: Track, ct: { start: number }, bi: number, nodes: Tar
   if (hasPartBinding(track) && el.type === "plot") {
     const ids = nodes.map(n => ((n as unknown as { id?: string }).id ?? "").slice(partDomId(track.target, "").length));
     boxes = partStageOutlines(el as never, ids, geometry).map(o => o.bbox);
+  } else if (hasPartBinding(track) && el.type === "fluximg") {
+    const index = imagePartsLookup(opts)?.(el.assetId);
+    if (index) boxes = imageObjectStageOutlines(el, index, nodes.map(n => fluximgPartIdOf(n as never) ?? ""), opts).map(o => o.bbox);
   } else if (el.type === "line" || el.type === "path") boxes = elementStageOutlines(el).map(o => o.bbox);
   else if (el.type === "text") {
     const wrap = rendered.elements.get(track.target) as HTMLElement | undefined;
@@ -222,6 +275,20 @@ function effectNode(node: TargetNode): TargetNode {
   return g as unknown as TargetNode;
 }
 
+/** The node an effect on an image OBJECT animates: a neutral `<g data-sl-fx>` made once around the shape. The shape's own
+ *  `opacity` is its STYLE (styleBy: opacity by a column, a dimmed object without a value) and can change at a later step
+ *  (a styling Change, per object): the effect's opacity and transform must multiply it, never replace it, so they live on
+ *  the wrapper. Idempotent (an existing wrapper holding only this shape is reused); the shape is moved, never cloned. */
+function imageEffectNode(shape: SVGElement): SVGElement {
+  const parent = shape.parentNode as SVGElement | null;
+  if (parent?.getAttribute?.("data-sl-fx") === "1" && parent.childNodes.length === 1) return parent;
+  const g = shape.ownerDocument.createElementNS(SVG_NS, "g");
+  g.setAttribute("data-sl-fx", "1");
+  parent?.insertBefore(g, shape);
+  g.appendChild(shape);
+  return g as unknown as SVGElement;
+}
+
 /** Flatten a slide's beats → timed per-node specs (the static-state + play substrate). */
 export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraLayer: HTMLElement, stage: StageSize, opts: PlayerOpts, compiled = compileSlide(slide, stage, opts)): Spec[] {
   slide = compiled.resolvedSlide;
@@ -235,10 +302,14 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
     specs.push({ node: wrap, beatIndex: birth.enabled ? birth.beat : Number.MAX_SAFE_INTEGER, keyframes: [{ visibility: "hidden" }, { visibility: "visible" }], delay: birth.start, duration: 0, ease: resolveCurve({ easing: "linear" }), enter: true, key: `ghost:${birth.target}`, trackId: birth.track.id });
   }
   const contentRoots = new Map<string, HTMLElement>();
+  // The slide's images (an element never becomes one through a Change): one set per build, a constant-time test per track.
+  const imageIds = new Set(slide.elements.filter((e) => e.type === "fluximg").map((e) => e.id));
   const manifest = opts.plotManifest ?? ((id: string) => get(plotManifests)[id]);
   // Letter outlines for text ↔ shape flights, measured inside this camera layer.
   const glyphProvider = createGlyphProvider(cameraLayer, { ...opts, theme: opts.theme });
-  const geometry = { manifest, plotRoot: opts.plotRoot ?? ((id: string) => plotDom.get(id)), groups: slide.groups, glyphs: (el: TextElement) => glyphProvider.outlines(el) };
+  const geometry = { manifest, plotRoot: opts.plotRoot ?? ((id: string) => plotDom.get(id)), groups: slide.groups, glyphs: (el: TextElement) => glyphProvider.outlines(el),
+    // an image's objects fly as their own outlines (W8: Become by key); a slide without images carries nothing more
+    ...(imageIds.size ? { fluximgParts: imagePartsLookup(opts), fluximgTable: opts.fluximgTable, fluximgLut: opts.fluximgLut } : {}) };
   const handoffs: HandoffRecord[] = compiled.handoffs;
   const mergeLayers = new Map<string, SVGGElement>();
   // WP 3.2: a slide with attachments collects every transform controller's frame state for the attachment pass (pushed last, below)
@@ -304,8 +375,9 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           const nodesFor = (targets: ResolvedTarget[]): Element[] => targets.flatMap<Element>(target => {
             const root = rootFor(target.elementId), wrapper = rendered.elements.get(target.elementId);
             if (!root || !wrapper) return [];
+            const image = preFrame.elements.find(e => e.id === target.elementId)?.type === "fluximg";
             return target.partIds === null ? [wrapper] : target.partIds.flatMap(id => {
-              const node = partNode(root, partDomId(target.elementId, id));
+              const node = image ? fluximgPartNode<Element>(root, id) ?? undefined : partNode(root, partDomId(target.elementId, id));
               return node ? [node] : [];
             });
           });
@@ -371,7 +443,8 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
               order: bi * 1e9 + (track.start ?? 0), targetRoot: rootFor(handoff.destination[0].elementId), glyphs,
               // the flight's copies of its ends are cut in the look of its own moments: the sources at its start, the destinations at its landing
               pose: (read, extra) => posedAt(specs, [{ nodes: extra ? [...sourceNodes, ...extra] : sourceNodes, beat: bi, time: ct.start }, { nodes: destinationNodes, beat: bi, time: ct.start + hold }], read),
-              node: owner => { if (!owner.partId) return rootFor(owner.elementId); const root = rootFor(owner.elementId); return root ? partNode(root, partDomId(owner.elementId, owner.partId)) : undefined; },
+              node: owner => { if (!owner.partId) return rootFor(owner.elementId); const root = rootFor(owner.elementId); if (!root) return undefined;
+                return preFrame.elements.find(e => e.id === owner.elementId)?.type === "fluximg" ? fluximgPartNode<Element>(root, owner.partId) ?? undefined : partNode(root, partDomId(owner.elementId, owner.partId)); },
               crop: owner => {
                 const el = preFrame.elements.find(e => e.id === owner.elementId);
                 return el?.type === "plot" && el.crop ? el : undefined;
@@ -483,9 +556,9 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       }
       // a highlight RESTS at 1 and a dim at its level whatever they started from, so only a live play reads the prior (stills show the rest state)
       if (live && (track.preset === "dim" || track.preset === "highlight" && presetParam(track, "lead", "highlight") > 0)) {
-        const presentation = frameAt(bi, ct.start - 1e-3).presentation, partPrefix = partDomId(track.target, "");
+        const presentation = frameAt(bi, ct.start - 1e-3).presentation, image = imageIds.has(track.target);
         trackCtx.priorOpacity = (node) => hasPartBinding(track)
-          ? presentation.partStates[track.target]?.[(node as unknown as { id?: string }).id?.slice(partPrefix.length) ?? ""]?.opacity ?? 1
+          ? presentation.partStates[track.target]?.[nodePart(node, track.target, image)]?.opacity ?? 1
           : presentation.elementStates[track.target]?.opacity ?? 1;
       }
       const nodeAnims = preset(nodes, track, track.preset === "camera" ? {
@@ -493,6 +566,12 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       } : trackCtx);
       // See effectNode: a transform effect on a leaf that carries its own transform animates a wrapper.
       for (const na of nodeAnims) if (na.keyframes.some((k) => "transform" in k)) na.node = effectNode(na.node);
+      // An image object lives in its layer's image-pixel space: an effect's stage-px lift is converted (one kind test per track).
+      const imagePart = imageIds.size > 0 && imageIds.has(track.target) && hasPartBinding(track);
+      if (imagePart && nodeAnims.some((na) => na.keyframes.some((k) => typeof k.transform === "string" && k.transform.includes("px")))) {
+        const el = transformPreState(slide, track.target, bi), index = el?.type === "fluximg" ? imagePartsLookup(opts)?.(el.assetId) : undefined;
+        if (el?.type === "fluximg" && index) { const scale = imageToBox(index.manifest, el.crop, el); for (const na of nodeAnims) na.keyframes = imageUnits(scale, na.keyframes); }
+      }
       const n = nodes.length;
       const from = track.stagger?.from ?? "start";
       const by = staggerKey(track.stagger?.by);
@@ -506,7 +585,9 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       // WP 4.3: a radial order from the manifest ONLY (the compiler's own function), never from DOM attributes
       const radial = track.stagger?.by === "radial";
       const radialManifest = radial ? manifestFor(track.target, slide, opts, bi) : undefined;
-      const coordinates = radial ? (radialManifest && "series" in radialManifest ? radialCoordinates(radialManifest as FluxPlotManifest, nodes.map((node) => (node as unknown as { id?: string }).id?.slice(partDomId(track.target, "").length) ?? ""), track.stagger!.origin) : undefined)
+      // An image's objects rank through the compiler's own function (their table column, centres or order).
+      const coordinates = imagePart ? imageStaggerCoordinates(track, transformPreState(slide, track.target, bi), nodes.map((node) => nodePart(node, track.target, true)), opts)
+        : radial ? (radialManifest && "series" in radialManifest ? radialCoordinates(radialManifest as FluxPlotManifest, nodes.map((node) => (node as unknown as { id?: string }).id?.slice(partDomId(track.target, "").length) ?? ""), track.stagger!.origin) : undefined)
         : !by ? undefined : trueSpacing ? nodes.map((_, i) => fallback?.[i] ?? null)
         : nodes.map((node, i) => (by === "x" || by === "y" ? spatialCoord(node, by) : nodeCoordinate(node as unknown as Parameters<typeof nodeCoordinate>[0], by)) ?? fallback?.[i] ?? null);
       const ranks = track.stagger ? staggerRanks(n, from, coordinates, staggerSeed(track), track.stagger?.totalMs !== undefined, trueSpacing ? "true" : "even") : [];
@@ -1140,14 +1221,16 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     if (!slide) { specs = []; durations = [0]; return; }
     mount.style.background = slide.background ?? deck.background ?? opts.theme.background;
     ctx.haloBackground = slide.background ?? deck.background ?? opts.theme.background;   // WP 4.2: a text halo's default colour
-    const compiled = compileSlide(slide, stage, { ...opts, animStyles: deck.animStyles });
+    const slideOpts = withImageParts(slide, opts);
+    const compiled = compileSlide(slide, stage, { ...slideOpts, animStyles: deck.animStyles });
     const modelIds = new Set(compiled.resolvedSlide.elements.filter(el => el.type === 'model3d').map(el => el.id));
     if (compiled.cues.some(cue => cue.tracks.some(ct => ct.parts.length && compiled.preState(ct.track.target, ct.beat)?.type === 'model3d')) || Object.keys(compiled.partFactors).some(id => modelIds.has(id))
       || compiled.handoffs.some(h => h.crossfade)) modelAppearance = compiled;
-    const rendered = renderSlide(cameraLayer, compiled.resolvedSlide, stage, { ...ctx, ghostPartFactors: compiled.partFactors });
+    const animatedImages = slideOpts !== opts ? partImages(compiled) : undefined;
+    const rendered = renderSlide(cameraLayer, compiled.resolvedSlide, stage, { ...ctx, ghostPartFactors: compiled.partFactors, ...(animatedImages ? { fluximgPartImages: animatedImages } : {}) });
     cameraLayer.style.transform = baseCameraTransform(slide, stage);
     issues = compiled.issues;
-    specs = computeSlideAnims(slide, rendered, cameraLayer, stage, { ...opts, videoPlayback: true, haloBackground: ctx.haloBackground }, compiled);
+    specs = computeSlideAnims(slide, rendered, cameraLayer, stage, { ...slideOpts, videoPlayback: true, haloBackground: ctx.haloBackground }, compiled);
     models = createModel3dController(cameraLayer, compiled.resolvedSlide, ctx, (target, reason) => {
       if (!issues.some(issue => issue.target === target && issue.reason === reason)) issues = [...issues, { target, reason }];
       emit('change');
@@ -1425,8 +1508,10 @@ export function renderStaticAt(host: HTMLElement, slide: Slide, stage: StageSize
   camera.className = "sl-camera";
   camera.style.transformOrigin = "0 0";
   host.appendChild(camera);
+  opts = withImageParts(slide, opts);
   const compiled = compileSlide(slide, stage, opts);
-  const rendered = renderSlide(camera, compiled.resolvedSlide, stage, { ...opts, ghostPartFactors: compiled.partFactors });
+  const images = opts.fluximgParts ? partImages(compiled) : undefined;
+  const rendered = renderSlide(camera, compiled.resolvedSlide, stage, { ...opts, ghostPartFactors: compiled.partFactors, ...(images ? { fluximgPartImages: images } : {}) });
   camera.style.transform = baseCameraTransform(slide, stage);
   const specs = computeSlideAnims(slide, rendered, camera, stage, opts, compiled);
   applyStatic(specs, beat);

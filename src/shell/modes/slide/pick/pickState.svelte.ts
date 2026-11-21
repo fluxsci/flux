@@ -304,7 +304,8 @@ export class BecomePicker {
     const walk = (n: NonNullable<typeof tree>) => { rowIds.add(n.id); n.children.forEach(walk); };
     if (tree) walk(tree);
     if (manifest) for (const id of manifestIndex(manifest).memberOf.keys()) rowIds.add(id);
-    const seeded = t.units.filter((u) => u.element === plotId && u.part && rowIds.has(u.part));
+    // an image's picked objects and layers are its X-ray rows as they are (W8)
+    const seeded = t.units.filter((u) => u.element === plotId && u.part && (el?.type === "fluximg" || rowIds.has(u.part)));
     this.#xrayOwned = new Set(seeded.map(unitKey));
     const parts = [...new Set(seeded.map((u) => (family && manifest ? partFamily(manifest, u.part!) ?? u.part! : u.part!)))];
     if (family && parts.some((id) => !seeded.some((u) => u.part === id))) {
@@ -367,7 +368,7 @@ export class BecomePicker {
       const fig = this.hooks.fig();
       // The hovered plot, else the last picked one, else the source (the old selection fallback).
       const ids = [this.hover?.unit.element, get(hoverId), ...[...t.units].reverse().map((u) => u.element), t.source.element];
-      const plot = ids.map((id) => fig?.elements.find((el) => el.id === id && el.type === "plot")).find(Boolean);
+      const plot = ids.map((id) => fig?.elements.find((el) => el.id === id && (el.type === "plot" || el.type === "fluximg"))).find(Boolean);
       if (plot) this.openXray(plot.id, e.shiftKey);
       else pushToast("info", "Hover a plot, then press R to pick its parts.");
       return true;

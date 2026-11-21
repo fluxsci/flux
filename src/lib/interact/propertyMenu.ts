@@ -653,6 +653,13 @@ export function buildMenuFields(
             axisView: { elementId: el.id, axis }, get: () => "Edit…", apply: () => {} });
         }
       }
+      // An image (W8): its layers and objects are X-ray rows (hover lights an object, pick objects, Animate them); the
+      // image's own R is its live view, so the menu (and the board's f) is the door.
+      if (el.type === "fluximg") {
+        const key = ["o", ..."123456qwtadgvbn"].find((k) => !fields.some((f) => f.key === k));
+        if (key) fields.push({ key, label: "objects… (X-ray)", group: "Image", kind: "action", get: () => true,
+          apply: () => { fluxFigMenuOpen.set(false); xrayRoot.set({ kind: "element", figId: f.id, elementId: el.id }); xrayOpen.set(true); } });
+      }
       if (el.type === "plot" && manifests[el.assetId]?.colorScales?.length) {
         // a fluxplot ≥ 0.3.1 plot: its colour scales edit LIVE, right here (A7.5)
         const key = ["c", ..."123456qwtadgvbn"].find((k) => !fields.some((f) => f.key === k));

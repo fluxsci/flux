@@ -14,7 +14,7 @@ import type { FluximgSlideContext, FluximgSlideHost } from "./slideHost";
 import { createFluximgSlideHost, pictureView } from "./slideSurfaces";
 import { fluximgBundle, fluximgIdentity, fluximgLayerText, fluximgLutsReady, fluximgManifests, fluximgService, needLayerText, needLuts, needManifest, resolveLut } from "./store";
 import { pixelKey } from "./viewOps";
-import { fluximgTables, needTable, tableOf } from "./live/objectTables";
+import { fluximgTableIssues, fluximgTables, needTable, tableKey, tableOf } from "./live/objectTables";
 import type { TweenPicture } from "./viewTween";
 
 type FluximgAsset = Asset & { kind: "fluximg" };
@@ -31,14 +31,17 @@ function deckImageAssets(deck: Deck): Map<string, FluximgAsset> {
   return out;
 }
 
-/** A styled layer's table for the player's overlay, loading it on a miss (the store update reaches the host's listeners). */
+/** A styled layer's table for the player's overlay, loading it on a miss (the store update reaches the host's listeners):
+ *  undefined while it loads (the overlay holds the layer back), null when it cannot be read (the layer draws unstyled). */
 function layerTable(find: (id: string) => FluximgAsset | undefined) {
   return (assetId: string, path: string) => {
     const asset = find(assetId);
-    if (!asset) return undefined;
+    if (!asset) return null;
     const table = tableOf(get(fluximgTables), asset, path);
-    if (!table) needTable(asset, path);
-    return table ?? undefined;
+    if (table) return table;
+    if (tableKey(asset, path) in get(fluximgTableIssues)) return null;
+    needTable(asset, path);
+    return undefined;
   };
 }
 
@@ -77,7 +80,7 @@ export function createAppFluximgHost(deck: Deck): AppFluximg | undefined {
   const listeners = new Set<() => void>();
   let primed = false;
   const fire = () => { if (primed) for (const l of [...listeners]) l(); };
-  const unsubscribe = [fluximgManifests.subscribe(fire), fluximgLayerText.subscribe(fire), fluximgLutsReady.subscribe(fire), fluximgTables.subscribe(fire)];
+  const unsubscribe = [fluximgManifests.subscribe(fire), fluximgLayerText.subscribe(fire), fluximgLutsReady.subscribe(fire), fluximgTables.subscribe(fire), fluximgTableIssues.subscribe(fire)];
   primed = true;
   const host: FluximgSlideHost = {
     ...core,
@@ -125,10 +128,12 @@ export function createAppFluximgStills(signal: AbortSignal): { context: FluximgS
     },
     fluximgTable(id, path) {
       const asset = assetOf(id);
-      if (!asset) return undefined;
+      if (!asset) return null;
       const table = tableOf(get(fluximgTables), asset, path);
-      if (!table) tables.set(`${id}|${path}`, { asset, path });
-      return table ?? undefined;
+      if (table) return table;
+      if (tableKey(asset, path) in get(fluximgTableIssues)) return null;
+      tables.set(`${id}|${path}`, { asset, path });
+      return undefined;
     },
     fluximgLut(name) { const t = resolveLut(name); if (!t && !get(fluximgLutsReady)) luts = true; return t; },
   };

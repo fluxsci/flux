@@ -1708,7 +1708,8 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
     throw new Error("A 3D model cannot become one of its own parts. Fade the part in with Appear instead.");
   const posterVideo = isWholeElementRef(sourceRef) && isWholeElementRef(ref) && modelVideoHandoff(source, target);
   if ((source.type === "video" || target.type === "video") && (!posterVideo || opts.mode === "consume")) throw new Error("Video clips cannot take part in a Become. Use Change for their geometry.");
-  const imageRefusal = fluximgBecomeRefusal(source, target, opts.mode);
+  // (two images' OBJECTS may pair by key: only whole images of two bundles are refused, W8)
+  const imageRefusal = isWholeElementRef(sourceRef) && isWholeElementRef(ref) ? fluximgBecomeRefusal(source, target, opts.mode) : opts.mode === "consume" ? fluximgBecomeRefusal(source, target, "consume") : null;
   if (imageRefusal) throw new Error(imageRefusal);
   if (opts.duration != null && (!Number.isFinite(opts.duration) || opts.duration < 0)) throw new Error("Duration must be a finite non-negative number");
   if (opts.start != null && (!Number.isFinite(opts.start) || opts.start < 0)) throw new Error("Start must be a finite non-negative number");

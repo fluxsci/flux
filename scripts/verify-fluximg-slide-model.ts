@@ -113,9 +113,13 @@ try {
     h.eq(deckSchemaFor(d), "0.8.0", "an image stamps 0.8.0");
     d.slides[0].elements = [];
     h.eq(deckSchemaFor(d), "0.6.0", "removing it lowers the stamp again");
-    // The stamp table without the image detector is exactly the table this build had before stage 2 (attach / radial
-    // at 0.7.0): a deck without an image stamps the same under both, so its bytes cannot change.
-    const before = DECK_FEATURES.filter((f) => f.name !== "fluximg");
+    // The stamp table without the stage-2 image detectors is exactly the table this build had before stage 2 (attach /
+    // radial at 0.7.0): a deck without an image stamps the same under both, so its bytes cannot change. (W8 added two more
+    // image features at 0.8.0: a stagger ordered by a table column and the Become pair "key"; a deck holds them only for
+    // an image's objects, and they register at the image version.)
+    const STAGE2 = new Set(["fluximg", "objectStagger", "pairKey"]);
+    h.ok(DECK_FEATURES.filter((f) => STAGE2.has(f.name)).every((f) => f.version === "0.8.0"), "every stage-2 image feature stamps 0.8.0");
+    const before = DECK_FEATURES.filter((f) => !STAGE2.has(f.name));
     h.eq(before.map((f) => `${f.name}@${f.version}`), ["attach@0.7.0", "radial@0.7.0"], "the pre-stage-2 feature table, unchanged");
 
     // decks without images, written by flux-core, re-saved by both engines

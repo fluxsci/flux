@@ -676,7 +676,7 @@ function openXray(family = false): boolean {
   if (ps && sel.size <= 1) {
     for (const f of p.figures) {
       const el = f.elements.find((e) => e.id === ps.elementId);
-      if (el && (el.type === "plot" || el.type === "model3d")) {
+      if (el && (el.type === "plot" || el.type === "model3d" || el.type === "fluximg")) {
         xrayRoot.set({ kind: "element", figId: f.id, elementId: el.id });
         xrayOpen.set(true);
         return true;
@@ -687,7 +687,8 @@ function openXray(family = false): boolean {
   const fig = p.figures.find((f) => f.elements.some((e) => sel.has(e.id)));
   if (!fig) return false;
   const els = fig.elements.filter((e) => sel.has(e.id));
-  if (els.length === 1 && (els[0].type === "plot" || els[0].type === "model3d")) {
+  // (an image: Shift+Alt+R, or R with one of its objects picked; R alone on an image is its live view)
+  if (els.length === 1 && (els[0].type === "plot" || els[0].type === "model3d" || els[0].type === "fluximg")) {
     xrayRoot.set({ kind: "element", figId: fig.id, elementId: els[0].id });
     xrayOpen.set(true);
     return true;

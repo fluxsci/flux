@@ -32,6 +32,9 @@ export interface FluximgStaticInput {
   resolveLut?: (name: string) => string[] | null;
   /** Layer id → that layer's table: needed by a layer styled by its columns (`styleBy`). A missing one: unstyled. */
   tables?: Record<string, FluximgTable | null | undefined>;
+  /** A slide step's rest state of the image's objects (part id `<layer>/<key>` → opacity; 0 = not drawn): the same input
+   *  the editor's element at a step and every static writer pass (stage 2, W8). */
+  partOpacity?: Readonly<Record<string, number>> | null;
 }
 
 /** The table file of a label or vector layer, or null. */
@@ -112,7 +115,7 @@ export function fluximgStaticSvg(input: FluximgStaticInput): string {
     // Styling that could not apply (a column the table lacks) leaves the layer as it was, never all "missing".
     const styled = stylesToDraw(layerStyles(layer, lv, input.tables?.[lv.id], input.resolveLut));
     if (styled) { legends[lv.id] = styled.legend; stylesById[lv.id] = styled; }
-    out.push(layerMarkup(layer, text, lv, crop, box, idPrefix, styled?.byKey, styled ? missingStyle(lv.styleBy) : null));
+    out.push(layerMarkup(layer, text, lv, crop, box, idPrefix, styled?.byKey, styled ? missingStyle(lv.styleBy) : null, input.partOpacity));
   }
 
   out.push(insetsMarkup(input.insets, crop, box, idPrefix));

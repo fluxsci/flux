@@ -14,12 +14,13 @@ import { defaultEasingFor } from "../../../../lib/slide/presetCatalog";
 import { scene3dManifests } from "../../../../lib/model3d/store";
 import { transformPreState } from "../../../../lib/slide/tween";
 import { plotManifests } from "../../../../lib/plot/store";
+import { fluximgPartsLookup } from "../../../../lib/fluximg/parts";
 
 function manifestForDeck(deck: Deck, sid: string) {
   const slide = slideById(deck, sid), manifests = get(plotManifests), models = get(scene3dManifests);
   return (target: string) => {
     const el = slide ? transformPreState(slide, target, get(activeBeat)) : undefined;
-    return el?.type === "model3d" ? models[el.assetId] : el?.type === "plot" ? manifests[el.assetId] : undefined;
+    return el?.type === "model3d" ? models[el.assetId] : el?.type === "plot" ? manifests[el.assetId] : el?.type === "fluximg" ? fluximgPartsLookup()?.(el.assetId) : undefined;
   };
 }
 

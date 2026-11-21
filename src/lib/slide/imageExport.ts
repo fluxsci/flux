@@ -15,6 +15,8 @@ import type { Asset } from "../types";
 import type { FluximgElement } from "../fluximg/element";
 import type { FluximgManifest, FluximgTable } from "../fluximg/types";
 import type { FluximgSvgContext } from "../fluximg/exportStatic";
+import { modelPartOpacity } from "../model3d/appearance";
+import { partIndexFromTexts, type FluximgPartIndex } from "../fluximg/parts";
 import type { ImageClip } from "../fluximg/clipPlan";
 import type { ResolvedCurve } from "./curves";
 import { compileSlide, type CompiledSlide } from "./compile";
@@ -100,7 +102,8 @@ export function slideImageChanges(compiled: CompiledSlide): ImageChange[] {
 
 /** The static writers' image context over a payload (PDF, PPTX, Paper posters, contact sheets): `exportStatic`'s
  *  composer finds each step's still by the request it computes itself. Undefined for a payload without images. */
-export function payloadImageSvgContext(payload: PayloadImages, elements?: ReadonlyArray<{ id: string; type: string; hidden?: boolean }>): FluximgSvgContext | undefined {
+export function payloadImageSvgContext(payload: PayloadImages, elements?: ReadonlyArray<{ id: string; type: string; hidden?: boolean }>,
+  partStates?: Record<string, Record<string, { opacity?: number; visible?: boolean }>>): FluximgSvgContext | undefined {
   const images = payload.images;
   if (!images || !Object.keys(images).length) return undefined;
   const assets = new Map(Object.entries(images).map(([id, image]) => [id, payloadImageAsset(id, image.manifest)]));
@@ -114,7 +117,17 @@ export function payloadImageSvgContext(payload: PayloadImages, elements?: Readon
     // Blow-outs of an image on the same slide (their frames outlined on it), from the page's evaluated elements.
     insetsOf: (id) => { const shown = (elements ?? []).filter((e) => !e.hidden), me = shown.find((e) => e.id === id) as { assetId?: string } | undefined; return me?.assetId ? insetsOf(shown, id, me.assetId) : []; },
     resolveLut: (name) => lutOf(images, name),
+    // a step's objects that have not appeared yet (or have gone) are drawn that way, as on the live slide (W8)
+    ...(partStates ? { partOpacityOf: (id: string) => modelPartOpacity(partStates[id]) } : {}),
   };
+}
+
+/** An image's object index from a payload (its trimmed manifest and the layer texts it carries): what the static
+ *  writers' compile resolves image-object tracks with. */
+export function payloadImageParts(payload: PayloadImages): ((assetId: string) => FluximgPartIndex | undefined) | undefined {
+  const images = payload.images;
+  if (!images || !Object.keys(images).length) return undefined;
+  return (id) => { const image = images[id]; return image?.manifest ? partIndexFromTexts(image.manifest, (p) => image.texts?.[p]) : undefined; };
 }
 
 /** A colour table carried by any image of the payload. */

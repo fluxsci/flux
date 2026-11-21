@@ -15,7 +15,7 @@
   import type { FluximgManifest, FluximgTable } from "./types";
   import type { PixelRect, ResolvedView } from "./view";
 
-  let { asset, manifest, view, crop, box, prefix, flipX = false, flipY = false, insets = [] }: {
+  let { asset, manifest, view, crop, box, prefix, flipX = false, flipY = false, insets = [], partOpacity = undefined }: {
     asset: { id: string; path: string };
     manifest: FluximgManifest;
     view: ResolvedView;
@@ -27,7 +27,11 @@
     flipY?: boolean;
     /** Blow-outs of this element: each one's frame is outlined on it. */
     insets?: Array<{ id: string; crop: PixelRect }>;
+    /** A slide step's rest state of the objects (part id → opacity, 0 = not drawn): unborn objects at "Edit after step N". */
+    partOpacity?: Record<string, number>;
   } = $props();
+  // The rest state's own signature (an object map in a memo key); "" when there is none (figures: the markup is unchanged).
+  const partsSig = $derived(partOpacity ? JSON.stringify(partOpacity) : "");
 
   const objectLayers = $derived.by(() => {
     const byId = new Map(manifest.layers.map((l) => [l.id, l]));
@@ -99,11 +103,11 @@
     return objectLayers.map(({ lv, layer, path }) => {
       const text = texts[`${asset.id}|${path}`];
       if (text === undefined) return { id: lv.id, markup: "" };
-      if (!lv.styleBy) return { id: lv.id, markup: memoized(`layer:${lv.id}`, `${geometry}|${JSON.stringify(lv)}|${text.length}`, () => layerMarkup(layer, text, lv, crop, box, prefix)) };
+      if (!lv.styleBy) return { id: lv.id, markup: memoized(`layer:${lv.id}`, `${geometry}|${JSON.stringify(lv)}|${text.length}|${partsSig}`, () => layerMarkup(layer, text, lv, crop, box, prefix, null, null, partOpacity)) };
       if (waiting(lv, layer)) return { id: lv.id, markup: memo.get(`layer:${lv.id}`)?.markup ?? "" };
       const st = styles?.[lv.id] ?? null, t = tables[lv.id];
-      return { id: lv.id, markup: memoized(`layer:${lv.id}`, `${geometry}|${JSON.stringify(lv)}|${text.length}|t${tableId(t)}|${st ? 1 : 0}|${$fluximgLutsReady ? 1 : 0}`,
-        () => layerMarkup(layer, text, lv, crop, box, prefix, st?.byKey, st ? missingStyle(lv.styleBy) : null)) };
+      return { id: lv.id, markup: memoized(`layer:${lv.id}`, `${geometry}|${JSON.stringify(lv)}|${text.length}|t${tableId(t)}|${st ? 1 : 0}|${$fluximgLutsReady ? 1 : 0}|${partsSig}`,
+        () => layerMarkup(layer, text, lv, crop, box, prefix, st?.byKey, st ? missingStyle(lv.styleBy) : null, partOpacity)) };
     });
   });
   const names = $derived.by(() => {

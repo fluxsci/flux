@@ -25,7 +25,8 @@ import { setModel3dDeckScope } from "../model3d/editorScope";
 // project figures + overlay. One core, two engines, no drift.
 // ---------------------------------------------------------------------------
 
-import { isHandoff } from "./targets";
+import { isHandoff, hasPartBinding } from "./targets";
+import { fluximgPartsRevision } from "../fluximg/partStore";
 import { writable, get } from "svelte/store";
 import type { Asset, Element, Id, Project } from "../types";
 import type { Deck, Slide, Track } from "./types";
@@ -684,3 +685,14 @@ export function clearDeck(): void {
   acceptedAssetMetadata.clear();
   coalesceState.key = null;
 }
+
+/** An image's objects (W8) are known once its layer texts land: a slide whose tracks name image objects re-evaluates
+ *  its step then (unborn objects at "Edit after step N"). A slide without such tracks checks one condition. */
+fluximgPartsRevision.subscribe(() => {
+  const o = get(deckOverlay), sid = get(activeFigureId);
+  const slide = o && sid ? o.slides.find((s) => s.id === sid) : undefined;
+  if (!slide) return;
+  const fig = get(project).figures.find((f) => f.id === sid);
+  const images = new Set(fig?.elements.filter((e) => e.type === "fluximg").map((e) => e.id) ?? []);
+  if (images.size && slide.beats.some((b) => b.tracks.some((t) => images.has(t.target) && hasPartBinding(t)))) refreshBeatDisplay();
+});

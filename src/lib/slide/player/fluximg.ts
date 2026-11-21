@@ -18,10 +18,11 @@ import { planViewTween, withIndex, type TweenPicture, type ViewTweenFrame, type 
 import { pixelKey, resolveView } from "../../fluximg/viewOps";
 // crop.ts, never still.ts: the exported deck's runtime loads this module, and still.ts pulls the reader and renderer.
 import { clampCrop, tieredStillSize } from "../../fluximg/crop";
-import { cropTransform, FURNITURE_FONT, FURNITURE_WEIGHT, imageStrokeWidth, layerMarkup, namePlacements, namesFontPx, objectIndex, preciseNum, svgNum, type LayerObject } from "../../fluximg/layers";
+import { cropTransform, FURNITURE_FONT, FURNITURE_WEIGHT, imageStrokeWidth, layerMarkup, namePlacements, namesFontPx, objectIndex, preciseNum, sanitizeLayerSvg, svgNum, type LayerObject } from "../../fluximg/layers";
 import { furnitureSvg } from "../../fluximg/furniture";
 import { fluximgIdPrefix, insetRect, layerStyles, layerSvgPath, layerTablePath, PLACEHOLDER_FILL, stylesToDraw, unflipTransform, wantsTable } from "../../fluximg/static";
-import { missingStyle, shownObjects, type ObjectLegend, type ObjectStyles } from "../../fluximg/objectStyle";
+import { columnKind, DEFAULT_STYLE_LUT, missingStyle, objectStyleTween, shownObjects, styleTweenAt, type ObjectLegend, type ObjectPaint, type ObjectStyle, type ObjectStyles, type ObjectStyleTween } from "../../fluximg/objectStyle";
+import { fluximgPartNode } from "../../fluximg/parts";
 import { presetParam } from "../presetCatalog";
 import { isHandoff } from "../targets";
 import { transformEndState, transformPreState } from "../tween";
@@ -125,7 +126,12 @@ export function fluximgTween(pre: FluximgElement, end: FluximgElement, ctx: Slid
 // The vector overlay
 // ---------------------------------------------------------------------------------------------
 
-interface LayerGroup { g: SVGGElement; sig: string; tint: boolean; last: Record<string, string | null> }
+/** One drawn layer. Its group and its shapes are made ONCE and then only their attributes change: a new build (another
+ *  crop to cull to, another styling) is RECONCILED into the existing nodes by key, so a node an appearance effect
+ *  animates (an object part, W8) is the same node for the life of the slide. */
+interface LayerGroup { g: SVGGElement; sig: string; tint: boolean; last: Record<string, string | null>; nodes: Map<string, SVGElement> }
+/** A styling change running on a layer (W8): the tween and the inline paint each object had before it overrode it. */
+interface StyleRun { tween: ObjectStyleTween; nodes: Map<string, { node: SVGElement; stroke: string; fill: string; opacity: string | null }> }
 /** A colour no layer file or style writes: a tinted layer is BUILT in it, then every shape that took it reads the
  *  layer's colour from a custom property instead (styled shapes keep their own colours). */
 const TINT_SENTINEL = "#fd03fb";
@@ -134,6 +140,16 @@ const identities = new WeakMap<object, number>();
 let identitySerial = 0;
 const identity = (o: object | null | undefined): number => { if (!o) return 0; let n = identities.get(o); if (!n) identities.set(o, n = ++identitySerial); return n; };
 interface NamesGroup { g: SVGGElement; sig: string; index: LayerObject[]; nodes: Map<string, SVGTextElement>; place: string }
+
+/** Whether a table's column is numeric, read once per (table object, column): the overlay asks every frame of a tween. */
+const kinds = new WeakMap<object, Map<string, boolean>>();
+function numericColumn(table: { columns?: Record<string, unknown[]> }, column: string): boolean {
+  let per = kinds.get(table);
+  if (!per) kinds.set(table, per = new Map());
+  let v = per.get(column);
+  if (v === undefined) { const values = table.columns?.[column]; v = Array.isArray(values) && columnKind(values) === "number"; per.set(column, v); }
+  return v;
+}
 
 /** Set an attribute only when its value changes (a frame that changes nothing writes nothing). */
 function attr(last: Record<string, string | null>, node: Element, name: string, value: string | null): void {
@@ -177,11 +193,19 @@ class Overlay {
   private last: { manifest: FluximgManifest; el: FluximgElement; pic: TweenPicture; fade: object; cull: PixelRect } | null = null;
   /** Something the overlay waits for landed (a layer file): the next update must look again. */
   invalidate(): void { this.last = null; }
+  /** Styled layers held back until their table (and colour map) land: a styled layer is never shown unstyled. */
+  readonly waiting = new Set<string>();
+  /** Layers whose objects are mid styling change (their per-object paint is written per frame). */
+  private runs = new Map<string, StyleRun>();
+  private tweens = new WeakMap<ViewTweenPlan, Map<string, ObjectStyleTween | null>>();
 
-  update(manifest: FluximgManifest, assetId: string, el: FluximgElement, pic: TweenPicture, fade: ViewTweenFrame["furnitureOpacity"], cull: PixelRect): void {
+  update(manifest: FluximgManifest, assetId: string, el: FluximgElement, pic: TweenPicture, fade: ViewTweenFrame["furnitureOpacity"], cull: PixelRect, motion?: FluximgMotion): void {
+    // A styling change between the Change's two ends tweens each object (W8): only while one runs (0 < raw < 1) and only
+    // when the two ends style a layer differently; a Change that keeps the styling costs one map lookup per frame.
+    const styling = motion && motion.raw > 0 && motion.raw < 1 ? this.styleTweens(manifest, assetId, motion.plan) : null;
     // The plan's pictures are shared and read-only: the same overlay picture on the same element state is nothing new.
     const L = this.last;
-    if (L && L.manifest === manifest && L.el === el && L.pic === pic && L.fade === fade && L.cull === cull) return;
+    if (!styling?.size && !this.runs.size && L && L.manifest === manifest && L.el === el && L.pic === pic && L.fade === fade && L.cull === cull) return;
     this.last = { manifest, el, pic, fade, cull };
     const box = { width: Math.max(1e-6, el.width), height: Math.max(1e-6, el.height) };
     const vb = `0 0 ${svgNum(box.width)} ${svgNum(box.height)}`;
@@ -192,25 +216,37 @@ class Overlay {
     const cullKey = `${cull.x},${cull.y},${cull.width},${cull.height}`;
     // --- layers: built once per (text, tint, cull), then only their attributes follow the frame
     const shown: string[] = [];
+    // A layer whose styling change just ended (or was left by a seek): its objects take the end state's own build again.
+    for (const [id, run] of this.runs) if (!styling?.has(id)) { this.endRun(run); this.runs.delete(id); const g = this.layers.get(id); if (g) g.sig = ""; }
     for (const lv of rv.layers) {
       if (lv.kind === "intensity") continue;
       const entry = this.layers.get(lv.id);
       const wanted = lv.visible && lv.opacity > 0;
+      this.waiting.delete(lv.id);
       if (!wanted) { if (entry) attr(entry.last, entry.g, "display", "none"); continue; }
       const source = this.layerText(manifest, assetId, lv);
       if (!source || source.text === undefined) continue;
       const tint = lv.color !== null;
       // A layer styled by its table (W4 styleBy): per-object colours and opacities, from the same objectStyle cache the
       // element at rest uses; they change only when styleBy, the table or the colour maps change (never per frame).
-      const styles = this.stylesOf(source.layer, lv, assetId);
-      const sig = `${source.text.length}|${tint ? "tint" : "own"}|${cullKey}|${lv.styleBy ? JSON.stringify(lv.styleBy) : ""}|${identity(styles)}`;
+      // Until its table (and, coloured by numbers, its colour map) is here it is NOT shown: drawn unstyled first and
+      // restyled later it would flash, and a capture in between would keep the wrong picture (`settled` waits).
+      const run = styling?.get(lv.id) ?? null;
+      const held = run ? null : this.stylesPending(source.layer, lv, assetId);
+      if (held) { this.waiting.add(lv.id); if (entry) attr(entry.last, entry.g, "display", "none"); continue; }
+      const styles = run ? null : this.stylesOf(source.layer, lv, assetId);
+      const sig = run ? `${source.text.length}|${tint ? "tint" : "own"}|${cullKey}|tween:${identity(run)}`
+        : `${source.text.length}|${tint ? "tint" : "own"}|${cullKey}|${lv.styleBy ? JSON.stringify(lv.styleBy) : ""}|${identity(styles)}`;
       let group = entry;
       if (!group || group.sig !== sig) {
-        group?.g.remove();
-        group = this.buildLayer(source.layer, source.text, lv, cull, box, sig, styles);
-        this.layers.set(lv.id, group);
+        // During a styling change the layer is built at the START's styling with no object left out (one hidden at an
+        // end must exist to fade); the run then writes the objects that change.
+        const built = this.buildLayer(source.layer, source.text, lv, cull, box, sig, run ? run.start : styles, run ? run.startUnlisted : styles ? missingStyle(lv.styleBy) : null);
+        if (group) { this.reconcile(group, built); group.sig = sig; }
+        else { group = built; this.layers.set(lv.id, group); this.layersG.append(group.g); }
         this.order = "";
       }
+      if (run) this.writeRun(lv.id, run, group, motion!);
       const g = group.g, last = group.last;
       attr(last, g, "display", null);
       attr(last, g, "transform", transform);
@@ -246,22 +282,39 @@ class Overlay {
     if (opacitySig !== this.opacitySig) { this.opacitySig = opacitySig; this.fadeFurniture(fade); }
   }
 
-  /** The styles a shown layer is drawn with (null when it is not styled or its table has not landed). */
+  /** The styles a shown layer is drawn with (null when it is not styled or its table cannot be read). */
   private stylesOf(layer: FluximgLayer, lv: ResolvedLayer, assetId: string): ObjectStyles | null {
     if (!wantsTable(lv)) return null;
     const path = layerTablePath(layer);
     const table = path ? this.ctx.fluximgTable?.(assetId, path) : null;
     return stylesToDraw(layerStyles(layer, lv, table, this.ctx.fluximgLut));
   }
+  /** Whether a styled layer must wait: its table is loading (undefined; null = unreadable, drawn unstyled), or it is
+   *  coloured by a numeric column whose colour map has not landed (the colours would be grey). */
+  private stylesPending(layer: FluximgLayer, lv: ResolvedLayer, assetId: string): boolean {
+    if (!wantsTable(lv)) return false;
+    const path = layerTablePath(layer);
+    if (!path || !this.ctx.fluximgTable) return false;
+    const table = this.ctx.fluximgTable(assetId, path);
+    if (table === undefined) return true;
+    const c = lv.styleBy?.color;
+    if (!table || !c || !this.ctx.fluximgLut) return false;
+    const numeric = numericColumn(table, c.column) && !(Array.isArray(c.palette) && c.palette.length && !c.lut);
+    return numeric && !this.ctx.fluximgLut(typeof c.lut === "string" && c.lut ? c.lut : DEFAULT_STYLE_LUT);
+  }
 
-  private buildLayer(layer: FluximgLayer, text: string, lv: ResolvedLayer, cull: PixelRect, box: { width: number; height: number }, sig: string, styles: ObjectStyles | null): LayerGroup {
+  private buildLayer(layer: FluximgLayer, text: string, lv: ResolvedLayer, cull: PixelRect, box: { width: number; height: number }, sig: string,
+    styles: ObjectStyles | ReadonlyMap<string, ObjectStyle> | null, unlisted: ObjectStyle | null): LayerGroup {
     let markup = "";
     const tint = lv.color !== null;
+    const byKey = styles instanceof Map ? styles : (styles as ObjectStyles | null)?.byKey;
     // A layer file anyone may have written can be refused by the sanitizer: draw nothing rather than break the slide.
-    try { markup = layerMarkup(layer, text, { ...lv, visible: true, opacity: 1, ...(tint ? { color: TINT_SENTINEL } : {}) }, cull, box, this.prefix, styles?.byKey, styles ? missingStyle(lv.styleBy) : null); } catch { markup = ""; }
+    try { markup = layerMarkup(layer, text, { ...lv, visible: true, opacity: 1, ...(tint ? { color: TINT_SENTINEL } : {}) }, cull, box, this.prefix, byKey, byKey ? unlisted : null); } catch { markup = ""; }
     const holder = document.createElementNS(SVG, "svg");
     holder.innerHTML = markup;
     const g = (holder.firstElementChild as SVGGElement | null) ?? document.createElementNS(SVG, "g");
+    // The group names its layer even when nothing of it is drawn yet (the part finder and a later reconcile find it).
+    if (!g.hasAttribute("data-layer")) g.setAttribute("data-layer", layer.id);
     if (tint) {
       // One colour for the whole layer: shapes read it from a custom property, so a colour tween writes ONE style per
       // frame instead of every shape's stroke and fill.
@@ -270,8 +323,106 @@ class Overlay {
       }
       g.style.setProperty("--fx-tint", lv.color!);
     }
-    this.layersG.append(g);
-    return { g, sig, tint, last: { "--tint": lv.color, transform: g.getAttribute("transform"), "stroke-width": g.getAttribute("stroke-width"), "fill-opacity": g.getAttribute("fill-opacity"), opacity: g.getAttribute("opacity"), display: null } };
+    const nodes = new Map<string, SVGElement>();
+    for (const c of Array.from(g.children) as SVGElement[]) { const k = c.getAttribute("data-key"); if (k !== null) nodes.set(k, c); }
+    return { g, sig, tint, nodes, last: { "--tint": lv.color, transform: g.getAttribute("transform"), "stroke-width": g.getAttribute("stroke-width"), "fill-opacity": g.getAttribute("fill-opacity"), opacity: g.getAttribute("opacity"), display: null } };
+  }
+
+  /**
+   * A new build of a layer folded into the nodes on screen: the group and every object that is in both keep their
+   * identity and take the new attributes (and the new inline paint: the tint's custom property); an object the new
+   * build leaves out (culled, hidden by its styling) is kept with `display="none"`; a new object is inserted in file
+   * order. Inline styles an effect wrote (opacity, transform, visibility …) are never touched.
+   */
+  private reconcile(group: LayerGroup, built: LayerGroup): void {
+    const g = group.g, fresh = built.g;
+    for (const a of Array.from(g.attributes)) if (a.name !== "style" && !fresh.hasAttribute(a.name)) g.removeAttribute(a.name);
+    for (const a of Array.from(fresh.attributes)) if (a.name !== "style" && g.getAttribute(a.name) !== a.value) g.setAttribute(a.name, a.value);
+    if (built.tint) g.style.setProperty("--fx-tint", fresh.style.getPropertyValue("--fx-tint")); else g.style.removeProperty("--fx-tint");
+    for (const name of ["stroke", "fill"]) { const v = fresh.style.getPropertyValue(name); if (v) g.style.setProperty(name, v); else g.style.removeProperty(name); }
+    group.tint = built.tint;
+    group.last = built.last;
+    const keep = new Set<string>();
+    let before: SVGElement | null = null;
+    // Walk the new build BACKWARDS so each node can be placed before its successor (file order, culled or not).
+    const children = Array.from(fresh.children) as SVGElement[];
+    for (let i = children.length - 1; i >= 0; i--) {
+      const n = children[i], k = n.getAttribute("data-key");
+      if (k === null) continue;
+      keep.add(k);
+      const old = group.nodes.get(k);
+      // (a node the player wrapped for an effect sits one level down: insert before its wrapper)
+      if (!old) { const at = before?.parentNode === g ? before : before?.parentNode?.parentNode === g ? before.parentNode : null; g.insertBefore(n, at); group.nodes.set(k, n); before = n; continue; }
+      for (const a of Array.from(old.attributes)) if (a.name !== "style" && !n.hasAttribute(a.name)) old.removeAttribute(a.name);
+      for (const a of Array.from(n.attributes)) if (a.name !== "style" && old.getAttribute(a.name) !== a.value) old.setAttribute(a.name, a.value);
+      for (const name of ["stroke", "fill"]) { const v = n.style.getPropertyValue(name); if (v) old.style.setProperty(name, v); else old.style.removeProperty(name); }
+      before = old;
+    }
+    for (const [k, node] of group.nodes) if (!keep.has(k) && node.getAttribute("display") !== "none") node.setAttribute("display", "none");
+  }
+
+  /** The styling changes of a Change's plan, per layer (null: none), computed once per plan. */
+  private styleTweens(manifest: FluximgManifest, assetId: string, plan: ViewTweenPlan): Map<string, StyleRun & { start: ReadonlyMap<string, ObjectStyle> | null; startUnlisted: ObjectStyle | null }> | null {
+    let per = this.tweens.get(plan) as Map<string, (StyleRun & { start: ReadonlyMap<string, ObjectStyle> | null; startUnlisted: ObjectStyle | null }) | null> | undefined;
+    if (!per) {
+      per = new Map();
+      const ends = plan.end.view.layers;
+      for (const a of plan.start.view.layers) {
+        const b = ends.find((l) => l.id === a.id);
+        if (!b || a.kind === "intensity" || JSON.stringify(a.styleBy ?? null) === JSON.stringify(b.styleBy ?? null)) continue;
+        const layer = manifest.layers.find((l) => l.id === a.id);
+        const text = layer ? this.ctx.fluximgLayerText?.(assetId, layerSvgPath(layer) ?? "") : undefined;
+        if (!layer || text === undefined || this.stylesPending(layer, a, assetId) || this.stylesPending(layer, b, assetId)) continue; // not ready: the step at half stands
+        const sa = this.stylesOf(layer, a, assetId), sb = this.stylesOf(layer, b, assetId);
+        let shapes: ReturnType<typeof sanitizeLayerSvg>["shapes"] = [], groupAttrs: Record<string, string> = {};
+        try { const p = sanitizeLayerSvg(text); shapes = p.shapes; groupAttrs = p.groupAttrs; } catch { continue; }
+        const own = new Map(shapes.map((sh) => [sh.key, sh.attrs]));
+        const color = b.color;
+        const groupStroke = color ?? groupAttrs.stroke ?? (layer as { color?: string | null }).color ?? "#ffffff";
+        const groupFill = groupAttrs.fill === undefined || groupAttrs.fill === "none" ? "none" : color ?? groupAttrs.fill;
+        const base = (key: string): ObjectPaint => {
+          const at = own.get(key) ?? {};
+          const stroke = at.stroke === undefined ? groupStroke : at.stroke === "none" ? "none" : color ?? at.stroke;
+          const fill = at.fill === undefined ? groupFill : at.fill === "none" ? "none" : color ?? at.fill;
+          return { stroke, fill, opacity: at.opacity !== undefined ? Number(at.opacity) : 1 };
+        };
+        const aUn = sa ? missingStyle(a.styleBy) : null, bUn = sb ? missingStyle(b.styleBy) : null;
+        const tween = objectStyleTween(sa?.byKey, aUn, sb?.byKey, bUn, shapes.map((sh) => sh.key), base);
+        if (!tween) continue;
+        // The start's styling with nothing left out: an object hidden at the start exists (at opacity 0) to fade in.
+        const show = (st: ObjectStyle | null | undefined): ObjectStyle | null | undefined => (st?.hidden ? { opacity: 0 } : st);
+        const start = sa ? new Map([...sa.byKey].map(([k, st]) => [k, show(st)!])) : null;
+        per.set(a.id, { tween, nodes: new Map(), start, startUnlisted: show(aUn) ?? null });
+      }
+      this.tweens.set(plan, per as never);
+    }
+    if (!per.size) return null;
+    for (const [id, run] of per) if (run) this.runs.set(id, run);
+    return per as Map<string, StyleRun & { start: ReadonlyMap<string, ObjectStyle> | null; startUnlisted: ObjectStyle | null }>;
+  }
+  /** One frame of a styling change: each changing object's colour and opacity at the Change's eased progress. */
+  private writeRun(layerId: string, run: StyleRun, group: LayerGroup, motion: FluximgMotion): void {
+    const at = styleTweenAt(run.tween, motion.ease(motion.raw));
+    for (const [key, p] of at) {
+      const node = group.nodes.get(key);
+      if (!node) continue;
+      if (!run.nodes.has(key)) run.nodes.set(key, { node, stroke: node.style.getPropertyValue("stroke"), fill: node.style.getPropertyValue("fill"), opacity: node.getAttribute("opacity") });
+      if (node.getAttribute("display") === "none") node.removeAttribute("display");
+      node.style.setProperty("stroke", p.stroke);
+      node.style.setProperty("fill", p.fill);
+      const o = svgNum(clamp01(p.opacity));
+      if (node.getAttribute("opacity") !== o) node.setAttribute("opacity", o);
+    }
+    void layerId;
+  }
+  /** A styling change left: the objects' own inline paint comes back (the end's build is reconciled right after). */
+  private endRun(run: StyleRun): void {
+    for (const { node, stroke, fill, opacity } of run.nodes.values()) {
+      if (stroke) node.style.setProperty("stroke", stroke); else node.style.removeProperty("stroke");
+      if (fill) node.style.setProperty("fill", fill); else node.style.removeProperty("fill");
+      if (opacity === null) node.removeAttribute("opacity"); else node.setAttribute("opacity", opacity);
+    }
+    run.nodes.clear();
   }
 
   private updateNames(manifest: FluximgManifest, assetId: string, el: FluximgElement, pic: TweenPicture, box: { width: number; height: number }, fade: number | undefined): void {
@@ -426,6 +577,9 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
   let stillKey = "", failed: Error | undefined, allowLive = false;
   let override: { dim: string; index: number; clock?: FluximgMovieClock } | null = null, overridden: { from: ViewTweenFrame; dim: string; index: number; out: ViewTweenFrame } | null = null;
   let insetList: ReadonlyArray<{ id: string; crop: PixelRect }> = [];
+  const waiters: Array<() => void> = [];
+  /** Its objects are animated on this slide: the overlay draws the whole image's objects (never culled to a crop). */
+  const wholeImage = !!ctx.fluximgPartImages?.has(element.id);
   const liveCanvas = (): HTMLCanvasElement => surface?.canvas ?? canvas;
   /** The frame shown: the Change's (or the resting state), with a running clip's position over it. */
   const shown = (manifest: FluximgManifest): ViewTweenFrame => {
@@ -537,7 +691,7 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
       return { id: el.id, assetId: el.assetId, crop: p.crop, insetOf: p.view.insetOf };
     },
     setInsets(list) { insetList = list; },
-    refresh() { overlay.invalidate(); handle.flush(); },
+    refresh() { overlay.invalidate(); handle.flush(); if (!overlay.waiting.size) for (const w of waiters.splice(0)) w(); },
     flush() {
       if (disposed) return;
       const manifest = manifestOf(ctx, el.assetId);
@@ -550,8 +704,8 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
         return;
       }
       const f = shown(manifest);
-      if (!cull) widen(clampCrop(manifest, el.crop));
-      overlay.update(manifest, el.assetId, el, f.overlay, f.furnitureOpacity, cull!);
+      if (!cull) widen(wholeImage ? clampCrop(manifest, null) : clampCrop(manifest, el.crop));
+      overlay.update(manifest, el.assetId, el, f.overlay, f.furnitureOpacity, cull!, motion);
       overlay.insets(insetList, f.overlay.crop, el);
       if (!ctx.fluximg) { showStill(manifest, f.a); return; }
       // The observer reports asynchronously: confirm an offscreen flag against current layout, so a seek's output never
@@ -593,6 +747,8 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
     },
     async settled() {
       if (failed) throw failed;
+      // A styled layer held back for its table (or colour map) is not settled: a capture must never keep it unstyled or missing.
+      while (overlay.waiting.size && !disposed) await new Promise<void>((resolve) => waiters.push(resolve));
       if (!ctx.fluximg) return;
       // Capture needs the exact frame: a binding that has not gone live yet does now (capture is not a live frame).
       if (!allowLive && liveVisible(root)) { handle.prepare(); handle.flush(); }
@@ -603,6 +759,7 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
     dispose() {
       if (disposed) return;
       disposed = true; bindingGeneration++;
+      for (const w of waiters.splice(0)) w();
       observer?.disconnect(); surface?.dispose(); surface = undefined; setPending(handle, false);
       canvas.width = 0; canvas.height = 0; bindings.delete(root);
     },
@@ -613,6 +770,18 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
   // A still of the resting state right away when one is cached (thumbnails, the first frame of a preview).
   const known = manifestOf(ctx, element.assetId);
   if (known) showStill(known, resting(known).a);
+  // An image whose objects are animated draws its overlay NOW: the player looks its object nodes up as it binds the
+  // slide's effects, right after this (W8). Its cull is the whole image, so a later Change never adds a node.
+  if (known && wholeImage) {
+    widen(clampCrop(known, null));
+    const f = resting(known);
+    overlay.update(known, element.assetId, el, f.overlay, f.furnitureOpacity, cull!);
+    // a ghost copy's inherited object factors (compile.partFactors), as render.compileGhostPartOpacity does for plot parts
+    for (const [part, factor] of Object.entries(ctx.ghostPartFactors?.[element.id] ?? {})) {
+      const node = fluximgPartNode<SVGElement>(over, part);
+      if (node) node.style.opacity = String(Number(node.getAttribute("opacity") ?? 1) * factor.opacity);
+    }
+  }
   return handle;
 }
 

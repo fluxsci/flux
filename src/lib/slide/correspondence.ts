@@ -10,6 +10,7 @@ import { lerpColor, prepareColorLerp } from "../color/interp";
 import { lerpDash } from "./tween";
 import { lagWindow, LAG_MIN_WINDOW } from "./stagger";
 import { axisFit, projectWith } from "../plot/project";
+import { keyGroups, keyPolicyApplies, memberKeys } from "../fluximg/parts";
 import {
   arcStations, boundaryParams, parameterize, pointAt, openRing, morphIsClosed,
   planOutlines, sampleNodes, supportPoint, lerpGradientFill, planStrokeBand, sampleStrokeBand, trimUnderHeads, isNoneColor,
@@ -204,10 +205,35 @@ function dataAxis(A: StageOutline[], B: StageOutline[], hint?: DataHint): "x" | 
     A.every((o) => Number.isFinite(o.owner.data?.[axis])) && B.every((o) => Number.isFinite(o.owner.data?.[axis])));
 }
 export function choosePolicy(A: StageOutline[], B: StageOutline[], hint?: DataHint): Exclude<PairPolicy, "auto"> {
+  // An image's objects on either side (their owners carry a key): pair by key when enough keys match (plan D10). One
+  // scan for an owner key; two sides without image objects never reach the test.
+  if ((A.some((o) => o.owner.key !== undefined) || B.some((o) => o.owner.key !== undefined)) && keyPolicyApplies(A.map(keyed), B.map(keyed))) return "key";
   if (hint?.destAxisFit && dataAxis(A, B, hint)) return "data";
   if (A.length === B.length && A.length && A.every((o) => Number.isFinite(o.owner.index)) && B.every((o) => Number.isFinite(o.owner.index))) return "order";
   if (A.length === 1 || B.length === 1) return "tile";
   return "spatial";
+}
+
+const keyed = (o: StageOutline) => ({ keys: memberKeys(o.owner) });
+/**
+ * Pair policy "key" (stage 2, plan D10): members sharing a key pair (an image object's key = a plot series' name or id,
+ * or another object's key; `parts.keyGroups`). One to one morphs, one to many tiles (a footprint into its series'
+ * points), many to many pairs by position within the key. Members whose key the other side lacks fade (they have no
+ * counterpart by meaning, so nothing is borrowed from a neighbour).
+ */
+function byKey(A: StageOutline[], B: StageOutline[], method: TransformMethod = DEFAULT_TRANSFORM_METHOD): CorrespondencePair[] {
+  const { groups, unmatchedA, unmatchedB } = keyGroups(A.map(keyed), B.map(keyed));
+  const pairs: CorrespondencePair[] = [];
+  for (const g of groups) {
+    const as = g.a.map((i) => A[i]), bs = g.b.map((j) => B[j]);
+    if (as.length === 1 && bs.length === 1) pairs.push({ a: as[0], b: bs[0] });
+    else if (as.length === 1) pairs.push(...tile(as[0], bs, true, method));
+    else if (bs.length === 1) pairs.push(...tile(bs[0], as, false, method));
+    else pairs.push(...spatial(as, bs, method));
+  }
+  for (const i of unmatchedA) pairs.push({ a: A[i], b: null });
+  for (const j of unmatchedB) pairs.push({ a: null, b: B[j] });
+  return pairs;
 }
 
 function spatial(A: StageOutline[], B: StageOutline[], method: TransformMethod = DEFAULT_TRANSFORM_METHOD): CorrespondencePair[] {
@@ -776,7 +802,9 @@ export function planCorrespondence(A: StageOutline[], B: StageOutline[], opts: {
   const as = mergeChains(A), bs = mergeChains(B);
   let policy = opts.pair && opts.pair !== "auto" ? opts.pair : choosePolicy(as, bs, opts.data);
   let pairs: CorrespondencePair[];
-  if (policy === "data" && opts.data?.destAxisFit) {
+  if (policy === "key") {
+    pairs = byKey(as, bs, opts.method);
+  } else if (policy === "data" && opts.data?.destAxisFit) {
     // In reverse, project the destination data into the source summary's fit.
     if (as.length === 1 && bs.length > 1 && bs.every((o) => o.owner.data)) {
       pairs = byData(bs, as, { ...opts.data, destAxisFit: opts.data.sourceAxisFit ?? opts.data.destAxisFit }, opts.method).map((p) => ({ a: p.b, b: p.a }));

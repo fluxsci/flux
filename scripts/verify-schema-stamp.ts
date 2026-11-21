@@ -26,7 +26,9 @@ const twin = require("../electron/deckSchemaSupport.cjs") as { DECK_EDITABLE: Re
 h.section("constants and the pure stamp");
 // fluximg stage 2 (plan D6) moved the READ format to 0.8.0: a deck holding an image is written as 0.8.0; attach / radial stay 0.7.0
 h.ok(DECK_SCHEMA_VERSION === "0.8.0" && DECK_BASE_SCHEMA_VERSION === "0.6.0" && DECK_ATTACH_SCHEMA_VERSION === "0.7.0" && DECK_FLUXIMG_SCHEMA_VERSION === "0.8.0", "decks: read 0.8.0, write 0.6.0 unless a feature says otherwise (attach / radial 0.7.0, an image 0.8.0)");
-h.eq(DECK_FEATURES.map((f) => `${f.name}@${f.version}`), ["attach@0.7.0", "radial@0.7.0", "fluximg@0.8.0"], "the registered deck features and their stamps");
+// (fluximg stage 2, W8: a stagger ordered by an image table's column and the Become pair "key" are rejected by a 0.7 validator, so a
+// deck holding one is written as 0.8.0 even when its image is gone: two more detectors at the image version)
+h.eq(DECK_FEATURES.map((f) => `${f.name}@${f.version}`), ["attach@0.7.0", "radial@0.7.0", "fluximg@0.8.0", "objectStagger@0.8.0", "pairKey@0.8.0"], "the registered deck features and their stamps");
 h.ok(CANVAS_SCHEMA_VERSION === "0.4.0" && CANVAS_FLUXIMG_SCHEMA_VERSION === "0.4.0" && CANVAS_ATTACH_SCHEMA_VERSION === "0.3.0" && CANVAS_MODEL3D_SCHEMA_VERSION === "0.2.0" && LEGACY_FIG_SCHEMA_VERSION === "0.1.0", "canvases: read 0.4.0, write 0.4.0 for a fluximg, 0.3.0 for an attachment, 0.2.0 for a 3D model, 0.1.0 otherwise");
 h.ok(FIG_INDEX_SCHEMA_VERSION === "0.3.0" && FIG_INDEX_FLUXIMG_SCHEMA_VERSION === "0.3.0" && FIG_INDEX_MODEL3D_SCHEMA_VERSION === "0.2.0", "fig/index.json: read 0.3.0, write 0.3.0 with a fluximg asset, 0.2.0 with a GLB, 0.1.0 otherwise");
 h.ok(compareSchema("0.7.0", "0.6.0") > 0 && compareSchema("0.6.0", "0.6.0") === 0 && compareSchema("0.10.0", "0.9.0") > 0, "versions compare numerically (0.10 > 0.9)");

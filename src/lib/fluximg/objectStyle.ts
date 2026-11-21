@@ -34,6 +34,7 @@
 import type { FluximgTable } from "./types";
 import type { FluximgStyleBy } from "./view";
 import { channelTable, hexToRgb, makeNormalizer, normalizeValue, slotOf } from "./lut";
+import { prepareColorLerp } from "../color/interp";
 
 export type Cell = number | string | boolean | null;
 export type ColumnKind = "number" | "category" | "empty";
@@ -440,4 +441,56 @@ export function describeStyleBy(layerName: string, styleBy: FluximgStyleBy | nul
   // Styling that cannot apply is said, never claimed: the image shows the layer without it.
   const cannot = issues.length ? `${layerName}: styling not applied (${issues.join("; ")})` : "";
   return [words, cannot].filter(Boolean).join("; ");
+}
+
+// --- a styling change between two steps: THE per-object tween (stage 2, W8) ------------------------------------------
+
+/** What one object is drawn with at one end of a styling change: its stroke and fill (a "none" stays none) and opacity. */
+export interface ObjectPaint { stroke: string; fill: string; opacity: number }
+/** A styling change between two steps, prepared once per Change: both ends' paint of every object that differs. */
+export interface ObjectStyleTween { keys: string[]; from: ObjectPaint[]; to: ObjectPaint[]; lerps: Array<{ stroke: (t: number) => string; fill: (t: number) => string }> }
+
+/** An object's paint under a style (null style = its own paint `base`); a hidden object keeps its colour at opacity 0. */
+function paintOf(style: ObjectStyle | null | undefined, base: ObjectPaint): ObjectPaint {
+  if (!style) return base;
+  const color = style.color;
+  return {
+    stroke: color && base.stroke !== "none" ? color : base.stroke,
+    fill: color && base.fill !== "none" ? color : base.fill,
+    opacity: style.hidden ? 0 : style.opacity ?? base.opacity,
+  };
+}
+
+/**
+ * The tween between two styles of one layer (each end: its `byKey` map and the style of a key without a row, as
+ * `layerMarkup` takes them; a null map = the layer is not styled at that end). `base` is an object's own paint (the
+ * layer's colour or the file's). Colours lerp in OKLab (`color/interp`, the colour law of every Change), opacities
+ * linearly; an object hidden at one end fades at the other end's colour. Null when no object differs: the overlay then
+ * writes nothing per frame.
+ */
+export function objectStyleTween(a: ReadonlyMap<string, ObjectStyle> | null | undefined, aUnlisted: ObjectStyle | null | undefined,
+  b: ReadonlyMap<string, ObjectStyle> | null | undefined, bUnlisted: ObjectStyle | null | undefined,
+  keys: readonly string[], base: (Omit<ObjectPaint, "opacity"> & { opacity?: number }) | ((key: string) => ObjectPaint)): ObjectStyleTween | null {
+  const out: ObjectStyleTween = { keys: [], from: [], to: [], lerps: [] };
+  for (const key of keys) {
+    const own = typeof base === "function" ? base(key) : { opacity: 1, ...base };
+    let p = paintOf(a ? a.get(key) ?? aUnlisted : null, own), q = paintOf(b ? b.get(key) ?? bUnlisted : null, own);
+    if (p.stroke === q.stroke && p.fill === q.fill && p.opacity === q.opacity) continue;
+    // hidden at one end: it fades in its colour at the other end, never through a colour it does not have
+    if (p.opacity === 0 && q.opacity > 0) p = { ...q, opacity: 0 };
+    else if (q.opacity === 0 && p.opacity > 0) q = { ...p, opacity: 0 };
+    out.keys.push(key); out.from.push(p); out.to.push(q);
+    out.lerps.push({ stroke: prepareColorLerp(p.stroke, q.stroke), fill: prepareColorLerp(p.fill, q.fill) });
+  }
+  return out.keys.length ? out : null;
+}
+
+/** Every changing object's paint at eased progress `t` (clamped to [0, 1]): t = 0 is the first end, t = 1 the second. */
+export function styleTweenAt(tween: ObjectStyleTween, t: number): Map<string, ObjectPaint> {
+  const u = Math.min(1, Math.max(0, t)), out = new Map<string, ObjectPaint>();
+  tween.keys.forEach((key, i) => {
+    const p = tween.from[i], q = tween.to[i];
+    out.set(key, u <= 0 ? p : u >= 1 ? q : { stroke: tween.lerps[i].stroke(u), fill: tween.lerps[i].fill(u), opacity: Math.round((p.opacity + (q.opacity - p.opacity) * u) * 1e4) / 1e4 });
+  });
+  return out;
 }
