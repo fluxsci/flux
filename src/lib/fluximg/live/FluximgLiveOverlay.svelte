@@ -30,7 +30,14 @@
   import { fluximgTables, needTable, objectCells, tableOf } from "./objectTables";
   import { cancelLiveEdit, fluximgFrame, fluximgHover, fluximgLive, fluximgLiveProblem, fluximgPreview, fluximgReadout, fluximgStylePreview, fluximgTip, liveArm, livePointer, liveSampler, setLive, settleLiveEdit } from "./session";
 
-  let { element, left, top, zoom, beginPan, moveView = undefined }: { element: FluximgElement; left: number; top: number; zoom: number; beginPan: () => void; moveView?: (f: BoardFit) => void } = $props();
+  let { element, left, top, zoom, beginPan, moveView = undefined, partOpacity = undefined }: {
+    element: FluximgElement; left: number; top: number; zoom: number; beginPan: () => void;
+    /** The board asks the canvas for room (boardLayout.boardFit). */
+    moveView?: (f: BoardFit) => void;
+    /** On a slide step: the objects' rest state there (part id → opacity, 0 = not drawn), the very factors the element at
+     *  rest draws with (`model3d/appearance.modelPartOpacity` of the step's part states). The board draws the step's truth. */
+    partOpacity?: Record<string, number>;
+  } = $props();
 
   const asset = $derived($project.assets.find((a) => a.id === element.assetId && a.kind === "fluximg"));
   const manifest = $derived(asset ? $fluximgManifests[asset.id] : undefined);
@@ -485,7 +492,7 @@
   <canvas bind:this={canvas} class="gl" class:pixelated={!rv?.smooth} style={`left:${vis.x}px;top:${vis.y}px;width:${vis.w}px;height:${vis.h}px`}></canvas>
   {#if asset && manifest && rv && crop}
     <svg class="vec" width={bw} height={bh} viewBox={`0 0 ${box.width} ${box.height}`} preserveAspectRatio="none">
-      <FluximgVectors {asset} {manifest} view={shownView ?? rv} {crop} {box} {prefix} flipX={!!element.flipX} flipY={!!element.flipY} {insets} />
+      <FluximgVectors {asset} {manifest} view={shownView ?? rv} {crop} {box} {prefix} flipX={!!element.flipX} flipY={!!element.flipY} {insets} {partOpacity} />
       {#if drawnBox}<rect class="draw" x={drawnBox.x} y={drawnBox.y} width={drawnBox.width} height={drawnBox.height} />{/if}
     </svg>
   {/if}

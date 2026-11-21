@@ -22,6 +22,7 @@ import { describeViewChange, longestWalk } from "../viewTween";
 import { PACE_SPEEDS, PLAYBACK_MODES, resolvePlayback, walkableDims, type ResolvedPlayback } from "../playback";
 import { resolveView } from "../viewOps";
 import { liveElement, settleLiveEdit, previewHooks, fluximgPreview } from "./session";
+import { framePeriod, naturalRate } from "./rail";
 
 export interface StepCard {
   /** Design: the resting view (the card says so and offers nothing). */
@@ -46,6 +47,8 @@ export interface StepCard {
   playback: ResolvedPlayback | null;
   /** Dimensions the image can walk (time, depth, …). */
   dims: string[];
+  /** Each walkable dimension's own rate, in planes a second, and whether that is real time (a time axis with a period). */
+  rates: Record<string, { perSecond: number; realTime: boolean }>;
 }
 
 const fluximgManifestFor = (id: string) => get(fluximgManifests)[id];
@@ -61,7 +64,8 @@ export function stepCard(): StepCard | null {
   const bi = dest.kind === "after" ? slide.beats.findIndex((b) => b.id === dest.beatId) : 0;
   const playback = resolvePlayback(manifest, (slide.elements.find((e) => e.id === el.id) as FluximgElement | undefined)?.playback);
   const dims = walkableDims(manifest);
-  const base = { slideId: sid, playback, dims };
+  const rates = Object.fromEntries(dims.map((d) => [d, { perSecond: naturalRate(manifest, d), realTime: framePeriod(manifest.axes?.[d]) !== null }]));
+  const base = { slideId: sid, playback, dims, rates };
   if (bi < 1) return { design: true, index: 0, beatId: slide.beats[0]?.id ?? "", words: [], walk: null, change: null, durationMs: null, pace: null, blend: false, movie: null, movieState: "stopped", ...base };
   const beat = slide.beats[bi];
   const pre = transformPreState(slide, el.id, bi) as FluximgElement | null;
@@ -121,7 +125,7 @@ export function setStepPace(speed: number): void {
     const slide = slideOps.slideById(d, c.slideId), beat = slide?.beats.find((b) => b.id === c.beatId);
     const track = beat?.tracks.find((t) => t.id === c.change?.id);
     const pre = slide && transformPreState(slide, target, c.index);
-    if (!track || !pre || !c.walk) throw new Error("this step walks no planes yet: Play through first");
+    if (!track || !pre || !c.walk) throw new Error("this step plays no planes yet; use Play through first");
     slideOps.retimeImageWalk(track, pre, transformEndState(pre, track), { fluximgManifest: fluximgManifestFor, speed, force: true });
     return track;
   });
@@ -139,7 +143,7 @@ export function stepPaceDial(by: number): void {
 export function toggleStepBlend(): void {
   onStep("Blend planes", (d, c) => {
     const track = slideOps.slideById(d, c.slideId)?.beats.find((b) => b.id === c.beatId)?.tracks.find((t) => t.id === c.change?.id);
-    if (!track || !c.walk) throw new Error("this step walks no planes: there is nothing to blend");
+    if (!track || !c.walk) throw new Error("this step plays no planes, so there is nothing to blend");
     const p = { ...(track.params ?? {}) };
     if (slideOps.walkBlends(track)) delete p.blend; else p.blend = true;
     if (Object.keys(p).length) track.params = p; else delete track.params;
@@ -156,7 +160,7 @@ export function toggleStepMovie(action: "start" | "pause" | "stop"): void {
       slideOps.removeTracks(d, c.slideId, ids);
       return true;
     }
-    if (!slideOps.setVideoTrack(d, c.slideId, c.beatId, target, action, { fluximgManifest: fluximgManifestFor })) throw new Error("this image has no time or depth axis to play");
+    if (!slideOps.setVideoTrack(d, c.slideId, c.beatId, target, action, { fluximgManifest: fluximgManifestFor })) throw new Error("this image has no time or depth to play");
     return slideOps.slideById(d, c.slideId)?.beats.find((b) => b.id === c.beatId)?.tracks.find((t) => t.target === target && t.preset === preset) ?? true;
   });
 }

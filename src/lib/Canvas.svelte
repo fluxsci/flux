@@ -113,8 +113,9 @@
   import { plotManifests, plotGen, hasPlotDom, ensurePlotDom } from "./plot/store";
   import { model3dPosterRevision } from "./model3d/store";
   import { fluximgStillRevision } from "./fluximg/store";
-  import { fluximgLive, closeFluximgLive, openFluximgLive, fluximgLiveUnavailable } from "./fluximg/live/session";
+  import { fluximgLive, closeFluximgLive, openFluximgLive, fluximgLiveUnavailable, liveKeyOwner } from "./fluximg/live/session";
   import FluximgLiveOverlay from "./fluximg/live/FluximgLiveOverlay.svelte";
+  import { modelPartOpacity as livePartOpacity } from "./model3d/appearance";
   import TiffAskSurface from "./fluximg/TiffAskSurface.svelte";
   import { tiffAsk } from "./fluximg/tiffAsk";
   import ElementView from "./Element.svelte";
@@ -596,6 +597,9 @@
   function moveViewForBoard(f: import("./fluximg/live/boardLayout").BoardFit) {
     viewport.update((v) => ({ zoom: v.zoom * f.scale, panX: f.about.x + (v.panX - f.about.x) * f.scale + f.dx, panY: f.about.y + (v.panY - f.about.y) * f.scale + f.dy }));
   }
+  // On a slide step the live board draws the image's objects as the element at rest does at that step (ElementSlot):
+  // the same factors from the same function (unborn or gone = left out; ghosted while Show hidden is on).
+  $: fluximgLivePartOpacity = fluximgLiveItem ? livePartOpacity(presentation?.partStates?.[fluximgLiveItem.el.id], presentation?.ghostHidden) : undefined;
   $: modelOverlayItems = paneActive ? canvasFigures.flatMap(fig => (visibleByFig.get(fig.id) ?? []).filter(el => el.type === "model3d" && $modelPreviews[el.id] && !absentPresentationIds.has(el.id)).map(el => ({ fig, el }))) : [];
   onDestroy(() => { finishModelOrbit(); clearModelPreviews(); });
 
@@ -4352,6 +4356,9 @@
     if (e.key === "Control") ctrlDown = true; // bend affordance in node-edit
     if (typing) return;
     if (e.key === "Escape" && cancelGesture()) { e.preventDefault(); return; }
+    // An image's live board takes its own keys (live/keys.ts): with it open, Shift+R is its movie, not the rulers, and
+    // Shift+G walks its calibration bar, not the grid. The modifier tracking above (held Space pans) still runs.
+    if (liveKeyOwner(e) === "board") return;
 
     // Shift+R toggles the rulers (Feature 11).
     if (e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && e.code === "KeyR") {
@@ -6278,7 +6285,7 @@
   {/if}
   {#if fluximgLiveItem}
     {#key fluximgLiveItem.el.id}
-      <FluximgLiveOverlay element={fluximgLiveItem.el} beginPan={() => { spaceDown = true; }} moveView={moveViewForBoard} left={$viewport.panX + (fluximgLiveItem.fig.x + fluximgLiveItem.el.x) * $viewport.zoom} top={$viewport.panY + (fluximgLiveItem.fig.y + fluximgLiveItem.el.y) * $viewport.zoom} zoom={$viewport.zoom} />
+      <FluximgLiveOverlay element={fluximgLiveItem.el} partOpacity={fluximgLivePartOpacity} beginPan={() => { spaceDown = true; }} moveView={moveViewForBoard} left={$viewport.panX + (fluximgLiveItem.fig.x + fluximgLiveItem.el.x) * $viewport.zoom} top={$viewport.panY + (fluximgLiveItem.fig.y + fluximgLiveItem.el.y) * $viewport.zoom} zoom={$viewport.zoom} />
     {/key}
   {/if}
   {#if tiffAskFig && $tiffAsk}

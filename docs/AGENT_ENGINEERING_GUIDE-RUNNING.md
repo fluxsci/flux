@@ -4161,6 +4161,18 @@ opens with a header that states its law. Read those before changing one. The par
   (`LIVE_KEYS`, all left-hand; digits by `e.code`, so Shift + digit toggles and Alt + digit
   solos); the layers card takes the keyboard only after `d` (never from a click in it: the board's keys
   must keep working after the owner clicks a lamp).
+  **The board takes exactly its own keys** (ledger call 50; review A2, B1). The key map is DATA, `live/keys.ts`
+  `BOARD_KEYS`: the board's `onKey` dispatches on `boardKeyOf`'s row, and registers `session.liveKeys.take` so the modes
+  ask `liveKeyOwner(e)` ("board" | "held" | null) instead of "is the board open". Function keys, PageUp/PageDown,
+  Home/End and every Ctrl/Cmd/Alt chord pass (Alt + a channel's digit is the board's); the canvas keymap HOLDS its other
+  unmodified keys while the board is open (Delete must not delete the image under it). A surface above the board says so
+  through `holdLiveKeys` (Slide mode: Present, its editor preview, pick mode, the Export menu, dialogs; `keyboard.ts`:
+  `editorOverlayOwnsKeys`, the X-ray, the F-menu, Help …): the board then takes no key, and on "present" cannot open.
+  Present closes the board first (`launchPresent` → `closeFluximgLive`, which settles the open gesture as one undo step,
+  as Esc does). The slide's preview and the board's never play together. Gates: `verify-fluximg-board-keys` (pure,
+  a fail-closed census of SlideMode's key literals) and `-gui`. On a step the board's vectors get the element's part
+  factors (`Canvas` → `FluximgLiveOverlay partOpacity`, `model3d/appearance.modelPartOpacity`): unborn and gone objects
+  as at rest (`verify-fluximg-board-step-gui`).
   **One `editSession` per gesture key** (a new key settles the previous one; wheel runs settle
   after 420 ms of quiet); a selection change or the element's disappearance closes the view.
   `actions.ts`: every change is one function there; crops are written by `writeFrame` /

@@ -77,7 +77,7 @@ import { openAlignArrange, closeAlignArrange, handleAlignArrangeKey, crystallize
 import { reattachClones } from "./slide/attach";
 import { copySelectedPlotPath } from "./figure/commands";
 import { figurePlacement } from "./figure/placement";
-import { fluximgLive, fluximgLiveUnavailable, openFluximgLive } from "./fluximg/live/session";
+import { fluximgLiveUnavailable, holdLiveKeys, liveKeyOwner, openFluximgLive } from "./fluximg/live/session";
 import { tiffAsk } from "./fluximg/tiffAsk";
 
 let clipboard: Element[] = [];
@@ -752,6 +752,28 @@ function widenPartsToFamily() {
   else partSelection.set(null);
 }
 
+/**
+ * A surface over the canvas that owns every key while it is up: the FluxFig Menu, Settings, Help, the X-ray, the
+ * docked importer, the Cascade popover, the figure catalog, the Dissect viewer, the rail's quick look, a shell modal.
+ * The canvas keymap yields to them, and so does an image's live board (FluximgBoard).
+ */
+export function editorOverlayOwnsKeys(): boolean {
+  return (
+    get(fluxFigMenuOpen) ||
+    get(settingsOpen) ||
+    get(helpOpen) ||
+    get(xrayOpen) ||
+    (get(importerOpen) && !get(importerDetached)) ||
+    !!get(cascadeState) ||
+    !!(get(figureCatalog) || get(figureDeletion)) ||
+    !!get(dissectTarget) ||
+    !!get(railQuickLook) ||
+    get(shellModalOpen)
+  );
+}
+// An image's live board takes no key while one of them is up.
+holdLiveKeys(() => (editorOverlayOwnsKeys() ? "overlay" : null));
+
 export function handleKey(e: KeyboardEvent) {
 
   if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
@@ -763,22 +785,11 @@ export function handleKey(e: KeyboardEvent) {
   if (owner?.tagName === "SELECT") return;
   // the FluxFig Menu / Settings / Help / X-Ray / Importer / Cascade popover /
   // Figure-Meta Name tab / Dissect viewer own all keys while open.
-  if (
-    get(fluxFigMenuOpen) ||
-    get(settingsOpen) ||
-    get(helpOpen) ||
-    get(xrayOpen) ||
-    (get(importerOpen) && !get(importerDetached)) ||
-    get(cascadeState) ||
-    (get(figureCatalog) || get(figureDeletion)) ||
-    get(dissectTarget) ||
-    get(railQuickLook) ||
-    get(shellModalOpen)
-  )
-    return;
-  // An image's live view owns the unmodified keys (its panel's rows, the arrows, Space, Delete). Chords stay
-  // Flux-wide: undo and redo step through the live view's own gestures, and saving must keep working.
-  if (get(fluximgLive) && !(e.ctrlKey || e.metaKey)) return;
+  if (editorOverlayOwnsKeys()) return;
+  // An image's live board takes its own keys (live/keys.ts) and holds the canvas's other unmodified keys (Delete,
+  // tool letters: nothing edits the image under it). Function keys, the page keys and every Ctrl / Cmd / Alt chord
+  // pass: undo and redo step through the board's own gestures, and saving must keep working.
+  if (liveKeyOwner(e)) return;
   // The TIFF asking surface on the canvas owns the unmodified keys while it is open (TiffAskSurface.svelte).
   if (get(tiffAsk) && !(e.ctrlKey || e.metaKey)) return;
 
