@@ -13,7 +13,7 @@ import { harness } from "./lib/harness.mjs";
 import { radialCoordinates } from "../src/lib/slide/staggerData";
 import { staggerRanks, patchStagger } from "../src/lib/slide/stagger";
 import { deckSchemaFor } from "../src/lib/slide/schemaStamp";
-import { DECK_SCHEMA_VERSION, DECK_BASE_SCHEMA_VERSION } from "../src/lib/slide/types";
+import { DECK_ATTACH_SCHEMA_VERSION, DECK_BASE_SCHEMA_VERSION } from "../src/lib/slide/types";
 import { createDeck, addSlide, addPlotToSlide, addBeat, setAnimation } from "../src/lib/slide/ops";
 import { compileSlide } from "../src/lib/slide/compile";
 import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
@@ -82,7 +82,8 @@ try {
   const b = addBeat(deck, slide.id, { id: "b" } as never)!;
   h.eq(deckSchemaFor(deck), DECK_BASE_SCHEMA_VERSION, "without a radial order the deck stays the base format");
   setAnimation(deck, slide.id, b.id, { target: plotId, preset: "fade", start: 0, duration: 300, selector: { role: "point" }, stagger: { totalMs: 900, by: "radial", from: "start" } } as never);
-  h.eq(deckSchemaFor(deck), DECK_SCHEMA_VERSION, "a radial order stamps the deck 0.7.0 (an older build's validator rejects it)");
+  // (fluximg stage 2 moved the READ format to 0.8.0; a radial order still stamps 0.7.0, its own feature's version)
+  h.eq(deckSchemaFor(deck), DECK_ATTACH_SCHEMA_VERSION, "a radial order stamps the deck 0.7.0 (an older build's validator rejects it)");
   h.eq((validateDeckFile(JSON.parse(JSON.stringify(deck))) as unknown as unknown[]).length, 0, "...and it validates");
 
   h.section("both engines rank alike (the compiler and the exported player)");

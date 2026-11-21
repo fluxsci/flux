@@ -3,6 +3,10 @@
 import type { Element, TextElement } from "../types";
 import type { FluxPlotManifest } from "../plot/types";
 import type { Scene3dManifest } from "../model3d/types";
+import type { FluximgManifest } from "../fluximg/types";
+import type { FluximgElement } from "../fluximg/element";
+import { checkMergedView, checkViewPatch } from "../fluximg/viewCheck";
+import { FLUXIMG_BECOME_OTHER_IMAGE } from "../fluximg/policy";
 import type { Slide, StageSize, Track, Camera, TargetRef, BecomeSpec } from "./types";
 import { lerpElement, overshootBox, arcBox, turnOf, transformEndState, transformPreState } from "./tween";
 import { resolveAttachments, attachIssues, attachRefs, hasAttach, DEPENDENT_GEOMETRY } from "./attach";
@@ -29,6 +33,10 @@ export interface AnimationIssue { trackId?: string; target: string; reason: stri
 export interface CompileOptions extends StyleContext, ModelAssetLookup {
   plotManifest?: (assetId: string) => FluxPlotManifest | undefined;
   modelManifest?: (assetId: string) => Scene3dManifest | undefined;
+  /** An image's (fluximg) manifest, when loaded: views and step views are checked against it. Absent: no check. */
+  fluximgManifest?: (assetId: string) => FluximgManifest | undefined;
+  /** Why an image's bundle cannot be shown (missing, unreadable), when known. */
+  fluximgIssue?: (assetId: string) => string | undefined;
   /** Pristine prepared roots, when available, for outline diagnostics. */
   plotRoot?: GeometryCtx["plotRoot"];
   /** Whether a text's letters have readable font outlines (the GUI's glyph
@@ -90,11 +98,38 @@ export function semanticTargets(track: Track, slide: Slide, opts: CompileOptions
   return targetPartIds(track, manifest);
 }
 const clamp = (n: number) => Math.max(0, Math.min(1, n));
+/** What is wrong with an image's view (Design, or a step's end when `step`) for THIS image, and a bundle that cannot be
+ *  shown. No manifest known: the view is not checked (the bundle issue still is). */
+function fluximgIssues(el: FluximgElement, view: FluximgElement["view"], opts: CompileOptions, step = false): string[] {
+  const out: string[] = [];
+  const missing = opts.fluximgIssue?.(el.assetId);
+  if (missing && !step) out.push(`The image's bundle cannot be shown: ${missing}`);
+  const manifest = missing ? undefined : opts.fluximgManifest?.(el.assetId);
+  if (!manifest || !view) return out;
+  const problems = [...checkViewPatch(manifest, view).problems, ...checkMergedView(manifest, view)];
+  if (problems.length) out.push(`${step ? "This Change's image view" : "The image's view"} does not fit the image: ${problems.join("; ")}`);
+  return out;
+}
+/** A hand-off between two whole images of different bundles (ops.fluximgBecomeRefusal, for tracks written by hand). */
+function imageHandoffRefusal(slide: Slide, source: ResolvedTarget[], destination: ResolvedTarget[]): string {
+  const ids = (targets: ResolvedTarget[]) => targets.filter(t => t.partIds === null).map(t => slide.elements.find(e => e.id === t.elementId));
+  for (const a of ids(source)) for (const b of ids(destination)) {
+    if (a?.type === "fluximg" && b?.type === "fluximg" && a.assetId !== b.assetId)
+      return FLUXIMG_BECOME_OTHER_IMAGE;
+  }
+  return "";
+}
 function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptions, partFactors: ResolvedGhosts["partFactors"] = {}): Pick<CompiledSlide, "cues" | "issues" | "sample" | "handoffs" | "resolveTarget"> {
   const issues: AnimationIssue[] = [];
   const resolveTarget = handoffTargetResolver(slide, opts.plotManifest ?? (() => undefined), opts.modelManifest);
+  // `images`: the slide places an N-dimensional image. Found in the loop every compile already runs (one kind test per
+  // element), so the image checks below are a branch a slide without images never takes.
+  let images = false;
   for (const el of slide.elements) if (el.type === "plot") {
     for (const reason of plotViewIssues(opts.plotManifest?.(el.assetId), el.view)) issues.push({ target: el.id, reason });
+  } else if (el.type === "fluximg") {
+    images = true;
+    for (const reason of fluximgIssues(el, el.view, opts)) issues.push({ target: el.id, reason });
   }
   // WP 3.2: attachments. A dependent owns the geometry its attachment solves (a connector its ends and box, a label its position): a Change
   // of those keys is ignored and said so; a hand-off Become has no moving box, so what is attached to it stays at its resting place.
@@ -145,6 +180,8 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
         }
         if (end?.type === "plot") for (const reason of plotViewIssues(opts.plotManifest?.(end.assetId), end.view))
           issues.push({ trackId: track.id, target: track.target, reason });
+        else if (images && end?.type === "fluximg" && track.to?.state && "view" in track.to.state)
+          for (const reason of fluximgIssues(end, end.view, opts, true)) issues.push({ trackId: track.id, target: track.target, reason });
       }
       // Authored params the table does not know stay in the deck; they are advice, never a refusal.
       for (const reason of paramDiagnostics(track)) issues.push({ trackId: track.id, target: track.target, reason });
@@ -217,6 +254,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       : crossfade && source.some(s => s.partIds === null && destination.some(d => d.elementId === s.elementId)) ? "A 3D model cannot become one of its own mesh parts. Fade the part in with Appear instead."
       : unborn.some(b => source.some(t => t.elementId === b.target)) ? "The source is not yet born at this step. Choose a later step."
       : !posterVideo && slide.elements.some(e => e.type === "video" && [...source, ...destination].some(t => t.elementId === e.id)) ? "Video clips cannot take part in a Become. Use Change for their geometry."
+      : images ? imageHandoffRefusal(slide, source, destination)
       : "";
     // Many sources may MERGE into one destination: hand-offs with an identical
     // destination ref co-land (a crossfading mesh landing never merges).

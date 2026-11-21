@@ -47,7 +47,7 @@ import {
 } from "../store";
 import { familyOf } from "./family";
 import { applyDeckSourceUpdates, reconcileDeckExternalAssetSizes } from "./sourceSync";
-import { setTransform, removeTracks } from "./ops";
+import { removeTracks, writeStepState } from "./ops";
 import { compileSlide, evaluateSlideState, type SlideFrame } from "./compile";
 import { plotManifests } from "../plot/store";
 import { scene3dManifests } from '../model3d/store';
@@ -245,7 +245,8 @@ export function commitDeckLive<T>(fn: (deck: Deck) => T, opts?: { coalesce?: str
     }));
     proj.assets = [
       ...deck.assets,
-      ...proj.assets.filter((a) => externalAssets.has(a.id) && !deck.assets.some((d) => d.id === a.id)),
+      // an image bundle (fluximg) is external by KIND (a deck never owns one), whether resolved at load or imported since
+      ...proj.assets.filter((a) => (externalAssets.has(a.id) || a.kind === "fluximg") && !deck.assets.some((d) => d.id === a.id)),
     ];
     // The overlay store object is REPLACED after the write (below); mutate the
     // captured `o` here so the companion snapshot (taken by beginGesture before
@@ -523,7 +524,8 @@ export function registerSlideEditAdapter(onUserEdit?:()=>void): () => void {
       let changed = false;
       // Structural metadata belongs to the original object, not a transform.
       // (an attachment is whole-slide too: set while viewing a step, it attaches from Design on; the write point re-solves the base)
-      const structural = ["name", "groupId", "locked", "hidden", "lockAspect", "styleId", "panelLabel", "source", "manifestRef", "attach"] as const;
+      // `playback` (an image's media playback, fluximg stage 2 plan D7) is Design-level like a video's loop: never a step's Change.
+      const structural = ["name", "groupId", "locked", "hidden", "lockAspect", "styleId", "panelLabel", "source", "manifestRef", "attach", "playback"] as const;
       let compiled: ReturnType<typeof compileSlide> | null = null;
       let attachChanged = false;
       for (const el of fig.elements) {
@@ -549,12 +551,12 @@ export function registerSlideEditAdapter(onUserEdit?:()=>void): () => void {
           if (key in rec) dest[key] = structuredClone(rec[key]); else delete dest[key];
         }
         if (previous.type === "plot" && el.type === "plot" && base.type === "plot" && previous.assetId !== el.assetId) base.assetId = el.assetId;
+        // an image whose source bundle was updated moves to the new asset in Design too (assetId is never a step's state)
+        else if (previous.type === "fluximg" && el.type === "fluximg" && base.type === "fluximg" && previous.assetId !== el.assetId) base.assetId = el.assetId;
         // WP 3.2: a dependent's solved geometry is never captured (userDiff): dragging its driver at a step writes no track for it
         if (bi < 1 || unborn.has(el.id) || !userDiff(diffState(previous, el), el)) continue;
         compiled ??= compileSlide({ ...slide, elements: [...previousElements.values()].map(e => baselines.get(e.id) ?? e) }, o.stage, {animStyles: o.animStyles, plotManifest: id => get(plotManifests)[id], modelManifest: id => get(scene3dManifests)[id]});
-        const pre = compiled.preState(el.id, bi) ?? base;
-        const patch = userDiff(diffState(pre, el), el) ?? {};
-        setTransform(o, sid!, slide.beats[bi].id, el.id, { state: patch, replaceState: true });
+        writeStepState(o, sid!, slide.beats[bi].id, el, compiled.preState(el.id, bi) ?? base);
         changed = true;
       }
       // an attachment set (or freed) at a step holds from Design on: the Design state (the baselines) takes its solve now, so going back to

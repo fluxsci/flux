@@ -23,7 +23,6 @@ import { nodesToPath, pathToNodes } from "../path";
 import { resolveTheme } from "./theme";
 import { newId } from "../ids";
 import { reattachClones, scaleAttach } from "./attach";
-import { isFluximgElement } from "../fluximg/policy";
 
 /** The synthetic canvas id every projected slide-figure lives on. */
 export const DECK_CANVAS_ID = "deck";
@@ -156,6 +155,8 @@ export function projectIntoDeck(
     palette: [...(project.palette ?? [])],
     ...(project.colorGroups !== undefined ? { colorGroups: structuredClone(project.colorGroups) } : {}),
     ...(project.textStyles !== undefined ? { textStyles: structuredClone(project.textStyles) } : {}),
+    // An image bundle (fluximg) is always a PROJECT asset (fig/assets/<id>.fluximg) that the deck refers to by id, whether it
+    // was resolved at load or imported while the deck was open: it is external by kind, never a deck asset.
     assets: structuredClone(project.assets.filter((a) => !external?.has(a.id) && a.kind !== "fluximg")),
     ...(prev.externalAssetSizes ? { externalAssetSizes: structuredClone(prev.externalAssetSizes) } : {}),
     // 0.6 animation styles are presentation (never projected): copied back verbatim
@@ -170,9 +171,7 @@ function foldSlide(fig: Project["figures"][number], prev: Slide, defaultBg: stri
     id: prev.id,
     ...(name !== undefined ? { name } : {}),
     ...(prev.layout !== undefined ? { layout: prev.layout } : {}),
-    // Last line of defence for stage 1 (FLUXIMG_NOT_IN_SLIDES): every GUI and verb entry point refuses a fluximg with
-    // that message first, so nothing reaches here in practice; if one does, it never reaches deck.json.
-    elements: structuredClone(fig.elements.filter((e) => !isFluximgElement(e))),
+    elements: structuredClone(fig.elements),
     ...(fig.groups && Object.keys(fig.groups).length ? { groups: structuredClone(fig.groups) } : {}),
     ...(fig.guides ? { guides: structuredClone(fig.guides) } : {}),
     ...(fig.background !== defaultBg ? { background: fig.background } : {}),

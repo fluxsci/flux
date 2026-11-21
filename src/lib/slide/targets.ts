@@ -312,7 +312,7 @@ export function mergeResolved(lists: readonly ResolvedTarget[][]): ResolvedTarge
 }
 
 /** The noun a whole object of each kind counts as in a set label. */
-const KIND_NOUN: Record<string, string> = { model3d: "model", rect: "rect", ellipse: "ellipse", line: "line", path: "path", text: "text", image: "image", video: "video", plot: "plot" };
+const KIND_NOUN: Record<string, string> = { model3d: "model", rect: "rect", ellipse: "ellipse", line: "line", path: "path", text: "text", image: "image", video: "video", plot: "plot", fluximg: "image" };
 /** Part roles that read as nouns in a count ("6 points"); others count as "part". */
 const ROLE_NOUN = new Set(["point", "line", "bar", "box", "spine", "tick", "label", "whisker", "median", "cap", "flier", "area", "patch", "cell", "hexagon", "marker", "title", "legend", "gridline", "band", "contour", "arrow"]);
 const plural = (noun: string, n: number) => n === 1 ? noun : /(?:s|x|ch|sh)$/.test(noun) ? `${noun}es` : `${noun}s`;

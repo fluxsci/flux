@@ -27,7 +27,14 @@ import type { Element, Id, GroupDef, Asset, ColorGroup, TextStyle } from "../typ
 // on (attached connectors, a radial stagger order: `schemaStamp.ts` DECK_FEATURES); every other deck keeps 0.6.0 and its bytes. So
 // DECK_SCHEMA_VERSION is the newest format this build READS (every read guard), and DECK_BASE_SCHEMA_VERSION is what a deck without those
 // features is stamped with (createDeck, migrateDeck, commitDeckGeneration).
-export const DECK_SCHEMA_VERSION = "0.7.0";
+// 0.8 (fluximg stage 2, plan D6) is content-derived the same way: a deck is written as 0.8.0 only while a slide holds an N-dimensional
+// image (an older build's deck validator rejects the element kind, and so the whole deck); every other deck keeps its 0.6.0 / 0.7.0
+// stamp and its bytes.
+export const DECK_SCHEMA_VERSION = "0.8.0";
+/** The stamp of a deck holding an attached connector or a radial stagger order (manim study WP 3.0 / 4.3). */
+export const DECK_ATTACH_SCHEMA_VERSION = "0.7.0";
+/** The stamp of a deck holding an N-dimensional image (fluximg stage 2). */
+export const DECK_FLUXIMG_SCHEMA_VERSION = "0.8.0";
 export const DECK_BASE_SCHEMA_VERSION = "0.6.0";
 export type { VideoElement } from "./mediaTypes";
 

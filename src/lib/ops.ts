@@ -2108,13 +2108,12 @@ export function setElementAttach(p: Project, elementId: Id, attach: Attach | nul
 export { setModelView };
 
 // ---------------------------------------------------------------------------
-// fluximg (stage 1): place an N-dimensional image and edit its view recipe. Pixels are never touched here: the asset
+// fluximg (stage 1, slides since stage 2): place an N-dimensional image and edit its view recipe. Pixels are never touched here: the asset
 // is metadata (its bundle directory was published by the native import), the element is a box + a sparse view.
 // ---------------------------------------------------------------------------
 import type { Asset, FluximgElement } from "./types";
 import type { FluximgView } from "./fluximg/view";
 import { patchView, sharedPatch } from "./fluximg/viewOps";
-import { FLUXIMG_NOT_IN_SLIDES } from "./fluximg/policy";
 import { DECK_CANVAS_ID } from "./slide/deckProject";
 
 /** The margin kept on each side when a too-wide image is scaled down to its figure's width (canvas px). */
@@ -2134,12 +2133,12 @@ export interface AddFluximgArgs {
 }
 
 /** Register the asset (if absent) and append a fluximg element. Default size: 1 image px = 1 canvas px; an image wider
- *  than its figure is scaled down to the figure's width less FLUXIMG_FIT_MARGIN on each side, keeping its aspect.
- *  Refuses a deck slide (stage 1). Returns the new element's id. */
+ *  than its figure is scaled down to the figure's width less FLUXIMG_FIT_MARGIN on each side, keeping its aspect. On a
+ *  slide (a figure of the deck canvas, whose frame IS the stage) the image must fit the stage's height as well. Returns
+ *  the new element's id. */
 export function addFluximg(p: Project, a: AddFluximgArgs): Id {
   const f = figById(p, a.figureId);
   if (!f) throw new Error(`figure not found: ${a.figureId}`);
-  if (f.canvasId === DECK_CANVAS_ID) throw new Error(FLUXIMG_NOT_IN_SLIDES);
   if (a.asset.kind !== "fluximg") throw new Error(`addFluximg needs a fluximg asset, got ${a.asset.kind}`);
   if (!(a.asset.naturalWidth > 0) || !(a.asset.naturalHeight > 0)) throw new Error(`fluximg asset ${a.asset.id} has no pixel size`);
   const registered = p.assets.find((x) => x.id === a.asset.id);
@@ -2151,10 +2150,15 @@ export function addFluximg(p: Project, a: AddFluximgArgs): Id {
   let width = a.width ?? cw;
   const margin = Math.min(FLUXIMG_FIT_MARGIN, f.width * 0.05);
   const room = f.width - 2 * margin;
-  if (a.width === undefined && width > f.width && room > 0) width = room;
+  let fitted = a.width === undefined && cw > f.width && room > 0;
+  if (fitted) width = room;
+  if (a.width === undefined && f.canvasId === DECK_CANVAS_ID) {
+    // a slide: the stage clips, so the default also keeps the whole image inside its height (same margin)
+    const vMargin = Math.min(FLUXIMG_FIT_MARGIN, f.height * 0.05), vRoom = f.height - 2 * vMargin;
+    if (width * (ch / cw) > f.height && vRoom > 0) { width = Math.min(width, vRoom * (cw / ch)); fitted = true; }
+  }
   if (!(width > 0) || !Number.isFinite(width)) throw new Error("Invalid fluximg width");
   const height = width * (ch / cw);
-  const fitted = a.width === undefined && cw > f.width && room > 0;
   const el: FluximgElement = {
     type: "fluximg",
     id: newId("fluximg"),
@@ -2185,10 +2189,12 @@ export function setFluximgView(p: Project, elementId: Id, patch: FluximgView): v
     if (Object.keys(next).length) e.view = next;
     else delete e.view;
     // Linked panels (split channels, a blow-out) move together: the shared part of the patch goes to every other
-    // element of the same image carrying the same link, wherever it sits in the project.
+    // element of the same image carrying the same link, wherever it sits in the project. On a slide, only within that
+    // slide: there an edit may be a step's Change ("Edit after step N" captures the active slide's elements), and it must
+    // never write into another slide's Design.
     const link = next.link, shared = link ? sharedPatch(patch) : null;
     if (link && shared) {
-      for (const g of p.figures) for (const other of g.elements) {
+      for (const g of f.canvasId === DECK_CANVAS_ID ? [f] : p.figures) for (const other of g.elements) {
         if (other === e || other.type !== "fluximg" || other.assetId !== e.assetId || other.view?.link !== link) continue;
         const merged = patchView(other.view, shared);
         if (Object.keys(merged).length) other.view = merged; else delete other.view;

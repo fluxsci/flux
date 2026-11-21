@@ -260,8 +260,8 @@ ELEMENT_DEF.oneOf.push(elementBranch("model3d", ["assetId", "orbitAzimuth", "orb
 
 // fluximg (stage 1): the placed N-dimensional image. `view` is the sparse recipe of fluximg/view.ts: every key typed,
 // unknown TOP-LEVEL keys refused (a misspelt key would silently do nothing), numeric ranges sane. Nested objects keep the
-// house leniency so a later field can be added inside one without a format bump. Figure schemas only: the deck schema
-// leaves this branch out (ARCHITECTURE decision 8: no fluximg in a deck yet).
+// house leniency so a later field can be added inside one without a format bump. Figures (canvas 0.4.0) and, since stage 2,
+// decks (0.8.0) share this branch.
 // Non-empty without minLength: Ajv's standalone minLength needs a CommonJS `require` helper this ESM module cannot load.
 const NON_EMPTY = { type: "string", pattern: "^[\\s\\S]+$" };
 const HEX_OR_NULL = { anyOf: [{ type: "string", pattern: "^#[0-9a-fA-F]{6}$" }, { type: "null" }] };
@@ -650,7 +650,7 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
     // 0.1 remains the sanctioned clean break.
     required: ["schemaVersion", "id", "stage", "slides"],
     properties: {
-      schemaVersion: { type: "string", pattern: "^0\\.[234567]\\." },
+      schemaVersion: { type: "string", pattern: "^0\\.[2345678]\\." },
       id: { type: "string" },
       title: { type: "string" },
       created: { type: "string" },
@@ -794,7 +794,9 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
       },
     },
     definitions: {
-      element: { oneOf: [...ELEMENT_DEF.oneOf.filter((branch) => branch !== FLUXIMG_BRANCH), elementBranch("video", ["assetId", "posterAssetId", "durationMs"], {
+      // 0.8 (fluximg stage 2): the shared element union, image included. Its bundle stays a PROJECT asset resolved by id
+      // (fig/assets/<id>.fluximg), so the deck's own `assets[].kind` still has no fluximg: a deck never owns a bundle.
+      element: { oneOf: [...ELEMENT_DEF.oneOf, elementBranch("video", ["assetId", "posterAssetId", "durationMs"], {
         assetId: { type: "string", pattern: "[\\s\\S]" }, posterAssetId: { type: "string", pattern: "[\\s\\S]" },
         durationMs: { type: "number", exclusiveMinimum: 0 }, muted: { type: "boolean" }, loop: { type: "boolean" },
       })] },

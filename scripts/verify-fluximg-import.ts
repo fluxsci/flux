@@ -9,7 +9,8 @@
 //      Timing: listing 200 bundles (stats only, no manifest opened).
 //   C. Placement against the memory bridge (fluximg/import.ts through io.ts): the element records the bundle path
 //      and content id; the same content twice is ONE asset (the fresh copy is discarded); a failure leaves nothing
-//      in fig/assets and says the file side's words; a Slide deck refuses before anything is copied.
+//      in fig/assets and says the file side's words; a Slide deck takes it on the same route (fluximg stage 2 supersedes
+//      the stage-1 refusal pinned here), its bundle in fig/assets and never in the deck.
 //   D. Update from source: view / crop carried or clamped (importCore.carryFluximgView), the plan and its one-commit
 //      application, the watcher-driven hot swap (quiet window, one undo step), frozen elements stay, source states.
 //   E. Timing: the native import of the largest fixture (electron/fluximgFiles.cjs).
@@ -173,7 +174,6 @@ try {
   const io = await import("../src/lib/io");
   const fimport = await import("../src/lib/fluximg/import");
   const core = await import("../src/lib/fluximg/importCore");
-  const policy = await import("../src/lib/fluximg/policy");
   const { toasts } = await import("../src/lib/toast");
   const seed = async (rel: string, name: string, extra: Record<string, Uint8Array> = {}) => mem._seedFluximg(mroot, rel, { ...(await filesOf(fx(name))), ...extra });
   await seed("plots/stack.fluximg", "stack_u16");
@@ -228,12 +228,25 @@ try {
   mem.importFluximg = (r) => { importCalls++; return realImport(r); };
   store.activeFigureId.set("fig1");
 
-  importCalls = 0;
-  tenancy.setStoreTenant("slide");
-  await rejects(io.importPlotsFromPaths([`${mroot}/plots/stack.fluximg`]), new RegExp(policy.FLUXIMG_NOT_IN_SLIDES.replace(/[().]/g, "\\$&")), "a Slide deck refuses with FLUXIMG_NOT_IN_SLIDES");
-  await rejects(fimport.readIncomingFluximg("plots/stack.fluximg"), /cannot be placed on slides/, "…on every route");
-  h.eq(importCalls, 0, "…before anything is copied");
-  tenancy.setStoreTenant("figure");
+  // Stage 2: a slide of the open deck takes the image on the same route; the bundle goes to fig/assets, never the deck.
+  {
+    importCalls = 0;
+    const slideOps = await import("../src/lib/slide/ops"), dp = await import("../src/lib/slide/deckProject");
+    const figureProject = get(store.project), dirsBefore = assetDirs().length;
+    const deck = slideOps.createDeck({ id: "talk", title: "Talk" });
+    store.project.set(dp.deckToProject(deck, [])); store.activeFigureId.set(deck.slides[0].id);
+    tenancy.setStoreTenant("slide");
+    const ns = await io.importPlotsFromPaths([`${mroot}/plots/stack.fluximg`]);
+    const onSlide = get(store.project).figures[0].elements.filter((e) => e.type === "fluximg") as FluximgElement[];
+    const slideAsset = get(store.project).assets.find((a) => a.id === onSlide[0]?.assetId);
+    h.ok(ns === 1 && importCalls === 1 && onSlide.length === 1 && slideAsset?.kind === "fluximg", "a Slide deck takes the image on the same route (one copy)");
+    h.ok(slideAsset?.path === `assets/${slideAsset?.id}.fluximg` && assetDirs().length === dirsBefore + 1, "…its bundle is published in fig/assets (a path relative to fig/, as on a figure)");
+    h.ok(onSlide[0].width <= deck.stage.width && onSlide[0].height <= deck.stage.height, `…inside the stage (${onSlide[0]?.width}×${onSlide[0]?.height})`);
+    const folded = dp.projectIntoDeck(get(store.project), deck);
+    h.ok(folded.slides[0].elements.some((e) => e.type === "fluximg") && !folded.assets.some((a) => a.kind === "fluximg"), "…and the deck keeps the element and refers to the bundle by id (no deck-owned asset)");
+    tenancy.setStoreTenant("figure");
+    store.project.set(figureProject); store.activeFigureId.set("fig1");
+  }
 
   // Outside a Flux project (a legacy standalone or unsaved figure) a bundle has no fig/assets to live in.
   importCalls = 0;

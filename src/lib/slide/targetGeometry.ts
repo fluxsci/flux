@@ -98,7 +98,7 @@ export function elementStageOutlines(el: SceneElement, ctx?: Pick<GeometryCtx, "
     if (o.paint.fillMap?.stops?.length || o.paint.strokeMap?.stops?.length) o.paint.gradBox = o.bbox;
     return [o];
   }
-  if (!compound && el.type !== "text" && el.type !== "image" && el.type !== "video" && el.type !== "plot" && el.type !== "model3d") return [];
+  if (!compound && el.type !== "text" && el.type !== "image" && el.type !== "video" && el.type !== "plot" && el.type !== "model3d" && el.type !== "fluximg") return [];
   return [stage({ nodes: boxNodes(b), closed: true }, placement(el, true), { elementId: el.id }, {
     fill: el.type === "text" ? el.color : "none", stroke: "none", strokeWidth: 0, cap: "butt",
     opacity: el.opacity ?? 1, text: el.type === "text", raster: el.type !== "text",

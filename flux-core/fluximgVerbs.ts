@@ -3,7 +3,7 @@ import type { VerbDef } from './registry';
 import { text } from './registry';
 import { placeImage, setImageView, imageInfo } from './fluximg';
 
-// N-dimensional images (fluximg) on Figure canvases. The view is a SPARSE recipe: only what differs from the
+// N-dimensional images (fluximg) on Figure canvases and slides (a deck refers to the project's bundle by id). The view is a SPARSE recipe: only what differs from the
 // image's defaults is stored, null clears a setting. Pixels are never changed by any of these.
 const finite = () => z.number().finite();
 const crop = z.object({ x: finite(), y: finite(), width: finite().positive(), height: finite().positive() });
@@ -20,7 +20,8 @@ const words = (r: Summary): string => [
 export const FLUXIMG_VERBS: VerbDef[] = [
   {
     name: 'place_image', cli: 'place-image', cliRoot: 'flags', scope: 'project',
-    summary: 'Place an N-dimensional image (a .fluximg bundle) on a Figure. The bundle folder (written by fluxplot) is copied into fig/assets once (a bundle whose content is already in the project is reused, not copied), adds an image element and answers with its resolved view. Optional x/y/width (canvas px; height follows the aspect), crop {x,y,width,height} in image pixels, and a sparse view such as {"index":{"z":12},"channels":[{"range":[100,4000]}],"furniture":{"scalebar":{}}}. Refuses a slide deck.',
+    summary: 'Place an N-dimensional image (a .fluximg bundle) on a figure or slide. The target is a figure id, deckId/slideId or a slide id. The bundle folder (written by fluxplot) is copied into fig/assets once (a bundle whose content is already in the project is reused, not copied), adds an image element and answers with its resolved view. Optional x/y/width (canvas px; height follows the aspect), crop {x,y,width,height} in image pixels, and a sparse view such as {"index":{"z":12},"channels":[{"range":[100,4000]}],"furniture":{"scalebar":{}}}. On a slide the default size fits the stage.',
+    notAPath: { figureId: 'Figure id, deckId/slideId or slide id, not a filesystem path' },
     params: { figureId: z.string(), bundlePath: z.string(), x: finite().optional(), y: finite().optional(), width: finite().positive().optional(), name: z.string().optional(), crop: crop.optional(), view: view.optional() },
     pathParams: { bundlePath: 'path' },
     cliArgs: [{ kind: 'pos', at: 0, into: 'figureId', required: true }, { kind: 'pos', at: 1, into: 'bundlePath', required: true },
@@ -34,13 +35,17 @@ export const FLUXIMG_VERBS: VerbDef[] = [
   },
   {
     name: 'set_image_view', cli: 'set-image-view', cliRoot: 'flags', scope: 'project',
-    summary: 'Change how a placed image is shown, never its pixels. view is a sparse patch merged into the stored one (null clears a setting): index {dim: plane}, projection {dim, mode: max|mean|min|sum|std, from, to (exclusive)} or null, channels [per channel: visible, color "#rrggbb" or lut name, range [black, white] in value units, norm linear|log|gamma, gamma, invert], composite blend|single + solo, background, smooth, layers {id: visible, opacity, color, strokeWidth, fillOpacity, range, styleBy {color {column, lut?, palette?, range?, reverse?}, opacity {column, range?, to?}, missing dim|hide}}, layerOrder, furniture {scalebar, stamp, channelLabels, names, colorbar, key: {} on, false off}. crop {x,y,width,height} in image pixels (or null / --reset-crop) keeps the content pinned on the canvas. Every key is checked against the image first; answers with the RESOLVED view and its position in words.',
-    params: { id: z.string(), view: view.optional(), crop: crop.nullable().optional() },
+    summary: 'Change how a placed image is shown, never its pixels. view is a sparse patch merged into the stored one (null clears a setting): index {dim: plane}, projection {dim, mode: max|mean|min|sum|std, from, to (exclusive)} or null, channels [per channel: visible, color "#rrggbb" or lut name, range [black, white] in value units, norm linear|log|gamma, gamma, invert], composite blend|single + solo, background, smooth, layers {id: visible, opacity, color, strokeWidth, fillOpacity, range, styleBy {color {column, lut?, palette?, range?, reverse?}, opacity {column, range?, to?}, missing dim|hide}}, layerOrder, furniture {scalebar, stamp, channelLabels, names, colorbar, key: {} on, false off}. crop {x,y,width,height} in image pixels (or null / --reset-crop) keeps the content pinned on the canvas. An image on a slide needs slide (deckId/slideId); with beat (a build step after Design) the edit becomes that step\'s Change, as "Edit after step" does in the app: the image glides from its earlier state to this one. Every key is checked against the image first; answers with the RESOLVED view and its position in words.',
+    params: { id: z.string(), view: view.optional(), crop: crop.nullable().optional(), slide: z.string().optional(), beatId: z.string().optional() },
+    notAPath: { slide: 'deckId/slideId, not a filesystem path' },
     cliArgs: [{ kind: 'pos', at: 0, into: 'id', required: true }, { kind: 'flag', at: 'view', into: 'view', as: 'json' },
-      { kind: 'flag', at: 'crop', into: 'crop', as: 'json' }, { kind: 'flag', at: 'reset-crop', into: 'crop', const: null }],
-    handler: (ctx, a) => setImageView(ctx.root, String(a.id), a.view, a.crop === undefined ? {} : { crop: a.crop }),
+      { kind: 'flag', at: 'crop', into: 'crop', as: 'json' }, { kind: 'flag', at: 'reset-crop', into: 'crop', const: null },
+      { kind: 'flag', at: 'slide', into: 'slide' }, { kind: 'flag', at: 'beat', into: 'beatId' }],
+    handler: (ctx, a) => setImageView(ctx.root, String(a.id), a.view, {
+      ...(a.crop === undefined ? {} : { crop: a.crop }),
+      ...(typeof a.slide === 'string' ? { slide: a.slide } : {}), ...(typeof a.beatId === 'string' ? { beatId: a.beatId } : {}) }),
     render: {
-      human: r => ({ out: JSON.stringify(r, null, 2), err: `✓ set the view of image ${(r as Summary).elementId}${words(r as Summary) ? `\n${words(r as Summary)}` : ''}` }),
+      human: r => ({ out: JSON.stringify(r, null, 2), err: `✓ set the view of image ${(r as Summary).elementId}${(r as { beatId?: string }).beatId ? ` at step ${(r as { beatId?: string }).beatId}` : ''}${words(r as Summary) ? `\n${words(r as Summary)}` : ''}` }),
       mcp: r => text(`set the view of image ${(r as Summary).elementId}\n${words(r as Summary)}\n${JSON.stringify(r)}`),
     },
   },

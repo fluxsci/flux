@@ -6414,8 +6414,13 @@ be a few words ("Manuscript Check."), detail after it. The gate reads the BUNDLE
   appearances, Ghost and model transitions through the existing animation engine;
   PDF/PPTX use documented mesh/furniture stills rather than live 3D.
 - **fluximg stage 1 is figures and `.fluximg` bundles only (2026-11-19).** Deliberately deferred,
-  each with a clear refusal or a stated limit: Slides (every deck chokepoint refuses with
-  `policy.FLUXIMG_NOT_IN_SLIDES`; a slide embed draws the stand-in); TIFF / microscope-file import
+  each with a clear refusal or a stated limit: Slides (stage 2 admits images into decks, 2026-11-20:
+  deck format 0.8.0 only while a slide holds one; the bundle stays a PROJECT asset at
+  `fig/assets/<id>.fluximg`, resolved by id from fig/index.json or, for a slide-only import, from that
+  folder (`place.fluximgResolvedAsset`); a deck never owns one and both the fold and `commitDeckLive` keep
+  image assets external by KIND; "Edit after step" writes through `slideOps.writeStepState`, the op
+  `set-image-view --slide --beat` shares; exports still draw the stand-in with `FLUXIMG_NOT_IN_SLIDES`
+  until the export package lands); TIFF / microscope-file import
   (stage 2: the TS reference writer exists for it); tiles read on demand for huge planes (the
   live driver reads whole planes of a level, so a very large mosaic zoomed to its own pixels is
   read whole); block-summary projections in the live view (`project.buildBlocks` /

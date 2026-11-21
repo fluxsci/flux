@@ -56,6 +56,7 @@ import { gatherPayload } from "../src/lib/slide/payload";
 import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
 import type { ExportPayload } from "../src/lib/slide/export/runtime";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
+import type { FluximgManifest } from "../src/lib/fluximg/types";
 import { compileSlide, trackDuration } from "../src/lib/slide/compile";
 import { transformPreState } from "../src/lib/slide/tween";
 import { sourceAt } from "../src/lib/slide/ghost";
@@ -817,7 +818,15 @@ async function slideCompileOptions(root: string, deck: Deck, slideId: string, kn
   const add = async (el: { assetId: string; source?: { svgPath?: string; manifestPath?: string } }) => {
     if (!manifests.has(el.assetId)) manifests.set(el.assetId, await readPlotManifest(root, el, deck.id));
   };
+  // Images (fluximg): the manifest each one's views are checked against, read from its one place (a deck never owns a
+  // bundle), or why it cannot be read.
+  const imageManifests = new Map<string, FluximgManifest>(), imageIssues = new Map<string, string>();
   for (const el of slide.elements) if (el.type === "plot") await add(el);
+  else if (el.type === "fluximg" && !imageManifests.has(el.assetId) && !imageIssues.has(el.assetId)) {
+    const rel = `fig/assets/${el.assetId}.fluximg/fluximg.json`;
+    try { imageManifests.set(el.assetId, JSON.parse(await fs.readFile(safeJoin(root, rel), "utf8")) as FluximgManifest); }
+    catch { imageIssues.set(el.assetId, `${rel} is missing or unreadable`); }
+  }
   // Include effective pre-states and assets held only by future endpoints.
   for (let bi = 0; bi < slide.beats.length; bi++) for (const track of slide.beats[bi].tracks) {
     const el = transformPreState(slide, track.target, bi);
@@ -827,7 +836,8 @@ async function slideCompileOptions(root: string, deck: Deck, slideId: string, kn
       ...(typeof track.to.manifestPath === "string" ? { manifestPath: track.to.manifestPath } : {}),
     } });
   }
-  return { animStyles: deck.animStyles, plotManifest: (id: string) => manifests.get(id), modelAsset: (id: string) => modelAssets.get(id), modelManifest: (id: string) => modelManifests[id] };
+  return { animStyles: deck.animStyles, plotManifest: (id: string) => manifests.get(id), modelAsset: (id: string) => modelAssets.get(id), modelManifest: (id: string) => modelManifests[id],
+    fluximgManifest: (id: string) => imageManifests.get(id), fluximgIssue: (id: string) => imageIssues.get(id) };
 }
 
 /** A saved deck's per-slide compile options for poster enumeration

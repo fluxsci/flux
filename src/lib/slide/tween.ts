@@ -34,6 +34,8 @@ import { compileSlide } from "./compile";
 import { planHandoff } from "./handoffPlan";
 import type { GeometryCtx } from "./targetGeometry";
 import type { ModelFieldOverride } from "../model3d/types";
+import { lerpFluximgView } from "../fluximg/viewTween";
+import type { FluximgView } from "../fluximg/view";
 
 // --- the property law --------------------------------------------------------
 
@@ -46,6 +48,9 @@ const NEVER_CAPTURED = new Set([
   "assetId", "styleId", "panelLabel", "lines", "needsLayout",
   "source", "manifestRef", "posterAssetId", "durationMs", "muted", "loop",
   "attach",
+  // fluximg stage 2 (plan D7): an image's media playback (dimension, loop mode, speed) is Design-level, like a video's `loop`;
+  // the Start / Pause / Stop commands run it, a step never captures it
+  "playback",
 ]);
 
 /** The props every kind shares — what survives a RETYPE (a patch whose `type`
@@ -633,7 +638,12 @@ export function lerpElement(pre: Element, end: Element, t: number, raw = t, opts
         else out[k] = structuredClone(step(va, vb, raw));
       }
     } else if (k === "view") {
-      const view = lerpView(va as PlotView | undefined, vb as PlotView | undefined, t, raw);
+      // `view` names two different things: a plot's axis domains and an image's display recipe (fluximg). The kind decides
+      // (pre and end share it here: a retype went to lerpAcrossKinds above). The image tween is the ONE definition in
+      // fluximg/viewTween.ts (planes step, numbers lerp, exact ends).
+      const view = pre.type === "fluximg"
+        ? lerpFluximgView(va as FluximgView | undefined, vb as FluximgView | undefined, t, raw)
+        : lerpView(va as PlotView | undefined, vb as PlotView | undefined, t, raw);
       if (view) out[k] = view; else delete out[k];
     } else if (k === "colorScale") {
       const scales = lerpColorScales(va as Record<string, ColorScaleView> | undefined, vb as Record<string, ColorScaleView> | undefined, t, raw);
