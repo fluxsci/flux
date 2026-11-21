@@ -496,6 +496,7 @@
       "verify-fluximg-view-tween.ts",
       "verify-fluximg-object-style.ts",
       "verify-fluximg-slide-model.ts",
+      "verify-tiff.ts",
       "verify-fmenu-look.ts"
     ],
     "net": [
@@ -1691,6 +1692,7 @@
       "verify-fluximg-view-tween.ts",
       "verify-fluximg-object-style.ts",
       "verify-fluximg-slide-model.ts",
+      "verify-tiff.ts",
       "verify-fluximg-live-gui.mjs"
     ],
     "fluximg-pure": [
@@ -1706,7 +1708,8 @@
       "verify-fluximg-live.ts",
       "verify-fluximg-view-tween.ts",
       "verify-fluximg-object-style.ts",
-      "verify-fluximg-slide-model.ts"
+      "verify-fluximg-slide-model.ts",
+      "verify-tiff.ts"
     ],
     "fluximg-ui": [
       "verify-fluximg-place-gui.mjs",
@@ -2750,6 +2753,12 @@
     },
     {
       "glob": "src/lib/fluximg/**",
+      "run": [
+        "group:fluximg-pure"
+      ]
+    },
+    {
+      "glob": "{src/lib/tiff/**,flux-core/tiff*,scripts/lib/tiffFixtures.ts}",
       "run": [
         "group:fluximg-pure"
       ]
@@ -12896,6 +12905,15 @@
       "coverage": "behavior"
     },
     "verify-fluximg-slide-model.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-tiff.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
