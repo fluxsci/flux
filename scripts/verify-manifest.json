@@ -6335,6 +6335,26 @@
       "exclusive": false,
       "coverage": "behavior"
     },
+    "verify-fmenu-look-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-fmenu-look.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
     "verify-fmenu-surface.mjs": {
       "runtime": "tsx",
       "prerequisites": [
