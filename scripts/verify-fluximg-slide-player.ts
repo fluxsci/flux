@@ -41,8 +41,8 @@ for (let t = 0; t < T; t++) for (let c = 0; c < C; c++) for (let y = 0; y < H; y
 const labels = new Uint16Array(H * W);
 const blob = (l: number, y0: number, x0: number, hh: number, ww: number) => { for (let y = y0; y < y0 + hh; y++) for (let x = x0; x < x0 + ww; x++) labels[y * W + x] = l; };
 blob(1, 4, 6, 6, 8); blob(2, 20, 30, 8, 6); blob(3, 34, 44, 5, 12); blob(4, 10, 50, 7, 7);
-const glow = new Uint16Array(H * W);
-for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) glow[y * W + x] = (x * 17 + y * 29) % 1000;
+const glow = new Uint16Array(H * W), act = new Uint16Array(H * W);
+for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { glow[y * W + x] = (x * 17 + y * 29) % 1000; act[y * W + x] = ((x - 32) ** 2 + (y - 24) ** 2) % 700; }
 const report = await writeFluximg(nodeBundleWriter(path.join(scratch, "img.fluximg")), await nodeZstd(), {
   name: "slide movie", source: arraySource(data, ["t", "c", "y", "x"], [T, C, H, W], "uint16"),
   axes: { t: { unit: "s", scale: 0.1 }, y: { unit: "µm", scale: 0.5 }, x: { unit: "µm", scale: 0.5 } },
@@ -51,6 +51,7 @@ const report = await writeFluximg(nodeBundleWriter(path.join(scratch, "img.fluxi
     { kind: "labels", id: "cells", name: "cells", data: labels, visible: true, key: "label", table: { key: "label", columns: { label: [1, 2, 3, 4], kind: ["x", "y", "x", "z"] } } },
     { kind: "vector", id: "marks", name: "marks", count: 2, body: '<circle id="marks/p" data-key="p" cx="12.5" cy="30.5" r="3"/><line id="marks/q" data-key="q" x1="40" y1="5" x2="60" y2="20"/>', visible: true },
     { kind: "intensity", id: "glow", name: "glow", data: glow, dtype: "uint16", color: "#ffd400", range: [0, 1000], opacity: 0.6, visible: false },
+    { kind: "intensity", id: "act", name: "activity", data: act, dtype: "uint16", color: "#40c0ff", range: [0, 700], opacity: "value", visible: false },
   ],
 });
 const manifest = report.manifest;
@@ -72,7 +73,21 @@ const CROP3 = { x: 16, y: 12, width: 32, height: 24 };                          
 const V4 = view({ index: { t: 20 }, channels: [{ range: [600, 2200], color: "#00ffff" }, { range: [300, 1800], gamma: 1.6, norm: "gamma" }],
   layers: { cells: { ...CELLS, opacity: 0.25 }, marks: { visible: true }, glow: { visible: true, opacity: 0.6 } } });     // colour switch (two pictures), layer fades
 const V5 = structuredClone(V4); (V5 as { index: Record<string, number> }).index = { t: 4 };                     // blend walk back
-const track = (id: string, state: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({ id, target: "im", preset: "transform", start: 0, duration: 1000, easing: "linear", to: { state }, ...extra });
+const V6 = structuredClone(V5); (V6 as { furniture: Record<string, unknown> }).furniture = { ...base.furniture, key: {} };   // the styled layer's key fades in
+const track = (id: string, state: Record<string, unknown>, extra: Record<string, unknown> = {}, target = "im") => ({ id, target, preset: "transform", start: 0, duration: 1000, easing: "linear", to: { state }, ...extra });
+// Slide s2: intensity layers and projections (one image, every Change against the CPU reference).
+const plain = (patch: Record<string, unknown>) => { const v = structuredClone(patch); v.layers = { cells: { visible: false }, marks: { visible: false }, act: { visible: true }, ...((patch.layers as object) ?? {}) }; return v; };
+const W0 = plain({ index: { t: 2 } });
+const W1 = plain({ index: { t: 2 }, layers: { glow: { visible: true, opacity: 0.6 } } });                                  // an intensity layer fades in
+const W2 = plain({ index: { t: 2 }, layers: { glow: { visible: true, opacity: 0.6, range: [200, 700] }, act: { visible: true, range: [100, 400] } } }); // windows glide
+const W3 = plain({ index: { t: 2 }, layers: { glow: { visible: true, opacity: 0.6, range: [200, 700], lut: "fire" }, act: { visible: true, range: [100, 400] } } }); // colour map swap: two pictures
+const W4 = { ...structuredClone(W3), projection: { dim: "t", mode: "max", from: 0, to: 4 } };                             // a projection switched on: two pictures
+const W5 = { ...structuredClone(W3), projection: { dim: "t", mode: "max", from: 8, to: 16 } };                            // run ends step
+const W6m = { ...structuredClone(W3), projection: { dim: "t", mode: "max", from: 0, to: 4 } };                           // run ends step back with a crossfade (blend.end)
+// Slide s3: seven images (six draw on their own contexts, the seventh through the shared renderer).
+const small = (i: number) => ({ type: "fluximg", id: `f${i}`, x: 10 + (i % 4) * 150, y: 10 + Math.floor(i / 4) * 170, width: 128, height: 96, rotation: 0, assetId: "img", view: V0 });
+// Slide s4: a parent and its blow-out (insetOf), the blow-out's crop tweening.
+const INSET0 = { x: 10, y: 8, width: 20, height: 15 }, INSET1 = { x: 30, y: 20, width: 16, height: 12 };
 const deck = {
   schemaVersion: "0.7.0", id: "d", title: "images", created: "", modified: "", stage: { width: 640, height: 360 }, theme: "flux-dark",
   defaults: { transition: "none" }, assets: [],
@@ -85,23 +100,44 @@ const deck = {
         { id: "b3", tracks: [track("zoom", { crop: CROP3 })] },
         { id: "b4", tracks: [track("switch", { view: V4 })] },
         { id: "b5", tracks: [track("blend", { view: V5 }, { params: { blend: true } })] },
+        { id: "b6", tracks: [track("key", { view: V6 })] },
       ] },
     { id: "s1", elements: [{ type: "rect", id: "r", x: 100, y: 100, width: 200, height: 100, rotation: 0, fill: "#4385be", stroke: "none", strokeWidth: 0, cornerRadius: 0 }], beats: [{ id: "c0", tracks: [] }] },
+    { id: "s2", elements: [{ type: "fluximg", id: "im", x: 40, y: 20, width: 320, height: 240, rotation: 0, assetId: "img", view: W0 }],
+      beats: [
+        { id: "d0", tracks: [] },
+        { id: "d1", tracks: [track("fadein", { view: W1 })] },
+        { id: "d2", tracks: [track("windows", { view: W2 })] },
+        { id: "d3", tracks: [track("lutswap", { view: W3 })] },
+        { id: "d4", tracks: [track("projon", { view: W4 })] },
+        { id: "d5", tracks: [track("runstep", { view: W5 })] },
+        { id: "d6", tracks: [track("runblend", { view: W6m }, { params: { blend: true } })] },
+      ] },
+    { id: "s3", elements: [0, 1, 2, 3, 4, 5, 6].map(small), beats: [{ id: "e0", tracks: [] }, { id: "e1", tracks: [0, 1, 2, 3, 4, 5, 6].map((i) => track(`w${i}`, { view: V4 }, {}, `f${i}`)) }] },
+    { id: "s4", elements: [
+        { type: "fluximg", id: "pa", x: 20, y: 20, width: 320, height: 240, rotation: 0, assetId: "img", view: V0 },
+        { type: "fluximg", id: "ch", x: 380, y: 20, width: 200, height: 150, rotation: 0, assetId: "img", view: { ...V0, insetOf: "pa" }, crop: INSET0 },
+      ], beats: [{ id: "g0", tracks: [] }, { id: "g1", tracks: [track("insetzoom", { crop: INSET1 }, {}, "ch")] }] },
   ],
 };
 
 // ---- the page ---------------------------------------------------------------------------------------------------------
-interface PageData { manifest: typeof manifest; layerText: Record<string, string>; tables: Record<string, any>; data: string; glow: string; deck: typeof deck; T: number; C: number; H: number; W: number }
+interface PageData { INSET0: unknown; INSET1: unknown; manifest: typeof manifest; layerText: Record<string, string>; tables: Record<string, any>; data: string; glow: string; act: string; deck: typeof deck; T: number; C: number; H: number; W: number }
 
 async function pageRun(D: PageData): Promise<unknown> {
   const FX = (window as any).FX;
   const out: Record<string, unknown> = {};
   const fromB64 = (s: string) => { const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new Uint16Array(u.buffer); };
-  const data = fromB64(D.data), glow = fromB64(D.glow), { manifest, T, C, H, W } = D;
-  const maps = FX.pixelMaps(manifest), glowEntry = manifest.layers.find((l: any) => l.id === "glow");
-  const glowMap = FX.valueMaps(glowEntry.dtype, glowEntry.encoding, 1, null)[0];
+  const data = fromB64(D.data), { manifest, T, C, H, W } = D;
+  const maps = FX.pixelMaps(manifest);
+  const intensity: Record<string, { data: Uint16Array; map: any; entry: any }> = {};
+  for (const [id, b64] of [["glow", D.glow], ["act", D.act]] as const) { const entry = manifest.layers.find((l: any) => l.id === id); intensity[id] = { data: fromB64(b64), map: FX.valueMaps(entry.dtype, entry.encoding, 1, null)[0], entry }; }
   const planeData = (t: number, c: number) => data.slice(((t * C + c) * H) * W, ((t * C + c) * H + H) * W);
-  const resolveLut = () => null;
+  // One colour map the bundle names ("fire"), a ramp no colour lerp could fake.
+  const FIRE = Array.from({ length: 256 }, (_, i) => `#${[Math.min(255, i * 3), Math.max(0, i * 2 - 200), (i * 7) % 256].map((v) => v.toString(16).padStart(2, "0")).join("")}`);
+  const resolveLut = (name: string) => (name === "fire" ? FIRE : null);
+  /** A run of planes reduced as the worker does (values, no map). */
+  const projected = (c: number, p: any) => FX.projectPlanes(Array.from({ length: p.to - p.from }, (_, k) => ({ data: planeData(p.from + k, c), map: maps[c] })), W * H, p.mode);
   const BUNDLE = "fig/assets/img.fluximg";
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -115,8 +151,8 @@ async function pageRun(D: PageData): Promise<unknown> {
       identity: () => "img-sha",
       planes: {
         plane: (bundle: string, level: number, leading: number[]) => late(() => { counts.planes++; return { key: FX.planeKey(bundle, level, leading), width: W, height: H, dtype: "uint16", data: planeData(leading[0], leading[1]), map: maps[leading[1]] }; }),
-        projection: () => Promise.reject(new Error("no projections here")),
-        layer: (bundle: string, id: string, f: number) => late(() => ({ key: FX.layerKey(bundle, id, f), width: W, height: H, dtype: "uint16", data: glow.slice(), map: glowMap })),
+        projection: (bundle: string, level: number, leading: number[], dim: string, from: number, to: number, mode: string) => late(() => { counts.planes++; return { key: FX.projectionKey(bundle, level, leading, dim, from, to, mode), width: W, height: H, dtype: "float32", data: projected(leading[1], { from, to, mode }), map: null }; }),
+        layer: (bundle: string, id: string, f: number) => late(() => ({ key: FX.layerKey(bundle, id, f), width: W, height: H, dtype: "uint16", data: intensity[id].data.slice(), map: intensity[id].map })),
       },
       still: () => Promise.reject(new Error("no stills in the live host")),
       stillNow: () => undefined,
@@ -128,8 +164,8 @@ async function pageRun(D: PageData): Promise<unknown> {
     const rv = pic.view;
     return FX.renderView({
       width: W, height: H,
-      channels: rv.channels.map((c: any, i: number) => ({ plane: { data: planeData(rv.index.t, i), map: maps[i] }, view: c, table: FX.channelTable(c, resolveLut) })),
-      layers: rv.layers.filter((l: any) => l.kind === "intensity" && l.visible && l.opacity > 0).map((l: any) => ({ plane: { data: glow, map: glowMap }, range: l.range ?? glowEntry.range, table: FX.channelTable({ color: l.color, lut: l.lut, invert: false }, resolveLut), opacity: l.opacity, opacityFromValue: l.opacityFromValue })),
+      channels: rv.channels.map((c: any, i: number) => ({ plane: rv.projection ? { data: projected(i, rv.projection), map: null } : { data: planeData(rv.index.t, i), map: maps[i] }, view: c, table: FX.channelTable(c, resolveLut) })),
+      layers: rv.layers.filter((l: any) => l.kind === "intensity" && l.visible && l.opacity > 0).map((l: any) => ({ plane: { data: intensity[l.id].data, map: intensity[l.id].map }, range: l.range ?? intensity[l.id].entry.range, table: FX.channelTable({ color: l.color, lut: l.lut, invert: false }, resolveLut), opacity: l.opacity, opacityFromValue: l.opacityFromValue })),
       composite: rv.composite, solo: rv.solo, background: rv.background, smooth: rv.smooth, crop: pic.crop, outWidth: w, outHeight: h,
     });
   }
@@ -156,9 +192,9 @@ async function pageRun(D: PageData): Promise<unknown> {
   const theme = FX.FLUX_DARK;
   const deck = D.deck;
   const slide = deck.slides[0];
-  const plan = (beat: number) => {
-    const t = slide.beats[beat].tracks[0];
-    const pre = FX.transformPreState(slide, "im", beat), end = FX.transformEndState(pre, t);
+  const plan = (beat: number, s = slide, target = "im") => {
+    const t = s.beats[beat].tracks.find((x: any) => x.target === target);
+    const pre = FX.transformPreState(s, target, beat), end = FX.transformEndState(pre, t);
     return { plan: FX.planViewTween(manifest, { view: pre.view, crop: pre.crop }, { view: end.view, crop: end.crop }, { blend: t.params?.blend === true }), pre, end };
   };
   const mountOf = () => { const m = document.createElement("div"); document.body.append(m); return m; };
@@ -169,7 +205,8 @@ async function pageRun(D: PageData): Promise<unknown> {
     const player = FX.createPlayer(mount, deck, { theme, mode: "present", reducedMotion: false, fluximg: host, fluximgManifest: () => manifest, fluximgLayerText: layerTextOf, fluximgTable: tableOf });
     return { host, mount, player, counts, delay };
   };
-  const at = async (P: any, beat: number, ms: number) => { P.player.seek(0, beat, ms); await P.player.captureMedia([], ms); };
+  const at = async (P: any, beat: number, ms: number, slideIndex = 0) => { P.player.seek(slideIndex, beat, ms); await P.player.captureMedia([], ms); };
+  const pixelsOf = (c: HTMLCanvasElement) => { if (!c.width || !c.height) return new Uint8ClampedArray(0); const k = Object.assign(document.createElement("canvas"), { width: c.width, height: c.height }).getContext("2d")!; k.drawImage(c, 0, 0); return k.getImageData(0, 0, c.width, c.height).data; };
 
   // 1. A static render: the still, exactly, and no GPU ------------------------------------------------------------------
   {
@@ -218,7 +255,65 @@ async function pageRun(D: PageData): Promise<unknown> {
   await check(3, [0.25, 0.6], 1, "crop");
   await check(4, [0.2, 0.5, 0.8], 2, "colour switch + layer fades");
   await check(5, [0.13, 0.4, 0.77], 2, "plane blend");
+  // The styled layer's key fades in with its furniture opacity (law 3 for furniture).
+  {
+    await at(P, 6, 500);
+    const f = plan(6).plan.frame(0.5, 0.5);
+    const g = P.mount.querySelector('[data-part="key"]');
+    out.keyFade = { present: !!g, attr: g?.getAttribute("opacity") ?? "1", want: f.furnitureOpacity.key };
+  }
+  // A media clip's position over the shown frame (the next package's hook): override, flush outside paint, settled.
+  {
+    await at(P, 2, Infinity);
+    const b = binding(P.mount), r0 = rafs, planes0 = P.counts.planes;
+    b.setIndexOverride({ dim: "t", index: 7 }); b.flush(); await b.settled();
+    const { end } = plan(2);
+    const want = { view: { ...FX.resolveView(manifest, end.view), index: { t: 7 } }, crop: FX.clampCrop(manifest, end.crop) };
+    const got = diff(pixels(P.mount), reference(want, OUT[0], OUT[1]));
+    b.decodeAhead("t", 1, 2, 4); await sleep(30);
+    const asked = P.counts.planes - planes0;
+    b.setIndexOverride(null); b.flush(); await b.settled();
+    out.override = { got, asked, back: diff(pixels(P.mount), reference({ view: FX.resolveView(manifest, end.view), crop: FX.clampCrop(manifest, end.crop) }, OUT[0], OUT[1])), rafs: rafs - r0 };
+  }
+  // Slide s2: intensity layers and projections, frame by frame against the law.
+  {
+    const s2 = deck.slides[2], cases: Array<[number, number[], number, string]> = [[1, [0.3, 0.7], 1, "an intensity layer fades in"], [2, [0.4], 1, "two intensity windows glide (one with opacity from value)"], [3, [0.3, 0.6], 2, "an intensity layer's colour map swaps (two pictures)"], [4, [0.35, 0.8], 2, "a projection switched on (two pictures)"], [5, [0.2, 0.55, 0.9], 1, "projection run ends step"], [6, [0.3, 0.7], 2, "run ends step back with a crossfade (blend.end)"]];
+    for (const [beat, raws, tol, name] of cases) {
+      const pl = plan(beat, s2).plan;
+      for (const raw of raws) {
+        await at(P, beat, raw * 1000, 2);
+        const f = pl.frame(raw, raw);
+        const d = diff(pixels(P.mount), frameReference(f, OUT[0], OUT[1]));
+        sampled.push({ name, beat, raw, t: f.a.view.projection ? `${f.a.view.projection.mode} ${f.a.view.projection.from}-${f.a.view.projection.to}` : f.a.view.index.t, mix: f.b ? f.mix : 0, blend: f.blend, ...d, ok: d.max <= tol });
+      }
+    }
+  }
   out.sampled = sampled;
+  // Slide s3: seven images; six draw on their own contexts, the seventh through the shared renderer, all exact.
+  {
+    await at(P, 1, 500, 3);
+    const s3 = deck.slides[3], roots = [...P.mount.querySelectorAll<HTMLElement>("[data-slide-fluximg-root]")];
+    const res = roots.map((rt) => {
+      const id = rt.dataset.slideFluximgRoot!, b = FX.fluximgBindingOf(rt), f = plan(1, s3, id).plan.frame(0.5, 0.5);
+      return { id, ...diff(pixelsOf(b.canvas), frameReference(f, b.canvas.width, b.canvas.height)), size: [b.canvas.width, b.canvas.height] };
+    });
+    out.seven = { res, stats: P.host.stats() };
+  }
+  // Slide s4: a blow-out's frame on its parent follows the blow-out's crop, by attributes.
+  {
+    const s4 = deck.slides[4], frameOf = () => P.mount.querySelector('[data-slide-fluximg-root="pa"] [data-part="inset"]');
+    const geo = () => { const r = frameOf(); return r ? ["x", "y", "width", "height"].map((k) => Number(r.getAttribute(k))) : null; };
+    const want = (crop: any) => { const g = FX.insetRect(crop, FX.clampCrop(manifest, null), { width: 320, height: 240 }); return [g.x, g.y, g.width, g.height]; };
+    await at(P, 0, Infinity, 4); const node0 = frameOf(), g0 = geo();
+    await at(P, 1, 500, 4); const g1 = geo(), mid = plan(1, s4, "ch").plan.frame(0.5, 0.5).overlay.crop;
+    await at(P, 1, Infinity, 4); const g2 = geo(), node2 = frameOf();
+    const close = (a: number[] | null, b: number[]) => !!a && a.every((v, i) => Math.abs(v - b[i]) < 1e-3);
+    const host = mountOf();
+    FX.renderStaticAt(host, s4, deck.stage, 0, { theme, fluximgManifest: () => manifest, fluximgStill: () => undefined, fluximgLayerText: layerTextOf, fluximgTable: tableOf });
+    const st = host.querySelector('[data-slide-fluximg-root="pa"] [data-part="inset"]');
+    out.insets = { rest: close(g0, want(D.INSET0)), mid: close(g1, want(mid)), end: close(g2, want(D.INSET1)), same: !!node0 && node0 === node2, staticRest: !!st && close(["x", "y", "width", "height"].map((k) => Number(st.getAttribute(k))), want(D.INSET0)), g1 };
+    host.remove();
+  }
   // The last frame of each Change is the element's own picture at that step (its state, resolved by the manifest).
   out.ends = [];
   for (const beat of [1, 2, 3, 4, 5]) {
@@ -340,7 +435,9 @@ try {
         `export { planeKey, layerKey } from "./src/lib/fluximg/service";`,
         `export { transformPreState, transformEndState } from "./src/lib/slide/tween";`,
         `export { FLUX_DARK } from "./src/lib/slide/theme";`,
-        `export { fluximgStaticSvg } from "./src/lib/fluximg/static";`,
+        `export { fluximgStaticSvg, insetRect } from "./src/lib/fluximg/static";`,
+        `export { projectPlanes } from "./src/lib/fluximg/project";`,
+        `export { projectionKey } from "./src/lib/fluximg/service";`,
       ].join("\n"),
     },
   });
@@ -353,7 +450,7 @@ try {
   await page.evaluate("window.__name = (value) => value");
   await page.addScriptTag({ url: `${origin}fx.js` });
   const b64 = (a: Uint16Array) => Buffer.from(a.buffer, a.byteOffset, a.byteLength).toString("base64");
-  const r = await page.evaluate(pageRun as (d: PageData) => Promise<any>, { manifest, layerText, tables, data: b64(data), glow: b64(glow), deck, T, C, H, W } as PageData) as any;
+  const r = await page.evaluate(pageRun as (d: PageData) => Promise<any>, { manifest, layerText, tables, data: b64(data), glow: b64(glow), act: b64(act), INSET0, INSET1, deck, T, C, H, W } as PageData) as any;
 
   h.section("at rest: the still");
   h.ok(r.static.image, "a static render (no host) shows the still as an <image>");
@@ -364,6 +461,7 @@ try {
 
   h.section("a Change, frame by frame, against the law");
   for (const s of r.sampled) h.ok(s.ok, `${s.name} raw ${s.raw}: t ${s.t}${s.mix ? ` mix ${(+s.mix).toFixed(2)}` : ""}${s.blend ? ` blend ${s.blend.other}@${(+s.blend.weight).toFixed(2)}` : ""}: max diff ${s.max} (${s.over} px over 1)`);
+  h.ok(r.keyFade.present && Math.abs(Number(r.keyFade.attr) - (r.keyFade.want ?? 1)) < 1e-3 && (r.keyFade.want ?? 1) < 1, `the styled layer's key fades in with its furniture opacity (${r.keyFade.attr} = ${r.keyFade.want})`);
   for (const e of r.ends) h.ok(e.max <= 1, `beat ${e.beat}: the last frame is the element's own picture at that step (max diff ${e.max})`);
   h.ok(Math.abs(Number(r.layerFade.attr) - r.layerFade.want) < 1e-3, `a label layer's opacity follows the frame (${r.layerFade.attr} = ${(+r.layerFade.want).toFixed(4)})`);
   {
@@ -371,6 +469,22 @@ try {
     h.ok(keys.length === 4 && colours.size === 3 && keys.every((k) => r.styled.playing[k] === r.styled.rest[k]), `a styled label layer mid-tween: each object's computed stroke is the at-rest element's (${keys.map((k) => `${k} ${r.styled.playing[k]}`).join(", ")})`);
   }
   h.ok(r.overlay.same && r.overlay.moved, `the overlay's ${r.overlay.count} nodes are the same objects before and after a zoom, and its layer transform moved`);
+
+  h.section("media playback's hook (index override)");
+  h.ok(r.override.got.max <= 1, `an index override shows that plane over the step's state, flushed outside paint (max diff ${r.override.got.max})`);
+  h.ok(r.override.asked >= 4, `decodeAhead along t asks for the planes ahead (${r.override.asked} plane requests)`);
+  h.ok(r.override.back.max <= 1, "clearing the override returns to the step's own picture");
+  h.eq(r.override.rafs, 0, "the override, its flush and its decode-ahead request no animation frame");
+
+  h.section("seven images: six own contexts, one shared");
+  h.ok(r.seven.stats.direct === 6 && r.seven.stats.contexts === 7, `${r.seven.stats.direct} surfaces draw on their own context, the seventh through the shared renderer (${r.seven.stats.contexts} contexts)`);
+  for (const x of r.seven.res) h.ok(x.max <= 2, `image ${x.id} at a mixed frame matches the law (max diff ${x.max}, ${x.size.join("x")})`);
+
+  h.section("insets");
+  h.ok(r.insets.staticRest, "a static render outlines the blow-out on its parent (static.insetRect)");
+  h.ok(r.insets.rest && r.insets.end, "the player outlines it at rest and at the end of the blow-out's zoom");
+  h.ok(r.insets.mid, `mid-tween the frame follows the blow-out's crop (${r.insets.g1?.map((v: number) => v.toFixed(2)).join(", ")})`);
+  h.ok(r.insets.same, "the frame is the same node throughout (updated, not rebuilt)");
 
   h.section("purity");
   for (const p of r.purity) h.ok(p.max === 0, `seek beat ${p.beat} at ${p.ms} ms after other seeks = a fresh player seeked there (max diff ${p.max})`);
