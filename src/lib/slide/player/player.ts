@@ -585,12 +585,10 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           for (const na of nodeAnims) {
             na.keyframes = imageUnits(scale, na.keyframes);
             if (!cropMoves || na.sample) continue;
-            let root: HTMLElement | null | undefined;
             const base = frameSampler({ keyframes: na.keyframes, ease: ct.ease, transient: na.transient } as Spec);
             na.sample = (raw) => {
               const frame = base(raw);
-              root ??= cameraLayer.querySelector<HTMLElement>(`[data-slide-fluximg-root="${CSS.escape(track.target)}"]`);
-              const crop = root ? fluximgShownCrop(root) : null;
+              const crop = fluximgShownCrop(cameraLayer, track.target);
               if (!crop) return frame;
               const now = imageToBox(index.manifest, crop, el);
               return imageUnits([now[0] / scale[0], 0, 0, now[3] / scale[3]], [frame])[0];

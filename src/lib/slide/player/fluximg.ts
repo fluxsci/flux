@@ -893,9 +893,11 @@ export function fluximgBindingOf(root: HTMLElement): SlideFluximgBinding | undef
   return bindings.get(root) ?? (root.querySelector<HTMLElement>("[data-slide-fluximg-root]") ? bindings.get(root.querySelector<HTMLElement>("[data-slide-fluximg-root]")!) : undefined);
 }
 /** The crop an image shows at this frame (its Change's frame or its resting state), or null before its manifest is
- *  known: the player converts an object effect's stage-px lift by it while a Change moves the crop (review, parts 7b). */
-export function fluximgShownCrop(root: HTMLElement): PixelRect | null {
-  return fluximgBindingOf(root)?.current()?.crop ?? null;
+ *  known, found under `scope` by its element id: the player converts an object effect's stage-px lift by it while a
+ *  Change moves the crop (review, parts 7b). */
+export function fluximgShownCrop(scope: ParentNode, elementId: string): PixelRect | null {
+  const root = scope.querySelector<HTMLElement>(`[data-slide-fluximg-root="${CSS.escape(elementId)}"]`);
+  return (root && bindings.get(root)?.current()?.crop) ?? null;
 }
 export function setSlideFluximgFrame(root: HTMLElement, element: FluximgElement, frame: ViewTweenFrame | null, motion?: FluximgMotion): void {
   fluximgBindingOf(root)?.set(element, frame, motion);
