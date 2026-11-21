@@ -113,7 +113,7 @@
   import { plotManifests, plotGen, hasPlotDom, ensurePlotDom } from "./plot/store";
   import { model3dPosterRevision } from "./model3d/store";
   import { fluximgStillRevision } from "./fluximg/store";
-  import { fluximgLive, closeFluximgLive, openFluximgLive, fluximgLiveUnavailable } from "./fluximg/live/session";
+  import { fluximgLive, closeFluximgLive, openFluximgLive, fluximgLiveUnavailable, liveKeyOwner } from "./fluximg/live/session";
   import FluximgLiveOverlay from "./fluximg/live/FluximgLiveOverlay.svelte";
   import { modelPartOpacity as livePartOpacity } from "./model3d/appearance";
   import TiffAskSurface from "./fluximg/TiffAskSurface.svelte";
@@ -4352,6 +4352,9 @@
     if (e.key === "Control") ctrlDown = true; // bend affordance in node-edit
     if (typing) return;
     if (e.key === "Escape" && cancelGesture()) { e.preventDefault(); return; }
+    // An image's live board takes its own keys (live/keys.ts): with it open, Shift+R is its movie, not the rulers, and
+    // Shift+G walks its calibration bar, not the grid. The modifier tracking above (held Space pans) still runs.
+    if (liveKeyOwner(e) === "board") return;
 
     // Shift+R toggles the rulers (Feature 11).
     if (e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && e.code === "KeyR") {

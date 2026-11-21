@@ -141,6 +141,7 @@ h.section("the handlers read the table");
   h.ok(/liveKeyOwner\(e\) === "board"/.test(slide) && !/get\(fluximgLive\) && !typing/.test(slide), "SlideMode yields only the board's own keys (liveKeyOwner)");
   h.ok(/function launchPresent[\s\S]{0,400}closeFluximgLive\(\)/.test(slide), "opening Present closes the board first");
   h.ok(/holdLiveKeys\(\(\) => presentOpen \? "present"/.test(slide), "Slide mode holds the board's keys while Present, its preview, pick mode or a dialog is up");
+  h.ok(/if \(liveKeyOwner\(e\) === "board"\) return;\s*\n\s*\n\s*\/\/ Shift\+R toggles the rulers/.test(read("src/lib/Canvas.svelte")), "the canvas's own key handler leaves the board its keys before the rulers' Shift+R and the grid's Shift+G");
   const kb = read("src/lib/keyboard.ts");
   h.ok(/if \(liveKeyOwner\(e\)\) return;/.test(kb) && !/get\(fluximgLive\) && !\(e\.ctrlKey \|\| e\.metaKey\)/.test(kb), "the canvas keymap asks liveKeyOwner (the board's keys, or held), not 'is the board open'");
 }

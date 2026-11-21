@@ -158,6 +158,11 @@ try {
   await openBoard(IMG);
   await press("Delete"); await sleep(200);
   h.ok((await F((id) => window.__flux.slide.currentDeck().slides.some((s) => s.elements.some((e) => e.id === id)), IMG)) && (await isOpen()), "Delete deletes nothing: the canvas keymap holds it while the board is open");
+  // Shift+G is the board's (its calibration bar to the next corner), not the canvas grid; Shift+R likewise is the board's
+  // movie, not the rulers (the movie itself: verify-fluximg-movie-gui).
+  const grid0 = await F(() => window.__flux.get(window.__flux.settings).showGrid);
+  await press("G", ["Shift"]);
+  h.eq(await F(() => window.__flux.get(window.__flux.settings).showGrid), grid0, "Shift+G with the board open does not toggle the canvas grid");
   // the board's own keys still work
   const t1 = await idx("t");
   await press("ArrowRight");
