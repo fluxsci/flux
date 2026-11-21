@@ -3,7 +3,7 @@
 // reads model state, undo counts or computed styles (a screenshot is kept for the eye, never asserted on).
 //   * R opens the live board on an image on a slide; in Design the "this step" card says so and offers no keys; a wheel
 //     run sets the RESTING view (Design) as one undo step and writes no track.
-//   * At "Edit after step 1": the card says "this step: no change"; Split and Inset are dimmed and make nothing; a wheel
+//   * At "Edit after step 1": the card says "nothing changes at this step yet"; Split and Inset are dimmed and make nothing; a wheel
 //     run, a rail scrub and a key (N) each become ONE undo step that restores both the view and the step's Change; the
 //     walk is paced (linear, params.pace); the canvas shows the step's end; Design is untouched; a cancelled gesture
 //     (cancelLiveEdit) rolls the Change back with it.
@@ -124,7 +124,7 @@ try {
   await openBoard(IMG);
   h.ok(await isOpen(), "R opens the live board on an image on a slide");
   let c = await card();
-  h.ok(c?.step === "design" && c.title === "Design" && /resting view/.test(c.words) && c.keys.length === 0, `the step card in Design: "${c?.title} · ${c?.words}", no keys`);
+  h.ok(c?.step === "design" && c.title === "Design" && /before any step/.test(c.words) && c.keys.length === 0, `the step card in Design: "${c?.title} · ${c?.words}", no keys`);
   const splitOpacity = await F(() => getComputedStyle(document.querySelector("[data-fxb-key='split']").parentElement).opacity);
   h.eq(splitOpacity, "1", "Split is a working key in Design");
   await page.screenshot({ path: `${SHOTS}/step-card-design.png` });
@@ -145,7 +145,7 @@ try {
   await waitFor(page, () => window.__flux.get(window.__flux.slide.editDestination).kind === "after", null, { label: "Edit after step 1" });
   await openBoard(IMG);
   c = await card();
-  h.ok(c?.step === "1" && c.title === "Step 1" && c.words === "this step: no change", `the card at a step: "${c?.title} · ${c?.words}"`);
+  h.ok(c?.step === "1" && c.title === "Step 1" && c.words === "nothing changes at this step yet", `the card at a step: "${c?.title} · ${c?.words}"`);
   h.ok(c.keys.includes("step-through") && c.keys.includes("step-start") && c.keys.includes("step-blend"), `its keys: ${c.keys.join(", ")}`);
   h.eq(await F(() => getComputedStyle(document.querySelector("[data-fxb-key='split']").parentElement).opacity), "0.38", "Split is dimmed at a step");
   const nEls = (await authored()).elements.length;
@@ -239,7 +239,7 @@ try {
   ch = await changeAt(2, IMG);
   h.eq([ch.params?.pace, ch.duration, await past()], [2, 7 * 250, p0 + 1], "the pace dial re-times the walk (×2: half the time), one undo step");
   c = await card();
-  h.ok(/real time 2×/.test(c.dur), `the card shows it: ${c.dur}`);
+  h.ok(/2× real time/.test(c.dur), `the card shows it: ${c.dur}`);
   await page.screenshot({ path: `${SHOTS}/step-card-walk.png` });
   // blend
   await page.mouse.click((await box("[data-fxb-key='step-blend']")).cx, (await box("[data-fxb-key='step-blend']")).cy); await waitForFrame(page);

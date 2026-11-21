@@ -121,7 +121,7 @@ export function setStepPace(speed: number): void {
     const slide = slideOps.slideById(d, c.slideId), beat = slide?.beats.find((b) => b.id === c.beatId);
     const track = beat?.tracks.find((t) => t.id === c.change?.id);
     const pre = slide && transformPreState(slide, target, c.index);
-    if (!track || !pre || !c.walk) throw new Error("this step walks no planes yet: Play through first");
+    if (!track || !pre || !c.walk) throw new Error("this step plays no planes yet; use Play through first");
     slideOps.retimeImageWalk(track, pre, transformEndState(pre, track), { fluximgManifest: fluximgManifestFor, speed, force: true });
     return track;
   });
@@ -139,7 +139,7 @@ export function stepPaceDial(by: number): void {
 export function toggleStepBlend(): void {
   onStep("Blend planes", (d, c) => {
     const track = slideOps.slideById(d, c.slideId)?.beats.find((b) => b.id === c.beatId)?.tracks.find((t) => t.id === c.change?.id);
-    if (!track || !c.walk) throw new Error("this step walks no planes: there is nothing to blend");
+    if (!track || !c.walk) throw new Error("this step plays no planes, so there is nothing to blend");
     const p = { ...(track.params ?? {}) };
     if (slideOps.walkBlends(track)) delete p.blend; else p.blend = true;
     if (Object.keys(p).length) track.params = p; else delete track.params;
@@ -156,7 +156,7 @@ export function toggleStepMovie(action: "start" | "pause" | "stop"): void {
       slideOps.removeTracks(d, c.slideId, ids);
       return true;
     }
-    if (!slideOps.setVideoTrack(d, c.slideId, c.beatId, target, action, { fluximgManifest: fluximgManifestFor })) throw new Error("this image has no time or depth axis to play");
+    if (!slideOps.setVideoTrack(d, c.slideId, c.beatId, target, action, { fluximgManifest: fluximgManifestFor })) throw new Error("this image has no time or depth to play");
     return slideOps.slideById(d, c.slideId)?.beats.find((b) => b.id === c.beatId)?.tracks.find((t) => t.target === target && t.preset === preset) ?? true;
   });
 }

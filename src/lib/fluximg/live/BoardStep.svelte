@@ -27,8 +27,14 @@
 
   const speedWords = (s: number): string => (s === 0.25 ? "¼×" : s === 0.5 ? "½×" : `${s}×`);
   const seconds = (ms: number): string => `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} s`;
-  const MODE_WORDS = { loop: "loops", bounce: "bounces", once: "plays once" } as const;
+  const MODE_WORDS = { loop: "loops", bounce: "bounces back and forth", once: "plays once" } as const;
+  const MODE_VERB = { loop: "loop", bounce: "bounce back and forth", once: "play once" } as const;
   const NEXT_MODE = { loop: "bounce", bounce: "once", once: "loop" } as const;
+  /** The rate a paced walk keeps, in words: a time axis plays in real time; any other at the data's own rate. */
+  const rateWords = (dim: string | undefined): string => (dim === "t" ? "real time" : "own rate");
+  const pacedWords = (dim: string | undefined): string => (dim === "t" ? "in real time" : "at the image's own rate");
+  /** What Play through walks along (the first rail), in words. */
+  const throughWords = $derived(card.dims[0] === "t" ? "time" : card.dims[0] === "z" ? "depth" : card.dims[0] ?? "");
   let h = $state(0);
   $effect(() => { if (h) onnatural(h); });
   const stop = (e: Event): void => e.stopPropagation();
@@ -39,31 +45,31 @@
 <div class="stepcard" class:design={card.design} style={`width:${width}px`} bind:offsetHeight={h} data-fxb-step={card.design ? "design" : String(card.index)} onpointerdown={stop} ondblclick={stop}>
   <div class="l1">
     <span class="ttl">{card.design ? "Design" : `Step ${card.index}`}</span>
-    {#if !card.design && card.durationMs !== null && card.change}<span class="dur" data-fxb-step-duration>{seconds(card.durationMs)}{#if card.pace !== null}<i>{` · real time${card.pace !== 1 ? ` ${speedWords(card.pace)}` : ""}`}</i>{/if}</span>{/if}
+    {#if !card.design && card.durationMs !== null && card.change}<span class="dur" data-fxb-step-duration>{seconds(card.durationMs)}{#if card.pace !== null}<i>{` · ${card.pace !== 1 ? `${speedWords(card.pace)} ` : ""}${rateWords(card.walk?.dim)}`}</i>{/if}</span>{/if}
   </div>
   <div class="words" data-fxb-step-words>
-    {#if card.design}<span class="quiet">the resting view · choose a step to animate</span>
-    {:else if !card.words.length}<span class="quiet">this step: no change</span>
+    {#if card.design}<span class="quiet">the image before any step · choose a step to animate it</span>
+    {:else if !card.words.length}<span class="quiet">nothing changes at this step yet</span>
     {:else}{#each card.words.slice(0, 3) as w (w)}<span class="w">{w}</span>{/each}{#if card.words.length > 3}<span class="quiet">+{card.words.length - 3}</span>{/if}{/if}
   </div>
   {#if !card.design && card.dims.length}
     <div class="keys">
       <span class="grp">
-        <PaperKey glyph="through" label={card.walk ? "Play through again: to the far end at the data's pace" : "Play through: walk to the far end at the data's pace"} hotkey={hotkeys.through} id="step-through" on={!!card.walk && card.pace !== null}
+        <PaperKey glyph="through" label={card.walk ? `Play through again: ${throughWords} to the other end, ${pacedWords(card.dims[0])}` : `Play through: this step plays ${throughWords} to the other end, ${pacedWords(card.dims[0])}`} hotkey={hotkeys.through} id="step-through" on={!!card.walk && card.pace !== null}
           onpress={onthrough} onenter={() => onghost(null, "through")} onleave={() => onghost(null, null)} />
-        <button class="dial" class:off={!card.walk || card.pace === null || card.pace === 1} type="button" disabled={!card.walk} data-tip={card.walk ? "Pace of this walk · click or roll" : "Pace: Play through first"} data-fxb-wheel="pace" data-fxb-key="step-pace"
-          onpointerdown={stop} onclick={(e) => onpace(e.shiftKey ? -1 : 1)}>{card.pace !== null ? speedWords(card.pace) : card.walk ? "own" : "1×"}</button>
-        <PaperKey glyph="blend" label={card.blend ? "Planes blend · click to step them" : "Blend planes: crossfade them as it walks"} hotkey={hotkeys.blend} id="step-blend" on={card.blend} disabled={!card.walk} onpress={onblend} />
+        <button class="dial" class:off={!card.walk || card.pace === null || card.pace === 1} type="button" disabled={!card.walk} data-tip={!card.walk ? "Pace: use Play through first" : card.pace === null ? "Pace: custom (the duration you set) · click to pace it" : "Pace of the play-through · click or roll"} data-fxb-wheel="pace" data-fxb-key="step-pace"
+          onpointerdown={stop} onclick={(e) => onpace(e.shiftKey ? -1 : 1)}>{card.pace !== null ? speedWords(card.pace) : card.walk ? "custom" : "1×"}</button>
+        <PaperKey glyph="blend" label={!card.walk ? "Blend planes: use Play through first" : card.blend ? "Planes blend · click to show them one at a time" : "Blend planes: crossfade from one plane to the next as it plays"} hotkey={hotkeys.blend} id="step-blend" on={card.blend} disabled={!card.walk} onpress={onblend} />
       </span>
       <span class="sep"></span>
       <span class="grp" data-fxb-movie={card.movieState}>
-        <span class="mlamp" class:run={card.movieState === "running"} class:held={card.movieState === "paused"} data-tip={card.movieState === "running" ? "The movie runs after this step" : card.movieState === "paused" ? "The movie is paused after this step" : "No movie runs after this step"}></span>
-        <PaperKey glyph="play" label="Start movie at this step" hotkey={hotkeys.movie} id="step-start" on={card.movie === "videoStart"} onpress={() => onmovie("start")}
+        <span class="mlamp" class:run={card.movieState === "running"} class:held={card.movieState === "paused"} data-tip={card.movieState === "running" ? "After this step the movie is playing" : card.movieState === "paused" ? "After this step the movie is paused" : "After this step no movie is playing"}></span>
+        <PaperKey glyph="play" label={card.movie === "videoStart" ? "This step starts the movie · click to take that away" : "Start the movie at this step"} hotkey={hotkeys.movie} id="step-start" on={card.movie === "videoStart"} onpress={() => onmovie("start")}
           onenter={() => onghost(movieGhost(), "movie")} onleave={() => onghost(null, null)} />
-        <PaperKey glyph="pause" label="Pause movie at this step" id="step-pause" on={card.movie === "videoPause"} onpress={() => onmovie("pause")} />
-        <PaperKey glyph="halt" label="Stop movie at this step: back to the step's own plane" id="step-stop" on={card.movie === "videoStop"} onpress={() => onmovie("stop")} />
+        <PaperKey glyph="pause" label={card.movie === "videoPause" ? "This step pauses the movie · click to take that away" : "Pause the movie at this step"} id="step-pause" on={card.movie === "videoPause"} onpress={() => onmovie("pause")} />
+        <PaperKey glyph="halt" label={card.movie === "videoStop" ? "This step stops the movie · click to take that away" : "Stop the movie at this step (the image goes back to its own plane)"} id="step-stop" on={card.movie === "videoStop"} onpress={() => onmovie("stop")} />
         {#if card.playback}
-          <PaperKey quiet glyph={card.playback.mode} label={`The movie ${MODE_WORDS[card.playback.mode]} · click: ${MODE_WORDS[NEXT_MODE[card.playback.mode]]}`} id="step-mode" onpress={onmode} />
+          <PaperKey quiet glyph={card.playback.mode} label={`The movie ${MODE_WORDS[card.playback.mode]} · click to make it ${MODE_VERB[NEXT_MODE[card.playback.mode]]}`} id="step-mode" onpress={onmode} />
         {/if}
       </span>
     </div>
