@@ -148,6 +148,11 @@ try {
   const asked = s1.asked - s0.asked, late = s1.late - s0.late;
   console.log(`  MEASURED (preview, 4 s walk over 240 planes): ${frames} frames; per frame main thread script ${script.toFixed(2)} ms + layout ${layout.toFixed(2)} ms + style ${style.toFixed(2)} ms = ${(script + layout + style).toFixed(2)} ms`);
   console.log(`  MEASURED: ${asked} image frames asked, ${late} showed an older frame than asked (${(100 * late / Math.max(1, asked)).toFixed(1)} %); first frame drawn ${s1.firstAfterMark >= 0 ? s1.firstAfterMark.toFixed(1) : "?"} ms after Play`);
+  {
+    const hs = s1.hosts;
+    console.log(`  MEASURED contexts: ${hs.contexts} alive (${hs.direct} on their own surface); made in ${hs.contextMs.map((c) => `${c.ms.toFixed(1)} ms (${c.where})`).join(", ") || "none"}`);
+    h.ok(hs.direct >= 1 && hs.contextMs.every((c) => c.where === "idle"), "the image draws on its own WebGL context, made in idle time (never in a frame)");
+  }
   h.ok(frames > 100 && asked > 100, `the step played ${frames} frames, ${asked} of them asked the image for a frame`);
   h.ok(script + layout + style < 16, `main-thread work per frame stays far inside a 60 Hz frame (${(script + layout + style).toFixed(2)} ms; generous ceiling 16)`);
 
@@ -215,11 +220,12 @@ try {
   const p1 = await stats();
   h.ok(p1.asked - p0.asked > 100, `Present plays the walk (${p1.asked - p0.asked} image frames)`);
   const gpuOn = p1.hosts;
+  console.log(`  MEASURED contexts in Present: ${gpuOn.contexts} alive; made in ${gpuOn.contextMs.map((c) => `${c.ms.toFixed(1)} ms (${c.where})`).join(", ")}`);
   await page.keyboard.press("ArrowRight");   // the next slide (no image)
   await sleep(300);
   const gpuOff = (await stats()).hosts;
   console.log(`  MEASURED GPU: on the image slide ${gpuOn.textures} textures (${(gpuOn.textureBytes / 1048576).toFixed(1)} MiB), after the slide changes ${gpuOff.textures} (${(gpuOff.textureBytes / 1048576).toFixed(1)} MiB)`);
-  h.ok(gpuOn.textures > 0 && gpuOff.textures === 0 && gpuOff.liveSurfaces === 0, "leaving the image slide in Present frees every GL texture");
+  h.ok(gpuOn.textures > 0 && gpuOff.textures === 0 && gpuOff.liveSurfaces === 0 && gpuOff.direct === 0, "leaving the image slide in Present frees every GL texture and loses its context");
   await page.keyboard.press("Escape");
   await sleep(300);
   h.eq(realErrors(page), [], "no console errors");

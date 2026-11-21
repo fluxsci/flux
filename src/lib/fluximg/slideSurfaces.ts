@@ -38,7 +38,9 @@ export interface SlideHostSource {
 }
 
 /** What the host's GL side did, for gates and the measurements (not part of the player's interface). */
-export interface SlideHostStats { draws: number; glDraws: number; textures: number; textureBytes: number; liveSurfaces: number; renderer: boolean; planesHeld: number; listeners: number; surfaces: number }
+export interface SlideHostStats { draws: number; glDraws: number; textures: number; textureBytes: number; liveSurfaces: number; renderer: boolean; planesHeld: number; listeners: number; surfaces: number;
+  /** WebGL contexts alive (direct ones + the shared one), the direct ones, and how long each context took to make, and where. */
+  contexts: number; direct: number; contextMs: Array<{ ms: number; where: "idle" | "frame" }> }
 
 /** The sparse view that resolves back to exactly this picture's pixels (stills are asked by recipe, not resolved). */
 export function pictureView(rv: ResolvedView): FluximgView {
@@ -63,13 +65,17 @@ export function neighbourPicture(p: TweenPicture, blend: { dim: string; other: n
 
 const PLANE_BUDGET = 192 * 1024 * 1024;
 const TEXTURE_BUDGET = 128 * 1024 * 1024;
+/** Live surfaces with their own WebGL context at once, per document (the browser caps active contexts at ~16). */
+export const MAX_DIRECT = 6;
+/** A direct surface drawn this recently is playing: its slot is not taken from it. */
+const BUSY_MS = 250;
 
 /** Every host alive in this document (dev handle and gates: `slideHostStats`). */
 const hosts = new Set<{ stats(): SlideHostStats }>();
 /** What the live image hosts of this document hold right now, summed (dev handle: `__flux.fluximgSlide.hosts()`). */
 export function slideHostStats(): SlideHostStats & { hosts: number } {
-  const sum: SlideHostStats & { hosts: number } = { draws: 0, glDraws: 0, textures: 0, textureBytes: 0, liveSurfaces: 0, renderer: false, planesHeld: 0, listeners: 0, surfaces: 0, hosts: hosts.size };
-  for (const h of hosts) { const s = h.stats(); for (const k of Object.keys(s) as (keyof SlideHostStats)[]) if (k === "renderer") sum.renderer ||= s.renderer; else (sum[k] as number) += s[k] as number; }
+  const sum: SlideHostStats & { hosts: number } = { draws: 0, glDraws: 0, textures: 0, textureBytes: 0, liveSurfaces: 0, renderer: false, planesHeld: 0, listeners: 0, surfaces: 0, contexts: 0, direct: 0, contextMs: [], hosts: hosts.size };
+  for (const h of hosts) { const s = h.stats(); for (const k of Object.keys(s) as (keyof SlideHostStats)[]) if (k === "renderer") sum.renderer ||= s.renderer; else if (k === "contextMs") sum.contextMs.push(...s.contextMs); else (sum[k] as number) += s[k] as number; }
   return sum;
 }
 
@@ -138,28 +144,96 @@ export function createFluximgSlideHost(source: SlideHostSource): FluximgSlideHos
   const complete = (need: Need): boolean => need.wants.every((w) => planes.has(w.key));
   const failure = (need: Need): Error | undefined => { for (const w of need.wants) { const e = failed.get(w.key); if (e) return e; } return undefined; };
 
+  // ---- GL: one context per LIVE surface (at most MAX_DIRECT), drawing straight into the surface's own visible canvas
+  // (no hand-over, no wait for the GPU in the frame); a surface beyond that draws through ONE shared offscreen renderer
+  // and is handed the result as a bitmap. The texture budget (TEXTURE_BUDGET in all) is split evenly over the renderers
+  // that exist.
+  const direct = new Set<SurfaceImpl>();
+  const contextMs: Array<{ ms: number; where: "idle" | "frame" }> = [];
+  function rebudget(): void {
+    const n = direct.size + (renderer ? 1 : 0);
+    if (!n) return;
+    const share = Math.floor(TEXTURE_BUDGET / n);
+    for (const s of direct) s.budget(share);
+    renderer?.setBudget(share);
+  }
   function gl(): FluximgLiveRenderer {
     if (renderer && !renderer.lost) return renderer;
     renderer?.dispose();
     glCanvas = source.glCanvas?.() ?? (typeof OffscreenCanvas === "function" ? new OffscreenCanvas(1, 1) : document.createElement("canvas"));
-    // A smaller texture budget than the live view's (384 MiB): a slide keeps the planes of the frames around the playhead
-    // resident, not a whole walked stack; the service still holds the decoded planes, so a texture comes back in one upload.
     renderer = new FluximgLiveRenderer(glCanvas, TEXTURE_BUDGET);
+    rebudget();
     return renderer;
+  }
+  /** A slot for a direct context: a free one, else the one of the least recently drawn surface when that one is at
+   *  rest (it moves to the shared renderer, its picture redrawn there); none while all six are drawing. */
+  function slotFor(wanting: SurfaceImpl): boolean {
+    if (direct.size < MAX_DIRECT) return true;
+    let lru: SurfaceImpl | null = null;
+    for (const s of direct) if (s !== wanting && (!lru || s.lastDraw < lru.lastDraw)) lru = s;
+    if (!lru || performance.now() - lru.lastDraw < BUSY_MS) return false;
+    lru.demote();
+    return true;
   }
 
   interface Entry { n: number; assetId: string; frame: ViewTweenFrame; w: number; h: number }
   class SurfaceImpl implements FluximgSurface {
     private ctx: CanvasRenderingContext2D | null = null;
     private bitmaps: ImageBitmapRenderingContext | null = null;
+    /** This surface's own renderer on its own canvas, while it holds a direct slot. */
+    private own: FluximgLiveRenderer | null = null;
+    /** The canvas has had a context of some kind (a canvas keeps its first kind, and a lost GL context stays lost). */
+    private used = false;
+    /** Draws through the shared renderer (no slot was free when it went live). */
+    private shared = false;
     private recent: Entry[] = [];
     private n = 0;
     private drawn = 0;
     private waiters: Array<{ resolve: () => void; reject: (e: Error) => void }> = [];
     private error: Error | null = null;
+    lastDraw = -Infinity;
     shown = false;
     get exact(): boolean { return this.drawn === this.n; }
-    constructor(private canvas: HTMLCanvasElement) { surfaces.add(this); }
+    constructor(public canvas: HTMLCanvasElement) { surfaces.add(this); }
+
+    budget(bytes: number): void { this.own?.setBudget(bytes); }
+    /** A canvas that has never had a context, in place of this one (same place, style and data). */
+    private fresh(): void {
+      if (!this.used) return;
+      const c = document.createElement("canvas");
+      c.style.cssText = this.canvas.style.cssText;
+      for (const [k, v] of Object.entries(this.canvas.dataset)) if (v !== undefined) c.dataset[k] = v;
+      c.width = 0; c.height = 0;
+      this.canvas.replaceWith(c);
+      this.canvas = c; this.ctx = null; this.bitmaps = null; this.used = false;
+    }
+    /** Take a direct context now (idle time: the controller warms surfaces before they draw). */
+    prepare(where: "idle" | "frame" = "idle"): void {
+      if (disposed || this.own || this.shared || !slotFor(this)) return;
+      this.fresh();
+      const t0 = performance.now();
+      try {
+        this.own = new FluximgLiveRenderer(this.canvas, TEXTURE_BUDGET);
+      } catch { this.own = null; this.shared = true; return; }
+      this.used = true;
+      contextMs.push({ ms: performance.now() - t0, where });
+      direct.add(this);
+      rebudget();
+    }
+    /** Give the direct slot up and keep the picture: redrawn through the shared renderer. */
+    demote(): void {
+      if (!this.own) return;
+      this.dropOwn();
+      this.shared = true;
+      this.fresh();
+      if (this.shown) { this.drawn = 0; this.shown = false; this.attempt(); }
+    }
+    private dropOwn(): void {
+      this.own?.dispose();   // loseContext(): the GPU memory goes now, not at garbage collection
+      this.own = null;
+      direct.delete(this);
+      rebudget();
+    }
 
     draw(assetId: string, frame: ViewTweenFrame, outWidth: number, outHeight: number): boolean {
       const w = Math.max(1, Math.round(outWidth)), h = Math.max(1, Math.round(outHeight));
@@ -200,7 +274,7 @@ export function createFluximgSlideHost(source: SlideHostSource): FluximgSlideHos
       if (this.drawn === this.n) this.flushWaiters();
     }
 
-    /** The pictures of a frame with their draw weights over what is already drawn (source-over, in order). */
+    /** The pictures of a frame with their draw weights over what is already drawn (in order). */
     private pictures(e: Entry): Array<[TweenPicture, number]> {
       const f = e.frame, m = f.b ? Math.min(1, Math.max(0, f.mix)) : 0, bl = f.blend, wt = bl ? Math.min(1, Math.max(0, bl.weight)) : 0;
       const out: Array<[TweenPicture, number]> = [[f.a, 1]];
@@ -215,29 +289,32 @@ export function createFluximgSlideHost(source: SlideHostSource): FluximgSlideHos
     }
 
     private render(e: Entry, pictures: Array<[TweenPicture, number]>, needs: Need[]): void {
-      const r = gl();
-      // Every picture of the frame is drawn into the ONE GL buffer, each later one over it at its weight (the renderer's
+      if (this.own?.lost) this.dropOwn();
+      // First live frame without an idle warm before it: the context is made here (counted as "frame").
+      if (!this.own && !this.shared) this.prepare("frame");
+      const r = this.own ?? gl();
+      // Every picture of the frame is drawn into one GL buffer, each later one over it at its weight (the renderer's
       // `over`: a straight per-component lerp), so a mix costs GL draws, not canvas copies.
       pictures.forEach(([p, weight], i) => {
         const need = needs[i];
         const { frame } = liveFrameOf(need.manifest, p.view, p.crop, need.level, need.wants, (key) => touch(key)!, tables, e.w, e.h);
         r.draw(frame, i === 0 ? undefined : weight); glDraws++;
       });
+      draws++; this.shown = true; this.lastDraw = performance.now();
+      if (this.own) return;   // drawn on this surface's own visible canvas: nothing to hand over
       if (this.canvas.width !== e.w || this.canvas.height !== e.h) { this.canvas.width = e.w; this.canvas.height = e.h; }
-      // The hand-over: the GL buffer becomes this canvas's bitmap without a copy (an OffscreenCanvas transfers it); a
-      // canvas without that path copies it in 2D.
+      // The shared renderer's hand-over: its buffer becomes this canvas's bitmap (transferred, else copied in 2D).
+      this.used = true;
       const offscreen = glCanvas as OffscreenCanvas;
       if (!this.ctx && typeof offscreen.transferToImageBitmap === "function") {
         this.bitmaps ??= this.canvas.getContext("bitmaprenderer");
-        if (this.bitmaps) { this.bitmaps.transferFromImageBitmap(offscreen.transferToImageBitmap()); draws++; this.shown = true; return; }
+        if (this.bitmaps) { this.bitmaps.transferFromImageBitmap(offscreen.transferToImageBitmap()); return; }
       }
       this.ctx ??= this.canvas.getContext("2d", { alpha: true });
       const ctx = this.ctx!;
       ctx.globalCompositeOperation = "copy";
       ctx.drawImage(glCanvas as CanvasImageSource, 0, 0);
       ctx.globalCompositeOperation = "source-over";
-      draws++;
-      this.shown = true;
     }
 
     private flushWaiters(): void {
@@ -249,17 +326,25 @@ export function createFluximgSlideHost(source: SlideHostSource): FluximgSlideHos
       if (this.error) return Promise.reject(this.error);
       return new Promise((resolve, reject) => { this.waiters.push({ resolve, reject }); this.attempt(); });
     }
-    release(): void {
-      // The next draw renders afresh. GPU textures (and the planes held for drawing) go once no surface shows
-      // anything any more: a slide that is left, or every image of it hidden.
+    release(keepContext = false): void {
+      // The next draw renders afresh (on a new context when a slot is free). The direct context is lost at once, unless
+      // asked to keep it (an image hidden on the slide that will appear: no context is made in its entrance frame); its
+      // textures and drawing buffer go either way. The shared renderer's textures (and the planes held for drawing) go
+      // once no surface shows anything any more.
       const was = this.shown;
       this.drawn = this.n; this.recent = []; this.shown = false;
       this.flushWaiters();
+      if (this.own && keepContext) this.own.clear();
+      else if (this.own) { this.dropOwn(); this.fresh(); }
+      this.shared = false;
       this.bitmaps?.transferFromImageBitmap(null);
       if (this.canvas.width || this.canvas.height) { this.canvas.width = 0; this.canvas.height = 0; }
       if (was && ![...surfaces].some((s) => s.shown)) { renderer?.clear(); planes.clear(); planeBytes = 0; }
     }
-    dispose(): void { this.release(); surfaces.delete(this); }
+    dispose(): void { this.release(false); surfaces.delete(this); }
+    textures(): { count: number; bytes: number } { return { count: this.own?.textureCount ?? 0, bytes: this.own?.bytes ?? 0 }; }
+    /** Gates: is this surface drawing on its own context? */
+    get directly(): boolean { return !!this.own; }
   }
 
   const self: FluximgSlideHost & { stats(): SlideHostStats } = {
@@ -276,6 +361,7 @@ export function createFluximgSlideHost(source: SlideHostSource): FluximgSlideHos
       return undefined;
     },
     surface(canvas) { return new SurfaceImpl(canvas); },
+    maxLive: MAX_DIRECT,
     warm(assetId, pictures, outWidth, outHeight) {
       if (disposed) return;
       for (const p of pictures) { const need = needOf(assetId, p, outWidth, outHeight); if (need) ask(need); }
@@ -295,7 +381,12 @@ export function createFluximgSlideHost(source: SlideHostSource): FluximgSlideHos
       renderer?.dispose(); renderer = null; glCanvas = null;
       hosts.delete(self);
     },
-    stats: () => ({ draws, glDraws, textures: renderer?.textureCount ?? 0, textureBytes: renderer?.bytes ?? 0, liveSurfaces: [...surfaces].filter((s) => s.shown).length, renderer: !!renderer, planesHeld: planes.size, listeners: listeners.size, surfaces: surfaces.size }),
+    stats: () => {
+      let textures = renderer?.textureCount ?? 0, textureBytes = renderer?.bytes ?? 0;
+      for (const s of direct) { const t = s.textures(); textures += t.count; textureBytes += t.bytes; }
+      return { draws, glDraws, textures, textureBytes, liveSurfaces: [...surfaces].filter((s) => s.shown).length, renderer: !!renderer, planesHeld: planes.size, listeners: listeners.size, surfaces: surfaces.size,
+        contexts: direct.size + (renderer ? 1 : 0), direct: direct.size, contextMs: contextMs.slice() };
+    },
   };
   hosts.add(self);
   return self;

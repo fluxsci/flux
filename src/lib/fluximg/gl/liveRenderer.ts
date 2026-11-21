@@ -531,6 +531,9 @@ export class FluximgLiveRenderer {
 
   get bytes(): number { return this.residentBytes; }
 
+  /** Change the texture budget (the slide player splits one budget over its renderers); trims at once. */
+  setBudget(bytes: number): void { this.budgetBytes = Math.max(0, bytes); this.trim(); }
+
   /** Give back every plane texture (programs and tables stay): nothing on screen needs them any more. */
   clear(): void { for (const key of [...this.textures.keys()]) this.drop(key); }
 

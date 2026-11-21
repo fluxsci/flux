@@ -20,7 +20,7 @@ import { pixelKey, resolveView } from "../../fluximg/viewOps";
 import { clampCrop, tieredStillSize } from "../../fluximg/crop";
 import { cropTransform, FURNITURE_FONT, FURNITURE_WEIGHT, imageStrokeWidth, layerMarkup, namePlacements, namesFontPx, objectIndex, preciseNum, svgNum, type LayerObject } from "../../fluximg/layers";
 import { furnitureSvg } from "../../fluximg/furniture";
-import { fluximgIdPrefix, layerStyles, layerSvgPath, layerTablePath, PLACEHOLDER_FILL, stylesToDraw, unflipTransform, wantsTable } from "../../fluximg/static";
+import { fluximgIdPrefix, insetRect, layerStyles, layerSvgPath, layerTablePath, PLACEHOLDER_FILL, stylesToDraw, unflipTransform, wantsTable } from "../../fluximg/static";
 import { missingStyle, type ObjectLegend, type ObjectStyles } from "../../fluximg/objectStyle";
 import { presetParam } from "../presetCatalog";
 import { isHandoff } from "../targets";
@@ -89,6 +89,19 @@ export function fluximgPlan(manifest: FluximgManifest, pre: FluximgElement, end:
   return plan;
 }
 
+/**
+ * LOCAL stand-in for `viewTween.withIndex(frame, dim, index)` (the media-playback package adds the real one; replace
+ * this with it when it lands): the frame with `index[dim]` set on every picture (a blend along `dim` is dropped, the
+ * override owns that position). Pictures already there are kept as they are (identity = "unchanged").
+ */
+export function withIndexLocal(f: ViewTweenFrame, dim: string, index: number): ViewTweenFrame {
+  const at = (p: TweenPicture): TweenPicture => (p.view.index[dim] === index ? p : { crop: p.crop, view: { ...p.view, index: { ...p.view.index, [dim]: index } } });
+  const a = at(f.a), b = f.b ? at(f.b) : null;
+  const overlay = f.overlay === f.a ? a : f.overlay === f.b && b ? b : at(f.overlay);
+  const blend = f.blend && f.blend.dim === dim ? null : f.blend;
+  return a === f.a && b === f.b && overlay === f.overlay && blend === f.blend ? f : { ...f, a, b, overlay, blend };
+}
+
 const manifestOf = (ctx: SlideRenderCtx, assetId: string): FluximgManifest | undefined => ctx.fluximg?.manifest(assetId) ?? ctx.fluximgManifest?.(assetId);
 
 /** What a Change's driver (transform.ts, mode "fluximg-live") needs: the frame at (u, raw), and a readiness hook while
@@ -142,6 +155,8 @@ class Overlay {
   private wordsG: SVGGElement;
   private namesG: SVGGElement;
   private furnG: SVGGElement;
+  private insetsG: SVGGElement;
+  private insetRects = new Map<string, { rect: SVGRectElement; last: Record<string, string | null> }>();
   private layers = new Map<string, LayerGroup>();
   private names = new Map<string, NamesGroup>();
   private order = "";
@@ -154,8 +169,10 @@ class Overlay {
     this.wordsG = document.createElementNS(SVG, "g");
     this.namesG = document.createElementNS(SVG, "g");
     this.furnG = document.createElementNS(SVG, "g");
+    this.insetsG = document.createElementNS(SVG, "g");
     this.wordsG.append(this.namesG, this.furnG);
-    svg.append(this.layersG, this.wordsG);
+    // Bottom to top as at rest (static.ts): layers, blow-out frames, then the words (names, furniture).
+    svg.append(this.layersG, this.insetsG, this.wordsG);
   }
 
   /** The vector layers whose shapes the overlay can draw, loading their text (a miss draws nothing until it lands). */
@@ -328,8 +345,32 @@ class Overlay {
     }
   }
 
+  /**
+   * The frames of this image's blow-outs (`insetOf` children on the same slide, with their crops at this frame), drawn
+   * as at rest (static.insetRectMarkup). One rectangle per child, made once; a tweening crop (the child's or this one's)
+   * moves it by its attributes.
+   */
+  insets(list: ReadonlyArray<{ id: string; crop: PixelRect }>, crop: PixelRect, el: FluximgElement): void {
+    const box = { width: Math.max(1e-6, el.width), height: Math.max(1e-6, el.height) }, seen = new Set<string>();
+    for (const inset of list) {
+      let entry = this.insetRects.get(inset.id);
+      if (!entry) {
+        const rect = document.createElementNS(SVG, "rect");
+        rect.setAttribute("id", `${this.prefix}${inset.id.replace(/[^A-Za-z0-9_-]/g, "_")}-inset`); rect.setAttribute("data-part", "inset");
+        rect.setAttribute("fill", "none"); rect.setAttribute("stroke", "#ffffff"); rect.setAttribute("stroke-width", "1"); rect.setAttribute("stroke-dasharray", "4 3");
+        this.insetsG.append(rect);
+        this.insetRects.set(inset.id, entry = { rect, last: {} });
+      }
+      seen.add(inset.id);
+      const r = insetRect(inset.crop, crop, box);
+      attr(entry.last, entry.rect, "display", r ? null : "none");
+      if (r) { attr(entry.last, entry.rect, "x", svgNum(r.x)); attr(entry.last, entry.rect, "y", svgNum(r.y)); attr(entry.last, entry.rect, "width", svgNum(r.width)); attr(entry.last, entry.rect, "height", svgNum(r.height)); }
+    }
+    for (const [id, entry] of this.insetRects) if (!seen.has(id)) attr(entry.last, entry.rect, "display", "none");
+  }
+
   /** The DOM nodes the overlay owns (gates: the same objects before and after a tween). */
-  nodes(): Element[] { return [this.layersG, this.wordsG, ...[...this.layers.values()].map((l) => l.g), ...[...this.names.values()].map((n) => n.g)]; }
+  nodes(): Element[] { return [this.layersG, this.insetsG, this.wordsG, ...[...this.insetRects.values()].map((i) => i.rect), ...[...this.layers.values()].map((l) => l.g), ...[...this.names.values()].map((n) => n.g)]; }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -340,6 +381,7 @@ export interface FluximgMotion { plan: ViewTweenPlan; raw: number; ease: (raw: n
 
 export interface SlideFluximgBinding {
   readonly root: HTMLElement;
+  /** The live canvas (a surface may replace the element: always read it here). */
   readonly canvas: HTMLCanvasElement;
   element: FluximgElement;
   /** Sample only (no render): the element's state, and the tween's frame when a Change drives it. */
@@ -355,6 +397,20 @@ export interface SlideFluximgBinding {
   readonly motion: FluximgMotion | undefined;
   /** The live surface's output size in device pixels for the current state. */
   outSize(): { width: number; height: number };
+  /** Let the surface go live: make its GL context now (idle time, or play's readiness; never inside a frame). */
+  prepare(): void;
+  /**
+   * Media playback (a running clip): override the plane position `index[dim]` of whatever frame this binding shows
+   * (the Change's frame, or its resting state), or clear it with null. Composes with the frame through `withIndex`.
+   * Takes effect at the next `flush()`, which may be called outside the player's paint() for this binding alone.
+   */
+  setIndexOverride(override: { dim: string; index: number } | null): void;
+  /** Decode ahead along `dim`: the next `count` positions in `direction` (+1 / -1) at `stride`, from the shown frame. */
+  decodeAhead(dim: string, direction: 1 | -1, stride?: number, count?: number): void;
+  /** The picture this binding shows now (its crop and `insetOf`), or null before its manifest is known. */
+  current(): { id: string; assetId: string; crop: PixelRect; insetOf: string | null } | null;
+  /** The blow-outs to outline on this image this frame (the controller or a static flush passes them). */
+  setInsets(list: ReadonlyArray<{ id: string; crop: PixelRect }>): void;
   /** Gates: what is on screen. */
   probe(): { key: string; pending: boolean; live: boolean; still: string; overlay: Element[] };
 }
@@ -373,7 +429,18 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
   const overlay = new Overlay(over, prefix, ctx);
   let el = element, frame: ViewTweenFrame | null = null, motion: FluximgMotion | undefined;
   let surface: FluximgSurface | undefined, drawnKey = "", pending = false, disposed = false, intersects = true, needing = false;
-  let stillKey = "", failed: Error | undefined;
+  let stillKey = "", failed: Error | undefined, allowLive = false;
+  let override: { dim: string; index: number } | null = null, overridden: { from: ViewTweenFrame; dim: string; index: number; out: ViewTweenFrame } | null = null;
+  let insetList: ReadonlyArray<{ id: string; crop: PixelRect }> = [];
+  const liveCanvas = (): HTMLCanvasElement => surface?.canvas ?? canvas;
+  /** The frame shown: the Change's (or the resting state), with a running clip's position over it. */
+  const shown = (manifest: FluximgManifest): ViewTweenFrame => {
+    const f = frame ?? resting(manifest);
+    if (!override) return f;
+    if (overridden && overridden.from === f && overridden.dim === override.dim && overridden.index === override.index) return overridden.out;
+    overridden = { from: f, dim: override.dim, index: override.index, out: withIndexLocal(f, override.dim, override.index) };
+    return overridden.out;
+  };
   let cull: PixelRect | null = null, cullFrom = new WeakSet<ViewTweenPlan>();
   const observer = typeof IntersectionObserver === "function" ? new IntersectionObserver((entries) => {
     const next = entries.at(-1)?.isIntersecting ?? false;
@@ -438,19 +505,44 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
     stillLayer.innerHTML = `<rect data-fluximg-placeholder="" x="0" y="0" width="${svgNum(el.width)}" height="${svgNum(el.height)}" fill="${PLACEHOLDER_FILL}"/>`;
   }
   const publish = () => {
-    const live = !!surface?.shown;
-    if (live && canvas.style.display !== "block") { canvas.style.display = "block"; stillLayer.style.display = "none"; }
-    else if (!live && canvas.style.display !== "none") { canvas.style.display = "none"; stillLayer.style.display = "block"; }
+    const live = !!surface?.shown, c = liveCanvas();
+    if (live && c.style.display !== "block") { c.style.display = "block"; stillLayer.style.display = "none"; }
+    else if (!live && c.style.display !== "none") { c.style.display = "none"; stillLayer.style.display = "block"; }
   };
 
   const handle: SlideFluximgBinding = {
-    root, canvas, element,
+    root, element,
+    get canvas() { return liveCanvas(); },
     get motion() { return motion; },
     set(next, nextFrame = null, nextMotion) {
       el = next; handle.element = next; frame = nextFrame ?? null; motion = nextMotion;
       if (nextMotion && !cullFrom.has(nextMotion.plan)) { cullFrom.add(nextMotion.plan); widen(nextMotion.plan.start.crop); widen(nextMotion.plan.end.crop); }
     },
     outSize,
+    prepare() {
+      if (disposed || !ctx.fluximg) return;
+      surface ??= ctx.fluximg.surface(canvas);
+      surface.prepare();
+      allowLive = true;
+    },
+    setIndexOverride(next) { override = next; },
+    decodeAhead(dim, direction, stride = 1, count = 8) {
+      const manifest = manifestOf(ctx, el.assetId), host = ctx.fluximg;
+      if (!manifest || !host) return;
+      const f = shown(manifest), n = manifest.pixels.shape[manifest.pixels.dims.indexOf(dim)] ?? 0, here = f.a.view.index[dim];
+      if (here === undefined || !(n > 0)) return;
+      const pictures: TweenPicture[] = [];
+      for (let k = 1; k <= count; k++) { const i = here + direction * stride * k; if (i < 0 || i >= n) break; pictures.push(withIndexLocal(f, dim, i).a); }
+      const s = outSize();
+      host.warm(el.assetId, pictures, s.width, s.height);
+    },
+    current() {
+      const manifest = manifestOf(ctx, el.assetId);
+      if (!manifest) return null;
+      const p = shown(manifest).overlay;
+      return { id: el.id, assetId: el.assetId, crop: p.crop, insetOf: p.view.insetOf };
+    },
+    setInsets(list) { insetList = list; },
     refresh() { overlay.invalidate(); handle.flush(); },
     flush() {
       if (disposed) return;
@@ -463,20 +555,25 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
         }
         return;
       }
-      const f = frame ?? resting(manifest);
+      const f = shown(manifest);
       if (!cull) widen(clampCrop(manifest, el.crop));
       overlay.update(manifest, el.assetId, el, f.overlay, f.furnitureOpacity, cull!);
+      overlay.insets(insetList, f.overlay.crop, el);
       if (!ctx.fluximg) { showStill(manifest, f.a); return; }
       // The observer reports asynchronously: confirm an offscreen flag against current layout, so a seek's output never
       // depends on the previous frame (T24). Onscreen flags need no layout read.
       if (!intersects && root.getClientRects().length && rectInViewport(root.getBoundingClientRect(), window.innerWidth, window.innerHeight)) intersects = true;
       if (!intersects || !liveVisible(root)) {
-        // Hidden surfaces own no backing store and no textures; the still stands in (nobody sees it while hidden).
-        surface?.release();
+        // Hidden surfaces own no backing store and no textures; the still stands in (nobody sees it while hidden). An
+        // image hidden ON screen (unborn, faded out) keeps its context, so its entrance makes none in a frame; offscreen
+        // (a camera move, another slide) loses it.
+        surface?.release(intersects);
         drawnKey = ""; pending = false; setPending(handle, false);
         showStill(manifest, f.a); publish();
         return;
       }
+      // Not live until the surface's context was made outside a frame (prepare): the still stands in until then.
+      if (!allowLive) { showStill(manifest, f.a); publish(); return; }
       const { width, height } = outSize();
       const key = frameKey(manifest, f, width, height);
       // A frame that waited for its planes is drawn by the surface the moment they land: nothing to ask again.
@@ -497,7 +594,10 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
     },
     async settled() {
       if (failed) throw failed;
-      if (!surface || !ctx.fluximg) return;
+      if (!ctx.fluximg) return;
+      // Capture needs the exact frame: a binding that has not gone live yet does now (capture is not a live frame).
+      if (!allowLive && liveVisible(root)) { handle.prepare(); handle.flush(); }
+      if (!surface) return;
       await surface.settled();
       publish();
     },
@@ -523,9 +623,24 @@ export function fluximgBindingOf(root: HTMLElement): SlideFluximgBinding | undef
 export function setSlideFluximgFrame(root: HTMLElement, element: FluximgElement, frame: ViewTweenFrame | null, motion?: FluximgMotion): void {
   fluximgBindingOf(root)?.set(element, frame, motion);
 }
+/** Hand each image the blow-outs to outline on it: the bindings whose shown picture says `insetOf` that image (same
+ *  asset), with their crops at this frame. */
+function linkInsets(bs: readonly SlideFluximgBinding[]): void {
+  const byParent = new Map<string, Array<{ id: string; crop: PixelRect }>>(), assetOf = new Map<string, string>();
+  const now = bs.map((b) => b.current());
+  for (const c of now) if (c) assetOf.set(c.id, c.assetId);
+  for (const c of now) if (c?.insetOf && assetOf.get(c.insetOf) === c.assetId) { let l = byParent.get(c.insetOf); if (!l) byParent.set(c.insetOf, l = []); l.push({ id: c.id, crop: c.crop }); }
+  for (const b of bs) b.setInsets(byParent.get(b.element.id) ?? []);
+}
+/** Whether any image of the slide is ever a blow-out (only then are insets linked, per frame). */
+const hasInsets = (elements: readonly { type: string; view?: unknown }[], ends: readonly FluximgElement[] = []): boolean =>
+  [...elements, ...ends].some((e) => e.type === "fluximg" && !!(e as FluximgElement).view?.insetOf);
+
 /** Flush every image binding under `root` (static renders: each shows the cached still of its sampled state). */
 export function flushSlideFluximgs(root: HTMLElement): void {
-  for (const node of nodes(root)) bindings.get(node)?.flush();
+  const bs = nodes(root).map((n) => bindings.get(n)).filter((b): b is SlideFluximgBinding => !!b);
+  linkInsets(bs);
+  for (const b of bs) b.flush();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -573,6 +688,7 @@ export function createFluximgController(root: HTMLElement, compiled: CompiledSli
   const readyBeats = new Set<number>();
   /** Play waits for the first pictures of every image Change in the beats it starts. */
   function ready(from = 0, to = Number.MAX_SAFE_INTEGER): Promise<void> {
+    prepareAll();
     return manifests().then(async () => {
       const list = changes.filter((c) => c.beat >= from && c.beat <= to);
       await Promise.all(list.map((c) => host.ready(c.assetId, first(c), sizeOf(c.pre).width, sizeOf(c.pre).height).catch(() => undefined)));
@@ -580,10 +696,18 @@ export function createFluximgController(root: HTMLElement, compiled: CompiledSli
     });
   }
   const isReady = (from = 0, to = Number.MAX_SAFE_INTEGER): boolean =>
-    [...assets].every((id) => !!host.manifest(id)) && changes.every((c) => c.beat < from || c.beat > to || readyBeats.has(c.beat));
+    prepared && [...assets].every((id) => !!host.manifest(id)) && changes.every((c) => c.beat < from || c.beat > to || readyBeats.has(c.beat));
+  let prepared = false;
+  /** Every image gets its GL context outside a frame (idle time, or play's readiness), then draws its picture. */
+  const prepareAll = (): void => {
+    if (prepared || disposed) return;
+    prepared = true;
+    for (const b of list()) { b.prepare(); b.flush(); }
+  };
   // Warming is idle work with no deadline: everything stays correct if it never runs.
   idle(() => {
     if (disposed) return;
+    prepareAll();
     void manifests().then(() => {
       if (disposed) return;
       for (const el of images.values()) {
@@ -605,9 +729,11 @@ export function createFluximgController(root: HTMLElement, compiled: CompiledSli
   };
   let aheadAt = -Infinity;
   const lastRaw = new WeakMap<SlideFluximgBinding, number>();
+  const insets = hasInsets(slide.elements, changes.map((c) => c.end));
   function flush(): void {
     if (disposed) return;
     const bs = list();
+    if (insets) linkInsets(bs);
     for (const b of bs) b.flush();
     // Decode ahead along a playing Change's own path, at a low rate (never per frame).
     const now = performance.now();
@@ -626,6 +752,9 @@ export function createFluximgController(root: HTMLElement, compiled: CompiledSli
   async function settled(): Promise<void> { await ready(); await Promise.all(list().map((b) => b.settled())); }
   return {
     isReady, ready, flush, settled,
+    /** Media playback (the next package): the binding of one image of this slide, for `setIndexOverride` / `flush` /
+     *  `decodeAhead` / `settled`. */
+    binding: (elementId: string): SlideFluximgBinding | undefined => list().find((b) => b.element.id === elementId),
     destroy() { if (disposed) return; disposed = true; off(); for (const node of nodes(root)) bindings.get(node)?.dispose(); },
   };
 }
