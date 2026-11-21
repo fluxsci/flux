@@ -25,7 +25,7 @@ import { resolveView } from "../src/lib/fluximg/viewOps";
 import { clampCrop } from "../src/lib/fluximg/crop";
 import { layerMarkup } from "../src/lib/fluximg/layers";
 import { imageObjectStageOutlines } from "../src/lib/slide/targetGeometry";
-import { planCorrespondence, choosePolicy } from "../src/lib/slide/correspondence";
+import { planCorrespondence, choosePolicy, sampleCorrespondence } from "../src/lib/slide/correspondence";
 import type { StageOutline } from "../src/lib/slide/stageOutline";
 import type { Deck, Slide, Track } from "../src/lib/slide/types";
 import type { FluximgElement } from "../src/lib/fluximg/element";
@@ -210,6 +210,17 @@ try {
     h.eq(plan.policy, "key", "the plan pairs by key");
     const pairs = plan.pairs.map((p) => [p.a?.owner.key ?? null, p.b?.owner.series ?? null]);
     h.eq(pairs, [["s1", "glu-s1"], ["s2", "s2"], ["s3", "S3"], ["s7", null], [null, "q"]], "each footprint lands on its own trace; the unmatched footprint and trace fade");
+    // the flight: its first frame is each footprint's own outline, its last each trace (within a pixel)
+    plan.prepare();
+    const ext = (nodes: { x: number; y: number }[]) => { const xs = nodes.map((n) => n.x), ys = nodes.map((n) => n.y); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; };
+    const near = (a: number[], b: number[]) => a.every((v, i) => Math.abs(v - b[i]) <= 1);
+    const first = sampleCorrespondence(plan, 0), last = sampleCorrespondence(plan, 1);
+    for (const key of ["s1", "s2", "s3"]) {
+      const src = objs.find((o) => o.owner.key === key)!, dst = B[["s1", "s2", "s3"].indexOf(key)];
+      const f = first.find((p) => p.owner.a?.key === key), l = last.find((p) => p.owner.a?.key === key);
+      h.ok(!!f && near(ext(f.nodes), ext(src.nodes)) && f.closed, `flight ${key}: the first frame is the footprint's outline (closed, box ${ext(f?.nodes ?? []).map((v) => v.toFixed(1)).join(",")})`);
+      h.ok(!!l && near(ext(l.nodes), ext(dst.nodes)), `flight ${key}: the last frame is its trace (box ${ext(l?.nodes ?? []).map((v) => v.toFixed(1)).join(",")})`);
+    }
     const spatialPlan = planCorrespondence(objs, B, { pair: "spatial" });
     h.eq(spatialPlan.policy, "spatial", "an explicit policy still wins");
     const twoPlots = planCorrespondence([trace("a", 10), trace("b", 40)], [trace("b", 300), trace("a", 330)], {});

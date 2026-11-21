@@ -12,6 +12,14 @@ import { buildPartTree } from "../../../../lib/plot/tree";
 import { membersDeep, topGroupOf } from "../../../../lib/groups";
 import { isDataRole, type MarqueeCandidate, type PickUnit, type StageRect } from "./pickModel";
 import { leafPartIds, partIndexOf } from "../../../../lib/plot/partMarquee";
+import { fluximgPartIdOf, fluximgPartNode } from "../../../../lib/fluximg/parts";
+
+/** An image part's drawn nodes under its wrapper: a layer → its objects, an object → its shape (W8). */
+function imagePartNodes(wrapper: Element, partId: string): Element[] {
+  if (partId.startsWith("layer:")) return Array.from(wrapper.querySelectorAll(`[data-layer="${CSS.escape(partId.slice(6))}"] [data-key]`));
+  const n = fluximgPartNode<Element>(wrapper, partId);
+  return n ? [n] : [];
+}
 
 export interface HitContext {
   fig: Figure;
@@ -61,6 +69,12 @@ export function hitUnit(node: Element | null, ctx: HitContext, wholeObject = fal
     if (pid && !isScaffoldPart(manifest, pid) && !ctx.excluded(el.id, pid)) return { unit: { element: el.id, part: pid }, elementId };
     return { unit: { element: el.id }, elementId };
   }
+  // An image's object (W8): the shape under the pointer, by its layer and key (its name text is no object).
+  if (el.type === "fluximg") {
+    const pid = fluximgPartIdOf(node?.closest?.("[data-layer] [data-key]") as Element | null);
+    if (pid && !ctx.excluded(el.id, pid)) return { unit: { element: el.id, part: pid }, elementId };
+    return { unit: { element: el.id }, elementId };
+  }
   if (el.type === "model3d") {
     const part = node?.closest?.("[data-model3d-furniture] [data-part-id]");
     const pid = part && wrapper.contains(part) ? part.getAttribute("data-part-id") : null;
@@ -79,6 +93,7 @@ export function unitNodes(unit: PickUnit, root: ParentNode, fig: Figure, manifes
     // Scoped to the element's own wrapper: a thumbnail or another pane may
     // carry the same prefixed ids, and the wrapper's subtree is one plot.
     const wrapper = wrapperOf(root, unit.element);
+    if (wrapper && fig.elements.find((e) => e.id === unit.element)?.type === "fluximg") return imagePartNodes(wrapper, unit.part);
     const node = wrapper?.querySelector(`[id="${CSS.escape(partDomId(unit.element, unit.part))}"]`)
       ?? wrapper?.querySelector(`[data-model3d-furniture] [data-part-id="${CSS.escape(unit.part)}"]`);
     if (node || !wrapper) return node ? [node] : [];
@@ -126,6 +141,15 @@ export function marqueeCandidates(root: ParentNode, ctx: HitContext, f: FrameBox
     if (!wrapper) continue;
     const r = wrapper.getBoundingClientRect();
     if (r.width || r.height) out.push({ unit: { element: el.id }, rect: toStage(r, f), level: "object" });
+    if (el.type === "fluximg") {
+      // an image's objects are leaves a marquee picks, as a plot's points are
+      for (const n of wrapper.querySelectorAll("[data-layer] [data-key]")) {
+        const pid = fluximgPartIdOf(n as Element), pr = n.getBoundingClientRect();
+        if (!pid || ctx.excluded(el.id, pid) || (!pr.width && !pr.height)) continue;
+        out.push({ unit: { element: el.id, part: pid }, rect: toStage(pr, f), level: "leaf", data: true });
+      }
+      continue;
+    }
     if (el.type !== "plot") continue;
     const manifest = ctx.manifestFor(el);
     if (!manifest) continue;

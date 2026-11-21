@@ -307,7 +307,9 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
   const manifest = opts.plotManifest ?? ((id: string) => get(plotManifests)[id]);
   // Letter outlines for text ↔ shape flights, measured inside this camera layer.
   const glyphProvider = createGlyphProvider(cameraLayer, { ...opts, theme: opts.theme });
-  const geometry = { manifest, plotRoot: opts.plotRoot ?? ((id: string) => plotDom.get(id)), groups: slide.groups, glyphs: (el: TextElement) => glyphProvider.outlines(el) };
+  const geometry = { manifest, plotRoot: opts.plotRoot ?? ((id: string) => plotDom.get(id)), groups: slide.groups, glyphs: (el: TextElement) => glyphProvider.outlines(el),
+    // an image's objects fly as their own outlines (W8: Become by key); a slide without images carries nothing more
+    ...(imageIds.size ? { fluximgParts: imagePartsLookup(opts), fluximgTable: opts.fluximgTable, fluximgLut: opts.fluximgLut } : {}) };
   const handoffs: HandoffRecord[] = compiled.handoffs;
   const mergeLayers = new Map<string, SVGGElement>();
   // WP 3.2: a slide with attachments collects every transform controller's frame state for the attachment pass (pushed last, below)
