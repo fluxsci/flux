@@ -93,7 +93,9 @@ export function baseRuntimeSeams(needs) {
         const lines = [], entries = [];
         published(needs).forEach(([key, names], i) => {
           lines.push(`import { ${names.map((n) => `${n} as m${i}_${n}`).join(", ")} } from ${JSON.stringify(path.join(root, key))};`);
-          entries.push(`${JSON.stringify(shortKey(key))}: { ${names.map((n) => `${n}: m${i}_${n}`).join(", ")} }`);
+          // Getters: read when the kit evaluates (on first use, after the whole base has), never at this module's turn in
+          // the base's evaluation order (a binding not yet initialised there would be published as undefined).
+          entries.push(`${JSON.stringify(shortKey(key))}: { ${names.map((n) => `get ${n}() { return m${i}_${n}; }`).join(", ")} }`);
         });
         return { contents: `${lines.join("\n")}\nglobalThis.FluxSlideBase = { ${entries.join(", ")} };\n`, loader: "js", resolveDir: root };
       });
