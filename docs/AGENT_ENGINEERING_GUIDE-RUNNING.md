@@ -14017,3 +14017,48 @@ fill attribute merged into a black "L" triangle).
 - A string such as `[data-slide-fluximg-root=...]` in `player.ts` lands in every deck's runtime and fails
   `verify-slide-runtime-images`: DOM lookups of image nodes belong in the kit (`player/fluximg.ts`).
 - Counting canvas "reallocations" by width/height setters counts two per resize: coalesce per task.
+
+### 2026-11-21 — fluximg stage 2, integration (Claude Fable 5.2, `fluximg-s2`, lead)
+**Work:** stage 2 was built by packages on `s2/*` branches and integrated here: images in decks and the slide player,
+authoring and movies, exports, object styling, objects as slide parts and Become by key, TIFF import, an image's
+movie as a file, then one independent review and five fix packages. The lead's own changes: "Send slide to canvas"
+takes an image placed on slides only (`fluximg:measure`: the walk, limits and content id of an import, read in place);
+the TIFF probe suggests interleaved channels from the pages' pictures and from where the picture has data
+(`tiff/probe.ts` `pagePeriod` / `periodOf`); the viewer's pause button says "movie" when only an image plays; a plot
+outline's owner carries its series NAME only where pairing by key is in play (`targetGeometry.withSeriesNames`); the
+column stagger has its own shape `{ column }`; `needTable` writes no store when asked; an unknown stagger order is plain
+order; an image entry's fields have one order in the export payload; an image's movie at a step hides unborn objects.
+**Learnings:**
+- **A package's gates are not the tier.** Three packages passed every gate their brief listed and still broke gates
+  nobody had listed (a pinned owner shape, a refused unknown key, the cursor policy, an export byte budget). Run the
+  whole pure tier on the merged tip after every merge, in an integration worktree, before the next package branches.
+- **A contract a gate pins by deep equality is a contract.** Adding a field "everywhere" to a shared record
+  (`OutlineOwner.seriesName`) changed what every deck computes. Attach data where it is used, not where it is cheap.
+- **A second meaning for an existing shape loosens its validation.** `{ key: <column> }` reused the data-key shape, so
+  the schema had to accept any key and an unknown data key was no longer refused. A new meaning takes a new shape.
+- **A lazy loader may be called from a derived computation.** Any `need…()` that marks "loading" by writing a store
+  throws Svelte's `state_unsafe_mutation` the first time a `$derived` asks. Keep "pending" in a plain Set; write
+  stores only when the data has arrived. The gates had missed it because their fixture's table was already loaded by
+  an effect: test a lazy path with something NOBODY has asked for yet.
+- **`"x" in value` throws on a primitive.** After narrowing a union by shape, anything that reaches the test must be
+  an object: a hand-written deck value (`by: "column"`) crashed the mode. Unknown input is plain behaviour, never an
+  exception.
+- **Reproducibility needs random orders, not two.** Two fixed finishing orders passed; one in eight parallel runs
+  failed, because object keys assigned from `.then` callbacks come out in arrival order. Build the record in one fixed
+  field order, and let the gate draw seeded random orders.
+- **4:2:0 cannot hold a one-pixel coloured stroke.** A check that compares decoded video against a reference must
+  measure where the picture changes moderately (fills), or use luma: thin coloured outlines carry a large
+  per-channel error at every quality setting.
+- **A hot-reloaded dev server serves the app's modules under versioned URLs.** A gate's plain
+  `import("/src/…")` then receives a SECOND copy of the module, with empty stores and unregistered providers, and
+  fails for no product reason. Restart the server before GUI gates after editing a module they import, and prefer the
+  app's own handles to module imports.
+- **Flaky under load is still a classification job.** `verify-plot-gallery.mjs` (a click after the gallery pop-up
+  docks) and `verify-paper-comments-gui.mjs` (a 4 s wait for a comment card) fail on the tree from before this work
+  at the same rate when the machine is loaded; alternate old and new, eight runs each, before blaming a merge.
+- **Every command that can open a browser or Electron starts with `env -u WAYLAND_DISPLAY -u DISPLAY`.** A worker ran
+  a gate group without it and `verify-slide-settle-electron.cjs` put windows on the owner's screen. With the prefix the
+  runner reports that gate blocked, which is the expected result on this machine (there is no Xvfb).
+- **Real data finds what fixtures do not**: an open outline drawn filled in a hand-off (a dark wedge over the plot),
+  the Svelte error above, and a probe heuristic that never fired on masked float movies all came from running the
+  real app on a private copy, not from a gate.
