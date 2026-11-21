@@ -211,6 +211,11 @@ try {
     const e = f.elements.find((x) => x.id === again.elementId)!; e.flipX = true; e.rotation = 30; e.opacity = 0.5;
   });
   await rawView(gray.elementId, { background: "transparent", channels: [{ lut: "no-such-map" }] });
+  // Split channel panels (F4): one channel alone in its colour from the merged image (the image's own magenta here, and
+  // a hand-set cyan), and one in gray, as Split channels writes them (set-image-view speaks the same view).
+  const splitColour = await call("place_image", { figureId, bundlePath: "plots/stack_u16.fluximg", x: 300, y: 620, width: 96, view: { link: "S", composite: "single", solo: 0, furniture: { channelLabels: {} } } });
+  const splitCyan = await call("place_image", { figureId, bundlePath: "plots/stack_u16.fluximg", x: 400, y: 620, width: 96, view: { link: "S", composite: "single", solo: 1, channels: [null, { color: "#00ffff" }] } });
+  const splitGray = await call("place_image", { figureId, bundlePath: "plots/stack_u16.fluximg", x: 500, y: 620, width: 96, view: { link: "S", composite: "single", solo: 0, channels: [{ lut: "gray" }] } });
 
   await ensureColormapLuts();
   const readers = new Map<string, Promise<Awaited<ReturnType<typeof openFluximg>>>>();
@@ -248,6 +253,9 @@ try {
     [big.elementId, "a tiled image"],
     [gray.elementId, "an unknown colour map on a transparent background"],
     [masked.elementId, "no-data pixels on a transparent background (RGBA)"],
+    [splitColour.elementId, "a split channel panel in its colour from the merged image"],
+    [splitCyan.elementId, "a split channel panel in a colour set on it"],
+    [splitGray.elementId, "a split channel panel in gray"],
   ];
   for (const [id, what] of cases) {
     const got = stillOf(svg, id), want = await expectedStill(id, 300);
@@ -255,6 +263,25 @@ try {
       `${what}: the still is ${want.size.width} x ${want.size.height} (stillSize at 300 dpi) over the ${want.el.width} x ${want.el.height} box`);
     h.ok(!!got && same(got.rgba, want.rgba), `${what}: decodes to exactly renderStill's pixels`);
   }
+  // The colour is really there in the export (and gray really gray): magenta has no green, cyan no red, gray R = G = B
+  // (the channel's name, white, is the one thing drawn over the coloured panel: grey by its nature).
+  const hue = (id: string): { lit: number; off: { magenta: number; cyan: number; grey: number } } => {
+    const st = stillOf(svg, id)!, o = { lit: 0, off: { magenta: 0, cyan: 0, grey: 0 } };
+    for (let i = 0; i < st.rgba.length; i += 4) {
+      const r = st.rgba[i], g = st.rgba[i + 1], b = st.rgba[i + 2];
+      if (Math.max(r, g, b) < 24) continue;
+      o.lit++;
+      const neutral = r === g && g === b;
+      if (!(g === 0 && r === b) && !neutral) o.off.magenta++;
+      if (!(r === 0 && g === b)) o.off.cyan++;
+      if (!neutral) o.off.grey++;
+    }
+    return o;
+  };
+  const hc = hue(splitColour.elementId), hy = hue(splitCyan.elementId), hg = hue(splitGray.elementId);
+  h.ok(hc.lit > 100 && hc.off.magenta === 0, `the coloured panel exports in its channel's magenta (${hc.lit} lit pixels, ${hc.off.magenta} of another hue)`);
+  h.ok(hy.lit > 100 && hy.off.cyan === 0, `the panel coloured on it exports in cyan (${hy.lit} lit, ${hy.off.cyan} of another hue)`);
+  h.ok(hg.lit > 100 && hg.off.grey === 0, `the gray panel exports in gray (${hg.lit} lit, ${hg.off.grey} with a hue)`);
   const grayRef = await expectedStill(gray.elementId, 300, { view: { background: "transparent", channels: [{ lut: "gray" }] } });
   h.ok(same(stillOf(svg, gray.elementId)!.rgba, grayRef.rgba), "an unknown colour map is drawn exactly as the gray ramp (lut.channelTable's documented fallback)");
   const maskedStill = stillOf(svg, masked.elementId)!;
