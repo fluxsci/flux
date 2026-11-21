@@ -494,6 +494,7 @@
       "verify-fluximg-live.ts",
       "verify-fluximg-view-tween.ts",
       "verify-fluximg-object-style.ts",
+      "verify-fluximg-slide-model.ts",
       "verify-fmenu-look.ts"
     ],
     "net": [
@@ -694,6 +695,7 @@
       "verify-fluximg-export-gui.ts",
       "verify-fluximg-inspector.mjs",
       "verify-fluximg-object-style-gui.mjs",
+      "verify-fluximg-slide-place-gui.mjs",
       "verify-fluximg-live-gui.mjs"
     ],
     "ui-extra": [
@@ -1680,9 +1682,11 @@
       "verify-fluximg-export-gui.ts",
       "verify-fluximg-inspector.mjs",
       "verify-fluximg-object-style-gui.mjs",
+      "verify-fluximg-slide-place-gui.mjs",
       "verify-fluximg-live.ts",
       "verify-fluximg-view-tween.ts",
       "verify-fluximg-object-style.ts",
+      "verify-fluximg-slide-model.ts",
       "verify-fluximg-live-gui.mjs"
     ],
     "fluximg-pure": [
@@ -1696,13 +1700,15 @@
       "verify-fluximg-export.ts",
       "verify-fluximg-live.ts",
       "verify-fluximg-view-tween.ts",
-      "verify-fluximg-object-style.ts"
+      "verify-fluximg-object-style.ts",
+      "verify-fluximg-slide-model.ts"
     ],
     "fluximg-ui": [
       "verify-fluximg-place-gui.mjs",
       "verify-fluximg-export-gui.ts",
       "verify-fluximg-inspector.mjs",
       "verify-fluximg-object-style-gui.mjs",
+      "verify-fluximg-slide-place-gui.mjs",
       "verify-fluximg-live-gui.mjs"
     ]
   },
@@ -12823,6 +12829,17 @@
       "exclusive": true,
       "coverage": "behavior"
     },
+    "verify-fluximg-slide-place-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 240000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
     "verify-fluximg-live.ts": {
       "runtime": "tsx",
       "prerequisites": [],
@@ -12842,6 +12859,15 @@
       "coverage": "behavior"
     },
     "verify-fluximg-object-style.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-fluximg-slide-model.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
