@@ -201,9 +201,9 @@ parameters, `target` or the current selection) as one Undo step. Posters, `--no-
 
 | Verb (CLI) | MCP tool | What it does |
 |---|---|---|
-| `place-image <figureId\|deckId/slideId> <bundle.fluximg> [--x n --y n --width n --name N --crop '<json>' --view '<json>']` | `place_image` | Copy a `.fluximg` folder into `fig/assets/` once (content already in the project is reused, `reused: true`) and add an image element to a figure or a slide (a bare slide id works too). Canvas px; height follows the image's (or crop's) aspect; without `--width`, one image pixel per canvas px, narrowed to the figure's width (on a slide: to fit the stage). A deck never copies the bundle: it refers to `fig/assets/<id>.fluximg` by id. |
+| `place-image <figureId\|deckId/slideId> <bundle.fluximg> [--x n --y n --width n --name N --crop '<json>' --view '<json>']` | `place_image` | Copy a `.fluximg` folder into `fig/assets/` once (content already in the project is reused, `reused: true`) and add an image element to a figure or a slide (a bare slide id works too). Canvas px; height follows the image's (or crop's) aspect; without `--width`, one image pixel per canvas px, narrowed to the figure's width (on a slide: to fit the stage). A deck never copies the bundle: it refers to `fig/assets/<id>.fluximg` by id. A `.tif`/`.tiff` path is converted to a bundle first (see TIFF below). |
 | `set-image-view <elementId> [--view '<json>'] [--crop '<json>' \| --reset-crop] [--slide deckId/slideId [--beat <beatId>]]` | `set_image_view` | Merge a sparse view patch into the element's stored view and/or set its crop. Pixels are never touched. An image on a slide needs `--slide`; without `--beat` the edit is its Design state, with `--beat` (a step after Design) it is that step's Change (`to.state.view` / `crop`), exactly as "Edit after step" in the app: the step glides the image there. |
-| `image-info <elementId\|assetId>` | `image_info` | Read-only, no rendering: dims with sizes, units and positions, dtype and storage, levels, channels with default windows, min/max and percentiles, layers with object counts and (with a table) their columns (`kind` number/category, `distinct`, `range`), regions, every placement; for an element also its box, crop, stored and resolved view, position in words and export size. |
+| `image-info <elementId\|assetId\|file.tif>` | `image_info` | Read-only, no rendering: dims with sizes, units and positions, dtype and storage, levels, channels with default windows, min/max and percentiles, layers with object counts and (with a table) their columns (`kind` number/category, `distinct`, `range`), regions, every placement; for an element also its box, crop, stored and resolved view, position in words and export size. |
 
 These three are outside the core MCP toolset: in core mode call them through `flux_verb`
 (`flux_verb {verb:"set_image_view", args:{id:"…", view:{…}}}`), with the MCP parameter names
@@ -269,6 +269,19 @@ Every answer is JSON with `elementId`, `figureId`, `name`, `box`, `crop`, the st
 `figureId` is the slide id and the answer adds `deckId`, `slideId` (and with `--beat`, `beatId` and the written
 `trackIds`); a deck holding an image is saved as deck format 0.8.0.
 
+**TIFF.** `place-image <target> data/stack.tif` converts the TIFF into a bundle (in this process) and places
+it like any bundle. With metadata that settles the page order (OME-XML, an ImageJ hyperstack, JSON on every page whose
+keys partition the pages, a shaped description with axis names, or a single page) nothing more is needed. Otherwise it
+REFUSES, listing proposals best first with the flags that choose each; say how the pages are ordered:
+`--dims t,c=2` (dims over the pages, slowest first, fastest last; one size may be `rest`), `--transpose` (file stored
+column-major), `--flip-x`, `--flip-y`, `--pixel-size 0.25 [--unit µm]`, `--dt <s>` or `--rate <Hz>`, `--z-step <µm>`,
+`--nodata <value>` (float images: that value becomes no data), `--lossless`, `--channels a,b`, or a whole answer with
+`--answer '<json>'` (the `answer` of a proposal from `image-info`). `image-info file.tif` converts nothing: it reports
+the structure, `needsAnswer`, and the ranked `proposals` (summary, confidence, reasons, what is still unknown, flags).
+The answer adds `tiff` (`source`, `read` in words, the `answer` used, encoding `notes`). Refused outright, with the
+cause: JPEG / JPEG 2000 / LERC / WebP / JPEG XL / LZMA / CCITT compression, complex or 1-bit samples, palette / CMYK /
+YCbCr images, OME datasets spread over several files, planes over 1 GiB, truncated or damaged files.
+
 ```bash
 "{{FLUX_CLI}}" place-image fig2 plots/neuron_stack.fluximg --width 300 --name "Neuron stack" \
   --view '{"index":{"z":12},"furniture":{"scalebar":{}}}'
@@ -279,6 +292,8 @@ Every answer is JSON with `elementId`, `figureId`, `name`, `box`, `crop`, the st
 "{{FLUX_CLI}}" set-image-view <elementId> --view '{"projection":null,"channels":[{"range":null},null]}' --reset-crop
 "{{FLUX_CLI}}" render-figure fig2 --png --out /tmp/fig2.png
 "{{FLUX_CLI}}" place-image talk/s3 plots/neuron_stack.fluximg      # onto slide s3 of deck talk
+"{{FLUX_CLI}}" image-info data/movie.tif                           # how would its pages be read?
+"{{FLUX_CLI}}" place-image fig2 data/movie.tif --dims t,c=2 --transpose --pixel-size 0.25 --rate 80
 "{{FLUX_CLI}}" set-image-view <elementId> --slide talk/s3 --beat <beatId> --view '{"index":{"z":30}}'   # step walks the planes
 ```
 

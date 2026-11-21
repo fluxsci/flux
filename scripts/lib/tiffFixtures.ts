@@ -293,3 +293,40 @@ export function rng(seed: number): () => number {
   let a = seed >>> 0;
   return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
+
+/**
+ * A large uncompressed little-endian BigTIFF written plane by plane to `file` (never held in memory): all pixel data
+ * contiguous from byte 16, every IFD packed at the end, as long acquisitions are often written. `fill(page, plane)`
+ * writes one page's samples into `plane`.
+ */
+export async function writeStackFile(file: string, spec: { width: number; height: number; pages: number; dtype: "uint16" | "float32"; fill: (page: number, plane: Uint16Array | Float32Array) => void; resolution?: { x: number; unit: number } }): Promise<number> {
+  const fsp = await import("node:fs/promises");
+  const { width: W, height: H, pages: N } = spec;
+  const bps = spec.dtype === "uint16" ? 2 : 4, planeBytes = W * H * bps;
+  const fh = await fsp.open(file, "w");
+  try {
+    const head = new DataView(new ArrayBuffer(16));
+    head.setUint8(0, 0x49); head.setUint8(1, 0x49); head.setUint16(2, 43, true); head.setUint16(4, 8, true);
+    const ifd0 = 16 + N * planeBytes;
+    head.setBigUint64(8, BigInt(ifd0), true);
+    await fh.write(new Uint8Array(head.buffer), 0, 16, 0);
+    const plane = spec.dtype === "uint16" ? new Uint16Array(W * H) : new Float32Array(W * H);
+    for (let p = 0; p < N; p++) { spec.fill(p, plane); await fh.write(new Uint8Array(plane.buffer), 0, planeBytes, 16 + p * planeBytes); }
+    const tags: Array<[number, number, number]> = [[256, 4, W], [257, 4, H], [258, 3, bps * 8], [259, 3, 1], [262, 3, 1], [273, 16, 0], [277, 3, 1], [278, 4, H], [279, 16, planeBytes], [284, 3, 1], [339, 3, spec.dtype === "uint16" ? 1 : 3]];
+    const ifdBytes = 8 + tags.length * 20 + 8;
+    const all = new Uint8Array(N * ifdBytes), dv = new DataView(all.buffer);
+    for (let p = 0; p < N; p++) {
+      const at = p * ifdBytes;
+      dv.setBigUint64(at, BigInt(tags.length), true);
+      tags.forEach(([tag, type, v], i) => {
+        const e = at + 8 + i * 20;
+        dv.setUint16(e, tag, true); dv.setUint16(e + 2, type, true); dv.setBigUint64(e + 4, 1n, true);
+        const value = tag === 273 ? 16 + p * planeBytes : v;
+        if (type === 3) dv.setUint16(e + 12, value, true); else if (type === 4) dv.setUint32(e + 12, value, true); else dv.setBigUint64(e + 12, BigInt(value), true);
+      });
+      dv.setBigUint64(at + 8 + tags.length * 20, BigInt(p + 1 < N ? ifd0 + (p + 1) * ifdBytes : 0), true);
+    }
+    await fh.write(all, 0, all.length, ifd0);
+    return ifd0 + all.length;
+  } finally { await fh.close(); }
+}

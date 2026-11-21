@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import type { VerbDef } from './registry';
+import type { CliArgSpec, VerbDef } from './registry';
+import type { TiffFlags } from './tiffPlace';
 import { text } from './registry';
 import { placeImage, setImageView, imageInfo } from './fluximg';
 
@@ -8,6 +9,22 @@ import { placeImage, setImageView, imageInfo } from './fluximg';
 const finite = () => z.number().finite();
 const crop = z.object({ x: finite(), y: finite(), width: finite().positive(), height: finite().positive() });
 const view = z.record(z.unknown());
+// How a TIFF's pages are read (flux-core/tiffPlace.ts); every field optional, the CLI flags map onto it.
+const tiff = z.object({
+  dims: z.string().optional(), transpose: z.boolean().optional(), flipX: z.boolean().optional(), flipY: z.boolean().optional(),
+  pixelSize: finite().positive().optional(), unit: z.string().optional(), dt: finite().positive().optional(), rate: finite().positive().optional(),
+  zStep: finite().positive().optional(), nodata: finite().optional(), lossless: z.boolean().optional(),
+  channels: z.union([z.array(z.string()), z.string()]).optional(), answer: z.unknown().optional(),
+});
+const TIFF_FLAGS: CliArgSpec[] = [
+  { kind: 'flag', at: 'dims', into: 'tiff.dims' }, { kind: 'flag', at: 'transpose', into: 'tiff.transpose', as: 'boolean' },
+  { kind: 'flag', at: 'flip-x', into: 'tiff.flipX', as: 'boolean' }, { kind: 'flag', at: 'flip-y', into: 'tiff.flipY', as: 'boolean' },
+  { kind: 'flag', at: 'pixel-size', into: 'tiff.pixelSize', as: 'number' }, { kind: 'flag', at: 'unit', into: 'tiff.unit' },
+  { kind: 'flag', at: 'dt', into: 'tiff.dt', as: 'number' }, { kind: 'flag', at: 'rate', into: 'tiff.rate', as: 'number' },
+  { kind: 'flag', at: 'z-step', into: 'tiff.zStep', as: 'number' }, { kind: 'flag', at: 'nodata', into: 'tiff.nodata', as: 'number' },
+  { kind: 'flag', at: 'lossless', into: 'tiff.lossless', as: 'boolean' }, { kind: 'flag', at: 'channels', into: 'tiff.channels', as: 'csv' },
+  { kind: 'flag', at: 'answer', into: 'tiff.answer', as: 'json' },
+];
 
 type Summary = { elementId: string; name: string | null; position: string[]; showing: string[]; objects?: string[]; warnings?: string[] };
 const words = (r: Summary): string => [
@@ -20,14 +37,15 @@ const words = (r: Summary): string => [
 export const FLUXIMG_VERBS: VerbDef[] = [
   {
     name: 'place_image', cli: 'place-image', cliRoot: 'flags', scope: 'project',
-    summary: 'Place an N-dimensional image (a .fluximg bundle) on a figure or slide. The target is a figure id, deckId/slideId or a slide id. The bundle folder (written by fluxplot) is copied into fig/assets once (a bundle whose content is already in the project is reused, not copied), adds an image element and answers with its resolved view. Optional x/y/width (canvas px; height follows the aspect), crop {x,y,width,height} in image pixels, and a sparse view such as {"index":{"z":12},"channels":[{"range":[100,4000]}],"furniture":{"scalebar":{}}}. On a slide the default size fits the stage.',
+    summary: 'Place an N-dimensional image (a .fluximg bundle) on a figure or slide. The target is a figure id, deckId/slideId or a slide id. The bundle folder (written by fluxplot) is copied into fig/assets once (a bundle whose content is already in the project is reused, not copied), adds an image element and answers with its resolved view. Optional x/y/width (canvas px; height follows the aspect), crop {x,y,width,height} in image pixels, and a sparse view such as {"index":{"z":12},"channels":[{"range":[100,4000]}],"furniture":{"scalebar":{}}}. On a slide the default size fits the stage. A .tif/.tiff is converted first: with clear metadata (OME, ImageJ, per-page JSON, named shape) it needs nothing more; otherwise it refuses with ranked proposals and the flags that pick each: tiff {dims "t,c=2" slowest first (one size may be rest), transpose, flipX, flipY, pixelSize + unit, dt or rate, zStep, nodata, lossless, channels} or tiff.answer (a full answer as image-info proposes).',
     notAPath: { figureId: 'Figure id, deckId/slideId or slide id, not a filesystem path' },
-    params: { figureId: z.string(), bundlePath: z.string(), x: finite().optional(), y: finite().optional(), width: finite().positive().optional(), name: z.string().optional(), crop: crop.optional(), view: view.optional() },
+    params: { figureId: z.string(), bundlePath: z.string(), x: finite().optional(), y: finite().optional(), width: finite().positive().optional(), name: z.string().optional(), crop: crop.optional(), view: view.optional(), tiff: tiff.optional() },
     pathParams: { bundlePath: 'path' },
     cliArgs: [{ kind: 'pos', at: 0, into: 'figureId', required: true }, { kind: 'pos', at: 1, into: 'bundlePath', required: true },
       ...['x', 'y', 'width'].map(at => ({ kind: 'flag' as const, at, into: at, as: 'number' as const })),
-      { kind: 'flag', at: 'name', into: 'name' }, { kind: 'flag', at: 'crop', into: 'crop', as: 'json' }, { kind: 'flag', at: 'view', into: 'view', as: 'json' }],
-    handler: (ctx, a) => placeImage(ctx.root, String(a.figureId), String(a.bundlePath), { x: a.x as number | undefined, y: a.y as number | undefined, width: a.width as number | undefined, name: a.name as string | undefined, crop: a.crop, view: a.view }),
+      { kind: 'flag', at: 'name', into: 'name' }, { kind: 'flag', at: 'crop', into: 'crop', as: 'json' }, { kind: 'flag', at: 'view', into: 'view', as: 'json' },
+      ...TIFF_FLAGS],
+    handler: (ctx, a) => placeImage(ctx.root, String(a.figureId), String(a.bundlePath), { x: a.x as number | undefined, y: a.y as number | undefined, width: a.width as number | undefined, name: a.name as string | undefined, crop: a.crop, view: a.view, tiff: a.tiff as TiffFlags | undefined }),
     render: {
       human: r => { const v = r as Summary & { assetId: string; reused: boolean; image: string }; return { out: JSON.stringify(r, null, 2), err: `✓ placed image ${v.elementId} (${v.image}; asset ${v.assetId}${v.reused ? ', already in the project: not copied again' : ''})${words(v) ? `\n${words(v)}` : ''}` }; },
       mcp: r => { const v = r as Summary & { assetId: string; reused: boolean; image: string }; return text(`placed image ${v.elementId} (${v.image}; asset ${v.assetId}${v.reused ? ', reused' : ''})\n${words(v)}\n${JSON.stringify(r)}`); },
@@ -51,7 +69,7 @@ export const FLUXIMG_VERBS: VerbDef[] = [
   },
   {
     name: 'image_info', cli: 'image-info', cliRoot: 'flags', scope: 'project', readOnly: true,
-    summary: 'Describe an N-dimensional image, or how an element shows it, without rendering. Takes an image element id (adds that element\'s box, crop, stored and resolved view, position in words such as "z 12/21 · −50.5 µm", and export size) or a fluximg asset id, and reports dimensions with units and positions, dtype and encoding, levels, channels with default ranges, min/max and percentiles (to choose contrast), layers with object counts and table columns (kind, distinct values, range: what styleBy can use), regions, and every placement.',
+    summary: 'Describe an N-dimensional image, or how an element shows it, without rendering. Takes an image element id (adds that element\'s box, crop, stored and resolved view, position in words such as "z 12/21 · −50.5 µm", and export size) or a fluximg asset id, and reports dimensions with units and positions, dtype and encoding, levels, channels with default ranges, min/max and percentiles (to choose contrast), layers with object counts and table columns (kind, distinct values, range: what styleBy can use), regions, and every placement. A .tif/.tiff path instead reports how its pages would be read (probe, ranked proposals with the place-image flags for each); nothing is converted.',
     params: { target: z.string() },
     cliArgs: [{ kind: 'pos', at: 0, into: 'target', required: true }],
     handler: (ctx, a) => imageInfo(ctx.root, String(a.target)),
