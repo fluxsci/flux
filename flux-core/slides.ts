@@ -1567,7 +1567,7 @@ export async function nodeImageIO(root: string, opts: { imageClipUrl?: (file: st
       encoder ??= imageClipEncoder();
       const baked = await bakeImageClip(root, asset, request, ease, { session, encoder: await encoder, signal: opts.signal, onProgress: opts.onImageClip });
       const url = opts.imageClipUrl ? await opts.imageClipUrl(baked.file, baked) : `data:video/mp4;base64,${(await fs.readFile(baked.file)).toString("base64")}`;
-      return { url, fps: baked.fps, frames: baked.frames, durationMs: baked.durationMs, width: baked.width, height: baked.height };
+      return { url, fps: baked.fps, frames: baked.frames, durationMs: baked.durationMs, width: baked.width, height: baked.height, ...(baked.loop ? { loop: true } : {}) };
     },
   };
 }

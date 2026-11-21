@@ -14,7 +14,10 @@
 //   H. a deck without images gathers and exports nothing new;  I. the exported runtimes' import graph and sizes;
 //   J. PDF (steps) and PowerPoint: the page of step k carries the still of step k, and the note;
 //   K. Paper: ordinary image warnings never trip the portable refusal, a missing bundle does;
-//   L. headless: export-deck executes over an image deck; the contact sheet renders it.
+//   L. headless: export-deck executes over an image deck; the contact sheet renders it;
+//   M. running movies (plan D7): one clip per look a movie runs with (a single pass; bounce there-and-back; looped
+//      natively), its frames the planes the pure clock shows; a pixel Change under a running movie warns naming its
+//      step and bakes no clip of its own; static documents note the movie and show the state's own plane.
 // The clip checks report themselves BLOCKED (native-encoder) when the pinned encoder is not installed; the no-encoder
 // fallback is tested by pointing FLUX_VIDEO_ENCODER at nothing.
 //
@@ -26,7 +29,7 @@ import { spawnSync, execFileSync } from "node:child_process";
 import { unzipSync, strFromU8 } from "fflate";
 import { Resvg } from "@resvg/resvg-js";
 import { harness } from "./lib/harness.mjs";
-import { makeProject, standardDeck, V0, V1, V2 } from "./lib/fluximgSlideExportFixture";
+import { makeProject, standardDeck, movieDeck, MOVIE, V0, V1, V2 } from "./lib/fluximgSlideExportFixture";
 
 const h = harness("verify-fluximg-slide-export");
 execFileSync(process.execPath, ["scripts/gen-slide-embed-assets.mjs"], { stdio: "pipe" });
@@ -346,6 +349,54 @@ try {
     const { deckSheetSvg } = await import("../flux-core/connect/images");
     const sheet = await deckSheetSvg(P.root, deck, 0, 1);
     h.ok(sheet.includes("data:image/png") && !sheet.includes("could not render"), "the contact sheet renders the image slide");
+  }
+
+  // ------------------------------------------------------------------------------------------------------------------
+  h.section("M. running movies: one clip per look, the pure clock's planes");
+  {
+    const { playbackPlane } = await import("../src/lib/slide/mediaTimeline");
+    let same = true;
+    for (const mode of ["loop", "bounce", "once"] as const) {
+      const p = { dim: "t", mode, from: 2, to: 8, periodMs: 100 }, planes = CP.playbackPlanes(p);
+      for (let pos = 0; pos < 3000; pos += 7) {
+        const k = Math.floor(CP.playbackClipTime(pos, p) * 1000 / p.periodMs);
+        if (planes[k] !== p.from + playbackPlane(pos, 600, mode, 6).plane) same = false;
+      }
+    }
+    h.ok(same, "a movie clip's frame at any clock position is the plane mediaTimeline.playbackPlane gives (loop, bounce, once)");
+    h.eq(CP.playbackPlanes({ dim: "t", mode: "bounce", from: 2, to: 6, periodMs: 100 }), [2, 3, 4, 5, 4, 3], "bounce is baked there and back, the end planes once (a native loop is the bounce)");
+    const mdeck = await movieDeck(P);
+    const r = await P.slidesCore.gatherDeckPayload(P.root, "talk", undefined, { refreshSources: false });
+    const movieClips = Object.entries(r.payload.imageClips ?? {}).filter(([k]) => k.startsWith("fxp-")) as Array<[string, any]>;
+    h.ok(r.warnings.some((w: string) => /movie runs through the Change at step 2/.test(w)), "a pixel Change under a running movie warns, naming its step");
+    h.ok(!Object.keys(r.payload.imageClips ?? {}).some((k) => k.startsWith("fxc-")), "and bakes no Change clip of its own (the movie's clip is what shows)");
+    if (!encoder) blocked("M. movie clips");
+    else {
+      h.ok(movieClips.length === 2 && movieClips.every(([, c]) => c.loop === true && c.frames === 10 && c.fps === 10 && c.durationMs === 1000), `two movie clips (the look before and after the Change), each one bounce of 6 planes = 10 frames at 10 fps, looped natively`);
+      const melement = mdeck.slides[0].elements.find((e: any) => e.type === "fluximg") as any;
+      const state = { view: resolveView(m, mdeck.slides[0].elements.find((e: any) => e.id === melement.id)!.view as any), crop: { x: 0, y: 0, width: 64, height: 48 } };
+      const pb = { dim: MOVIE.dim, mode: MOVIE.mode, from: MOVIE.from, to: MOVIE.to, periodMs: 100 };
+      const key = CP.playbackLookupKey(m, assetId, state, pb);
+      const clip = r.payload.imageClips?.[key];
+      if (h.ok(!!clip, "the step-1 look's clip is under the key the exported player computes from the frame it shows")) {
+        const file = path.join(P.scratch, "movie.mp4");
+        await fs.writeFile(file, Buffer.from(clip.url.slice(clip.url.indexOf(",") + 1), "base64"));
+        const frames = decodeClip(file, clip.width, clip.height);
+        const planes = CP.playbackPlanes(pb);
+        let ok = true, worst = 0;
+        for (let k = 0; k < frames.length; k++) {
+          const pic = { view: { ...state.view, index: { ...state.view.index, t: planes[k] } }, crop: state.crop };
+          const d = diff(frames[k], await reference({ a: pic, b: null, mix: 0, blend: null, overlay: pic, furnitureOpacity: {} }, clip.width, clip.height, "#000000"));
+          worst = Math.max(worst, d.mean); if (d.mean > BOUND.mean || d.max > BOUND.max) ok = false;
+        }
+        h.ok(frames.length === 10 && ok, `every movie frame is its plane (${planes.join(" ")}), worst mean ${worst.toFixed(3)}/255`);
+      }
+    }
+    const io = { readText: (p: string) => fs.readFile(p, "utf8"), readFile: (p: string) => fs.readFile(p), ...nodeSlideImageIO(P.root, session) };
+    const pdf = await deckPdfDocument(P.root, "talk", io as any, "steps");
+    const pages = pdf.html.split('<div class="page">').slice(1);
+    h.ok(pdf.warnings.includes(IMAGE_STILL_NOTE) && pages[1].includes(stillOfStep[0]), "PDF: the movie's step shows the state's own plane (the Design still), with the note");
+    h.ok(pages.every((pg) => /data-part="inset"/.test(pg)) && /data-part="inset"/.test(renderSlidePosterSvg(r.payload, 1)), "a blow-out's frame is outlined on the image in every PDF page and poster (insets in static writers)");
   }
 } catch (error) {
   h.fail(`unexpected: ${error instanceof Error ? error.stack : String(error)}`);

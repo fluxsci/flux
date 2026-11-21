@@ -12,7 +12,7 @@
  */
 import type { FluximgElement } from "../../types";
 import type { FluximgManifest, FluximgLayer } from "../../fluximg/types";
-import type { FluximgSurface, FluximgSurfaceMotion } from "../../fluximg/slideHost";
+import type { FluximgMovieClock, FluximgSurface, FluximgSurfaceMotion } from "../../fluximg/slideHost";
 import type { PixelRect, ResolvedFurniture, ResolvedLayer } from "../../fluximg/view";
 import { planViewTween, withIndex, type TweenPicture, type ViewTweenFrame, type ViewTweenPlan } from "../../fluximg/viewTween";
 import { pixelKey, resolveView } from "../../fluximg/viewOps";
@@ -396,7 +396,7 @@ export interface SlideFluximgBinding {
    * (the Change's frame, or its resting state), or clear it with null. Composes with the frame through `withIndex`.
    * Takes effect at the next `flush()`, which may be called outside the player's paint() for this binding alone.
    */
-  setIndexOverride(override: { dim: string; index: number } | null): void;
+  setIndexOverride(override: { dim: string; index: number; clock?: FluximgMovieClock } | null): void;
   /** Decode ahead along `dim`: the next `count` positions in `direction` (+1 / -1) at `stride`, from the shown frame. */
   decodeAhead(dim: string, direction: 1 | -1, stride?: number, count?: number): void;
   /** The picture this binding shows now (its crop and `insetOf`), or null before its manifest is known. */
@@ -422,7 +422,7 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
   let el = element, frame: ViewTweenFrame | null = null, motion: FluximgMotion | undefined;
   let surface: FluximgSurface | undefined, drawnKey = "", pending = false, disposed = false, intersects = true, needing = false;
   let stillKey = "", failed: Error | undefined, allowLive = false;
-  let override: { dim: string; index: number } | null = null, overridden: { from: ViewTweenFrame; dim: string; index: number; out: ViewTweenFrame } | null = null;
+  let override: { dim: string; index: number; clock?: FluximgMovieClock } | null = null, overridden: { from: ViewTweenFrame; dim: string; index: number; out: ViewTweenFrame } | null = null;
   let insetList: ReadonlyArray<{ id: string; crop: PixelRect }> = [];
   const liveCanvas = (): HTMLCanvasElement => surface?.canvas ?? canvas;
   /** The frame shown: the Change's (or the resting state), with a running clip's position over it. */
@@ -570,10 +570,12 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
       const key = frameKey(manifest, f, width, height);
       // A frame that waited for its planes is drawn by the surface the moment they land: nothing to ask again.
       if (key === drawnKey && pending && surface?.exact) { pending = false; setPending(handle, false); }
-      if (key !== drawnKey || pending || (motion && surface?.clocked)) {
+      // A host playing baked clips (exported deck) gets the movie's clock with the frame (W7).
+      const drawMotion: FluximgSurfaceMotion | undefined = override?.clock ? { ...motion, movie: override.clock } : motion;
+      if (key !== drawnKey || pending || (drawMotion && surface?.clocked)) {
         if (!surface?.shown) showStill(manifest, f.a);
         surface ??= ctx.fluximg.surface(canvas);
-        pending = !surface.draw(el.assetId, f, width, height, motion);
+        pending = !surface.draw(el.assetId, f, width, height, drawMotion);
         // A surface that hands the picture back to the still (an exported clip at its end) is shown by the still of THIS
         // frame, in the same task: never a frame of the old still.
         if (!surface.shown) showStill(manifest, f.a);

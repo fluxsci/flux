@@ -20,6 +20,8 @@ import type { ResolvedCurve } from "./curves";
 import { compileSlide, type CompiledSlide } from "./compile";
 import { planViewTween } from "../fluximg/viewTween";
 import { isHandoff } from "./targets";
+import { insetsOf } from "../fluximg/static";
+import { familyOf } from "./family";
 import { presetParam } from "./presetCatalog";
 import { transformEndState, transformPreState } from "./tween";
 
@@ -98,7 +100,7 @@ export function slideImageChanges(compiled: CompiledSlide): ImageChange[] {
 
 /** The static writers' image context over a payload (PDF, PPTX, Paper posters, contact sheets): `exportStatic`'s
  *  composer finds each step's still by the request it computes itself. Undefined for a payload without images. */
-export function payloadImageSvgContext(payload: PayloadImages): FluximgSvgContext | undefined {
+export function payloadImageSvgContext(payload: PayloadImages, elements?: ReadonlyArray<{ id: string; type: string; hidden?: boolean }>): FluximgSvgContext | undefined {
   const images = payload.images;
   if (!images || !Object.keys(images).length) return undefined;
   const assets = new Map(Object.entries(images).map(([id, image]) => [id, payloadImageAsset(id, image.manifest)]));
@@ -109,7 +111,8 @@ export function payloadImageSvgContext(payload: PayloadImages): FluximgSvgContex
     stillOf: (key) => payload.assets?.[`${IMAGE_STILL_PREFIX}${key}`],
     layerTextOf: (id, path) => images[id]?.texts?.[path],
     tableOf: (id, path) => images[id]?.tables?.[path],
-    insetsOf: () => [],
+    // Blow-outs of an image on the same slide (their frames outlined on it), from the page's evaluated elements.
+    insetsOf: (id) => { const shown = (elements ?? []).filter((e) => !e.hidden), me = shown.find((e) => e.id === id) as { assetId?: string } | undefined; return me?.assetId ? insetsOf(shown, id, me.assetId) : []; },
     resolveLut: (name) => lutOf(images, name),
   };
 }
@@ -123,13 +126,16 @@ export function lutOf(images: Record<string, ExportImage> | undefined, name: str
 /** True when some image Change of the payload's slides moves pixels: a static document notes once that the movie was
  *  exported as a still (`IMAGE_STILL_NOTE`). */
 export function payloadImagesMove(payload: PayloadImages & { deck: { slides: import("./types").Slide[]; stage: import("./types").StageSize; animStyles?: import("./types").Deck["animStyles"] } }): boolean {
-  const images = payload.images;
-  if (!images || !Object.keys(images).length) return false;
+  const imgs = payload.images;
+  if (!imgs || !Object.keys(imgs).length) return false;
   for (const slide of payload.deck.slides) {
     if (!slide.elements.some((e) => e.type === "fluximg")) continue;
+    // An image movie (Start / Pause / Stop) moves pixels too: a page shows the plane its state holds.
+    const images = new Set(slide.elements.filter((e) => e.type === "fluximg").map((e) => e.id));
+    if (slide.beats.some((b, bi) => bi > 0 && b.tracks.some((t) => !t.disabled && images.has(t.target) && familyOf(t) === "media"))) return true;
     const compiled = compileSlide(slide, payload.deck.stage, { animStyles: payload.deck.animStyles });
     for (const c of slideImageChanges(compiled)) {
-      const m = images[c.assetId]?.manifest;
+      const m = imgs[c.assetId]?.manifest;
       if (!m) continue;
       try { if (planViewTween(m, { view: c.pre.view, crop: c.pre.crop }, { view: c.end.view, crop: c.end.crop }, { blend: c.blend }).pixels) return true; } catch { /* a Change the plan refuses shows as stills anyway */ }
     }

@@ -14,14 +14,33 @@ import type { TweenPicture, ViewTweenFrame, ViewTweenPlan } from "./viewTween";
  * of this Change by it (`clipPlan.clipLookupKey`) and the clip time by `raw`.
  */
 export interface FluximgSurfaceMotion {
-  plan: ViewTweenPlan;
+  /** The Change (absent when only a movie drives the frame). */
+  plan?: ViewTweenPlan;
   /** Linear progress of the Change, 0..1. */
-  raw: number;
+  raw?: number;
+  /** A running image movie (plan D7) overriding `index[movie.dim]` of this frame: its pure clock, so a host playing
+   *  baked clips plays the movie's own clip natively from the same clock. */
+  movie?: FluximgMovieClock;
   track?: string;
   durationMs?: number;
   /** `ResolvedCurve.key` of the track. */
   curve?: string;
   blend?: boolean;
+}
+
+/** Where an image movie stands (`mediaTimeline.playbackPlane` maps it to a plane), sampled at `at` (performance.now). */
+export interface FluximgMovieClock {
+  dim: string;
+  mode: "loop" | "bounce" | "once";
+  /** Planes `from` (inclusive) to `to` (exclusive), each `periodMs` long (speed applied). */
+  from: number;
+  to: number;
+  periodMs: number;
+  /** ms since Start, at `at`. */
+  positionMs: number;
+  /** True while the movie's clock runs (Start, not paused by Pause, the player or the document). */
+  running: boolean;
+  at: number;
 }
 
 export interface FluximgSlideHost {

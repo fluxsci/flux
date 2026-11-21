@@ -42,6 +42,26 @@ export interface ImageClip {
   durationMs: number;
   width: number;
   height: number;
+  /** A movie clip (loop and bounce play with the decoder's own loop). */
+  loop?: boolean;
+}
+
+/** A running movie's setting as a clip needs it (`playback.resolvePlayback`, speed applied to `periodMs`). */
+export interface ClipPlayback { dim: string; mode: "loop" | "bounce" | "once"; from: number; to: number; periodMs: number }
+
+/** What one running movie asks of a baker: ONE pass of its range at its rate, drawn with the picture the image has
+ *  while it runs (`state`: its view and crop at the step; only `index[dim]` walks). Loop: the pass, looped natively;
+ *  bounce: there and back (the end planes once), looped natively; once: the pass, its last frame held. */
+export interface ImagePlaybackRequest {
+  kind: "playback";
+  assetId: string;
+  contentId: string;
+  state: ViewEnd;
+  playback: ClipPlayback;
+  width: number;
+  height: number;
+  matte: string;
+  lookup: string;
 }
 
 /** What one Change asks of a baker (everything its pixels depend on; `key` names it in caches). */
@@ -129,6 +149,47 @@ export function planImageClip(manifest: FluximgManifest, plan: ViewTweenPlan, ea
   return { fps, frames, distinct };
 }
 
+/** The plane sequence of a movie clip: loop and once = the range; bounce = there and back, the end planes once. */
+export function playbackPlanes(p: ClipPlayback): number[] {
+  const n = Math.max(1, p.to - p.from), out: number[] = [];
+  for (let k = 0; k < n; k++) out.push(p.from + k);
+  if (p.mode === "bounce") for (let k = n - 2; k >= 1; k--) out.push(p.from + k);
+  return out;
+}
+
+/** The frames of a movie clip: one per plane of `playbackPlanes`, the state's picture at that plane, at the movie's
+ *  own rate (one frame per plane period). */
+export function planPlaybackClip(manifest: FluximgManifest, state: TweenPicture, p: ClipPlayback, width: number, height: number): ImageClipPlan & { planes: number[] } {
+  const planes = playbackPlanes(p), frames: ClipFrame[] = [];
+  for (const i of planes) {
+    const pic: TweenPicture = { view: { ...state.view, index: { ...state.view.index, [p.dim]: i } }, crop: state.crop };
+    const frame: ViewTweenFrame = { a: pic, b: null, mix: 0, blend: null, overlay: pic, furnitureOpacity: {} };
+    frames.push({ raw: 0, frame, key: clipFrameKey(manifest, frame, width, height) });
+  }
+  let distinct = 0;
+  for (let i = 0; i < frames.length; i++) if (!i || frames[i].key !== frames[i - 1].key) distinct++;
+  return { fps: 1000 / p.periodMs, frames, distinct, planes };
+}
+
+/** The encoder's frame rate of a movie clip as an exact rational (one frame per plane period, microsecond grid). */
+export const playbackRate = (periodMs: number): string => `1000000/${Math.max(1, Math.round(periodMs * 1000))}`;
+
+/** Clip time (seconds, mid-frame) of a movie `positionMs` after its Start: the same planes `mediaTimeline.playbackPlane`
+ *  gives, as positions in the clip (loop: modulo the pass; bounce: modulo there-and-back; once: clamped to the last). */
+export function playbackClipTime(positionMs: number, p: ClipPlayback): number {
+  const n = Math.max(1, p.to - p.from), k = Math.floor(Math.max(0, positionMs) / p.periodMs + 1e-9);
+  const frames = p.mode === "bounce" ? Math.max(1, 2 * (n - 1)) : n;
+  const i = p.mode === "once" ? Math.min(n - 1, k) : k % frames;
+  return ((i + 0.5) * p.periodMs) / 1000;
+}
+
+/** How the exported player finds a running movie's clip: the asset, the picture it runs with (its index on the movie's
+ *  dimension set to the range start), and the movie's setting. */
+export function playbackLookupKey(manifest: FluximgManifest, assetId: string, picture: TweenPicture, p: ClipPlayback): string {
+  const at = { ...picture.view, index: { ...picture.view.index, [p.dim]: p.from } };
+  return `fxp-${shortHash(`${assetId}|${pixelKey(manifest, at, picture.crop, 0, 0)}|${p.dim}|${p.mode}|${p.from}|${p.to}|${Math.round(p.periodMs * 1000)}`)}`;
+}
+
 /** Clip time (seconds) of the frame the clock shows at linear progress `raw` (the middle of that frame's interval, so a
  *  decoder seek never lands on the frame before it). */
 export function clipSeekTime(raw: number, durationMs: number, fps: number, frames: number): number {
@@ -210,6 +271,7 @@ export function clipLookupKey(manifest: FluximgManifest, assetId: string, plan: 
 }
 
 /** The cache identity of a baked clip: everything its bytes depend on, plus the encoder and its settings. */
-export function imageClipCacheKey(request: ImageClipRequest, fps: number, frames: number, encoder: string, settings: string): string {
-  return `fxc-${shortHash(JSON.stringify([IMAGE_CLIP_FORMAT, request.kind, request.contentId, request.pre, request.end, request.blend, request.curve, request.durationMs, fps, frames, request.width, request.height, request.matte, encoder, settings]))}`;
+export function imageClipCacheKey(request: ImageClipRequest | ImagePlaybackRequest, fps: number, frames: number, encoder: string, settings: string): string {
+  const what = request.kind === "playback" ? [request.state, request.playback] : [request.pre, request.end, request.blend, request.curve, request.durationMs];
+  return `fxc-${shortHash(JSON.stringify([IMAGE_CLIP_FORMAT, request.kind, request.contentId, ...what, fps, frames, request.width, request.height, request.matte, encoder, settings]))}`;
 }

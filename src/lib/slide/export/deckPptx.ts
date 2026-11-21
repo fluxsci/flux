@@ -354,7 +354,7 @@ async function elementXml(ctx: SlideContext, el: Element): Promise<string | null
     case "fluximg": {
       // One picture per image at 2x (the model3d rule): the step's still with its vector layers and furniture
       // rasterised over it, since a slide picture cannot hold both.
-      const images = payloadImageSvgContext(ctx.payload);
+      const images = payloadImageSvgContext(ctx.payload, ctx.ev.elements);
       const composed = fluximgElementMarkup({ ...el, x: 0, y: 0 }, images);
       if (!images || !composed.includes("data:image/png")) {
         const note = `Slide ${ctx.source}: image "${el.name || el.id}" has no rendered still for this build state; showing its frame`;

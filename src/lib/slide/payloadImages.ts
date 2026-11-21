@@ -15,7 +15,10 @@ import type { ResolvedView } from "../fluximg/view";
 import { fluximgLayerFiles, fluximgStillRequest, fluximgTableFiles, type FluximgStillRequest } from "../fluximg/exportStatic";
 import { resolveView } from "../fluximg/viewOps";
 import { planViewTween } from "../fluximg/viewTween";
-import { evenClipSize, clipLookupKey, type ImageClip, type ImageClipRequest } from "../fluximg/clipPlan";
+import { evenClipSize, clipLookupKey, playbackLookupKey, type ImageClip, type ImageClipRequest, type ImagePlaybackRequest } from "../fluximg/clipPlan";
+import { resolvePlayback } from "../fluximg/playback";
+import { clampCrop } from "../fluximg/crop";
+import { familyOf } from "./family";
 import { sanitizeLayerSvg } from "../fluximg/layers";
 import { wantsTable } from "../fluximg/static";
 import { DEFAULT_STYLE_LUT } from "../fluximg/objectStyle";
@@ -38,7 +41,7 @@ export interface SlideImageIO {
   imageTable?(asset: Asset, path: string): Promise<FluximgTable>;
   /** The clip of a Change that moves pixels (baked or from the render cache), with its carrier URL. Absent (static
    *  writers, the live Paper preview): stills only. Throws `ImageClipUnavailable` when no encoder can bake it. */
-  imageClip?(asset: Asset, request: ImageClipRequest, ease: (raw: number) => number): Promise<ImageClip>;
+  imageClip?(asset: Asset, request: ImageClipRequest | ImagePlaybackRequest, ease: (raw: number) => number): Promise<ImageClip>;
 }
 
 /** Thrown by an `imageClip` hook that has no encoder: the deck exports with stills and ONE warning. */
@@ -152,12 +155,14 @@ export async function gatherImages(o: GatherImagesOptions): Promise<{ images?: R
     for (let step = 0; step < Math.max(1, slide.beats.length); step++) {
       for (const el of compiled.sample(step).elements) if (el.type === "fluximg") { const j = still(el as FluximgElement, label(el as FluximgElement)); if (j) jobs.push(j); }
     }
+    const movies = slideMovies(slide);
     for (const change of slideImageChanges(compiled)) {
       const manifest = manifests.get(change.assetId), asset = sources.get(change.assetId);
       if (!manifest || !asset) continue;
       // The ends of a Change are drawn too (a with-prev chain can start a Change from a state no step rests in).
       for (const el of [change.pre, change.end]) { const j = still(el, label(change.pre)); if (j) jobs.push(j); }
-      if (!io.imageClip || noEncoder) continue;
+      // Under a running movie the movie's clip is what the image shows: this Change bakes no clip of its own.
+      if (!io.imageClip || noEncoder || movies.some((mv) => mv.target === change.target && mv.runningAt(change.beat))) continue;
       let plan;
       try { plan = planViewTween(manifest, { view: change.pre.view, crop: change.pre.crop }, { view: change.end.view, crop: change.end.crop }, { blend: change.blend }); }
       catch (error) { warnings.push(`image "${label(change.pre)}": its Change at step ${change.beat} is shown as stills (${reason(error)})`); continue; }
@@ -180,6 +185,39 @@ export async function gatherImages(o: GatherImagesOptions): Promise<{ images?: R
         else warnings.push(`image "${label(change.pre)}": the movie of its Change at step ${change.beat} could not be made (${reason(error)}); exported as a still`);
       }
     }
+    // Running movies (Start / Pause / Stop, plan D7): one clip per look the movie runs with (each step's state from its
+    // first Start on), a single pass of its range at its rate. A pixel-setting Change while it runs keeps the clip it
+    // started with until the Change ends (the exported deck's limit): said once per step.
+    for (const movie of movies) {
+      const design = slide.elements.find((e) => e.id === movie.target) as FluximgElement | undefined;
+      const manifest = design && manifests.get(design.assetId), asset = design && sources.get(design.assetId);
+      if (!design || !manifest || !asset) continue;
+      const playback = resolvePlayback(manifest, design.playback);
+      if (!playback) continue;
+      const p = { dim: playback.dim, mode: playback.mode, from: playback.from, to: playback.to, periodMs: playback.periodMs };
+      for (const change of slideImageChanges(compiled)) if (change.target === movie.target && movie.runningAt(change.beat)) {
+        try {
+          if (planViewTween(manifest, { view: change.pre.view, crop: change.pre.crop }, { view: change.end.view, crop: change.end.crop }, { blend: change.blend }).pixels)
+            warnings.push(`image "${label(design)}": its movie runs through the Change at step ${change.beat}; the exported deck keeps the movie's look until that Change ends, then plays the movie with the new look`);
+        } catch { /* a refused plan is reported above */ }
+      }
+      if (!io.imageClip || noEncoder) continue;
+      for (let step = movie.firstStart; step < Math.max(1, slide.beats.length); step++) {
+        const el = compiled.sample(step).elements.find((e) => e.id === movie.target) as FluximgElement | undefined;
+        if (!el || el.type !== "fluximg") continue;
+        const picture = { view: resolveView(manifest, el.view), crop: clampCrop(manifest, el.crop) };
+        const lookup = playbackLookupKey(trimmed(images, el.assetId), el.assetId, picture, p);
+        if (clips[lookup]) continue;
+        const still = fluximgStillRequest(el, asset, manifest, 2), size = evenClipSize(still.outWidth, still.outHeight);
+        const request: ImagePlaybackRequest = { kind: "playback", assetId: el.assetId, contentId: asset.sha256 ?? asset.id, state: { view: el.view ?? null, crop: el.crop ?? null }, playback: p, width: size.width, height: size.height, matte: matteOf(slide, deck), lookup };
+        try { clips[lookup] = await io.imageClip(asset, request, (r) => r); }
+        catch (error) {
+          if (error instanceof ImageClipUnavailable || (error as Error)?.name === "ImageClipUnavailable") { noEncoder = true; warnings.push(IMAGE_NO_ENCODER_NOTE); break; }
+          else if ((error as Error)?.name === "AbortError") throw error;
+          else warnings.push(`image "${label(el)}": its movie could not be made (${reason(error)}); exported as a still`);
+        }
+      }
+    }
     await Promise.all(jobs);
   }
   await Promise.all([...stillJobs.values()]);
@@ -199,6 +237,21 @@ export async function gatherImages(o: GatherImagesOptions): Promise<{ images?: R
     if (image.tables) image.tables = Object.fromEntries(Object.entries(image.tables).sort(([a], [b]) => a.localeCompare(b)));
   }
   return { images, ...(Object.keys(clips).length ? { imageClips: clips } : {}) };
+}
+
+/** The images of a slide that take movie commands: the first step with a Start, and whether the movie runs at a step's
+ *  start (Start ... Pause / Stop, in step order; with-prev timing inside a step is ignored for this warning only). */
+function slideMovies(slide: Slide): Array<{ target: string; firstStart: number; runningAt(beat: number): boolean }> {
+  const images = new Set(slide.elements.filter((e) => e.type === "fluximg").map((e) => e.id));
+  const by = new Map<string, Array<{ beat: number; preset: string }>>();
+  slide.beats.forEach((b, bi) => { if (bi > 0) for (const t of b.tracks) if (!t.disabled && images.has(t.target) && familyOf(t) === "media") (by.get(t.target) ?? by.set(t.target, []).get(t.target)!).push({ beat: bi, preset: t.preset ?? "" }); });
+  const out: Array<{ target: string; firstStart: number; runningAt(beat: number): boolean }> = [];
+  for (const [target, commands] of by) {
+    const starts = commands.filter((c) => c.preset === "videoStart");
+    if (!starts.length) continue;
+    out.push({ target, firstStart: starts[0].beat, runningAt: (beat) => { let on = false; for (const c of commands) if (c.beat < beat || (c.beat === beat && c.preset === "videoStart")) on = c.preset === "videoStart"; return on; } });
+  }
+  return out;
 }
 
 /** The lookup key is computed on the TRIMMED manifest: the exported player has only that one. */

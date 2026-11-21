@@ -15,11 +15,11 @@
  *
  * Without images in the payload `payloadImageContext` returns `{}`: a deck without images builds nothing here.
  */
-import type { FluximgSlideContext, FluximgSlideHost, FluximgSurface, FluximgSurfaceMotion } from "../../fluximg/slideHost";
+import type { FluximgMovieClock, FluximgSlideContext, FluximgSlideHost, FluximgSurface, FluximgSurfaceMotion } from "../../fluximg/slideHost";
 import type { FluximgManifest } from "../../fluximg/types";
 import type { TweenPicture, ViewTweenFrame } from "../../fluximg/viewTween";
 import { pixelKey } from "../../fluximg/viewOps";
-import { clipLookupKey, clipSeekTime, type ImageClip } from "../../fluximg/clipPlan";
+import { clipLookupKey, clipSeekTime, playbackClipTime, playbackLookupKey, type ImageClip } from "../../fluximg/clipPlan";
 import { IMAGE_STILL_PREFIX, lutOf } from "../imageExport";
 import type { ExportPayload } from "./runtime";
 
@@ -143,25 +143,28 @@ export function payloadImageHost(payload: ExportPayload, options: { capture?: bo
       this.presented = false; this.exact = false;
     }
 
-    draw(assetId: string, _frame: ViewTweenFrame, _w: number, _h: number, motion?: FluximgSurfaceMotion): boolean {
+    draw(assetId: string, frame: ViewTweenFrame, _w: number, _h: number, motion?: FluximgSurfaceMotion): boolean {
       clearTimeout(this.stall);
+      // A running image movie takes precedence: its own clip, on its own clock (a Change under it moves the box only).
+      if (motion?.movie) return this.drawMovie(assetId, frame, motion.movie);
+      this.movieKey = "";
       const now = performance.now();
-      const clip = motion ? this.clipFor(assetId, motion) : null;
-      if (!clip || !motion || !(motion.raw > 0 && motion.raw < 1)) {
+      const raw = motion?.raw, clip = motion?.plan && raw !== undefined ? this.clipFor(assetId, motion) : null;
+      if (!clip || raw === undefined || !(raw > 0 && raw < 1)) {
         // At rest, before the Change starts, at its end or without a clip: the still is the picture (D5, law 4). A clip
         // that waits at its first frame stays loaded (the next draw plays it without a fetch).
-        if (clip && motion && motion.raw <= 0) { this.load(clip); this.seekTo(clipSeekTime(0, clip.durationMs, clip.fps, clip.frames)); }
+        if (clip && raw !== undefined && raw <= 0) { this.load(clip); this.seekTo(clipSeekTime(0, clip.durationMs, clip.fps, clip.frames)); }
         this.hide(); this.exact = true; this.lastRaw = -1;
         { const w = this.waiters; this.waiters = []; for (const r of w) r(); }
         return true;
       }
       const v = this.load(clip);
-      const tau = (motion.raw * clip.durationMs) / 1000;
+      const tau = (raw * clip.durationMs) / 1000;
       // The clock RUNS (play, at rate ~1) when consecutive frames come at frame cadence and advance the Change by about the
       // wall time between them; anything else is a seek: a scripted seek, a jump, a reversed or warped clock, a capture.
-      const dWall = now - this.lastDraw, dClip = (motion.raw - this.lastRaw) * clip.durationMs;
+      const dWall = now - this.lastDraw, dClip = (raw - this.lastRaw) * clip.durationMs;
       const forward = !options.capture && this.lastRaw >= 0 && dWall > 0 && dWall < RUN_GAP_MS && dClip > 0 && dClip / dWall > 0.5 && dClip / dWall < 2;
-      this.lastRaw = motion.raw; this.lastDraw = now;
+      this.lastRaw = raw; this.lastDraw = now;
       if (forward) {
         // Native playback at rate 1, in step with the clock.
         if (v.paused) { this.seekTo(tau); v.play().catch(() => undefined); counters.plays++; }
@@ -172,19 +175,53 @@ export function payloadImageHost(payload: ExportPayload, options: { capture?: bo
       } else {
         // A seek, a scrub, a reversed clock or a capture frame: the decoder shows exactly the frame of this time.
         if (!v.paused) v.pause();
-        this.seekTo(clipSeekTime(motion.raw, clip.durationMs, clip.fps, clip.frames));
+        this.seekTo(clipSeekTime(raw, clip.durationMs, clip.fps, clip.frames));
       }
+      return this.reveal(v);
+    }
+    /** Show the video once it presents what was asked (until then the still under it stays: D4, never blank). */
+    private reveal(v: HTMLVideoElement): boolean {
       this.wantVisible = true;
       if (this.presented && v.readyState >= 2) {
         if (v.style.display !== "block") v.style.display = "block";
         this.shown = true;
       }
-      // Until the decoder presents, the canvas side is not shown: the still under it stays (D4: never blank).
       return this.shown && this.exact;
+    }
+    private movieKey = "";
+    /**
+     * A running movie (plan D7): its baked clip (one pass, looped natively for loop and bounce) placed at the movie's
+     * pure clock. The clock's owner (`player/fluximgMedia.ts`) calls this on every plane it shows and whenever its running
+     * state changes, so the video plays natively between calls and pauses / seeks exactly when the clock does.
+     * A pixel-setting Change under a running movie keeps the clip it started with and switches to the clip baked for its
+     * end state at its end (the exported deck's limit; the export warns naming the step).
+     */
+    private drawMovie(assetId: string, frame: ViewTweenFrame, clock: FluximgMovieClock): boolean {
+      this.lastRaw = -1;
+      const m = images![assetId]?.manifest;
+      const key = m ? playbackLookupKey(m, assetId, frame.a, clock) : "";
+      let clip = payload.imageClips?.[key] ?? null;
+      if (clip) this.movieKey = key;
+      else if (this.movieKey && this.clip) clip = payload.imageClips?.[this.movieKey] ?? null;
+      if (!clip) { this.hide(); this.exact = true; return true; }
+      const v = this.load(clip);
+      if (v.loop !== !!clip.loop) v.loop = !!clip.loop;
+      const now = performance.now(), position = clock.positionMs + (clock.running ? now - clock.at : 0);
+      const target = playbackClipTime(position, clock), span = clip.frames / clip.fps;
+      if (clock.running && !options.capture) {
+        const off = Math.abs(((v.currentTime - target + span * 1.5) % span) - span / 2);
+        if (v.paused) { this.seekTo(target); v.play().catch(() => undefined); counters.plays++; }
+        else if (off > Math.max(DRIFT_S, 0.5 / clip.fps) && now - this.resyncAt > RESYNC_COOLDOWN_MS) { this.resyncAt = now; this.seekTo(target); counters.resyncs++; }
+        else this.target = v.currentTime;
+      } else {
+        if (!v.paused) v.pause();
+        this.seekTo(target);
+      }
+      return this.reveal(v);
     }
     private clipFor(assetId: string, motion: FluximgSurfaceMotion): ImageClip | null {
       const m = images![assetId]?.manifest, clips = payload.imageClips;
-      if (!m || !clips) return null;
+      if (!m || !clips || !motion.plan) return null;
       return clips[clipLookupKey(m, assetId, motion.plan, motion)] ?? null;
     }
     private load(clip: ImageClip): HTMLVideoElement {

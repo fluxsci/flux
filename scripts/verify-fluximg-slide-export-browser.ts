@@ -9,6 +9,9 @@
 //   - Play: native playback in step with the clock, the end still swapped in at the end (law 4), never a blank;
 //   - animated Back (reverse) and a scrub seek the decoder to the clock; leaving the step shows the step's still;
 //   - the CAPTURE document (MP4 of a slide) seeks the same clip once per captured frame to exactly the clip frame;
+//   - a running image movie (plan D7): Start plays its baked clip natively and looped while the slide rests, a seek
+//     lands on the plane the pure clock gives, Pause and a blanked screen pause it, Stop hands back to the state's own
+//     still; the capture document seeks it per frame to the clock's plane; a blow-out's frame is outlined (insets);
 //   - no console errors, no CSP violation, zero animation callbacks at rest.
 // Without the pinned encoder the clip checks report BLOCKED (native-encoder) and the still-only checks still run.
 //
@@ -17,7 +20,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { harness } from "./lib/harness.mjs";
-import { makeProject, standardDeck } from "./lib/fluximgSlideExportFixture";
+import { makeProject, standardDeck, movieDeck, MOVIE } from "./lib/fluximgSlideExportFixture";
 
 const h = harness("verify-fluximg-slide-export-browser");
 const P = await makeProject();
@@ -204,6 +207,79 @@ try {
         if (Math.floor(t * p.clip.fps) === k && d.mean <= BOUND.mean && d.max <= BOUND.max) ok++; else notes.push(`frame ${i}: beat ${at.beat} t ${at.time.toFixed(0)} want ${k} got ${(t * p.clip.fps).toFixed(2)} mean ${d.mean.toFixed(2)}`);
       }
       h.ok(checked >= 5 && ok === checked, `${ok}/${checked} captured frames show exactly the clip frame for their time, within the bound${notes.length ? `: ${notes.join("; ")}` : ""}`);
+    }
+  }
+
+  if (encoder) {
+    h.section("a running movie: native, looped, on the pure clock; Pause, blank and Stop");
+    const errsBefore = errors(page).length;
+    const mdeck = await movieDeck(P);
+    const mslide = mdeck.slides[0], mel = mslide.elements.find((e: any) => e.id === el.id) as any;
+    const mout = await P.slidesCore.exportDeck(P.root, "talk", { refreshSources: false, out: path.join(P.scratch, "movie.html") });
+    h.ok(mout.warnings.some((w: string) => /movie runs through the Change at step 2/.test(w)), "the export warns about the Change under the running movie, naming its step");
+    await page.goto(pathToFileURL(mout.path).href); await page.waitForFunction("!!window.fluxDeck?.readyMedia"); await page.evaluate("window.fluxDeck.readyMedia()");
+    const mstate = () => page.evaluate(`(() => { const v = document.querySelector('[data-slide-fluximg-root="${mel.id}"] video[data-slide-fluximg-clip]'); const s = window.fluxDeck.state(); const still = document.querySelector('[data-slide-fluximg-root="${mel.id}"] [data-fluximg-still]');
+      return { media: s.mediaPlaying, playing: s.playing, v: v && { t: v.currentTime, paused: v.paused, loop: v.loop, shown: v.style.display === 'block', ready: v.readyState, seeking: v.seeking }, still: still?.style.display !== 'none' ? still?.querySelector('image')?.getAttribute('href') ?? '' : '', inset: !!document.querySelector('[data-slide-fluximg-root="${mel.id}"] [data-part="inset"]') }; })()`);
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    h.ok((await mstate()).inset, "the blow-out's frame is outlined on the image in the exported overlay (insets)");
+    await page.keyboard.press("ArrowRight"); await wait(350);
+    const a = await mstate(); await wait(400); const b = await mstate();
+    h.ok(a.v?.shown && !a.v.paused && a.v.loop && b.v?.shown && !b.v.paused && !b.playing && b.media, `Start plays the movie's clip natively and looped; it keeps running while the slide rests (t ${a.v?.t.toFixed(2)} -> ${b.v?.t.toFixed(2)} s)`);
+    await page.keyboard.press("b"); await wait(150);
+    const blank = await mstate();
+    await page.keyboard.press("b"); await wait(250);
+    const back = await mstate();
+    h.ok(blank.v?.paused && !back.v?.paused, "blanking the screen pauses the movie, unblanking resumes it");
+    // exact: a seek lands on the clock's plane (bounce 2..7 at 10/s, 350 ms after Start = plane index 3 = t 5)
+    await page.evaluate("window.fluxDeck.seek(0, 1, 350)");
+    await page.waitForFunction(`(() => { const v = document.querySelector('[data-slide-fluximg-root="${mel.id}"] video[data-slide-fluximg-clip]'); return v && v.paused && !v.seeking && v.readyState >= 2 && v.style.display === 'block'; })()`, { timeout: 15000 });
+    const sk = await mstate();
+    const px = Buffer.from(await page.evaluate(`(() => { const v = document.querySelector('[data-slide-fluximg-root="${mel.id}"] video[data-slide-fluximg-clip]'); const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
+      const g = c.getContext('2d'); g.drawImage(v, 0, 0); const d = g.getImageData(0, 0, c.width, c.height).data; let s = ''; for (let i = 0; i < d.length; i += 32768) s += String.fromCharCode(...d.subarray(i, i + 32768)); return btoa(s); })()`), "base64");
+    const base = compileSlide(mslide, mdeck.stage, {}).sample(1).elements.find((e: any) => e.id === mel.id) as any;
+    const { resolveView } = await import("../src/lib/fluximg/viewOps");
+    const ref = async (t: number) => { const view = resolveView(manifest, { ...(base.view ?? {}), index: { ...(base.view?.index ?? {}), t } }); const pic = { view, crop: { x: 0, y: 0, width: 64, height: 48 } }; return reference({ a: pic, b: null, mix: 0, blend: null, overlay: pic, furnitureOpacity: {} }, 640, 480); };
+    const right = diff(px, await ref(5)), next = diff(px, await ref(6));
+    h.ok(Math.floor(sk.v!.t * 10) === 3 && right.mean <= BOUND.mean && next.mean > 3 * right.mean, `a seek 350 ms into the movie shows plane t 5, as the pure clock says (mean ${right.mean.toFixed(2)}; t 6: ${next.mean.toFixed(2)})`);
+    await page.evaluate("window.fluxDeck.seek(0, 3, Infinity)"); await wait(150);
+    const paused = await mstate();
+    h.ok(paused.v?.paused && !paused.media, "after Pause the movie's clip is paused");
+    await page.evaluate("window.fluxDeck.seek(0, 5, Infinity)"); await wait(150);
+    const stopped = await mstate();
+    const exportedM = JSON.parse((await fs.readFile(mout.path, "utf8")).split('id="flux-payload">')[1].split("</script>")[0].replace(/\\u003c/g, "<"));
+    const stillStop = exportedM.assets[imageStillRef(assetId, fluximgStillRequest(compileSlide(mslide, mdeck.stage, {}).sample(5).elements.find((e: any) => e.id === mel.id) as any, asset, manifest, 2).key)];
+    h.ok(!stopped.v?.shown && stopped.still === stillStop, "Stop hands back to the state's own still (its own plane)");
+    h.eq(errors(page).length, errsBefore, "the movie deck plays with a clean console");
+
+    h.section("a running movie in the capture document: one seek per frame, the clock's plane");
+    {
+      const { videoEventsForPlan, sampleImagePlayback } = await import("../src/lib/slide/mediaTimeline");
+      const mediaDir = path.join(P.scratch, "capture-movie"); await fs.mkdir(mediaDir, { recursive: true });
+      const { payload } = await P.slidesCore.gatherDeckPayload(P.root, "talk", mslide.id, { refreshSources: false, imageClipUrl: async (file: string, clip: { key: string }) => { const to = path.join(mediaDir, `${clip.key}.mp4`); await fs.copyFile(file, to); return pathToFileURL(to).href; } });
+      const options = videoOptions({ height: 720, fps: 30, startHoldMs: 0, stepDelayMs: 1000, endHoldMs: 0 });
+      const doc = path.join(mediaDir, "capture.html");
+      await fs.writeFile(doc, await exportSlideVideoHtml(payload, options));
+      await page.goto(pathToFileURL(doc).href);
+      const info = await page.evaluate("window.fluxVideoReady");
+      await page.addStyleTag({ content: "[data-slide-fluximg-root] > svg:last-child { visibility: hidden }" });
+      await page.setViewport({ width: info.width, height: info.height, deviceScaleFactor: 1 });
+      const box = await page.evaluate(`(() => { const r = document.querySelector('[data-slide-fluximg-root="${mel.id}"]').getBoundingClientRect(); return { x: Math.round(r.left), y: Math.round(r.top) }; })()`);
+      const mcompiled = compileSlide(payload.deck.slides[0], payload.deck.stage, {});
+      const timing = { resolvedTracks: mcompiled.cues.map((c: any) => c.tracks.map((t: any) => t.track)) };
+      const plan = planSlideVideo(payload.deck.slides[0], mcompiled.cues.map((c: any) => c.duration), options, timing);
+      const events = videoEventsForPlan(payload.deck.slides[0], plan, timing);
+      let checked = 0, ok = 0; const notes: string[] = [];
+      for (let i = 1; i < info.frames && checked < 6; i += 5) {
+        const at = (i * 1000) / plan.fps, smp = sampleImagePlayback(events, mel.id, at, 600, MOVIE.mode, 6);
+        const step = videoFrame(plan, i);
+        if (!smp.started || step.beat !== 1) continue;
+        await page.evaluate(`window.fluxVideo.frame(${i})`);
+        const shot = decodePng(new Uint8Array(await page.screenshot({ clip: { x: box.x, y: box.y, width: 640, height: 480 }, type: "png", fromSurface: true })));
+        const want = MOVIE.from + smp.plane, d = diff(shot.rgba, await ref(want));
+        checked++;
+        if (d.mean <= BOUND.mean) ok++; else notes.push(`frame ${i}: want t ${want}, mean ${d.mean.toFixed(2)}`);
+      }
+      h.ok(checked >= 4 && ok === checked, `${ok}/${checked} captured frames of the running movie show the plane the pure clock gives${notes.length ? `: ${notes.join("; ")}` : ""}`);
     }
   }
 

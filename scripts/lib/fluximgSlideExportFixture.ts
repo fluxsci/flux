@@ -74,3 +74,26 @@ export async function standardDeck(P: Awaited<ReturnType<typeof makeProject>>, d
   });
   return (await P.slidesCore.loadDeck(P.root, "talk"));
 }
+
+/** A movie deck (plan D7) on the same image: bounce over t 2..7 at 10 planes/s; b1 Start, b2 a contrast Change while it
+ *  runs, b3 Pause, b4 Start again, b5 Stop. */
+export const MOVIE = { dim: "t", mode: "bounce" as const, from: 2, to: 8, fps: 10 };
+export async function movieDeck(P: Awaited<ReturnType<typeof makeProject>>) {
+  await P.slidesCore.mutateDeck(P.root, "talk", "fixture", (deck: any) => {
+    deck.defaults.transition = "none";
+    const s = deck.slides[0], el = s.elements.find((e: any) => e.type === "fluximg");
+    el.view = V0; el.x = 40; el.y = 20; el.width = 320; el.height = 240; delete el.crop; el.playback = MOVIE;
+    // A blow-out of the image (its frame is outlined on the image: insets in the overlay and in static writers).
+    s.elements = s.elements.filter((e: any) => e.id !== "blowout");
+    s.elements.push({ type: "fluximg", id: "blowout", name: "Blow-out", assetId: el.assetId, x: 400, y: 20, width: 160, height: 120, rotation: 0, crop: { x: 16, y: 12, width: 32, height: 24 }, view: { ...structuredClone(V0), insetOf: el.id } });
+    const cmd = (preset: string) => ({ id: `m-${preset}-${Math.random().toString(36).slice(2, 7)}`, target: el.id, preset });
+    s.beats = [s.beats[0],
+      { id: "m1", tracks: [cmd("videoStart")] },
+      { id: "m2", tracks: [{ id: "mc", target: el.id, preset: "transform", start: 0, duration: 1000, easing: "linear", to: { state: { view: view({ index: { t: 0 }, channels: [{ range: [600, 2200] }, { range: [300, 1800] }] }) } } }] },
+      { id: "m3", tracks: [cmd("videoPause")] },
+      { id: "m4", tracks: [cmd("videoStart")] },
+      { id: "m5", tracks: [cmd("videoStop")] },
+    ];
+  });
+  return P.slidesCore.loadDeck(P.root, "talk");
+}

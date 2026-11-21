@@ -22,7 +22,9 @@ import { renderStill } from "../src/lib/fluximg/still";
 import { planViewTween, type TweenPicture } from "../src/lib/fluximg/viewTween";
 import { pixelKey } from "../src/lib/fluximg/viewOps";
 import { ensureColormapLuts } from "../src/lib/color/colormapLuts";
-import { frameLayers, imageClipCacheKey, matteRgba, mixRgba, planImageClip, tweenPictureView, type ImageClip, type ImageClipRequest } from "../src/lib/fluximg/clipPlan";
+import { frameLayers, imageClipCacheKey, matteRgba, mixRgba, planImageClip, planPlaybackClip, playbackRate, tweenPictureView, type ImageClip, type ImageClipPlan, type ImageClipRequest, type ImagePlaybackRequest } from "../src/lib/fluximg/clipPlan";
+import { resolveView } from "../src/lib/fluximg/viewOps";
+import { clampCrop } from "../src/lib/fluximg/crop";
 import { ImageClipUnavailable } from "../src/lib/slide/payloadImages";
 import { fluximgReader, fluximgRenderSession, resolveFluximgLut, type FluximgRenderSession } from "./fluximgRender";
 import { safeJoin } from "./model";
@@ -82,8 +84,9 @@ function timedReader(reader: FluximgReader, stats: { readMs: number }): FluximgR
   return { ...reader, level: time(reader.level.bind(reader)), array: time(reader.array.bind(reader)), readRegion: time(reader.readRegion.bind(reader)), readPlane: time(reader.readPlane.bind(reader)), readChunk: time(reader.readChunk.bind(reader)) } as FluximgReader;
 }
 
-/** The clip of `request` (baked, or found in the cache). Throws `ImageClipUnavailable` without an encoder. */
-export async function bakeImageClip(root: string, asset: Asset, request: ImageClipRequest, ease: (raw: number) => number, options: BakeOptions = {}): Promise<BakedClip> {
+/** The clip of `request` (baked, or found in the cache): a Change (with its curve `ease`) or a running movie (`ease`
+ *  unused). Throws `ImageClipUnavailable` without an encoder. */
+export async function bakeImageClip(root: string, asset: Asset, request: ImageClipRequest | ImagePlaybackRequest, ease: (raw: number) => number, options: BakeOptions = {}): Promise<BakedClip> {
   const t0 = performance.now();
   const encoder = options.encoder === undefined ? await imageClipEncoder() : options.encoder;
   if (!encoder) throw new ImageClipUnavailable();
@@ -91,13 +94,20 @@ export async function bakeImageClip(root: string, asset: Asset, request: ImageCl
   const session = options.session ?? fluximgRenderSession();
   const base = await fluximgReader(root, asset, session);
   const manifest = base.manifest;
-  const plan = planViewTween(manifest, request.pre, request.end, { blend: request.blend });
   const { width: W, height: H } = request;
-  const clip = planImageClip(manifest, plan, ease, request.durationMs, W, H);
+  let clip: ImageClipPlan, rate: string, durationMs: number;
+  if (request.kind === "playback") {
+    const state: TweenPicture = { view: resolveView(manifest, request.state.view), crop: clampCrop(manifest, request.state.crop) };
+    clip = planPlaybackClip(manifest, state, request.playback, W, H);
+    rate = playbackRate(request.playback.periodMs); durationMs = clip.frames.length * request.playback.periodMs;
+  } else {
+    clip = planImageClip(manifest, planViewTween(manifest, request.pre, request.end, { blend: request.blend }), ease, request.durationMs, W, H);
+    rate = String(clip.fps); durationMs = request.durationMs;
+  }
   const key = imageClipCacheKey(request, clip.fps, clip.frames.length, encoder.identity, settingsKey(settings));
   const dir = options.cacheDir ?? safeJoin(root, "fig/renders/fluximg");
   const file = path.join(dir, `${key}.mp4`);
-  const meta = { fps: clip.fps, frames: clip.frames.length, durationMs: request.durationMs, width: W, height: H, key };
+  const meta = { fps: clip.fps, frames: clip.frames.length, durationMs, width: W, height: H, key, ...(request.kind === "playback" && request.playback.mode !== "once" ? { loop: true } : {}) };
   try { const st = await fs.stat(file); if (st.isFile() && st.size > 0) return { ...meta, file, cached: true }; } catch { /* a miss: bake */ }
   if (options.signal?.aborted) throw aborted();
 
@@ -127,7 +137,7 @@ export async function bakeImageClip(root: string, asset: Asset, request: ImageCl
   const { VIDEO_COLOR_FILTER, VIDEO_COLOR_TAGS } = colorConstants();
   const tmp = path.join(dir, `.${key}.tmp-${randomUUID()}.mp4`);
   const child = spawn(encoder.path, ["-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-    "-f", "rawvideo", "-pix_fmt", "rgba", "-s", `${W}x${H}`, "-framerate", String(clip.fps), "-i", "pipe:0",
+    "-f", "rawvideo", "-pix_fmt", "rgba", "-s", `${W}x${H}`, "-framerate", rate, "-i", "pipe:0",
     "-an", "-vf", VIDEO_COLOR_FILTER, "-c:v", "libx264", "-preset", settings.preset, ...(settings.tune ? ["-tune", settings.tune] : []), "-crf", String(settings.crf),
     "-g", String(settings.gop), "-keyint_min", String(Math.min(settings.gop, 1)), "-sc_threshold", "0", "-bf", "0",
     ...VIDEO_COLOR_TAGS, "-threads", "2", "-movflags", "+faststart", "-f", "mp4", tmp], { stdio: ["pipe", "ignore", "pipe"], windowsHide: true });
