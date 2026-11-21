@@ -245,7 +245,8 @@ export function commitDeckLive<T>(fn: (deck: Deck) => T, opts?: { coalesce?: str
     }));
     proj.assets = [
       ...deck.assets,
-      ...proj.assets.filter((a) => externalAssets.has(a.id) && !deck.assets.some((d) => d.id === a.id)),
+      // an image bundle (fluximg) is external by KIND (a deck never owns one), whether resolved at load or imported since
+      ...proj.assets.filter((a) => (externalAssets.has(a.id) || a.kind === "fluximg") && !deck.assets.some((d) => d.id === a.id)),
     ];
     // The overlay store object is REPLACED after the write (below); mutate the
     // captured `o` here so the companion snapshot (taken by beginGesture before
