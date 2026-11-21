@@ -592,6 +592,10 @@
     return null;
   })();
   $: if ($fluximgLive && paneActive && !["select", "scale"].includes($activeTool)) closeFluximgLive();
+  /** The live view's board asks for room (boardLayout.boardFit): scale about a host point, then pan; one view change. */
+  function moveViewForBoard(f: import("./fluximg/live/boardLayout").BoardFit) {
+    viewport.update((v) => ({ zoom: v.zoom * f.scale, panX: f.about.x + (v.panX - f.about.x) * f.scale + f.dx, panY: f.about.y + (v.panY - f.about.y) * f.scale + f.dy }));
+  }
   $: modelOverlayItems = paneActive ? canvasFigures.flatMap(fig => (visibleByFig.get(fig.id) ?? []).filter(el => el.type === "model3d" && $modelPreviews[el.id] && !absentPresentationIds.has(el.id)).map(el => ({ fig, el }))) : [];
   onDestroy(() => { finishModelOrbit(); clearModelPreviews(); });
 
@@ -6274,7 +6278,7 @@
   {/if}
   {#if fluximgLiveItem}
     {#key fluximgLiveItem.el.id}
-      <FluximgLiveOverlay element={fluximgLiveItem.el} beginPan={() => { spaceDown = true; }} left={$viewport.panX + (fluximgLiveItem.fig.x + fluximgLiveItem.el.x) * $viewport.zoom} top={$viewport.panY + (fluximgLiveItem.fig.y + fluximgLiveItem.el.y) * $viewport.zoom} zoom={$viewport.zoom} />
+      <FluximgLiveOverlay element={fluximgLiveItem.el} beginPan={() => { spaceDown = true; }} moveView={moveViewForBoard} left={$viewport.panX + (fluximgLiveItem.fig.x + fluximgLiveItem.el.x) * $viewport.zoom} top={$viewport.panY + (fluximgLiveItem.fig.y + fluximgLiveItem.el.y) * $viewport.zoom} zoom={$viewport.zoom} />
     {/key}
   {/if}
   {#if tiffAskFig && $tiffAsk}

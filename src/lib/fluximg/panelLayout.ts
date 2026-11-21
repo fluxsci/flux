@@ -70,3 +70,29 @@ export function insetLayout(figure: FigureSize, src: PanelBox, aspect: number, g
   const m = Math.min(8, src.width * 0.02);
   return { place: "inside", box: { x: src.x + src.width - w - m, y: src.y + m, width: w, height: h } };
 }
+
+/** What `familyOf` reads of an element (any figure element will do). */
+export interface FamilyElement {
+  id: string; type: string; assetId?: string; x: number; y: number; width: number; height: number; rotation?: number; hidden?: boolean;
+  view?: { link?: string; insetOf?: string } | null;
+}
+
+/**
+ * The panels an image has given rise to, which its live view keeps in view (`live/boardLayout.ts`, the KEPT boxes):
+ * the other elements of the same image that share its `view.link` (the channel panels of a split and their composite;
+ * a blow-out and its parent), and its insets (`view.insetOf` = it). Hidden ones are not on screen and are left out.
+ * `elements` are one figure's (a slide's) elements: panels never span figures.
+ */
+export function familyOf<T extends FamilyElement>(elements: readonly T[], el: T): T[] {
+  const link = el.view?.link;
+  return elements.filter((e) => e.id !== el.id && e.type === el.type && !e.hidden && e.assetId === el.assetId
+    && ((!!link && e.view?.link === link) || e.view?.insetOf === el.id));
+}
+
+/** The axis-aligned box an element covers on its figure (rotation about its centre included). */
+export function boundsOf(e: { x: number; y: number; width: number; height: number; rotation?: number }): PanelBox {
+  const r = ((e.rotation ?? 0) * Math.PI) / 180;
+  if (!r) return { x: e.x, y: e.y, width: e.width, height: e.height };
+  const c = Math.abs(Math.cos(r)), s = Math.abs(Math.sin(r)), w = e.width * c + e.height * s, h = e.width * s + e.height * c;
+  return { x: e.x + e.width / 2 - w / 2, y: e.y + e.height / 2 - h / 2, width: w, height: h };
+}

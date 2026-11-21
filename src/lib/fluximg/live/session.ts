@@ -195,11 +195,19 @@ export function fluximgLiveUnavailable(id: string): string | null {
 }
 
 /** Open the live view on an image. Returns false (and opens nothing) when it cannot. */
+/**
+ * The board asks the canvas view to make room (`boardLayout.boardFit`) once its instruments are measured: when the
+ * view opens, and after it made new panels (a split, an inset). A store, not a component's state: the overlay is
+ * remounted when its image scrolls out of sight and back, and that must not move the view again.
+ */
+export const fluximgFitDue = writable(false);
+
 export function openFluximgLive(id: string): boolean {
   if (fluximgLiveUnavailable(id)) return false;
   closeFluximgLive();
   selection.set(new Set([id]));
   fluximgLive.set({ elementId: id, channel: 0, armed: null, playing: null, speed: 1 });
+  fluximgFitDue.set(true);
   return true;
 }
 
@@ -214,6 +222,7 @@ export function closeFluximgLive(): void {
   fluximgTip.set(null);
   fluximgLiveProblem.set("");
   fluximgPreview.set(null);
+  fluximgFitDue.set(false);
   fluximgLive.set(null);
 }
 

@@ -75,6 +75,9 @@ export interface Settings {
   // Paper — margin comments.
   paperCommentColor: string; // the highlight under commented text (#rrggbb)
   paperCommentTags: string[]; // your tags, "name" or "name=#rrggbb" (lib/project/commentTags.ts)
+  // Images — how Split channels draws its panels: each channel in its colour from the merged image (the default,
+  // owner 2026-11-21) or in gray. The live view's Split key remembers the form last used (Shift+S: the other).
+  fluximgSplitLook: "color" | "gray";
   // App — updates.
   updateCheck: boolean; // check GitHub releases for a newer version (packaged app only)
 }
@@ -131,6 +134,7 @@ const DEFAULTS: Settings = {
   paperCorrectionDialect: "american",
   paperCommentColor: COMMENT_COLOR_DEFAULT,
   paperCommentTags: [],
+  fluximgSplitLook: "color",
   updateCheck: true,
 };
 
@@ -195,6 +199,7 @@ export function decodeSettings(value: unknown): Settings {
     cursorPressDepth: { ...CURSOR_PRESS_DEPTH_RANGE }, cursorPressReturnMs: { ...CURSOR_PRESS_RETURN_RANGE },
     cursorCentre: { enum: CURSOR_CENTRES }, cursorResizeStyle: { enum: CURSOR_RESIZE_STYLES },
     paperCorrectionDialect: { enum: ["american", "british", "canadian", "australian"] },
+    fluximgSplitLook: { enum: ["color", "gray"] },
     paperCommentColor: { maxLength: 7 }, paperCommentTags: { strings: true, maxLength: 64 },
   });
 }

@@ -21,16 +21,16 @@
   import { furnitureInset } from "../furniture";
   import { clampCrop, fullCrop } from "../still";
   import { insetsOf } from "../static";
-  import type { SplitLayout } from "../panelLayout";
   import { contributingChannelIndices, formatNumber, resolveView } from "../viewOps";
   import type { FluximgElement } from "../../types";
   import FluximgBoard from "./FluximgBoard.svelte";
-  import { channelInHand, defaultArmed, dragContrast, makeInset, moveInset, panFrame, setFurnitureCorner, type FurnitureSpot } from "./actions";
+  import { channelInHand, defaultArmed, dragContrast, insetPlan, makeInset, moveInset, panFrame, setFurnitureCorner, type BoardGhosts, type FurnitureSpot } from "./actions";
+  import type { BoardFit } from "./boardLayout";
   import { LiveDriver, type FrameInfo } from "./driver";
   import { fluximgTables, needTable, objectCells, tableOf } from "./objectTables";
   import { cancelLiveEdit, fluximgFrame, fluximgHover, fluximgLive, fluximgLiveProblem, fluximgPreview, fluximgReadout, fluximgStylePreview, fluximgTip, liveArm, livePointer, liveSampler, setLive, settleLiveEdit } from "./session";
 
-  let { element, left, top, zoom, beginPan }: { element: FluximgElement; left: number; top: number; zoom: number; beginPan: () => void } = $props();
+  let { element, left, top, zoom, beginPan, moveView = undefined }: { element: FluximgElement; left: number; top: number; zoom: number; beginPan: () => void; moveView?: (f: BoardFit) => void } = $props();
 
   const asset = $derived($project.assets.find((a) => a.id === element.assetId && a.kind === "fluximg"));
   const manifest = $derived(asset ? $fluximgManifests[asset.id] : undefined);
@@ -222,6 +222,10 @@
       e.preventDefault(); e.stopPropagation();
       const p = imagePoint(e.clientX, e.clientY, true);
       if (p) drawn = { ...drawn, x1: p.x, y1: p.y };
+      // While the box is drawn, where its inset will go (and, on the board, where the instruments will stand then).
+      const w = Math.abs(drawn.x1 - drawn.x0), h = Math.abs(drawn.y1 - drawn.y0);
+      const at = w >= 2 && h >= 2 ? insetPlan(w / h) : null;
+      if (at || insetGhost) { insetGhost = !!at; preview = at ? { ghosts: [{ box: at.box, label: "inset", wash: "" }], adds: at.place !== "inside" } : null; }
       return;
     }
     lastMove = e;
@@ -252,6 +256,7 @@
     const rect = drawn && e.type === "pointerup" ? { x: Math.min(drawn.x0, drawn.x1), y: Math.min(drawn.y0, drawn.y1), width: Math.abs(drawn.x1 - drawn.x0), height: Math.abs(drawn.y1 - drawn.y0) } : null;
     const cancelled = e.type !== "pointerup";
     pan = null; pull = null; drawn = null;
+    if (insetGhost) { insetGhost = false; preview = null; }
     if (rect) {
       // The rectangle becomes an inset; the image keeps its frame and outlines the inset's region. One is enough:
       // the view lets go of the inset tool.
@@ -457,13 +462,13 @@
   }
 
   // --- what a hovered key would do, drawn on the figure ---------------------------------------------
-  let preview = $state.raw<null | { kind: "split"; plan: SplitLayout }>(null);
+  let preview = $state.raw<BoardGhosts>(null);
+  /** The preview is the inset of the box being drawn (not a key's). */
+  let insetGhost = false;
   const origin = $derived({ x: left - element.x * zoom, y: top - element.y * zoom });
   const previewBoxes = $derived.by(() => {
     if (!preview) return [];
-    const at = (b: { x: number; y: number; width: number; height: number }, label: string) => ({ x: origin.x + b.x * zoom, y: origin.y + b.y * zoom, w: b.width * zoom, h: b.height * zoom, label });
-    const names = rv?.channels.map((c) => c.name) ?? [];
-    return [...(preview.plan.place === "inPlace" ? [at(preview.plan.source, "all")] : []), ...preview.plan.channels.map((b, i) => at(b, names[i] ?? String(i + 1)))];
+    return preview.ghosts.map((g) => ({ x: origin.x + g.box.x * zoom, y: origin.y + g.box.y * zoom, w: g.box.width * zoom, h: g.box.height * zoom, label: g.label, wash: g.wash }));
   });
 
   const turn = $derived(`rotate(${element.rotation}deg)`);
@@ -529,7 +534,7 @@
 {/each}
 
 {#each previewBoxes as b, i (i)}
-  <div class="fx-preview" style={`left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px`} aria-hidden="true"><span>{b.label}</span></div>
+  <div class="fx-preview" style={`left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px${b.wash ? `;background:${b.wash}` : ""}`} aria-hidden="true" data-fxb-ghost><span>{b.label}</span></div>
 {/each}
 
 {#if card}
@@ -541,7 +546,7 @@
 {/if}
 
 {#if manifest && rv && host.w > 0}
-  <FluximgBoard image={bounds} host={{ w: host.w, h: host.h }} {origin} {zoom} prefetch={(dim, steps) => driver?.prefetch(dim, steps)} bind:preview />
+  <FluximgBoard image={bounds} host={{ w: host.w, h: host.h }} {origin} {zoom} prefetch={(dim, steps) => driver?.prefetch(dim, steps)} bind:preview {moveView} />
 {/if}
 
 <style>
@@ -592,7 +597,9 @@
   .fx-grip:hover { box-shadow: 0 0 0 1px var(--c-guide); background: color-mix(in oklab, var(--c-guide) 12%, transparent); }
   .fx-grip.held { cursor: grabbing; box-shadow: 0 0 0 1.5px var(--c-guide); background: color-mix(in oklab, var(--c-guide) 20%, transparent); }
 
-  .fx-preview { position: absolute; z-index: 2; box-sizing: border-box; display: grid; place-items: center; pointer-events: none; border: 1.5px dashed var(--c-guide); background: color-mix(in oklab, var(--c-guide) 13%, transparent); border-radius: 2px; }
+  /* Above the board (z 3) while a key previews: a ghost the console stands on now is still seen (the console's place to
+     come is outlined beside it); it never takes the pointer, so the key under it stays hovered. */
+  .fx-preview { position: absolute; z-index: 4; box-sizing: border-box; display: grid; place-items: center; pointer-events: none; border: 1.5px dashed var(--c-guide); background: color-mix(in oklab, var(--c-guide) 13%, transparent); border-radius: 2px; }
   .fx-preview span { padding: 1px 8px; border-radius: 9px; background: var(--flx-paper); color: var(--flx-magenta-600); font: 600 10.5px var(--font-mono); white-space: nowrap; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); max-width: 90%; overflow: hidden; text-overflow: ellipsis; }
 
   /* The object under the pointer, named beside it. */

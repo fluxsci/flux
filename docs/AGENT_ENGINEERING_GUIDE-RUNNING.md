@@ -4098,8 +4098,42 @@ opens with a header that states its law. Read those before changing one. The par
   **Where they stand** is `boardLayout.ts` (pure, gated in `verify-fluximg-live`): depth left,
   console right, layers outermost; a wide, low image takes console and layers under it; the
   sides swap as the canvas gets tight; only an image that fills the canvas has instruments over
-  its edges. Law: nothing covers the image while there is room, nothing covers anything else,
-  everything is inside the canvas. The console's height is measured (`bind:offsetHeight`), the
+  its edges. Law (2026-11-21, F4): every instrument asked for is wholly inside the canvas and in
+  sight; nothing covers the picture, a KEPT panel or another instrument while any arrangement
+  allows it. **Kept panels** are what the image gave rise to: the elements of the same image
+  sharing its `view.link` (a split's channel panels and their composite, so a board opened on a
+  panel keeps its siblings) and its insets (`view.insetOf`): `panelLayout.familyOf`. The
+  instruments step past them as they stand off the picture. **Give-way order, pinned**: (a)
+  rearrange at full height (sides swap, layers under the console, the step card BESIDE the
+  console instead of under it, the console under a wide image); (b) compact the console down to
+  `BOARD.consoleMinH` (it scrolls; its keypad is `position: sticky` at its foot, never clipped);
+  (c) cover the least of a kept panel; (d) the picture last. Arrangements are STOOD and SCORED
+  (`solve` → `rank`), never estimated: the old `shortfall()` never counted the step card, so on a
+  short slide canvas the layers card left the canvas with h = 0 (review B6). ~26 µs per run for
+  the largest case (two rails, depth, layers, step card, four kept panels); it runs on open and
+  when an input changes, never per frame. **The view makes room first**: `boardFit` is the
+  shortest pan, else the least zoom out about the image's centre (never below 96 px on the
+  image's longer side; never when the image alone is larger than the canvas: the user zoomed in),
+  that stands everything clear; the board asks for it once its console is measured, when it opens
+  and after a split or an inset (`session.fluximgFitDue`, a store so a remount when the image
+  scrolls away and back does not move the view again), through Canvas's `moveViewForBoard` (the
+  display viewport, so a slide's presentation transform is respected). One instant view change,
+  like every programmatic view change in the canvas (none animates). **Previews are honest**: a
+  key showing new panels (Split, an inset being drawn or pulled from the frame) also draws a
+  dashed outline (`[data-fxb-after]`) where each instrument that will move will stand once they
+  exist; the press moves it there once; when even that would not stand clear the readout says
+  "The view will make room for them". Gates: `verify-fluximg-board-room-gui` (split 2 / 4 channels,
+  insets right and below, opened later and on a panel) and `verify-fluximg-board-slide-dock-gui`
+  (Slide with the animator dock open, 1440 x 900 and 1280 x 720).
+  **Split channels has two looks** (`splitLook.ts`, pure): each panel in its channel's colour from
+  the merged image (default, owner 2026-11-21) or in gray. S splits in the look last used
+  (`settings.fluximgSplitLook`), Shift+S the other (remembered); a lamp on the key shows it and the
+  ghosts are washed in it (Shift while hovering previews the other). With panels present the key
+  is lit and FLIPS them (one undo, no new panels); a panel whose colouring is neither gray nor the
+  composite's was recoloured by hand and is left alone. A composite's channel colour change
+  reaches the panels coloured like it (`ops.setFluximgView` + `splitLook.followPatch`, so the
+  headless `set-image-view` does the same): a gray panel stays gray; a panel's own recolouring
+  never reaches the composite. The console's height is measured (`bind:offsetHeight`), the
   layers card reports the height it would like (`onnatural`). A click on the canvas closes the
   view (the selection moves), so everything that LOOKS like part of the board must swallow its
   presses: the gaps of up to 24 px between the image and the instrument beside it (`.bridge`),
@@ -13930,3 +13964,19 @@ an image whose bundle is not in the project, by name. `set-track --stagger-by co
 - flux-core's deck save keeps a slide's key order as loaded; the app's fold writes `groups` after `elements`. A
   test that adds `groups` to a loaded slide must keep that order, or byte comparisons fail for the wrong reason.
 - `ColorField`'s hex input selects on focus; a triple-click deselects it again: press Ctrl+A before typing.
+
+### 2026-11-21 — The image board's layout and coloured channel split-outs (Claude Opus 5.5, `s2/fix-layout`, fluximg stage 2 F4)
+**Work:** owner: "the r-menu should ALSO not obscure the thing that was just split out" and "the option for the channel
+split outs to retain the color they had in the merged image". `boardLayout.ts` now stands every arrangement and
+scores it (kept panels, the step card counted: review B6), with a pinned give-way order and `boardFit` (the view makes
+room on open and after a split or an inset). `splitLook.ts`: split panels in colour (default) or gray, S / Shift+S,
+a lamp, the flip, the composite's colour followed by coloured panels (in `ops.setFluximgView`). The rules are in §4
+"The live view is a CONTROL BOARD". Gates: `verify-fluximg-live` (sweep, oracle, fit, cost), `verify-fluximg-split-look`,
+`verify-fluximg-board-room-gui`, `verify-fluximg-board-slide-dock-gui`; `verify-fluximg-export` exports coloured panels.
+**Learnings:**
+- A board instrument that moves under the pointer when a key is hovered unhovers the key (and the preview flickers):
+  preview where instruments WILL stand (dashed outlines) instead of moving them on hover.
+- Under `tsx` every closure created in a hot loop costs (esbuild's keepNames wraps each in `__name`): the layout took
+  175 µs in the gate and 51 µs bundled until the per-arrangement closures were hoisted (26 µs either way).
+- The board's key handler swallows a bare Shift (stopImmediatePropagation on unmodified keys): a listener that only
+  watches modifiers must be registered in the capture phase.

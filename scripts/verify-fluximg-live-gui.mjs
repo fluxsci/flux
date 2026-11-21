@@ -819,13 +819,18 @@ const imgs0 = await countImages(); before = await model(S);
   const pv = await page.evaluate(() => [...document.querySelectorAll(".fx-preview")].map((e) => { const r = e.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height, label: e.textContent.trim() }; }));
   h.eq(pv.map((p) => p.label), ["structure", "signal"], "resting on Split draws, on the figure, the panel each channel would get");
   h.eq((await countImages()).length, imgs0.length, "…and makes nothing until it is pressed");
+  const imgPv = await rect("[data-fluximg-live]");
   await page.mouse.down(); await page.mouse.up();
   await waitForFrame(page);
+  await sleep(120); // the board measures, then may ask the view for room (F4: boardFit after a split)
   const imgs1 = await countImages(); after = await model(S);
   const made = imgs1.filter((e) => !imgs0.some((o) => o.id === e.id));
   h.ok(made.length === 2 && made.every((e, i) => e.composite === "single" && e.solo === i), `the Split key makes one solo panel per channel (${made.length})`);
   const where = await page.evaluate((ids) => ids.map((id) => { const r = document.querySelector(`[data-editor-element-id="${id}"]`)?.getBoundingClientRect(); return r ? { x: r.left, y: r.top, w: r.width, h: r.height } : null; }), made.map((e) => e.id));
-  h.ok(where.every((w, i) => w && Math.abs(w.x - pv[i].x) <= 1.5 && Math.abs(w.y - pv[i].y) <= 1.5 && Math.abs(w.w - pv[i].w) <= 1.5), "…exactly where the preview showed them");
+  // Measured against the image (F4: the view may have made room for them after the press, so screen positions move
+  // with the figure; where the panels stand ON the figure is what the preview promised).
+  const imgAfter = await rect("[data-fluximg-live]"), sc = imgAfter.w / imgPv.w;
+  h.ok(where.every((w, i) => w && Math.abs((w.x - imgAfter.x) - (pv[i].x - imgPv.x) * sc) <= 1.5 && Math.abs((w.y - imgAfter.y) - (pv[i].y - imgPv.y) * sc) <= 1.5 && Math.abs(w.w - pv[i].w * sc) <= 1.5), "…exactly where the preview showed them");
   h.ok(await inFigure(made.map((e) => e.id)), "…each inside the figure (a figure clips what lies outside it)");
   h.ok(after.past - before.past === 1 && (await isOpen()) && after.live.elementId === S && !(await page.$(".fx-preview")), "…in one undo step, with the view still on the image and the preview gone");
   const link = after.el.view?.link ?? null;
@@ -1154,6 +1159,8 @@ h.ok(!(await page.$("[data-fxb-map]")), "…and the map leaves with it");
   // The inset's region on the picture: drag its rectangle's edge and the inset shows what is under it; roll to size it.
   {
     await waitFor(page, (id) => !!document.querySelector(`[data-fxb-region="${id}"]`), d.id, { label: "the region's handle" });
+    await sleep(120);
+    image = await rect("[data-fluximg-live]"); // F4: the view may have made room for the new inset (boardFit)
     const insetCrop = () => page.evaluate((id) => structuredClone(window.__flux.figures()[0].elements.find((e) => e.id === id).crop), d.id);
     const insetBox = () => page.evaluate((id) => { const e = window.__flux.figures()[0].elements.find((x) => x.id === id); return [e.x, e.y, e.width, e.height]; }, d.id);
     const c0i = await insetCrop(), box0 = await insetBox(), m0r = await model(L), k = full.w / image.w;
