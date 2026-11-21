@@ -364,9 +364,12 @@ const attrText = (o: Record<string, string>, keys: readonly string[]): string =>
  * and every fill that is not `none` (over the layer's own colour), its opacity is the shape's `opacity` (the
  * layer's opacity, stroke width and fill opacity still apply on top), `hidden` leaves the shape out. A shape whose
  * key has no style gets `unlisted` (the "missing" style: it has no row in the table).
+ *
+ * `partOpacity` (stage 2, W8: a slide step's rest state of the image's objects, by part id `<layer>/<key>`) multiplies
+ * an object's opacity; 0 leaves it out (unborn at that step, or gone). Absent or empty: the markup is unchanged.
  */
 export function layerMarkup(layer: FluximgLayer, svgText: string, lv: ResolvedLayer, crop: PixelRect, box: { width: number; height: number }, idPrefix: string,
-  styles?: ReadonlyMap<string, ObjectStyle> | null, unlisted?: ObjectStyle | null): string {
+  styles?: ReadonlyMap<string, ObjectStyle> | null, unlisted?: ObjectStyle | null, partOpacity?: Readonly<Record<string, number>> | null): string {
   if (!lv.visible || layer.kind === "intensity" || !(lv.opacity > 0)) return "";
   if (!(crop.width > 0 && crop.height > 0 && box.width > 0 && box.height > 0)) return "";
   const p = parsed(svgText);
@@ -385,6 +388,8 @@ export function layerMarkup(layer: FluximgLayer, svgText: string, lv: ResolvedLa
     if (!b || b.x1 < cx0 || b.x0 > cx1 || b.y1 < cy0 || b.y0 > cy1) return;
     const st = styles ? styles.get(s.key) ?? unlisted ?? undefined : undefined;
     if (st?.hidden) return;
+    const po = partOpacity ? partOpacity[`${layer.id}/${s.key}`] : undefined;
+    if (po !== undefined && !(po > 0)) return;
     const own: Record<string, string> = { ...s.attrs };
     delete own["stroke-width"]; delete own["fill-opacity"]; // the resolved view owns these
     if (color) { own.stroke = recolor(own.stroke)!; own.fill = recolor(own.fill)!; }
@@ -393,6 +398,7 @@ export function layerMarkup(layer: FluximgLayer, svgText: string, lv: ResolvedLa
       if ((own.fill ?? groupFill) !== "none") own.fill = st.color;
     }
     if (st?.opacity !== undefined) own.opacity = svgNum(Math.min(1, Math.max(0, st.opacity)));
+    if (po !== undefined && po < 1) own.opacity = svgNum(Math.min(1, Math.max(0, (own.opacity !== undefined ? Number(own.opacity) : 1) * po)));
     const geo = [...GEOMETRY[s.tag], ...(GEOMETRY_OPTIONAL[s.tag] ?? [])];
     shapes.push(`<${s.tag} id="${escapeXml(`${idPrefix}${layer.id}/${s.key}`)}" data-key="${escapeXml(s.key)}"${s.label !== undefined ? ` data-label="${escapeXml(s.label)}"` : ""}${attrText(own, geo)}${attrText(own, ORDER)}/>`);
   });

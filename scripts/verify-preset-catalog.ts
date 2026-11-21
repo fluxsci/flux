@@ -222,7 +222,7 @@ function pairLists(source: string): string[] {
   const shapes = [/\[[^\[\]]*\]/g, /(?:["'`][A-Za-z]+["'`]\s*\|\s*)+["'`][A-Za-z]+["'`]/g, /<select[\s\S]*?<\/select>/g];
   return shapes.flatMap(re => [...source.matchAll(re)].filter(m => hits(m[0]) >= 3).map(m => m[0].replace(/\s+/g, " ").slice(0, 90)));
 }
-h.eq(PAIR_POLICY_IDS, ["auto", "spatial", "order", "data", "tile"], "PAIR_POLICIES keeps the published id order (verb enums and goldens unchanged)");
+h.eq(PAIR_POLICY_IDS, ["auto", "spatial", "order", "data", "tile", "key"], "PAIR_POLICIES keeps the published id order (verb enums and goldens unchanged; fluximg stage 2 APPENDED \"key\", plan D10)");
 h.ok(core.PAIR_POLICIES === PAIR_POLICIES, "flux-core exports the same pair-policy list");
 h.eq(pairLists('pair: z.enum(["auto", "spatial", "order", "data", "tile"])').length, 1, "the census catches a literal enum list");
 h.eq(pairLists('a.pair as "auto" | "spatial" | "order" | "data" | "tile"').length, 1, "the census catches a literal union");

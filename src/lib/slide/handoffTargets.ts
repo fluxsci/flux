@@ -7,8 +7,10 @@ import { buildPartIndex } from "../plot/parse";
 import type { Slide, TargetRef, Track } from "./types";
 import { resolveTargetLeaves, mergeResolved, type ResolvedTarget } from "./targets";
 import { transformPreState } from "./tween";
+import type { FluximgPartIndex } from "../fluximg/parts";
 
-export function handoffTargetResolver(slide: Slide, manifestFor: (assetId: string) => FluxPlotManifest | undefined, modelManifestFor?: (assetId: string) => Scene3dManifest | undefined) {
+export function handoffTargetResolver(slide: Slide, manifestFor: (assetId: string) => FluxPlotManifest | undefined, modelManifestFor?: (assetId: string) => Scene3dManifest | undefined,
+  imagePartsFor?: (assetId: string) => FluximgPartIndex | undefined) {
   const indexes = new Map<FluxPlotManifest | Scene3dManifest, Set<string>>();
   const resolve = (ref: TargetRef, beat: number): ResolvedTarget[] => {
     // A destination set resolves member by member, each with ITS OWN
@@ -18,13 +20,15 @@ export function handoffTargetResolver(slide: Slide, manifestFor: (assetId: strin
     const el = transformPreState(slide, ref.element, beat);
     const plot = el?.type === 'plot' ? manifestFor(el.assetId) : undefined;
     const model = el?.type === 'model3d' ? modelManifestFor?.(el.assetId) : undefined;
+    // An image's objects resolve through its index alone (fluximgPartTargets only returns objects that exist).
+    const image = el?.type === "fluximg" ? imagePartsFor?.(el.assetId) : undefined;
     const manifest = plot ?? model;
     let ids = manifest && indexes.get(manifest);
     if (manifest && !ids) { ids = new Set(Object.keys(model ? buildScene3dPartIndex(model) : buildPartIndex(plot))); indexes.set(manifest, ids); }
     // Resolve ownership against the canonical slide, never the sampled frame
     // whose appearance may currently hide or retype either side of the flight.
     const atBeat = el ? { ...slide, elements: slide.elements.map(item => item.id === el.id ? el : item) } : slide;
-    return resolveTargetLeaves(ref, atBeat, () => plot, () => model).flatMap(target => {
+    return resolveTargetLeaves(ref, atBeat, () => plot, () => model, () => image).flatMap(target => {
       if (target.partIds === null) return [target];
       const partIds = ids ? target.partIds.filter(id => ids.has(id)) : target.partIds;
       return partIds.length ? [{ ...target, partIds }] : [];

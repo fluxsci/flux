@@ -17,6 +17,11 @@ import { parseStyleAttr, readPaint } from "../plot/paint";
 import { IDENTITY, compose, parseTransform, applyToNodes, applyToPoint, type SvgMatrix } from "../plot/svgMatrix";
 import { viewFits, projectSeries, projectWith, guideData, guideAxes, type Fit, retickable, viewProjectsVertices } from "../plot/project";
 import { plotVariant, relayoutRootInfo } from "../plot/relayout/variant";
+import type { FluximgElement } from "../fluximg/element";
+import type { FluximgTable } from "../fluximg/types";
+import { fluximgObject, imageToStage, type FluximgPartIndex } from "../fluximg/parts";
+import { resolveView } from "../fluximg/viewOps";
+import { cachedObjectStyles, missingStyle } from "../fluximg/objectStyle";
 
 export interface GeometryCtx {
   manifest(assetId: string): FluxPlotManifest | undefined;
@@ -30,6 +35,11 @@ export interface GeometryCtx {
    *  boxes stand in for letters with no font outline). When it yields outlines a
    *  text is no longer a box-only crossfade target. Sync and cache-backed. */
   glyphs?: (el: Extract<SceneElement, { type: "text" }>) => StageOutline[] | null;
+  /** An image's object index (stage 2): its objects are outlines of their own (a footprint flies as its ring). */
+  fluximgParts?: (assetId: string) => FluximgPartIndex | undefined;
+  /** A styled layer's table (its objects fly in their styled colours), and colour maps for colour by number. */
+  fluximgTable?: (assetId: string, path: string) => FluximgTable | null | undefined;
+  fluximgLut?: (name: string) => string[] | null;
 }
 
 export function geometryPlotRoot(ctx:GeometryCtx,el:SemanticPlotElement):Element|undefined {
@@ -121,6 +131,14 @@ function indexFor(manifest: FluxPlotManifest | undefined): Record<string, PartIn
   let index = indexes.get(manifest);
   if (!index) { index = buildPartIndex(manifest); indexes.set(manifest, index); }
   return index;
+}
+const names = new WeakMap<FluxPlotManifest, Map<string, string>>();
+/** Series id → its name (the `series=` a fluxplot was written with): the pair policy "key" matches either. */
+function seriesNames(manifest: FluxPlotManifest | undefined): Map<string, string> {
+  if (!manifest) return new Map();
+  let m = names.get(manifest);
+  if (!m) { m = new Map((manifest.series ?? []).filter((s) => typeof s.name === "string" && s.name).map((s) => [s.id, s.name!])); names.set(manifest, m); }
+  return m;
 }
 function geometryFor(root: Element): PreparedGeometry {
   let geo = prepared.get(root);
@@ -335,8 +353,9 @@ export function partStageOutlines(plot: SemanticPlotElement, leafIds: string[], 
     const part = geo.ids.get(id);
     if (!part) continue;
     const info = index[id];
+    const seriesName = info?.series ? seriesNames(manifest).get(info.series) : undefined;
     const owner: OutlineOwner = { elementId: plot.id, partId: id,
-      ...(info?.role ? { role: info.role } : {}), ...(info?.series ? { series: info.series } : {}),
+      ...(info?.role ? { role: info.role } : {}), ...(info?.series ? { series: info.series } : {}), ...(seriesName ? { seriesName } : {}),
       ...(info?.index != null ? { index: info.index } : {}),
       ...(info?.x != null || info?.y != null ? { data: { ...(info.x != null ? { x: info.x } : {}), ...(info.y != null ? { y: info.y } : {}) } } : {}),
     };
@@ -366,11 +385,57 @@ export function partStageOutlines(plot: SemanticPlotElement, leafIds: string[], 
   return out;
 }
 
+/**
+ * The outlines of an image's objects in STAGE px (stage 2, plan D10): each object's shape through the element's crop,
+ * box, flips and rotation (`parts.imageToStage`, the matrix `layerMarkup` writes on its layer group, placed), in the
+ * paint it is drawn with (the layer's colour, or its styled colour; its stroke width in box px, as the layer draws it).
+ * A footprint with holes flies as its OUTER ring (the largest); a vector line stays an open chain. Owners carry the
+ * object's key (pair policy "key").
+ */
+export function imageObjectStageOutlines(el: FluximgElement, index: FluximgPartIndex, partIds: readonly string[], ctx?: Pick<GeometryCtx, "fluximgTable" | "fluximgLut">): StageOutline[] {
+  const manifest = index.manifest, m = imageToStage(manifest, el), rv = resolveView(manifest, el.view);
+  const styles = new Map<string, ReturnType<typeof cachedObjectStyles> | null>();
+  const stylesOf = (layerId: string, table: string | null, key: string | null) => {
+    if (styles.has(layerId)) return styles.get(layerId)!;
+    const lv = rv.layers.find((l) => l.id === layerId);
+    const t = lv?.styleBy && table ? ctx?.fluximgTable?.(el.assetId, table) : undefined;
+    const st = t && lv?.styleBy ? cachedObjectStyles(t, key, lv.styleBy, ctx?.fluximgLut ?? (() => null)) : null;
+    styles.set(layerId, st?.legend ? st : null);
+    return styles.get(layerId)!;
+  };
+  const out: StageOutline[] = [];
+  for (const id of partIds) {
+    const o = fluximgObject(index, id);
+    if (!o) continue;
+    const lv = rv.layers.find((l) => l.id === o.layer.id);
+    if (!lv || !lv.visible) continue;
+    const layer = manifest.layers.find((l) => l.id === o.layer.id) as { color?: string | null } | undefined;
+    const st = stylesOf(o.layer.id, o.layer.table, o.layer.key), style = st ? st.byKey.get(o.key) ?? missingStyle(lv.styleBy) ?? undefined : undefined;
+    if (style?.hidden) continue;
+    const ownStroke = o.stroke ?? o.layer.groupStroke ?? layer?.color ?? "#ffffff", ownFill = o.fill ?? (o.layer.groupFill === undefined ? "none" : o.layer.groupFill);
+    const stroke = ownStroke === "none" ? "none" : style?.color ?? lv.color ?? ownStroke;
+    const fill = ownFill === "none" ? "none" : style?.color ?? lv.color ?? ownFill;
+    const rings = pathToSubpaths(o.d).filter((r) => r.nodes.length >= 2);
+    if (!rings.length) continue;
+    const ring = o.closed && rings.length > 1 ? rings.reduce((best, r) => { const b = nodesExtent(r.nodes, true), q = nodesExtent(best.nodes, true); return b.w * b.h > q.w * q.h ? r : best; }) : rings[0];
+    const paint: OutlinePaint = { fill, stroke, strokeWidth: Math.max(0, lv.strokeWidth), cap: "butt",
+      opacity: (el.opacity ?? 1) * lv.opacity * (style?.opacity ?? o.opacity ?? 1),
+      ...(fill !== "none" && lv.fillOpacity < 1 ? { fillOpacity: lv.fillOpacity } : {}) };
+    out.push(stage({ nodes: ring.nodes, closed: o.closed || ring.closed }, m, { elementId: el.id, partId: id, role: "object", key: o.key }, paint));
+  }
+  return out;
+}
+
 export function targetOutlines(ref: TargetRef, frame: SlideFrame, ctx: GeometryCtx): StageOutline[] {
   const elements = new Map(frame.elements.map((el) => [el.id, el]));
   const out: StageOutline[] = [];
-  for (const leaf of resolveTargetLeaves(ref, { elements: frame.elements, groups: ctx.groups }, ctx.manifest)) {
+  for (const leaf of resolveTargetLeaves(ref, { elements: frame.elements, groups: ctx.groups }, ctx.manifest, undefined, ctx.fluximgParts)) {
     const el = elements.get(leaf.elementId)!;
+    if (el.type === "fluximg" && leaf.partIds !== null) {
+      const index = ctx.fluximgParts?.(el.assetId);
+      if (index) out.push(...imageObjectStageOutlines(el, index, leaf.partIds, ctx));
+      continue;
+    }
     if (el.type !== "plot") { out.push(...elementStageOutlines(el, ctx)); continue; }
     const root = geometryPlotRoot(ctx,el);
     if (!root) { out.push(...elementStageOutlines(el)); continue; }

@@ -16,7 +16,14 @@ export function staggerKey(by: Stagger["by"] | undefined): StaggerKey | null {
   if (!by || by === "index" || by === "radial") return null;
   if (by === "x" || by === "y") return by;
   if (by === "data") return "value";
-  return by.key === "index" ? "index" : by.key;
+  // A table column (image objects only, `staggerColumn`) is no plot key: plots keep their plain order.
+  const key = by.key as string;
+  return key === "index" || key === "value" || key === "count" ? key : null;
+}
+
+/** The table column a `stagger.by` names for an image's objects (`{ key: <column> }`), or null. */
+export function staggerColumn(by: Stagger["by"] | undefined): string | null {
+  return by && typeof by === "object" && typeof by.key === "string" && by.key ? by.key : null;
 }
 
 const ATTR: Record<StaggerKey, string[]> = {

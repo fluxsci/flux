@@ -3,7 +3,8 @@
 import type { Element, TextElement } from "../types";
 import type { FluxPlotManifest } from "../plot/types";
 import type { Scene3dManifest } from "../model3d/types";
-import type { FluximgManifest } from "../fluximg/types";
+import type { FluximgManifest, FluximgTable } from "../fluximg/types";
+import { fluximgPartsLookup, fluximgPartsPending, objectStaggerCoordinates, type FluximgPartIndex, type FluximgPartsLookup } from "../fluximg/parts";
 import type { FluximgElement } from "../fluximg/element";
 import { checkMergedView, checkViewPatch } from "../fluximg/viewCheck";
 import { FLUXIMG_BECOME_OTHER_IMAGE } from "../fluximg/policy";
@@ -38,6 +39,11 @@ export interface CompileOptions extends StyleContext, ModelAssetLookup {
   fluximgManifest?: (assetId: string) => FluximgManifest | undefined;
   /** Why an image's bundle cannot be shown (missing, unreadable), when known. */
   fluximgIssue?: (assetId: string) => string | undefined;
+  /** An image's object index (its label / vector layers' objects as parts, `fluximg/parts`), when loaded. Absent: the
+   *  provider the window registered (`registerFluximgParts`), else none (a part-bound image track is then an issue). */
+  fluximgParts?: FluximgPartsLookup;
+  /** A layer's table by asset id and bundle path (a stagger ordered by a column of it), when loaded. */
+  fluximgTable?: (assetId: string, path: string) => FluximgTable | null | undefined;
   /** Pristine prepared roots, when available, for outline diagnostics. */
   plotRoot?: GeometryCtx["plotRoot"];
   /** Whether a text's letters have readable font outlines (the GUI's glyph
@@ -94,9 +100,22 @@ export function semanticTargets(track: Track, slide: Slide, opts: CompileOptions
   if (!hasPartBinding(track)) return [];
   const el = transformPreState(slide, track.target, Math.max(0, beatIndex));
   const manifest = el?.type === "plot" ? opts.plotManifest?.(el.assetId)
-    : el?.type === 'model3d' ? opts.modelManifest?.(el.assetId) : undefined;
-  if (el?.type === 'model3d' && !manifest) return [];
+    : el?.type === 'model3d' ? opts.modelManifest?.(el.assetId) : el?.type === "fluximg" ? fluximgPartsLookup(opts.fluximgParts)?.(el.assetId) : undefined;
+  if ((el?.type === 'model3d' || el?.type === "fluximg") && !manifest) return [];
   return targetPartIds(track, manifest);
+}
+/** Why a part-bound track on an image has no parts, when its objects are not known yet (no index, or a layer it names
+ *  not loaded); "" otherwise. */
+function imagePartsIssue(track: Track, el: Element | null, opts: CompileOptions): string {
+  if (el?.type !== "fluximg") return "";
+  const index = fluximgPartsLookup(opts.fluximgParts)?.(el.assetId);
+  return fluximgPartsPending(track, index) ? "The image's objects are not loaded yet: this effect plays once they are." : "";
+}
+/** The stagger coordinates of an image's objects (the player calls the same function). */
+export function imageStaggerCoordinates(track: Track, el: Element | null | undefined, parts: readonly string[], opts: Pick<CompileOptions, "fluximgParts" | "fluximgTable">): Array<number | null> | undefined {
+  if (el?.type !== "fluximg" || !track.stagger?.by || !hasPartBinding(track)) return undefined;
+  const index: FluximgPartIndex | undefined = fluximgPartsLookup(opts.fluximgParts)?.(el.assetId);
+  return objectStaggerCoordinates(index, parts, track.stagger, (layer) => layer.table ? opts.fluximgTable?.(el.assetId, layer.table) : undefined);
 }
 const clamp = (n: number) => Math.max(0, Math.min(1, n));
 /** What is wrong with an image's view (Design, or a step's end when `step`) for THIS image, and a bundle that cannot be
@@ -122,7 +141,7 @@ function imageHandoffRefusal(slide: Slide, source: ResolvedTarget[], destination
 }
 function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptions, partFactors: ResolvedGhosts["partFactors"] = {}): Pick<CompiledSlide, "cues" | "issues" | "sample" | "handoffs" | "resolveTarget"> {
   const issues: AnimationIssue[] = [];
-  const resolveTarget = handoffTargetResolver(slide, opts.plotManifest ?? (() => undefined), opts.modelManifest);
+  const resolveTarget = handoffTargetResolver(slide, opts.plotManifest ?? (() => undefined), opts.modelManifest, fluximgPartsLookup(opts.fluximgParts));
   // `images`: the slide places an N-dimensional image. Found in the loop every compile already runs (one kind test per
   // element), so the image checks below are a branch a slide without images never takes.
   let images = false;
@@ -190,7 +209,10 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       const parts = semanticTargets(track, slide, opts, bi);
       const el = transformPreState(slide, track.target, bi);
       if (hasPartBinding(track) && !parts.length) issues.push({ trackId: track.id, target: track.target,
-        reason: `No matching ${el?.type === "plot" ? "plot" : "semantic"} parts. Retarget this effect.` });
+        reason: (images && imagePartsIssue(track, el, opts)) || `No matching ${el?.type === "plot" ? "plot" : el?.type === "fluximg" ? "image" : "semantic"} parts. Retarget this effect.` });
+      // An image's objects are SVG shapes in the overlay: every appearance applies, but a count has no text to count.
+      if (images && el?.type === "fluximg" && hasPartBinding(track) && parts.length && track.preset === "countUp")
+        issues.push({ trackId: track.id, target: track.target, reason: "Count up acts on text; an image's objects have none, so it is skipped there." });
       // A 3D model's mesh parts draw in WebGL and own no DOM node: their opacity comes from this compiler, so a transform-only
       // effect cannot scale or pulse them (scale in / out would silently fade them instead).
       if (el?.type === "model3d" && hasPartBinding(track) && parts.length) {
@@ -206,7 +228,8 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       // spacing "true" (an x-clock sweep's markers) ranks by the PIXEL-space coordinate, from the manifest alone (the player does the same)
       const spacing = track.stagger?.spacing === "true" && (staggerBy === "x" || staggerBy === "y") ? "true" : "even";
       // WP 4.3: a radial order ranks by pixel-space distance from its origin, from the manifest (the player computes the same)
-      const coordinates = track.stagger?.by === "radial" ? (manifest ? radialCoordinates(manifest, parts, track.stagger.origin) : undefined)
+      const coordinates = images && el?.type === "fluximg" ? imageStaggerCoordinates(track, el, parts, opts)
+        : track.stagger?.by === "radial" ? (manifest ? radialCoordinates(manifest, parts, track.stagger.origin) : undefined)
         : staggerBy && manifest ? manifestCoordinates(manifest, parts, staggerBy, spacing === "true" ? "pixel" : "data") : undefined;
       const ranks = staggerRanks(Math.max(1, parts.length), track.stagger?.from, coordinates, staggerSeed(track), track.stagger?.totalMs !== undefined, spacing);
       tracks.push({ track, beat: bi, start, duration, end: start + duration + staggerSpan(track, parts.length), parts, ranks, maxRank: Math.max(0, ...ranks), ease: resolveCurve(track, familyOf(track)) });
@@ -437,7 +460,8 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
     return { elements, camera, partStates, issues, presentation: { elementStates, hiddenElementIds: Object.entries(elementStates).filter(([, state]) => !state.visible).map(([id]) => id), partStates, camera } };
   }
   const preFrames = new Map<string, SlideFrame>();
-  const ctx: GeometryCtx = { manifest: opts.plotManifest ?? (() => undefined), plotRoot: opts.plotRoot ?? (() => undefined), groups: slide.groups };
+  const ctx: GeometryCtx = { manifest: opts.plotManifest ?? (() => undefined), plotRoot: opts.plotRoot ?? (() => undefined), groups: slide.groups,
+    ...(images ? { fluximgParts: fluximgPartsLookup(opts.fluximgParts) } : {}) };
   for (const [ct, flight] of flights) {
     if (flight.crossfade) continue; // no flight geometry to diagnose
     const ref = ct.track.to!.become!.ref;
@@ -479,7 +503,9 @@ export function compileSlide(slide: Slide, stage: StageSize = { width: 640, heig
   const timed = { ...slide, beats: slide.beats.map((beat, bi) => {
     const resolved = resolveBeat(beat, opts, target => {
       const el = transformPreState(slide, target, bi);
-      return el?.type === "plot" ? opts.plotManifest?.(el.assetId) : el?.type === 'model3d' ? opts.modelManifest?.(el.assetId) : undefined;
+      return el?.type === "plot" ? opts.plotManifest?.(el.assetId) : el?.type === 'model3d' ? opts.modelManifest?.(el.assetId)
+        // an image's index only for a target with part-bound tracks in this beat (asking for one may load its layers)
+        : el?.type === "fluximg" && beat.tracks.some(t => t.target === target && hasPartBinding(t)) ? fluximgPartsLookup(opts.fluximgParts)?.(el.assetId) : undefined;
     });
     timingIssues.push(...resolved.issues);
     return { ...beat, tracks: resolved.tracks };

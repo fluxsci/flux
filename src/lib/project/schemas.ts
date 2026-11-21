@@ -80,7 +80,7 @@ const BECOME = {
 const STAGGER_CURVE = { oneOf: [{ enum: [...EASING_TOKENS] }, CURVE] };
 const STAGGER = { type: "object", anyOf: [{ required: ["perMs"] }, { required: ["totalMs"] }], properties: {
   perMs: { type: "number", minimum: 0 }, totalMs: { type: "number", minimum: 0 },
-  by: { anyOf: [{ enum: ["index", "x", "y", "data", "radial"] }, { type: "object", required: ["key"], properties: { key: { enum: ["value", "count", "index"] } } }] },
+  by: { anyOf: [{ enum: ["index", "x", "y", "data", "radial"] }, { type: "object", required: ["key"], properties: { key: { type: "string" } } }] },
   from: { enum: ["start", "end", "center", "edges", "random"] },
   // WP 4.3: a radial order's centre (data units of the plot's axes)
   origin: { type: "object", required: ["x", "y"], properties: { x: { type: "number" }, y: { type: "number" } } },

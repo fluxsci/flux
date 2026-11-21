@@ -1,0 +1,256 @@
+// fluximg stage 2, W8: an image's OBJECTS as slide parts, and Become by key (pure tier; headless Chrome for the DOM part).
+//
+// Pins: the part index of a real bundle (objects in each layer's order, centres, boxes, outlines); `targetPartIds` for
+// `layer:` and object ids, selectors, unknown ids and no index; compile issues (objects not loaded, count up); the ONE node
+// finder (`fluximgPartNode`) on every host's markup (the editor element's, the slide overlay's, an export's id prefixes);
+// stagger order by index, by a numeric and a categorical table column (nulls last), by x; rest states at steps in the
+// static markup (an unborn object is left out, a fading one carries its opacity); the pair policy "key" (names, ids,
+// numeric keys, case, unmatched members, the auto threshold, object to object); stage outlines of objects under crop,
+// flip and rotation against hand-computed points; the per-object style tween (OKLab colours at t = 0, 0.5, 1; nothing
+// when the styles are equal); the deck stamps for a column stagger and pair "key"; the headless verbs accept pair "key";
+// a deck WITHOUT images compiles to byte-identical cues, issues and samples (noImageDeckDigest).
+//
+// Run: npx tsx scripts/verify-fluximg-slide-parts.ts
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import path from "node:path";
+import { tmpdir } from "node:os";
+import { harness } from "./lib/harness.mjs";
+import { fixtures, writeFixture } from "./lib/fluximgFixtures";
+import type { FluximgManifest, FluximgTable } from "../src/lib/fluximg/types";
+import { fluximgPartIndex, fluximgPartNode, fluximgPartNodes, fluximgPartTargets, fluximgPartIdOf, keyGroups, keyPolicyApplies, keyText, memberKeys, partIndexFromTexts, partIndexWork, columnCoordinates, objectStaggerCoordinates, imageToStage, applyMatrix, type FluximgPartIndex } from "../src/lib/fluximg/parts";
+import { targetPartIds, PAIR_POLICY_IDS } from "../src/lib/slide/targets";
+import { compileSlide } from "../src/lib/slide/compile";
+import { layerSvgPath, fluximgStaticSvg, fluximgIdPrefix } from "../src/lib/fluximg/static";
+import { resolveView } from "../src/lib/fluximg/viewOps";
+import { clampCrop } from "../src/lib/fluximg/crop";
+import { layerMarkup } from "../src/lib/fluximg/layers";
+import { imageObjectStageOutlines } from "../src/lib/slide/targetGeometry";
+import { planCorrespondence, choosePolicy } from "../src/lib/slide/correspondence";
+import type { StageOutline } from "../src/lib/slide/stageOutline";
+import type { Deck, Slide, Track } from "../src/lib/slide/types";
+import type { FluximgElement } from "../src/lib/fluximg/element";
+import { deckSchemaFor } from "../src/lib/slide/schemaStamp";
+import { createDeck } from "../src/lib/slide/ops";
+import { decksWithoutImages, deckDigest } from "./lib/noImageDeckDigest";
+import { styleTweenAt, objectStyleTween } from "../src/lib/fluximg/objectStyle";
+import { lerpColor } from "../src/lib/color/interp";
+
+const h = harness("verify-fluximg-slide-parts");
+const scratch = await mkdtemp(path.join(tmpdir(), "fluximg-slide-parts-"));
+const close = (a: number, b: number, eps = 1e-6) => Math.abs(a - b) <= eps;
+
+try {
+  // ---- the bundle: the fixture with a keyed label layer, two vector layers ------------------------------------------
+  const fx = fixtures().find((f) => f.name === "mean_f64_layers")!;
+  await writeFixture(scratch, fx);
+  const dir = path.join(scratch, "mean_f64_layers.fluximg");
+  const manifest = JSON.parse(await readFile(path.join(dir, "fluximg.json"), "utf8")) as FluximgManifest;
+  const texts: Record<string, string> = {};
+  for (const l of manifest.layers) { const p = layerSvgPath(l); if (p) texts[l.id] = await readFile(path.join(dir, p), "utf8"); }
+  const tables: Record<string, FluximgTable> = {};
+  for (const l of manifest.layers) if (l.kind !== "intensity" && l.table) tables[l.id] = JSON.parse(await readFile(path.join(dir, l.table), "utf8")) as FluximgTable;
+  const index = fluximgPartIndex(manifest, texts);
+
+  h.section("A. the part index");
+  h.eq(index.layers.map((l) => [l.id, l.kind, l.loaded]), [["footprints", "labels", true], ["prox_lines", "vector", true], ["discs", "vector", true]], "object layers only (intensity layers are not parts), manifest order");
+  const fp = index.layers[0];
+  h.eq(fp.objects.map((o) => o.key), ["s1", "s2", "s3", "s7"], "footprints in the layer's own order, named by key");
+  h.eq(fp.objects.map((o) => o.partId), ["footprints/s1", "footprints/s2", "footprints/s3", "footprints/s7"], "object part ids are <layer>/<key>");
+  h.ok(fp.objects.every((o) => o.closed && o.d.startsWith("M") && o.box.width > 0 && o.cx > o.box.x && o.cx < o.box.x + o.box.width), "footprints are closed rings with a box and a centre inside it");
+  h.eq(index.layers[1].objects.map((o) => [o.key, o.closed, o.tag]), [["d1", false, "polyline"], ["d2", false, "polyline"]], "vector lines are open chains");
+  h.ok(index.layers[2].objects.every((o) => o.closed && o.tag === "circle" && close(o.cx, Number(o.key === "a" ? 16.5 : o.key === "b" ? 22.5 : 28.5))), "circles are closed, centred where the file puts them");
+  const partial = fluximgPartIndex(manifest, { footprints: texts.footprints });
+  h.eq(partial.layers.map((l) => [l.id, l.loaded, l.objects.length]), [["footprints", true, 4], ["prox_lines", false, 0], ["discs", false, 0]], "a layer whose text is not loaded is listed, not loaded, with no objects");
+  const before = partIndexWork.builds;
+  const viaPaths = (p: string) => Object.entries(texts).find(([id]) => layerSvgPath(manifest.layers.find((l) => l.id === id)) === p)?.[1];
+  const i1 = partIndexFromTexts(manifest, viaPaths), i2 = partIndexFromTexts(manifest, viaPaths);
+  h.ok(i1 === i2 && partIndexWork.builds === before + 1, "the index is built once per (manifest, texts): a second lookup is the same object");
+
+  h.section("B. targetPartIds");
+  h.eq(targetPartIds({ part: "layer:footprints" }, index), ["footprints/s1", "footprints/s2", "footprints/s3", "footprints/s7"], "layer:<id> resolves to its objects in order");
+  h.eq(targetPartIds({ parts: ["footprints/s3", "discs/a"] }, index), ["footprints/s3", "discs/a"], "object ids resolve to themselves, authored order");
+  h.eq(targetPartIds({ parts: ["footprints/s9", "nope/x", "layer:nope", "bogus"] }, index), [], "unknown objects, layers and ids resolve to nothing");
+  h.eq(fluximgPartTargets({ part: "footprints/s1" }, undefined), [], "no index: nothing (never the whole element)");
+  h.eq(targetPartIds({ selector: { role: "object", series: "discs", index: [0, 2] } }, index), ["discs/a", "discs/c"], "a selector: role object, series = layer, index = ordinal");
+  h.eq(targetPartIds({ part: "layer:footprints", selector: { except: ["footprints/s2"] } }, index), ["footprints/s1", "footprints/s3", "footprints/s7"], "except drops expanded leaves");
+  h.eq(targetPartIds({ part: "layer:prox_lines" }, partial), [], "an object layer not loaded yet resolves to nothing");
+
+  // ---- a slide with the image and part tracks -------------------------------------------------------------------------
+  const el: FluximgElement = { id: "img", type: "fluximg", assetId: "A", x: 40, y: 30, width: 256, height: 160, rotation: 0, opacity: 1, view: { layers: { footprints: { visible: true } } } } as unknown as FluximgElement;
+  const slideWith = (tracks: Track[][]): Slide => ({ id: "s", elements: [el as never], beats: [{ id: "b0", tracks: [] }, ...tracks.map((t, i) => ({ id: `b${i + 1}`, tracks: t }))] } as unknown as Slide);
+  const partsOf = (i: FluximgPartIndex | undefined) => ({ fluximgParts: (id: string) => (id === "A" ? i : undefined), fluximgTable: (id: string, p: string) => Object.values(tables).find((_, k) => manifest.layers.filter((l) => l.kind !== "intensity" && l.table)[k]?.table === p) });
+
+  h.section("C. compile: issues, ranks, rest states");
+  {
+    const s = slideWith([[{ id: "t1", target: "img", part: "layer:footprints", preset: "fade", duration: 400, stagger: { perMs: 100 } }]]);
+    const none = compileSlide(s, { width: 640, height: 360 }, { fluximgParts: () => undefined });
+    h.ok(none.issues.some((i) => i.trackId === "t1" && /objects are not loaded/.test(i.reason)), "no index: the part track is an issue ('objects are not loaded'), not a crash");
+    h.eq(none.sample(1).presentation.elementStates.img, undefined, "… and never silently the whole element");
+    const c = compileSlide(s, { width: 640, height: 360 }, partsOf(index));
+    h.eq(c.issues.filter((i) => i.trackId === "t1"), [], "with the index: no issue");
+    h.eq(c.cues[1].tracks[0].parts, fp.objects.map((o) => o.partId), "the cue's parts are the layer's objects");
+    h.eq(c.cues[1].tracks[0].ranks, [0, 1, 2, 3], "default stagger order: the layer's order");
+    const at = (t: number) => fp.objects.map((o) => +(c.sample(1, t).presentation.partStates.img?.[o.partId]?.opacity ?? -1).toFixed(3));
+    h.eq(at(0).map((v) => v === 0), [true, true, true, true], "before the step every object is unborn (opacity 0)");
+    const mid = at(250);
+    h.ok(mid[0] > mid[1] && mid[1] > mid[2] && mid[2] >= mid[3], `mid-stagger opacities fall along the order (${mid.join(", ")})`);
+    h.eq(at(Infinity), [1, 1, 1, 1], "after the step all are shown");
+    h.eq(Object.keys(c.sample(0).presentation.partStates.img ?? {}).length, 4, "the Design step lists the unborn objects (rest state: hidden)");
+    const count = compileSlide(slideWith([[{ id: "c1", target: "img", part: "footprints/s1", preset: "countUp", duration: 400 }]]), { width: 640, height: 360 }, partsOf(index));
+    h.ok(count.issues.some((i) => i.trackId === "c1" && /Count up/.test(i.reason)), "count up on an image object is refused with an issue");
+    const pend = compileSlide(slideWith([[{ id: "p1", target: "img", part: "layer:prox_lines", preset: "fade", duration: 400 }]]), { width: 640, height: 360 }, partsOf(partial));
+    h.ok(pend.issues.some((i) => i.trackId === "p1" && /not loaded/.test(i.reason)), "a layer not loaded yet: the same issue");
+  }
+
+  h.section("D. stagger by a table column");
+  {
+    const ids = fp.objects.map((o) => o.partId);
+    h.eq(columnCoordinates(tables.footprints, "source_id", "pixels", ids), [2, 3, 1, 0], "numbers ascending (pixels 20, 32, 18, 5 → ranks 2, 3, 1, 0)");
+    h.eq(columnCoordinates(tables.footprints, "source_id", "dendrite", ids), [0, 0, 1, null], "strings in natural order, null last");
+    h.eq(columnCoordinates(tables.footprints, "source_id", "nope", ids), [null, null, null, null], "a column the table lacks: no order");
+    h.eq(columnCoordinates({ key: "k", columns: { k: ["a10", "a2", "a1", "b"], v: ["x10", "x2", "x1", null] } }, "k", "v", ["L/a10", "L/a2", "L/a1", "L/b"]), [2, 1, 0, null], "natural order: x1 < x2 < x10");
+    const byX = objectStaggerCoordinates(index, ids, { by: "x" }, () => undefined)!;
+    h.eq(byX, fp.objects.map((o) => o.cx), "by x: the objects' centres");
+    const s = slideWith([[{ id: "t2", target: "img", part: "layer:footprints", preset: "fade", duration: 300, stagger: { perMs: 100, by: { key: "pixels" } } }]]);
+    const c = compileSlide(s, { width: 640, height: 360 }, partsOf(index));
+    h.eq(c.cues[1].tracks[0].ranks, [2, 3, 1, 0], "the compiler ranks a column stagger by the column");
+    const op = (t: number) => fp.objects.map((o) => c.sample(1, t).presentation.partStates.img?.[o.partId]?.opacity ?? 0);
+    const m = op(150);
+    h.ok(m[3] > m[2] && m[2] > m[0] && m[0] >= m[1], `the smallest value appears first (${m.map((v) => v.toFixed(2)).join(", ")})`);
+  }
+
+  h.section("E. the node finder on every host's markup");
+  {
+    const lv = resolveView(manifest, { layers: { footprints: { visible: true }, discs: { visible: true } } } as never);
+    const crop = clampCrop(manifest, null), box = { width: 256, height: 160 };
+    const hosts = { editor: fluximgIdPrefix("img"), overlay: `${fluximgIdPrefix("img")}s3-`, export: "deck-x-img-" };
+    const { JSDOM } = await import("jsdom").catch(() => ({ JSDOM: null as never }));
+    if (!JSDOM) h.ok(true, "jsdom unavailable: the DOM finder is pinned in the GUI gate");
+    else for (const [host, prefix] of Object.entries(hosts)) {
+      const layer = manifest.layers.find((l) => l.id === "footprints")!;
+      const markup = layerMarkup(layer, texts.footprints, lv.layers.find((l) => l.id === "footprints")!, crop, box, prefix)
+        + layerMarkup(manifest.layers.find((l) => l.id === "discs")!, texts.discs, lv.layers.find((l) => l.id === "discs")!, crop, box, prefix);
+      const doc = new JSDOM(`<svg xmlns="http://www.w3.org/2000/svg"><g id="root">${markup}<g data-part="names"><text data-key="s1">s1</text></g></g></svg>`, { contentType: "image/svg+xml" }).window.document;
+      const root = doc.getElementById("root")!;
+      const n = fluximgPartNode<Element>(root, "footprints/s2");
+      h.ok(n?.getAttribute("data-key") === "s2" && n.parentElement?.getAttribute("data-layer") === "footprints" && n.tagName === "path", `${host}: an object is its shape (not its name text)`);
+      h.ok(fluximgPartNode<Element>(root, "layer:discs")?.getAttribute("data-layer") === "discs", `${host}: a layer is its group`);
+      h.eq(fluximgPartIdOf(n as never), "footprints/s2", `${host}: the node's part id round-trips`);
+      const many = fluximgPartNodes<Element>(root, [...fp.objects.map((o) => o.partId), "discs/a", "discs/b", "discs/c", "discs/zz", "footprints/s1"]);
+      h.eq(many.map((x) => x?.getAttribute("data-key") ?? null), ["s1", "s2", "s3", "s7", "a", "b", "c", null, "s1"], `${host}: the batched finder agrees, unknown = null`);
+    }
+  }
+
+  h.section("F. rest states in the static markup");
+  {
+    const rv = resolveView(manifest, el.view);
+    const svg = fluximgStaticSvg({ manifest, view: rv, crop: clampCrop(manifest, null), box: { width: 256, height: 160 }, stillHref: null, layerSvg: texts, idPrefix: "p-",
+      partOpacity: { "footprints/s1": 0, "footprints/s2": 0.5 } });
+    h.ok(!/data-key="s1"/.test(svg.split("data-layer=\"footprints\"")[1] ?? ""), "an unborn object (opacity 0) is not drawn");
+    h.ok(/data-key="s2"[^>]*opacity="0\.5"/.test(svg), "a fading object carries its opacity");
+    h.ok(/data-key="s3"(?![^>]*opacity=)/.test(svg), "an object with no state draws as before");
+    const plain = fluximgStaticSvg({ manifest, view: rv, crop: clampCrop(manifest, null), box: { width: 256, height: 160 }, stillHref: null, layerSvg: texts, idPrefix: "p-" });
+    const none = fluximgStaticSvg({ manifest, view: rv, crop: clampCrop(manifest, null), box: { width: 256, height: 160 }, stillHref: null, layerSvg: texts, idPrefix: "p-", partOpacity: {} });
+    h.eq(none, plain, "no part states: byte-identical to the markup without them");
+  }
+
+  h.section("G. pair policy key");
+  {
+    h.eq([keyText(" S1 "), keyText("3"), keyText("3.0"), keyText(" 03 "), keyText(3), keyText(""), keyText(null)], ["s1", "3", "3", "3", "3", null, null], "keys: trimmed, case-folded, numbers by value");
+    const obj = (key: string) => ({ keys: memberKeys({ key }) }), ser = (series: string, seriesName?: string) => ({ keys: memberKeys({ series, seriesName }) });
+    const A = [obj("s1"), obj("s2"), obj("S3"), obj("7")];
+    const B = [ser("trace-s1", "s1"), ser("s2"), ser("x", "s3"), ser("7.0"), ser("other", "nothing")];
+    const g = keyGroups(A, B);
+    h.eq(g.groups.map((x) => [x.key, x.a, x.b]), [["s1", [0], [0]], ["s2", [1], [1]], ["s3", [2], [2]], ["7", [3], [3]]], "objects pair with series by name, id, case-insensitive, numeric key = number as text");
+    h.eq([g.unmatchedA, g.unmatchedB, g.pairs], [[], [4], 4], "an unmatched series is left over; pair count = matched keys");
+    h.ok(keyPolicyApplies(A, B), "auto: ≥ 2 pairs and more than half of the smaller side → key");
+    h.ok(!keyPolicyApplies([obj("s1"), obj("q"), obj("r"), obj("t")], [ser("s1"), ser("z")]), "one matching key only: not key");
+    h.ok(!keyPolicyApplies([obj("a"), obj("b"), obj("c"), obj("d"), obj("e")], [ser("a"), ser("b"), ser("x"), ser("y"), ser("z")]), "2 of 5 on the smaller side: not more than half, not key");
+    h.ok(keyPolicyApplies([obj("a"), obj("b"), obj("c")], [obj("A"), obj("B"), obj("z")]), "object to object across layers: equal keys pair");
+    h.ok(PAIR_POLICY_IDS.includes("key"), "'key' is a pair policy id (verbs, schema and the Pair select derive from the list)");
+  }
+
+  h.section("H. stage outlines of objects (crop, flip, rotation)");
+  {
+    const crop = { x: 10, y: 8, width: 40, height: 24 };
+    const cases: Array<Partial<FluximgElement>> = [{}, { crop } as never, { crop, flipX: true } as never, { crop, flipY: true, rotation: 30 } as never, { rotation: -90, flipX: true, flipY: true } as never];
+    for (const c of cases) {
+      const e = { ...el, view: { layers: { discs: { visible: true } } }, ...c } as FluximgElement;
+      const out = imageObjectStageOutlines(e, index, ["discs/b"]);
+      // hand computation: image px → box (crop), + element origin, then flips and rotation about the box centre
+      const cr = clampCrop(manifest, e.crop), sx = e.width / cr.width, sy = e.height / cr.height;
+      const map = (x: number, y: number) => {
+        let px = (x - cr.x) * sx + e.x, py = (y - cr.y) * sy + e.y;
+        const cx = e.x + e.width / 2, cy = e.y + e.height / 2;
+        let dx = px - cx, dy = py - cy;
+        if (e.flipX) dx = -dx; if (e.flipY) dy = -dy;
+        const a = (e.rotation * Math.PI) / 180;
+        px = cx + dx * Math.cos(a) - dy * Math.sin(a); py = cy + dx * Math.sin(a) + dy * Math.cos(a);
+        return { x: px, y: py };
+      };
+      const want = map(22.5 + 2, 18.5), m = imageToStage(manifest, e), got = applyMatrix(m, 24.5, 18.5);
+      h.ok(close(got.x, want.x) && close(got.y, want.y), `matrix ${JSON.stringify(c)}: (24.5, 18.5) → (${want.x.toFixed(3)}, ${want.y.toFixed(3)})`);
+      const ring = out[0]?.nodes ?? [];
+      const centre = { x: ring.reduce((s, n) => s + n.x, 0) / Math.max(1, ring.length), y: ring.reduce((s, n) => s + n.y, 0) / Math.max(1, ring.length) };
+      const wc = map(22.5, 18.5);
+      h.ok(out.length === 1 && out[0].closed && close(centre.x, wc.x, 0.05) && close(centre.y, wc.y, 0.05) && out[0].owner.key === "b", `outline ${JSON.stringify(c)}: a closed ring about the mapped centre, owned by key b`);
+    }
+    const lines = imageObjectStageOutlines({ ...el, view: { layers: { prox_lines: { visible: true } } } } as FluximgElement, index, ["prox_lines/d1"]);
+    h.ok(lines.length === 1 && !lines[0].closed && lines[0].nodes.length === 3, "a vector line is an open chain of its points");
+    h.eq(imageObjectStageOutlines({ ...el, view: { layers: { footprints: { visible: false } } } } as FluximgElement, index, ["footprints/s1"]).length, 0, "a hidden layer has no outline");
+  }
+
+  h.section("I. a footprints → traces plan by key");
+  {
+    const objs = imageObjectStageOutlines(el, index, fp.objects.map((o) => o.partId));
+    const trace = (series: string, y: number, name?: string): StageOutline => ({ nodes: [{ x: 400, y, type: "corner" }, { x: 600, y: y + 10, type: "corner" }], closed: false, bbox: { x: 400, y, w: 200, h: 10 }, owner: { elementId: "plot", partId: `${series}.line`, role: "line", series, ...(name ? { seriesName: name } : {}) }, paint: { fill: "none", stroke: "#fff", strokeWidth: 1.5, cap: "butt" } });
+    const B = [trace("glu-s1", 300, "s1"), trace("s2", 250), trace("S3", 200), trace("q", 150, "unpaired")];
+    h.eq(choosePolicy(objs, B), "key", "auto chooses key: 3 of 4 footprints match a trace");
+    const plan = planCorrespondence(objs, B, {});
+    h.eq(plan.policy, "key", "the plan pairs by key");
+    const pairs = plan.pairs.map((p) => [p.a?.owner.key ?? null, p.b?.owner.series ?? null]);
+    h.eq(pairs, [["s1", "glu-s1"], ["s2", "s2"], ["s3", "S3"], ["s7", null], [null, "q"]], "each footprint lands on its own trace; the unmatched footprint and trace fade");
+    const spatialPlan = planCorrespondence(objs, B, { pair: "spatial" });
+    h.eq(spatialPlan.policy, "spatial", "an explicit policy still wins");
+    const twoPlots = planCorrespondence([trace("a", 10), trace("b", 40)], [trace("b", 300), trace("a", 330)], {});
+    h.ok(twoPlots.policy !== "key", "two plots (no image object on either side): auto never picks key");
+  }
+
+  h.section("J. per-object style tween");
+  {
+    const a = new Map([["s1", { color: "#ff0000", opacity: 1 }], ["s2", { color: "#0000ff", opacity: 0.4 }], ["s3", { hidden: true }]]);
+    const b = new Map([["s1", { color: "#00ff00", opacity: 0.5 }], ["s2", { color: "#0000ff", opacity: 0.4 }], ["s3", { color: "#ffffff", opacity: 1 }]]);
+    const tween = objectStyleTween(a, null, b, null, ["s1", "s2", "s3", "s7"], { stroke: "#cccccc", fill: "none" });
+    h.ok(!!tween, "two different style maps make a tween");
+    for (const t of [0, 0.5, 1]) {
+      const f = styleTweenAt(tween!, t);
+      h.eq(f.get("s1")?.stroke, lerpColor("#ff0000", "#00ff00", t), `t=${t}: a coloured object's colour is the OKLab lerp`);
+      h.ok(close(f.get("s1")!.opacity, 1 + (0.5 - 1) * t), `t=${t}: its opacity lerps`);
+      h.ok(close(f.get("s3")!.opacity, t), `t=${t}: an object hidden at one end fades (${f.get("s3")!.opacity})`);
+    }
+    h.eq(styleTweenAt(tween!, 1).has("s7") || styleTweenAt(tween!, 1).has("s2"), false, "an object whose paint is equal at both ends is not in the tween (nothing written for it)");
+    h.eq(objectStyleTween(a, null, new Map(a), null, ["s1", "s2", "s3"], { stroke: "#cccccc", fill: "none" }), null, "equal styles at both ends: no tween (nothing written)");
+  }
+
+  h.section("K. stamps and the deck without images");
+  {
+    const base = createDeck({ id: "d", title: "d" });
+    const st = deckSchemaFor(base);
+    const col = structuredClone(base); col.slides[0].beats.push({ id: "x", tracks: [{ id: "t", target: "gone", part: "l/1", preset: "fade", stagger: { by: { key: "dendrite" } } }] } as never);
+    h.eq(deckSchemaFor(col), "0.8.0", "a column stagger (even on a dangling track) is written as 0.8.0");
+    const plain = structuredClone(base); plain.slides[0].beats.push({ id: "x", tracks: [{ id: "t", target: "gone", preset: "fade", stagger: { by: { key: "value" } } }] } as never);
+    h.eq(deckSchemaFor(plain), st, "a plot key stagger keeps the old stamp");
+    const pk = structuredClone(base); pk.slides[0].beats.push({ id: "x", tracks: [{ id: "t", target: "a", preset: "transform", to: { become: { ref: { element: "b" }, mode: "handoff", pair: "key" } } }] } as never);
+    h.eq(deckSchemaFor(pk), "0.8.0", "a Become paired by key is written as 0.8.0");
+    const BASE: Record<string, string> = {
+      talk: "42073a9bfc367ba4c8040028d990ceb3ca72b09b40f59ce8a8d86ba3e20e3ffc",
+      "ghost-disappear": "a1cca8d7b82d0a8d788ff4c21113e7687853cac8ce9a46a9904143908f079568",
+      vid: "4daf2262755f079dc5c3b72e24f7f1278f54c92764dae99055511f4497741720",
+    };
+    for (const d of decksWithoutImages()) h.eq(deckDigest(d), BASE[d.id], `${d.id}: cues, issues and samples byte-identical to the base`);
+    void (null as unknown as Deck);
+  }
+} finally {
+  await rm(scratch, { recursive: true, force: true });
+}
+await h.done();

@@ -25,6 +25,10 @@ export interface OutlineOwner {
   series?: string;
   index?: number;
   data?: { x?: number; y?: number };
+  /** An image object's key (its `data-key`: the layer table's key text), for the Become pair policy "key". */
+  key?: string;
+  /** A plot series' NAME (`series` is its id), for the pair policy "key". */
+  seriesName?: string;
   /** Constituent leaves when several outlines were merged into one chain
    *  (two spines → one L); the reveal at t = 1 flips every constituent. */
   members?: { elementId: Id; partId?: string }[];
