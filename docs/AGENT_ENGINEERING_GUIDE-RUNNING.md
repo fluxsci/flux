@@ -2825,6 +2825,24 @@ Persistence invariants (all machine-checked — do not weaken):
     number, a wrapper round a preview: each was removed and each showed in the numbers.
   - **The `?` key is the app's keyboard reference** (Shell): a surface cannot take it. The X-ray's legend
     opens from the key at the end of its hint line.
+  - **Their kin wear the same look (owner, same day: "redesign it so it fits the same style").** The Cascade
+    pop-up (`CascadePopover.svelte`) is the menu's sibling: the menu's plate, card, blue and paper keys
+    (`--fm-*`), one line per thing, one lit key (Apply), one hint line, and a ladder that writes out what
+    each unit gets (`interact/cascadeLook.ts`, pure, from the core's own `stepOf`). Its hooks did not move
+    (`select.prop`, `select.ord`, `input.delta/.factor/.dl/.dc/.dh`, `.mode button`,
+    `label.chk.rev/.ff input`, `.n`): the selects stay native (gates drive them with `page.select`), an
+    on/off key is its checkbox laid unseen over the whole key.
+  - **A panel HOSTED in an instrument wears the host's look, from its own stylesheet.** Axis view
+    (`plot/AxisView.svelte`) and the colour-scale block (`plot/ColorScaleControls.svelte`) are shared with
+    the Inspector, so each carries a second, host-scoped set of rules (`:global(.fluxFigMenu) …`,
+    `:global(.xray) …`, or `:global(:is(.fluxFigMenu, .xray)) …` for what both hosts share) after its
+    Inspector look, which stays as it is. Host colours come in as a few custom properties declared on the
+    HOSTED root, never on the host's: that is only safe because these roots are off the host's ordinary
+    open (a row in hand, the menu's wide view, a closed `<details>` whose content is not styled until it
+    opens). No markup changed for either: a native checkbox is drawn as an on/off key with
+    `appearance: none` and `::after`, a select's arrow with two gradients (nothing to fetch or decode).
+    A gate that reads such a key's colour must read it at rest: a hovered key is a `color-mix` and
+    computed style reports it in oklab, which neither an `rgb()` regex nor a canvas `fillStyle` reads.
 - **The 2026-09-15 editing surface (Figure + Slide): one property model, one wheel.**
   What remains of that surface contract after the 2026-11-20 redesign above (which superseded its 2 px / 3 px
   radii and its "no glow" for these two panels): accent-tint selection with an
@@ -13763,3 +13781,8 @@ against new")
 - A mockup's key may be taken: `?` was the X-ray legend's key in the viewer and is the app's keyboard reference.
 - When a patch replaces "from marker X to the end of the file", find X after a known anchor: `{#if $xrayOpen}`
   also appeared in a comment in the script, and the first match cut the component in half.
+- Asked afterwards for the Cascade pop-up "and any other little parts": the parts most out of step were not
+  other surfaces but the old forms still shown INSIDE the two new ones (axis view, colour scale). Look inside a
+  redesigned surface, in every view it can host, before looking further afield.
+- The X-ray's final cost was taken while another job held twelve cores: interleave the two builds, run each
+  side twice, and read the spread between the two runs of ONE build as the noise before reading a difference.

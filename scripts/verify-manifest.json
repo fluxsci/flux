@@ -2167,7 +2167,7 @@
       ]
     },
     {
-      "glob": "{src/shell/modes/slide/animator/CurveField.svelte,src/shell/modes/slide/animator/BeatRail.svelte,src/shell/modes/slide/animator/trackActions.ts,src/shell/modes/slide/animator/cascadeTracks.ts,src/lib/cascade.ts,src/lib/CascadePopover.svelte}",
+      "glob": "{src/shell/modes/slide/animator/CurveField.svelte,src/shell/modes/slide/animator/BeatRail.svelte,src/shell/modes/slide/animator/trackActions.ts,src/shell/modes/slide/animator/cascadeTracks.ts,src/lib/cascade.ts,src/lib/interact/cascadeLook.ts,src/lib/CascadePopover.svelte}",
       "run": [
         "group:figures-slides-overhaul",
         "group:slide-ghosts",

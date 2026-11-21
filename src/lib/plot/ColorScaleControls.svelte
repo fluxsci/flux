@@ -287,4 +287,86 @@
   .wide .palette-pane { grid-column: 2; grid-row: 1 / span 2; min-width: 0; margin-top: 6px; }
   .wide .palette-pane :global(.list) { max-height: min(52vh, 560px); }
   .pane-head { font: 10px var(--font-mono); color: var(--c-tx-muted); margin-bottom: 4px; }
+
+  /* HOSTED in the property menu (its wide "colour scale" view) and in the X-ray (2026-11-20): the host's look,
+     not a form set into it. A scale is a small eyebrow and one line per thing; a value is a well without a
+     border; a choice wears the host's face; Reverse is an on/off key; the two actions are keys. The host's
+     colours come in as a handful of properties declared HERE, on the block: it is a closed <details> in the
+     X-ray until asked for (nothing under it is styled till then) and exists in the menu only in this view, so
+     neither surface's ordinary open pays for them. The Inspector's look, above, is untouched. */
+  :global(.fluxFigMenu) .color-scales {
+    --h-well: var(--fm-well); --h-ring: rgba(255, 252, 240, 0.12); --h-ring-2: rgba(255, 252, 240, 0.26); --h-hi: var(--fm-blue); --h-tx: var(--fm-tx); --h-tx-hi: var(--fm-tx-hi); --h-dim: var(--fm-tx-dim);
+    --h-key: var(--fm-paper); --h-key-ink: var(--fm-blue-deep); --h-key-edge: color-mix(in oklab, var(--fm-blue) 45%, transparent); --h-key-over: color-mix(in oklab, var(--fm-blue) 16%, var(--fm-paper));
+    --h-on: var(--fm-blue); --h-on-ink: var(--fm-paper); --h-word: 12.5px var(--font-serif);
+  }
+  :global(.xray) .color-scales {
+    --h-well: var(--xr-well); --h-ring: var(--xr-line); --h-ring-2: color-mix(in oklab, var(--xr-phos) 55%, transparent); --h-hi: var(--xr-phos-hi); --h-tx: var(--xr-tx); --h-tx-hi: var(--xr-hot); --h-dim: var(--xr-tx-dim);
+    --h-key: color-mix(in oklab, var(--xr-phos) 13%, transparent); --h-key-ink: var(--xr-phos-hi); --h-key-edge: color-mix(in oklab, var(--xr-phos) 40%, transparent); --h-key-over: color-mix(in oklab, var(--xr-phos) 26%, transparent);
+    --h-on: var(--xr-box); --h-on-ink: var(--xr-ink); --h-word: 12px var(--font-mono);
+  }
+  :global(:is(.fluxFigMenu, .xray)) .color-scales { margin: 0; color: var(--h-tx); font: var(--h-word); }
+  :global(.xray) .color-scales { margin: 0 0 3px; border-bottom: 1px solid var(--xr-line); }
+  :global(.xray) .color-scales:not([open]) { border-bottom-color: transparent; margin-bottom: 0; }
+  :global(:is(.fluxFigMenu, .xray)) summary { height: 22px; padding: 0 9px; font: 600 9.5px/22px var(--font-mono); letter-spacing: 0.09em; text-transform: uppercase; color: var(--h-dim); }
+  :global(:is(.fluxFigMenu, .xray)) summary:hover { color: var(--h-tx-hi); }
+  :global(.xray) form { padding: 0 9px 7px; }
+  :global(:is(.fluxFigMenu, .xray)) fieldset { border: 0; border-radius: 0; margin: 0 0 4px; padding: 0; gap: 0; }
+  :global(:is(.fluxFigMenu, .xray)) legend { height: 20px; padding: 0; font: 600 9.5px/20px var(--font-mono); letter-spacing: 0.09em; text-transform: uppercase; color: var(--h-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  :global(:is(.fluxFigMenu, .xray)) label { min-height: 24px; gap: 8px; }
+  /* Reverse is a row like the others: its name, and its key at the line's end. */
+  :global(:is(.fluxFigMenu, .xray)) label.inline { justify-content: space-between; }
+  :global(:is(.fluxFigMenu, .xray)) input, :global(:is(.fluxFigMenu, .xray)) select, :global(:is(.fluxFigMenu, .xray)) .limits :global(.nf input) {
+    box-sizing: content-box; height: 18px; padding: 0 5px; background: var(--h-well); border: 0; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--h-ring);
+    color: var(--h-tx-hi); font: 11.5px/18px var(--font-mono); font-variant-numeric: tabular-nums; outline: none;
+  }
+  :global(:is(.fluxFigMenu, .xray)) input:hover, :global(:is(.fluxFigMenu, .xray)) select:hover, :global(:is(.fluxFigMenu, .xray)) .limits :global(.nf input:hover) { box-shadow: inset 0 0 0 1px var(--h-ring-2); }
+  :global(:is(.fluxFigMenu, .xray)) input:focus, :global(:is(.fluxFigMenu, .xray)) select:focus, :global(:is(.fluxFigMenu, .xray)) .limits :global(.nf input:focus) { box-shadow: inset 0 0 0 1px var(--h-hi); }
+  :global(:is(.fluxFigMenu, .xray)) input::placeholder, :global(:is(.fluxFigMenu, .xray)) .limits :global(.nf input::placeholder) { color: var(--h-dim); font-style: italic; }
+  /* A choice: no system arrow, a small drawn one (two gradients: nothing to fetch or decode). */
+  :global(:is(.fluxFigMenu, .xray)) select {
+    appearance: none; padding: 0 18px 0 6px; cursor: var(--cursor-cross-hover);
+    background-image: linear-gradient(45deg, transparent 50%, var(--h-dim) 50%), linear-gradient(135deg, var(--h-dim) 50%, transparent 50%);
+    background-position: calc(100% - 10px) 7px, calc(100% - 6px) 7px; background-size: 4px 4px; background-repeat: no-repeat;
+  }
+  :global(:is(.fluxFigMenu, .xray)) option { background: var(--h-well); color: var(--h-tx-hi); }
+  /* An on/off key: the checkbox itself, drawn as the host's key. It says what it is, and is lit when on. */
+  :global(:is(.fluxFigMenu, .xray)) input[type="checkbox"] {
+    appearance: none; display: inline-grid; place-items: center; box-sizing: border-box; width: 30px; height: 18px; margin: 0; padding: 0; border-radius: 5px;
+    background: var(--h-key); border: 1px solid var(--h-key-edge); box-shadow: 0 1.5px 2.5px rgba(0, 0, 0, 0.5); cursor: var(--cursor-cross-hover);
+  }
+  :global(:is(.fluxFigMenu, .xray)) input[type="checkbox"]::after { content: "off"; font: 600 9.5px/1 var(--font-mono); color: var(--h-key-ink); }
+  :global(:is(.fluxFigMenu, .xray)) input[type="checkbox"]:hover { background: var(--h-key-over); box-shadow: 0 1.5px 2.5px rgba(0, 0, 0, 0.5); }
+  :global(:is(.fluxFigMenu, .xray)) input[type="checkbox"]:checked { background: var(--h-on); border-color: var(--h-on); box-shadow: 0 1.5px 2.5px rgba(0, 0, 0, 0.5); }
+  :global(:is(.fluxFigMenu, .xray)) input[type="checkbox"]:checked::after { content: "on"; color: var(--h-on-ink); }
+  :global(:is(.fluxFigMenu, .xray)) input[type="checkbox"]:focus-visible { outline: 1.5px solid var(--h-hi); outline-offset: 1px; }
+  /* The palette: its strip as a chip (the menu's colour chip), its name beside it. */
+  :global(:is(.fluxFigMenu, .xray)) .cmapctl { gap: 8px; max-width: 230px; }
+  :global(:is(.fluxFigMenu, .xray)) .cmapbtn { flex: none; width: 46px; height: 14px; padding: 0; border: 0; border-radius: 4px; background: none; overflow: hidden; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 0 2px var(--h-ring-2); }
+  :global(:is(.fluxFigMenu, .xray)) .cmapbtn:hover:not(:disabled), :global(:is(.fluxFigMenu, .xray)) .cmapbtn.target { background: none; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 0 2.5px var(--h-hi); }
+  :global(:is(.fluxFigMenu, .xray)) .cmapbar { border-radius: 0; }
+  /* The limits share a line, each a name and its number (the menu's pairs: x beside width). */
+  :global(:is(.fluxFigMenu, .xray)) .limits { gap: 2px 16px; align-items: center; min-height: 24px; }
+  :global(:is(.fluxFigMenu, .xray)) .limits :global(.nf) { flex: 1 1 34%; flex-direction: row; align-items: center; justify-content: space-between; gap: 6px; min-height: 24px; }
+  :global(:is(.fluxFigMenu, .xray)) .limits :global(.nf .lb) { font: var(--h-word); letter-spacing: 0; color: var(--h-tx); }
+  :global(:is(.fluxFigMenu, .xray)) .limits :global(.nf .lb:hover) { color: var(--h-tx-hi); }
+  :global(:is(.fluxFigMenu, .xray)) .limits :global(.nf input) { width: 8ch; text-align: right; }
+  /* Keys: the host's (paper in the menu, glass in the X-ray). Reset is the quiet one. */
+  :global(:is(.fluxFigMenu, .xray)) button:not(.cmapbtn) {
+    height: 20px; padding: 0 8px; border-radius: 5px; background: var(--h-key); color: var(--h-key-ink); border: 1px solid var(--h-key-edge); box-shadow: 0 1.5px 2.5px rgba(0, 0, 0, 0.5);
+    font: 600 10.5px/1 var(--font-mono); cursor: var(--cursor-cross-hover);
+  }
+  :global(:is(.fluxFigMenu, .xray)) button:not(.cmapbtn):hover:not(:disabled) { background: var(--h-key-over); border-color: var(--h-hi); }
+  :global(:is(.fluxFigMenu, .xray)) button:not(.cmapbtn):active:not(:disabled) { transform: translateY(1px); box-shadow: 0 0 1px rgba(0, 0, 0, 0.6); }
+  :global(:is(.fluxFigMenu, .xray)) button:focus-visible { outline: 1.5px solid var(--h-hi); outline-offset: 1px; }
+  :global(:is(.fluxFigMenu, .xray)) button:disabled { opacity: 0.38; box-shadow: none; cursor: var(--cursor-cross); }
+  :global(:is(.fluxFigMenu, .xray)) button.reset:not(.cmapbtn) { justify-self: end; height: 18px; margin-top: 3px; background: transparent; box-shadow: none; border-color: var(--h-ring-2); color: var(--h-tx); font-size: 10px; text-transform: lowercase; }
+  :global(:is(.fluxFigMenu, .xray)) p { margin: 4px 0; font: 10px/1.5 var(--font-mono); color: var(--h-dim); }
+  :global(:is(.fluxFigMenu, .xray)) .status { font: 10px var(--font-mono); color: var(--h-dim); }
+  :global(:is(.fluxFigMenu, .xray)) .pane-head { font: 600 9.5px/20px var(--font-mono); letter-spacing: 0.09em; text-transform: uppercase; color: var(--h-dim); margin: 0; }
+  /* The X-ray's inline palette list reads the X-ray's ramp (re-pointed here, on a host that exists only while it is open). */
+  :global(.xray) .cmappick { margin: 2px 0 6px; padding: 0; border: 0; --c-bg: var(--xr-well); --c-bg-raised: var(--xr-card); --c-surface: var(--xr-card); --c-surface-2: color-mix(in oklab, var(--xr-phos) 14%, var(--xr-card)); --c-line: var(--xr-line); --c-line-strong: var(--xr-line);
+    --c-accent: var(--xr-phos-hi); --c-accent-bright: var(--xr-phos-hi); --c-accent-tint: var(--xr-tint); --c-tx: var(--xr-tx); --c-tx-hi: var(--xr-hot); --c-tx-2: var(--xr-tx); --c-tx-muted: var(--xr-tx-dim); --c-tx-faint: var(--xr-tx-dim); }
+  /* In the menu's wide view the controls stand in the view's own card, the palettes beside them: no box of their own. */
+  :global(.fluxFigMenu) .wide .controls, :global(.fluxFigMenu) .wide .notes { padding: 0 4px 0 2px; }
+  :global(.fluxFigMenu) .wide .palette-pane { margin-top: 0; }
 </style>

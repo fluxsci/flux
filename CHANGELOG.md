@@ -202,6 +202,20 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   - Both open and step at or under their old cost (measured on production builds, old and new
     alternating): the property menu's open-and-close costs about a tenth less main-thread time
     and a wheel step about a third less.
+- **The cascade pop-up (Ctrl+Shift+C; Ctrl+Alt+C on tracks), redrawn** as the property menu's
+  sibling. Same controls, keys and behaviour.
+  - A dark plate with a card: **property**, **each step** and **order**, one line each. Add or
+    multiply is a two-key switch; **reverse** and **first stays** are keys, lit when on. The
+    number wears its property's unit (°, pt, ms, %).
+  - A new **gives** line writes out what each object or track gets, in order (**+25 +50 +75**,
+    **×1.25 ×1.56**, **+40° +80°**), so you can read the cascade before you apply it. With many,
+    it shows the first four and the last.
+  - **Apply** is the one lit key; the foot says whether anything has changed yet.
+- **Axis view and colour scale, inside the property menu and the X-ray, wear their host's look.**
+  The limits are numbers in small wells on one line, a choice (scale, norm, extend) has the
+  menu's face, **Reverse** is an on/off key, and **reset** and **Apply to source** are keys.
+  In the X-ray the colour-scale block and its palette list take the X-ray's own colours. The
+  same panels in the Inspector are unchanged.
 - **The Figure-Meta preview no longer shimmers.** On a display with a fractional scale (125%,
   150%) the fitted or zoomed-out preview flickered between two sizes every frame, which read as
   blur. It is now steady, and a fitted proof sits on whole device pixels, so its edges are sharp.

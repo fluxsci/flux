@@ -853,6 +853,15 @@ perceptually in OKLCh (ΔL/ΔC/ΔH per step). The preview is live; **Enter** app
 step, **Escape** puts everything back. Fanned annotations, graded palettes, staircase layouts —
 one gesture.
 
+The popover is a small dark plate at the top of the canvas, one line per thing: **property**,
+**each step** (the **+** | **×** switch, then the number, which wears the property's unit) and
+**order**, with two keys beside it. **reverse** flips the order; **first stays** leaves the
+first object as it is, so the cascade starts at the second. The **gives** line writes out what
+each object gets, in order (**+25 +50 +75 +100**, or **0 +25 +50 +75** with **first stays**);
+with many objects it shows the first four and the last. The head counts the objects, and says
+in blue when some of them cannot take the property (**5 units · 4 apply**). **Apply** (**Enter**)
+is the lit key; clicking outside the popover applies too.
+
 # Panels and captions
 
 - Mark a text element as a **panel label** with **Alt+L** or the **Panel label** toggle

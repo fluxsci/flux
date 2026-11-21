@@ -10,6 +10,11 @@
 //  - the "n of m apply" header reflects per-type applicability (width on a
 //    selection containing a path);
 //  - clicking outside the popover applies (Enter semantics), never abandons.
+//
+// THE LOOK (2026-11-20; the owner: "redesign it so it fits the same style of all of the other flux components
+// we've been redesigning"): the property menu's sibling, asserted here on computed styles. Its plate and card,
+// one line per thing, paper keys for what is on or off, one lit key (Apply), one hint line, and the ladder
+// that writes out what each unit gets. Nothing blurs, nothing animates at rest, and it stands where it stood.
 import { launch, gotoApp, clickMode, realErrors, shot, waitFor } from "./lib/driver.mjs";
 
 let fails = 0;
@@ -71,12 +76,39 @@ try {
       [sel, v],
     );
   const popOpen = () => page.evaluate(() => !!document.querySelector(".cascade-pop"));
+  const rungs = () => page.evaluate(() => [...document.querySelectorAll(".cascade-pop .ladder .rungs > *")].map((n) => n.textContent.trim() + (n.classList.contains("still") ? "*" : "")).join(" "));
+  const look = () => page.evaluate(() => {
+    const q = (s) => document.querySelector(".cascade-pop " + s), cs = (n) => getComputedStyle(n), box = (n) => { const r = n.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height, r: r.right, b: r.bottom }; };
+    const pop = document.querySelector(".cascade-pop"), host = pop.offsetParent ?? document.body, p = cs(pop);
+    const all = [pop, ...pop.querySelectorAll("*")];
+    return {
+      pop: box(pop), host: box(host), bg: p.backgroundColor, radius: p.borderTopLeftRadius, scheme: p.colorScheme,
+      filters: all.filter((n) => cs(n).backdropFilter !== "none" || cs(n).filter !== "none").length,
+      card: { bg: cs(q(".card")).backgroundColor, radius: cs(q(".card")).borderTopLeftRadius },
+      rows: [...pop.querySelectorAll(".row, .ladder")].map((r) => Math.round(box(r).h)),
+      labels: [...pop.querySelectorAll(".row > .lb, .ladder > .lb")].map((l) => l.textContent.trim()), labelFont: cs(q(".row > .lb")).fontFamily,
+      num: { font: cs(q("input.delta")).fontFamily, align: cs(q("input.delta")).textAlign, border: cs(q("input.delta")).borderTopWidth, h: Math.round(box(q("input.delta")).h) },
+      unit: q(".unit")?.textContent ?? null,
+      sel: { appearance: cs(q("select.prop")).appearance, border: cs(q("select.prop")).borderTopWidth, h: Math.round(box(q("select.prop")).h) },
+      modeOn: [...pop.querySelectorAll(".mode button")].map((b) => [b.classList.contains("on"), cs(b).backgroundColor, b.getAttribute("aria-checked")]),
+      keys: [...pop.querySelectorAll("label.chk")].map((k) => ({ says: k.textContent.trim(), on: k.classList.contains("on"), bg: cs(k).backgroundColor, h: Math.round(box(k).h), boxOpacity: cs(k.querySelector("input")).opacity, covers: Math.round(box(k.querySelector("input")).w) >= Math.round(box(k).w) - 2 })),
+      prime: { bg: cs(q(".prime")).backgroundColor, says: q(".prime").textContent.replace(/\s+/g, " ").trim() }, ghost: { bg: cs(q(".ghost")).backgroundColor, says: q(".ghost").textContent.replace(/\s+/g, " ").trim() },
+      hint: q(".hints").textContent.trim(), hintCut: q(".hints").scrollWidth > q(".hints").clientWidth + 1,
+      n: { says: q(".n").textContent.replace(/\s+/g, " ").trim(), color: cs(q(".n")).color, font: cs(q(".n")).fontFamily },
+      mark: q(".hdr img.mark")?.naturalWidth > 0, title: q(".ttl").textContent.trim(), titleFont: cs(q(".ttl")).fontFamily,
+      overflowing: all.filter((n) => n.scrollWidth > n.clientWidth + 1 && !n.matches("select, input")).map((n) => n.className).join(","),
+      anims: document.getAnimations().filter((a) => pop.contains(a.effect?.target)).length,
+    };
+  });
+  const lum = (rgb) => { const m = rgb.match(/[\d.]+/g).map(Number); return (0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2]) / 255; };
+  const isBlue = (rgb) => { const m = rgb.match(/[\d.]+/g).map(Number); return m[2] > m[0] + 40 && m[2] > m[1]; };
 
   // ---- 1. the owner's sketch: rotation +25, first NOT fixed --------------------
   const past0 = await past();
   await chord();
   await waitFor(page, () => !!document.querySelector(".cascade-pop"), null, { label: "chord opens the popover" });
   await page.select(".cascade-pop select.prop", "rotation");
+  assert((await rungs()) === "0* 0* 0* 0*" && (await look()).hint === "set a step to begin", `before a step is set the ladder is still and the hint says where to begin (${await rungs()})`);
   await setNum(".cascade-pop input.delta", 25);
   await waitFor(page, () => window.__flux.figures()[0].elements.find((e) => e.id === "r4")?.rotation === 100, null, {
     label: "live preview applied",
@@ -84,6 +116,25 @@ try {
   assert(JSON.stringify(await rots()) === JSON.stringify([25, 50, 75, 100]), `rotation +25 live-previews 25/50/75/100 (got ${await rots()})`);
   assert((await past()) === past0 + 1, "the tuning session is ONE history entry");
   await shot(page, "cascade-preview");
+
+  // ---- 1b. the look: the property menu's sibling -------------------------------
+  await new Promise((r) => setTimeout(r, 260));
+  {
+    const L = await look();
+    assert(lum(L.bg) < 0.08 && L.radius === "12px" && lum(L.card.bg) < 0.16 && lum(L.card.bg) > lum(L.bg) && L.card.radius === "8px" && L.scheme === "dark", `a dark plate with a card set into it (${L.bg} / ${L.card.bg}, ${L.radius} / ${L.card.radius})`);
+    assert(L.filters === 0 && L.anims === 0, `nothing blurs or filters, and nothing animates at rest (${L.filters} filters, ${L.anims} animations)`);
+    assert(Math.abs(L.pop.y - L.host.y - 16) <= 1 && Math.abs(L.pop.x + L.pop.w / 2 - (L.host.x + L.host.w / 2)) <= 1 && L.pop.w === 348, `it stands where it stood: 16 px under the top of its pane, centred (${L.pop.w} px wide)`);
+    assert(L.rows.length === 4 && L.rows.every((h) => h >= 24 && h <= 28) && L.labels.join("|") === "property|each step|order|gives", `one line per thing: ${L.labels.join(", ")} (${L.rows.join("/")} px)`);
+    assert(/serif|Georgia|Newsreader|Source Serif|Literata/i.test(L.labelFont + L.titleFont) && L.title === "Cascade" && L.mark, "the Flux mark and the tool's name in the menu's serif");
+    assert(/mono/i.test(L.num.font) && L.num.align === "right" && L.num.border === "0px" && L.num.h <= 20, `a number is mono, right-aligned, without a border (${L.num.h} px)`);
+    assert(L.unit === "°", `the value wears its property's unit (${L.unit})`);
+    assert(L.sel.appearance === "none" && L.sel.border === "0px" && L.sel.h === 20, "a choice wears the menu's face (the list stays the system's)");
+    assert(L.modeOn.length === 2 && L.modeOn[0][0] && !L.modeOn[1][0] && isBlue(L.modeOn[0][1]) && lum(L.modeOn[1][1]) > 0.85 && L.modeOn[0][2] === "true" && L.modeOn[1][2] === "false", "add | multiply are two keys of one switch: the one in force is lit, the other is paper");
+    assert(L.keys.length === 2 && L.keys.map((k) => k.says).join("|") === "reverse|first stays" && L.keys.every((k) => !k.on && lum(k.bg) > 0.85 && k.h === 20 && k.boxOpacity === "0" && k.covers), "reverse and first stays are paper keys (the checkbox is the whole face, unseen)");
+    assert(isBlue(L.prime.bg) && /^Apply/.test(L.prime.says) && /^Cancel/.test(L.ghost.says) && L.ghost.bg === "rgba(0, 0, 0, 0)", "ONE lit key (Apply); Cancel is quiet");
+    assert((await rungs()) === "+25 +50 +75 +100" && L.hint === "live · one undo step" && !L.hintCut, `the ladder writes out what each unit gets (${await rungs()}); the hint line is whole`);
+    assert(L.n.says === "4 units" && /mono/i.test(L.n.font) && L.overflowing === "", `the head counts what it works on; nothing is cut (${L.overflowing || "none"})`);
+  }
   await page.keyboard.press("Enter");
   await waitFor(page, () => !document.querySelector(".cascade-pop"), null, { label: "Enter closes the popover" });
   assert(JSON.stringify(await rots()) === JSON.stringify([25, 50, 75, 100]), "Enter keeps the cascaded values");
@@ -116,6 +167,14 @@ try {
     label: "x-order preview applied",
   });
   assert(JSON.stringify(await xs()) === JSON.stringify([260, 100, 340, 180]), `Left→right + first-fixed ranks by position (got ${await xs()})`);
+  {
+    // (The pointer is still on the key it pressed, and a hovered key's colour is a mix reported in oklab: read it at rest.)
+    await page.mouse.move(6, 6);
+    await new Promise((r) => setTimeout(r, 160));
+    const L = await look();
+    assert(L.keys[1].on && isBlue(L.keys[1].bg) && !L.keys[0].on && (await rungs()) === "0* +30 +60 +90", `first stays: its key is lit and the ladder's first rung is still (${await rungs()}; ${L.keys[1].bg})`);
+    assert(L.unit === null, "a position has no unit to wear");
+  }
   await page.keyboard.press("Escape");
 
   // ---- 4. color ramp on fill -------------------------------------------------------
@@ -129,6 +188,10 @@ try {
   });
   const fills = await page.evaluate(() => ["r1", "r2", "r3", "r4"].map((id) => window.__flux.figures()[0].elements.find((e) => e.id === id).fill));
   assert(new Set(fills).size === 4, `each rank gets a distinct hue (${fills.join(" ")})`);
+  {
+    const c = await page.evaluate(() => ({ leads: [...document.querySelectorAll(".cascade-pop .fld .lead")].map((l) => l.textContent.trim()).join(" "), mode: !!document.querySelector(".cascade-pop .mode"), rows: [...document.querySelectorAll(".cascade-pop .row")].map((r) => Math.round(r.getBoundingClientRect().height)), wide: document.querySelector(".cascade-pop").getBoundingClientRect().width }));
+    assert(c.leads === "L C H°" && !c.mode && c.rows.every((h) => h <= 28) && c.wide === 348 && (await rungs()) === "+40° +80° +120° +160°", `a colour steps in L, C and H° on the same one line (${await rungs()})`);
+  }
   await page.keyboard.press("Escape");
 
   // ---- 5. "n of m apply" with a width-ineligible path ---------------------------------
@@ -138,6 +201,10 @@ try {
   await page.select(".cascade-pop select.prop", "width");
   const hdr = await page.evaluate(() => document.querySelector(".cascade-pop .n")?.textContent?.replace(/\s+/g, " ").trim());
   assert(/5 units\s*· 4 apply/.test(hdr ?? ""), `header shows the reduced applicability (got "${hdr}")`);
+  {
+    const L = await look();
+    assert(isBlue(L.n.color) && (await page.evaluate(() => document.querySelectorAll(".cascade-pop .ladder .rungs > *").length)) === 4, "…in the menu's blue, and the ladder has a rung for each unit that takes the property");
+  }
   await page.keyboard.press("Escape");
   await page.evaluate(() => window.__flux.fig.selection.set(new Set(["r1", "r2", "r3", "r4"])));
 

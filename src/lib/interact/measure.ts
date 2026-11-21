@@ -66,6 +66,9 @@ export function measureDrawing(prop: MeasureProp, el: Measured, p: MeasureProjec
   // rotation: zero stands straight up; the wedge opens to where the object now points
   const deg = el.rotation ?? 0, R = Math.max(18, Math.min(boxed ? Math.min(w, h) * 0.3 : 24, 60)), L = R + 12, a = turn - Math.PI / 2;
   const hand: [number, number] = [cx + L * Math.cos(a), cy + L * Math.sin(a)], onArc: [number, number] = [cx + R * Math.cos(a), cy + R * Math.sin(a)];
-  const wedge = Math.abs(deg) > 0.5 ? `M${n(cx)} ${n(cy)}V${n(cy - R)}A${n(R)} ${n(R)} 0 ${Math.abs(deg) > 180 ? 1 : 0} ${deg >= 0 ? 1 : 0} ${n(onArc[0])} ${n(onArc[1])}Z` : "";
+  // The wedge is the turn within one revolution (a whole turn points straight up again and opens no wedge; past
+  // one, an arc flagged "large" from 0° to 10° would be drawn about another centre).
+  const within = deg % 360;
+  const wedge = Math.abs(within) > 0.5 ? `M${n(cx)} ${n(cy)}V${n(cy - R)}A${n(R)} ${n(R)} 0 ${Math.abs(within) > 180 ? 1 : 0} ${within >= 0 ? 1 : 0} ${n(onArc[0])} ${n(onArc[1])}Z` : "";
   return { d: seg([cx, cy], hand), dash: `M${n(cx)} ${n(cy)}V${n(cy - L)}`, wedge, dot: { x: cx, y: cy }, pill: { x: cx, y: cy + 19, text: `${shortNum(deg)}°` } };
 }

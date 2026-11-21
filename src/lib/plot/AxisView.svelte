@@ -118,4 +118,38 @@
   select:focus, .reset:focus { outline: 1px solid var(--c-accent); }
   .reset:disabled { opacity: .5; }
   p { font: 11px var(--font-ui); color: var(--c-tx-muted); margin: 4px 0; }
+
+  /* HOSTED in the property menu, under the armed "x view" / "y view" row (2026-11-20): the menu's look, not a
+     form set into it. One line: the two limits as numbers in wells, the scale as a choice with the menu's face;
+     reset is a quiet key under them. The row above already names the axis. (These rules exist only while that
+     row is in hand; the Inspector's look, above, is untouched.) */
+  :global(.fluxFigMenu) .axis-view { padding: 0 0 2px 24px; }
+  :global(.fluxFigMenu) .axis-row { align-items: center; gap: 4px 9px; margin: 0; min-height: 24px; }
+  :global(.fluxFigMenu) .axis-name { display: none; }
+  :global(.fluxFigMenu) .axis-view :global(.nf) { flex: 0 1 auto; flex-direction: row; align-items: center; gap: 4px; }
+  :global(.fluxFigMenu) .axis-view :global(.nf .lb), :global(.fluxFigMenu) .scale { font: 10.5px var(--font-mono); letter-spacing: 0; color: var(--fm-tx-dim); }
+  :global(.fluxFigMenu) .axis-view :global(.nf .lb:hover) { color: var(--fm-blue-hi); }
+  :global(.fluxFigMenu) .axis-view :global(.nf input), :global(.fluxFigMenu) select {
+    box-sizing: content-box; height: 18px; padding: 0 4px; background: var(--fm-well); border: 0; border-radius: 4px; box-shadow: inset 0 0 0 1px rgba(255, 252, 240, 0.12);
+    color: var(--fm-tx-hi); font: 12px/18px var(--font-mono); font-variant-numeric: tabular-nums; outline: none;
+  }
+  :global(.fluxFigMenu) .axis-view :global(.nf input) { width: 6.5ch; text-align: right; }
+  :global(.fluxFigMenu) .axis-view :global(.nf input::placeholder) { color: var(--fm-tx-dim); font-style: italic; }
+  :global(.fluxFigMenu) .axis-view :global(.nf input:hover), :global(.fluxFigMenu) select:hover { box-shadow: inset 0 0 0 1px rgba(255, 252, 240, 0.26); }
+  :global(.fluxFigMenu) .axis-view :global(.nf input:focus), :global(.fluxFigMenu) select:focus { box-shadow: inset 0 0 0 1px var(--fm-blue); outline: none; }
+  :global(.fluxFigMenu) .scale { flex-direction: row; align-items: center; gap: 4px; font-size: 0; }
+  /* The choice's face: no system arrow, a small drawn one (two gradients: nothing to fetch or decode). */
+  :global(.fluxFigMenu) select {
+    appearance: none; padding: 0 17px 0 6px; font: 12px/18px var(--font-serif); cursor: var(--cursor-cross-hover);
+    background-image: linear-gradient(45deg, transparent 50%, var(--fm-tx-dim) 50%), linear-gradient(135deg, var(--fm-tx-dim) 50%, transparent 50%);
+    background-position: calc(100% - 10px) 7px, calc(100% - 6px) 7px; background-size: 4px 4px; background-repeat: no-repeat;
+  }
+  :global(.fluxFigMenu) .reset {
+    height: 18px; padding: 0 7px; margin: 3px 0 0; background: transparent; border: 1px solid var(--fm-line-2); border-radius: 5px; color: var(--fm-tx);
+    font: 600 10px/1 var(--font-mono); text-transform: lowercase; cursor: var(--cursor-cross-hover);
+  }
+  :global(.fluxFigMenu) .reset:hover:not(:disabled) { background: var(--fm-paper); border-color: color-mix(in oklab, var(--fm-blue) 45%, transparent); color: var(--fm-blue-deep); }
+  :global(.fluxFigMenu) .reset:focus { outline: 1.5px solid var(--fm-blue-hi); outline-offset: 1px; }
+  :global(.fluxFigMenu) .reset:disabled { opacity: 0.38; cursor: var(--cursor-cross); }
+  :global(.fluxFigMenu) p { margin: 3px 0 0; font: 10px/1.45 var(--font-mono); color: var(--fm-tx-dim); }
 </style>

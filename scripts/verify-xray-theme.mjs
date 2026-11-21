@@ -15,7 +15,7 @@
 //   · selection = translucent phosphor tint (never a solid fill); the primary row of a pick carries an inset
 //     2px rail and glows softly FROM it, inside the row (blur ≤ 12 px); no row's name is text-shadowed
 //   · rows are 22 px, carry no image and no decoration of their own, and a row with nothing to open carries no
-//     empty twisty (two elements fewer per row than before)
+//     empty twisty (a leaf row is one element lighter than before; a preview's text has no wrapper)
 //   · the readout is two lines of fixed height; one key is bright (properties), the others glass
 //   · one hint line; the key at its end shows and hides the whole legend
 //   · nothing animates at rest (document.getAnimations() empty ≥ 200ms after open) and

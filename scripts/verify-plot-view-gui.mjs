@@ -76,6 +76,19 @@ try {
   await page.keyboard.press('v');
   const menuInput='.fluxFigMenu [data-axis-view-row="x"] .nf:nth-of-type(2) input';
   await waitFor(page, s=>!!document.querySelector(s), menuInput);
+  // HOSTED in the menu the axis view wears the menu's look (2026-11-20): the limits are numbers in wells on one
+  // line, the scale a choice with the menu's face, reset a quiet key; the row above already names the axis.
+  {
+    await page.mouse.move(4,4);await new Promise(r=>setTimeout(r,140));
+    const L=await page.evaluate(()=>{const q=s=>document.querySelector('.fluxFigMenu .axis-view '+s),cs=n=>getComputedStyle(n),box=n=>n.getBoundingClientRect();const nf=[...document.querySelectorAll('.fluxFigMenu [data-axis-view-row="x"] .nf')],inp=nf[1].querySelector('input'),sel=q('select'),reset=q('.reset');
+      return {oneLine:new Set([...nf,sel].map(n=>Math.round(box(n).top+box(n).height/2))).size===1,inline:cs(nf[0]).flexDirection,num:{border:cs(inp).borderTopWidth,h:Math.round(box(inp).height),align:cs(inp).textAlign,font:cs(inp).fontFamily},name:cs(q('.axis-name')).display,
+        sel:{appearance:cs(sel).appearance,border:cs(sel).borderTopWidth,arrow:cs(sel).backgroundImage.includes('linear-gradient'),h:Math.round(box(sel).height)},reset:{bg:cs(reset).backgroundColor,h:Math.round(box(reset).height),says:reset.textContent.trim(),case:cs(reset).textTransform},
+        fits:box(document.querySelector('.fluxFigMenu .axis-view')).right<=box(document.querySelector('.fluxFigMenu')).right&&document.querySelector('.fluxFigMenu .body').scrollWidth<=document.querySelector('.fluxFigMenu .body').clientWidth+1};});
+    h.ok(L.oneLine&&L.inline==='row'&&L.name==='none'&&L.fits,'in the menu the axis view is one line (min, max, scale) and fits its column');
+    h.ok(L.num.border==='0px'&&L.num.h===18&&L.num.align==='right'&&/mono/i.test(L.num.font),`…a limit is a number in a well (${L.num.h}px)`);
+    h.ok(L.sel.appearance==='none'&&L.sel.border==='0px'&&L.sel.arrow&&L.sel.h===18,'…the scale is a choice with the menu\'s face');
+    h.ok(L.reset.bg==='rgba(0, 0, 0, 0)'&&L.reset.h===18&&L.reset.says==='Reset'&&L.reset.case==='lowercase','…and reset is a quiet key');
+  }
   await typeMax('5',menuInput); await page.keyboard.press('Enter');
   h.eq((await model()).view?.x?.domain?.[1],5,'F-menu edits through the same control');
   // Owner inbox 2026-09-30: armed from the menu, the wheel adjusts the focused

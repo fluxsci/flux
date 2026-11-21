@@ -9,6 +9,7 @@ import type { Deck } from "../src/lib/slide/types";
 import * as ops from "../src/lib/ops";
 import * as slideOps from "../src/lib/slide/ops";
 import { stepOf, cascadeValue, PT_TO_PX, supportsBoxDim } from "../src/lib/cascade";
+import { cascadeLadder, cascadeRung, signed, unitOfLabel } from "../src/lib/interact/cascadeLook";
 import { shiftOklch, parseColor } from "../src/lib/color/interp";
 
 function assert(cond: unknown, msg: string) {
@@ -436,3 +437,24 @@ console.log("verify-cascade: ALL OK");
   slideOps.cascadeTracks(d, "s1", ["tA", "tB", "tC"], { property: "duration", delta: 50 }, baseline);
   assert(trk(d, "tA").curve?.kind === "spring" && trk(d, "tA").curve?.bounce === .2, "bounce: switching cascade property restores the complete timing curve baseline");
 }
+
+// The ladder the pop-up writes out (interact/cascadeLook.ts): what each rank gets, from the same step law.
+{
+  const texts = (spec: Parameters<typeof cascadeLadder>[0], n: number, max?: number) => cascadeLadder(spec, n, max).map((r) => (r ? r.text : "…"));
+  const add = { mode: "add" as const, delta: 25, factor: 1, firstFixed: false };
+  assert(texts(add, 4).join(" ") === "+25 +50 +75 +100", "ladder: add, every unit steps (the first takes one)");
+  assert(texts({ ...add, firstFixed: true }, 4).join(" ") === "0 +25 +50 +75" && cascadeRung({ ...add, firstFixed: true }, 0).still, "ladder: first stays, the first rung is a still 0");
+  assert(texts({ ...add, delta: -0.05 }, 3).join(" ") === "\u22120.05 \u22120.1 \u22120.15", "ladder: a negative step wears a real minus and no float noise");
+  assert(cascadeLadder({ ...add, delta: 0 }, 3).every((r) => r!.still && r!.text === "0"), "ladder: no step, every rung is a still 0");
+  assert(texts({ ...add, mode: "mul", factor: 1.25 }, 4).join(" ") === "×1.25 ×1.56 ×1.95 ×2.44", "ladder: multiply compounds (three figures)");
+  assert(cascadeRung({ ...add, mode: "mul", factor: 1.25, firstFixed: true }, 0).still && cascadeRung({ ...add, mode: "mul", factor: 0 }, 1).text === "×?", "ladder: ×1 is still; a factor that is not positive is not written as a number");
+  const hue = { ...add, color: { dL: 0, dC: 0, dH: 40 } };
+  assert(texts(hue, 3).join(" ") === "+40° +80° +120°", "ladder: one colour component is written as its shift");
+  assert(texts({ ...add, color: { dL: 0.02, dC: 0, dH: 40 } }, 3).join(" ") === "1× 2× 3×", "ladder: several components are written as steps taken");
+  assert(cascadeLadder({ ...add, color: { dL: 0, dC: 0, dH: 0 } }, 2).every((r) => r!.still), "ladder: a colour cascade without a shift is still");
+  assert(texts(add, 10).join(" ") === "+25 +50 +75 +100 … +250" && cascadeLadder(add, 10).length === 6, "ladder: many units show the first four, a gap and the last");
+  assert(texts(add, 6).length === 6 && !texts(add, 6).includes("…") && cascadeLadder(add, 0).length === 0, "ladder: six fit whole; none gives none");
+  for (let k = 0; k < 5; k++) assert(cascadeRung(add, k).text === signed(cascadeValue(0, add, stepOf(k, false))), `ladder: rung ${k} is what the core applies`);
+  assert(unitOfLabel("Rotation (°)") === "°" && unitOfLabel("Start (ms)") === "ms" && unitOfLabel("Font size (pt)") === "pt" && unitOfLabel("Opacity") === "" && unitOfLabel("Zoom (×)") === "", "the value's unit is the one its label names (a × is left unsaid)");
+}
+console.log("verify-cascade: ladder OK");

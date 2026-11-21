@@ -8,7 +8,10 @@
 //   • Apply to source writes the complete v2 __fluxplot__ control, regenerates through the file
 //     bridge and clears the live override; the standalone export bakes the live colours;
 //   • the F-menu offers the same editor; a slide "Edit after step" writes state.colorScale on a
-//     Change track and the ruler scrubs through intermediate colours.
+//     Change track and the ruler scrubs through intermediate colours;
+//   • HOSTED in the property menu and in the X-ray the editor wears its host's look (2026-11-20, the owner:
+//     "redesign it so it fits the same style"): no boxed form, a well for a value, the host's face on a choice,
+//     Reverse as an on/off key, keys for the actions, in the host's own colours. The Inspector's look stays.
 import { readFileSync, mkdirSync } from 'node:fs';
 import { harness } from './lib/harness.mjs';
 import { launch, gotoApp, clickMode, APP_URL, waitFor, waitForFrame, realErrors } from './lib/driver.mjs';
@@ -34,6 +37,19 @@ const expected = (view) => page.evaluate(async (view, id) => {
   const c = colorFor(eff, v).slice(0, 7);
   return `rgb(${parseInt(c.slice(1, 3), 16)}, ${parseInt(c.slice(3, 5), 16)}, ${parseInt(c.slice(5, 7), 16)})`;
 }, view, PROBE);
+// How the editor is DRAWN under a root (computed styles, at rest: the pointer is parked off it first).
+const hostedLook = async (root) => { await page.mouse.move(4, 4); await new Promise(r => setTimeout(r, 140)); return page.evaluate((root) => {
+  const q = s => document.querySelector(`${root} .color-scales ${s}`), cs = n => getComputedStyle(n), h = n => Math.round(n.getBoundingClientRect().height);
+  const fs = q('fieldset'), max = q('[data-color-scale-limits] .nf:nth-of-type(2)'), sel = q('select'), rev = q('input[type="checkbox"]'), reset = q('.reset'), go = q('.apply-source'), bar = q('.cmapbtn');
+  return { fieldsetBorder: cs(fs).borderTopWidth, legend: { transform: cs(q('legend')).textTransform, font: cs(q('legend')).fontFamily },
+    num: { border: cs(max.querySelector('input')).borderTopWidth, h: h(max.querySelector('input')), align: cs(max.querySelector('input')).textAlign, bg: cs(max.querySelector('input')).backgroundColor, inline: cs(max).flexDirection, labelFont: cs(max.querySelector('.lb')).fontFamily },
+    limitsOneLine: (() => { const f = [...document.querySelectorAll(`${root} [data-color-scale-limits] .nf`)].map(n => Math.round(n.getBoundingClientRect().top)); return new Set(f.slice(0, 2)).size === 1; })(),
+    select: { appearance: cs(sel).appearance, border: cs(sel).borderTopWidth, arrow: cs(sel).backgroundImage.includes('linear-gradient'), h: h(sel) },
+    reverse: { appearance: cs(rev).appearance, says: cs(rev, '::after').content, w: Math.round(rev.getBoundingClientRect().width), bg: cs(rev).backgroundColor, checked: rev.checked, said: getComputedStyle(rev, '::after').content },
+    reset: { bg: cs(reset).backgroundColor, h: h(reset) }, apply: { bg: cs(go).backgroundColor, color: cs(go).color, h: h(go), font: cs(go).fontFamily }, bar: { border: cs(bar).borderTopWidth, h: h(bar) },
+    rows: [...document.querySelectorAll(`${root} .color-scales fieldset > label`)].map(h), text: cs(q('fieldset > label')).color };
+}, root); };
+const lum = (rgb) => { const m = (rgb.match(/[\d.]+/g) ?? []).map(Number); return m.length >= 3 ? (0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2]) / 255 * (m.length > 3 ? m[3] : 1) : -1; };
 const model = () => page.evaluate(() => { const F = window.__flux, p = F.get(F.fig.project), el = p.figures.flatMap(f => f.elements).find(e => e.id === 'cs-plot'); return { cs: el.colorScale ?? null, history: F.fig.historyStats().past }; });
 async function seed(mode) {
   await gotoApp(page, { url: APP_URL + '?fixture=demo' });
@@ -149,6 +165,20 @@ try {
   // Owner inbox 2026-09-30: the colour scale gets the whole menu, which widens
   // to fit it (controls beside an always-open palette list); nothing scrolls sideways.
   const wide = await page.evaluate(() => { const m = document.querySelector('.fluxFigMenu'), b = m.querySelector('.body'), r = m.getBoundingClientRect(); return { w: r.width, inView: r.left >= 0 && r.right <= innerWidth, hscroll: b.scrollWidth > b.clientWidth + 1, pane: !!m.querySelector('.palette-pane .cmp'), rows: m.querySelectorAll('.field').length }; });
+  {
+    const L = await hostedLook('.fluxFigMenu');
+    h.ok(L.fieldsetBorder === '0px' && L.legend.transform === 'uppercase' && /mono/i.test(L.legend.font), 'in the menu a scale is an eyebrow over its rows, not a boxed form');
+    h.ok(L.num.border === '0px' && L.num.h === 18 && L.num.align === 'right' && L.num.inline === 'row' && L.limitsOneLine && lum(L.num.bg) < 0.06, `…a limit is a number in a well, its name beside it, min and max on one line (${L.num.h}px, ${L.num.bg})`);
+    h.ok(L.select.appearance === 'none' && L.select.border === '0px' && L.select.arrow && L.select.h === 18, '…a choice wears the menu\'s face, with a drawn arrow');
+    h.ok(L.reverse.appearance === 'none' && L.reverse.w === 30 && !L.reverse.checked && /off/.test(L.reverse.said) && lum(L.reverse.bg) > 0.85, `…Reverse is a paper key that says off (${L.reverse.said})`);
+    h.ok(lum(L.apply.bg) > 0.85 && /mono/i.test(L.apply.font) && L.apply.h === 20 && L.reset.bg === 'rgba(0, 0, 0, 0)' && L.bar.border === '0px', '…Apply to source is a paper key, reset the quiet one, the palette a chip');
+    h.ok(L.rows.every(x => x >= 24 && x <= 26) && /serif|Georgia|Newsreader|Source Serif|Literata/i.test(L.num.labelFont), `…one line per thing, in the menu's serif (${L.rows.join('/')}px)`);
+    await page.click('.fluxFigMenu input[aria-label="rates reversed"]'); await waitForFrame(page);
+    const on = await hostedLook('.fluxFigMenu');
+    h.ok(on.reverse.checked && /on/.test(on.reverse.said) && lum(on.reverse.bg) < 0.6 && (await model()).cs?.rates?.reversed === true, `…and lit, saying on, once pressed (${on.reverse.said}, ${on.reverse.bg})`);
+    await page.click('.fluxFigMenu input[aria-label="rates reversed"]'); await waitForFrame(page);
+    h.ok(!(await model()).cs?.rates?.reversed, '…pressed again it is off (the key is the checkbox it always was)');
+  }
   h.ok(wide.w >= 700 && wide.inView && !wide.hscroll, `the colour-scale view widens the menu on screen with no sideways scroll (${Math.round(wide.w)}px)`);
   h.ok(wide.pane && wide.rows === 0, 'the palette list is open beside the controls, which own the whole body');
   const cols = await page.$eval('.fluxFigMenu .palette-pane .maps', n => getComputedStyle(n).columnCount);
@@ -180,8 +210,15 @@ try {
   await page.evaluate(() => { const d = document.querySelector('.xray .color-scales'); if (!d.open) d.querySelector('summary').click(); });
   const xrayW = () => page.$eval('.xray', n => Math.round(n.getBoundingClientRect().width));
   const restW = await xrayW();
+  {
+    const L = await hostedLook('.xray');
+    const phosphor = (rgb) => { const m = (rgb.match(/[\d.]+/g) ?? []).map(Number); return m.length >= 3 && m[1] > m[0] + 30 && m[1] >= m[2]; };
+    h.ok(L.fieldsetBorder === '0px' && L.num.border === '0px' && L.num.h === 18 && L.limitsOneLine && L.select.appearance === 'none' && L.reverse.appearance === 'none', 'in the X-ray the same editor is drawn the same way: no boxed form, wells, a faced choice, a key');
+    h.ok(phosphor(L.apply.color) && lum(L.apply.bg) < 0.2 && /mono/i.test(L.num.labelFont) && lum(L.reverse.bg) < 0.2, `…in the X-ray's own colours: glass keys with phosphor ink, mono words (${L.apply.color})`);
+  }
   await page.click('.xray .cmapbtn'); await waitFor(page, () => !!document.querySelector('.xray .cmappick .cmp'));
   const openW = await xrayW();
+  h.ok(await page.$eval('.xray .cmappick', n => { const c = getComputedStyle(n); return c.borderTopWidth === '0px' && c.getPropertyValue('--c-accent').trim() !== '' && c.getPropertyValue('--c-accent').trim() === getComputedStyle(document.querySelector('.xray')).getPropertyValue('--xr-phos-hi').trim(); }), 'the palette list opened in the X-ray reads the X-ray\'s ramp');
   h.ok(openW >= 600 && openW > restW, `the X-ray widens for the palette list (${restW} → ${openW}px)`);
   h.eq(await page.$eval('.xray .cmappick .maps', n => getComputedStyle(n).columnCount), '2', '…which flows into two columns there');
   h.ok(await page.$eval('.xray .srcline', n => n.getBoundingClientRect().height >= 12), 'the X-ray header rows keep their height beside a tall colour-scale block');
