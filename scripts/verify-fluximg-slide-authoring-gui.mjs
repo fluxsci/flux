@@ -35,6 +35,14 @@ const scratch = mkdtempSync(path.join(tmpdir(), "fx-authoring-gui-"));
   await writeFixture(scratch, { name: "tz_u16", about: "time and depth", dims: ["t", "c", "z", "y", "x"], shape: [T, C, Z, Hh, Ww], dtype: "uint16", data: d, expectEncoding: "exact",
     input: { axes: { t: { unit: "s", scale: 0.5 }, z: { unit: "µm", scale: 1.5 }, y: { unit: "µm", scale: 0.3 }, x: { unit: "µm", scale: 0.3 } }, channels: [{ name: "a", color: "#ff00ff" }, { name: "b", color: "#00ff00" }] } });
 }
+{
+  // The same image re-exported with fewer time frames (4): "Update from source" on a slide (B3).
+  const T = 4, C = 2, Z = 5, Hh = 36, Ww = 48, d = new Uint16Array(T * C * Z * Hh * Ww);
+  let k = 0;
+  for (let t = 0; t < T; t++) for (let c = 0; c < C; c++) for (let z = 0; z < Z; z++) for (let y = 0; y < Hh; y++) for (let x = 0; x < Ww; x++) d[k++] = 200 + ((x * (c + 2) * 7 + y * 3 + t * 90 + z * 60) % 1100);
+  await writeFixture(scratch, { name: "tz4_u16", about: "time and depth, re-exported shorter", dims: ["t", "c", "z", "y", "x"], shape: [T, C, Z, Hh, Ww], dtype: "uint16", data: d, expectEncoding: "exact",
+    input: { axes: { t: { unit: "s", scale: 0.5 }, z: { unit: "µm", scale: 1.5 }, y: { unit: "µm", scale: 0.3 }, x: { unit: "µm", scale: 0.3 } }, channels: [{ name: "a", color: "#ff00ff" }, { name: "b", color: "#00ff00" }] } });
+}
 function bundleFiles(name) {
   const root = path.join(scratch, `${name}.fluximg`), out = {};
   const walk = (d) => { for (const n of readdirSync(d)) { const p = path.join(d, n); if (statSync(p).isDirectory()) walk(p); else out[path.relative(root, p).split(path.sep).join("/")] = readFileSync(p).toString("base64"); } };
@@ -437,6 +445,50 @@ try {
     const deleted = slideOps.deleteSlideElements(snapshot, [IMG]);
     h.eq(deleted, [IMG], "deleteSlideElements (what delete-element runs) deletes the image from its slide");
     h.eq(JSON.stringify(snapshot.slides), JSON.stringify(gui.slides), "twin engines: the editor's Delete and the headless op leave the same slides (the image's Change stays, as a dangling track)");
+  }
+
+  // ------------------------------------------------------------------------------------------------------------
+  h.section("Update from source on a slide, through the Inspector (B3)");
+  {
+    const SRC = await F(async () => {
+      const f = window.__flux, root = f.get(f.fig.embeddedProjectRoot) ?? f.get(f.fig.projectDir), sid = f.get(f.fig.activeFigureId);
+      const assetId = f.fluximg.place.fluximgAssetId("tz", "src");
+      const result = await window.fig.importFluximg({ root, sourcePath: "plots/tz.fluximg", assetId });
+      const asset = f.fluximg.place.fluximgAsset(assetId, result, "plots/tz.fluximg");
+      let id;
+      f.fig.commit((p) => { const s = p.figures.find((x) => x.id === sid); id = f.ops.addFluximg(p, { figureId: sid, asset, x: 60, y: 60, width: 200, source: { bundlePath: "plots/tz.fluximg", sha256: asset.sha256 } }); });
+      f.slide.commitDeckLive((d) => { const s = d.slides.find((x) => x.id === sid); s.beats[1].tracks = [{ id: "src1", target: id, preset: "transform", duration: 800, to: { state: { view: { index: { t: 6 }, channels: [{ range: [300, 900] }] } } } }]; s.beats[2].tracks = []; });
+      f.slide.editAfterBeat(1); f.slide.activeBeat.set(1);
+      f.fig.resetHistory();
+      return { id, assetId };
+    });
+    await waitFor(page, (id) => { const f = window.__flux, el = f.figures().flatMap((x) => x.elements).find((e) => e.id === id); return !!el && !!f.get(f.fluximg.store.fluximgManifests)[el.assetId]; }, SRC.id, { label: "the source image's manifest", timeout: 15000 });
+    // the source is re-exported shorter (4 frames instead of 8)
+    await F((files) => window.__fluxSeedFluximg("plots/tz.fluximg", files), bundleFiles("tz4_u16"));
+    await F(() => document.activeElement?.blur?.());
+    await F((id) => window.__flux.fig.selectOnly(id), SRC.id);
+    await F(() => [...document.querySelectorAll(".inspector-tabs button")].find((b) => b.textContent.trim() === "Object")?.click());
+    const upd = await waitFor(page, () => { const b = document.querySelector(".rail [data-fluximg-update-source]"); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, null, { label: "the Inspector offers Update", timeout: 8000 });
+    const p0 = await past(), stepBefore = JSON.stringify(await changeAt(1, SRC.id));
+    await page.mouse.click(upd.x, upd.y);
+    const moved = await waitFor(page, ({ id, was }) => { const el = window.__flux.slide.currentDeck().slides.flatMap((s) => s.elements).find((e) => e.id === id); return el && el.assetId !== was ? el.assetId : null; }, { id: SRC.id, was: SRC.assetId }, { label: "the Design element moved to the new bundle", timeout: 15000 });
+    const design = await designOf(SRC.id);
+    h.ok(!!moved && design.assetId === moved && design.source?.sha256 && design.source.sha256 !== undefined, `Update on a slide moves the image's Design state to the new bundle (${SRC.assetId} → ${moved})`);
+    h.eq(await past(), p0 + 1, "…in one undo step");
+    h.eq(JSON.stringify(await changeAt(1, SRC.id)), stepBefore, "the step's Change (its view patch) is kept as it was");
+    await waitFor(page, ({ id, now }) => window.__flux.figures().flatMap((x) => x.elements).find((e) => e.id === id)?.assetId === now, { id: SRC.id, now: moved }, { label: "the step shows the new bundle", timeout: 5000 });
+    h.ok(true, "at step 1 the editor shows the updated image (the display was re-composed)");
+    // the step's plane 6 is past the new bundle's end (4 frames): drawn clamped and reported, the viewCheck policy
+    const { compileSlide } = await import("../src/lib/slide/compile.ts");
+    const manifest = JSON.parse(readFileSync(path.join(scratch, "tz4_u16.fluximg/fluximg.json"), "utf8"));
+    const deckNow = await F(() => structuredClone(window.__flux.slide.currentDeck()));
+    const sl = deckNow.slides.find((s) => s.elements.some((e) => e.id === SRC.id));
+    const issues = compileSlide(sl, deckNow.stage, { fluximgManifest: (id) => (id === moved ? manifest : undefined) }).issues.filter((i) => i.trackId === "src1");
+    h.ok(issues.some((i) => /does not fit the image/.test(i.reason) && /index\.t/.test(i.reason)), `a step patch that no longer fits is reported, not dropped: "${issues[0]?.reason ?? "no issue"}"`);
+    await press("z", ["Control"]);
+    h.eq((await designOf(SRC.id)).assetId, SRC.assetId, "undo brings the previous bundle back");
+    await press("z", ["Control", "Shift"]);
+    h.eq((await designOf(SRC.id)).assetId, moved, "redo the new one");
   }
 } catch (e) {
   h.fail(`threw: ${e?.stack ?? e}`);
