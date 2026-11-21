@@ -491,6 +491,7 @@
       "verify-fluximg-gl.ts",
       "verify-fluximg-slide-player.ts",
       "verify-fluximg-slide-export-browser.ts",
+      "verify-fluximg-paper-embed-browser.ts",
       "verify-fluximg-import.ts",
       "verify-fluximg-export.ts",
       "verify-fluximg-live.ts",
@@ -500,6 +501,11 @@
       "verify-fluximg-slide-authoring.ts",
       "verify-fluximg-slide-parts.ts",
       "verify-fluximg-slide-export.ts",
+      "verify-fluximg-export-zoom.ts",
+      "verify-fluximg-export-bounds.ts",
+      "verify-fluximg-export-repro.ts",
+      "verify-slide-runtime-images.ts",
+      "verify-fluximg-movie.ts",
       "verify-tiff.ts",
       "verify-tiff-app.ts",
       "verify-fmenu-look.ts"
@@ -705,6 +711,8 @@
       "verify-fluximg-slide-place-gui.mjs",
       "verify-fluximg-slide-player-gui.mjs",
       "verify-fluximg-slide-authoring-gui.mjs",
+      "verify-fluximg-slide-export-gui.mjs",
+      "verify-fluximg-movie-gui.mjs",
       "verify-fluximg-slide-parts-gui.mjs",
       "verify-tiff-app-gui.mjs",
       "verify-fluximg-live-gui.mjs"
@@ -1689,6 +1697,7 @@
       "verify-fluximg-gl.ts",
       "verify-fluximg-slide-player.ts",
       "verify-fluximg-slide-export-browser.ts",
+      "verify-fluximg-paper-embed-browser.ts",
       "verify-fluximg-import.ts",
       "verify-fluximg-place-gui.mjs",
       "verify-fluximg-export.ts",
@@ -1698,6 +1707,8 @@
       "verify-fluximg-slide-place-gui.mjs",
       "verify-fluximg-slide-player-gui.mjs",
       "verify-fluximg-slide-authoring-gui.mjs",
+      "verify-fluximg-slide-export-gui.mjs",
+      "verify-fluximg-movie-gui.mjs",
       "verify-fluximg-slide-parts-gui.mjs",
       "verify-tiff-app-gui.mjs",
       "verify-fluximg-live.ts",
@@ -1707,6 +1718,11 @@
       "verify-fluximg-slide-authoring.ts",
       "verify-fluximg-slide-parts.ts",
       "verify-fluximg-slide-export.ts",
+      "verify-fluximg-export-zoom.ts",
+      "verify-fluximg-export-bounds.ts",
+      "verify-fluximg-export-repro.ts",
+      "verify-slide-runtime-images.ts",
+      "verify-fluximg-movie.ts",
       "verify-tiff.ts",
       "verify-tiff-app.ts",
       "verify-fluximg-live-gui.mjs"
@@ -1720,6 +1736,7 @@
       "verify-fluximg-gl.ts",
       "verify-fluximg-slide-player.ts",
       "verify-fluximg-slide-export-browser.ts",
+      "verify-fluximg-paper-embed-browser.ts",
       "verify-fluximg-import.ts",
       "verify-fluximg-export.ts",
       "verify-fluximg-live.ts",
@@ -1729,6 +1746,11 @@
       "verify-fluximg-slide-authoring.ts",
       "verify-fluximg-slide-parts.ts",
       "verify-fluximg-slide-export.ts",
+      "verify-fluximg-export-zoom.ts",
+      "verify-fluximg-export-bounds.ts",
+      "verify-fluximg-export-repro.ts",
+      "verify-slide-runtime-images.ts",
+      "verify-fluximg-movie.ts",
       "verify-tiff.ts",
       "verify-tiff-app.ts"
     ],
@@ -1740,6 +1762,8 @@
       "verify-fluximg-slide-place-gui.mjs",
       "verify-fluximg-slide-player-gui.mjs",
       "verify-fluximg-slide-authoring-gui.mjs",
+      "verify-fluximg-slide-export-gui.mjs",
+      "verify-fluximg-movie-gui.mjs",
       "verify-fluximg-slide-parts-gui.mjs",
       "verify-tiff-app-gui.mjs",
       "verify-fluximg-live-gui.mjs"
@@ -12828,6 +12852,17 @@
       "exclusive": true,
       "coverage": "behavior"
     },
+    "verify-fluximg-paper-embed-browser.ts": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "chrome"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 300000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
     "verify-fluximg-import.ts": {
       "runtime": "tsx",
       "prerequisites": [],
@@ -12923,6 +12958,28 @@
       "exclusive": true,
       "coverage": "behavior"
     },
+    "verify-fluximg-slide-export-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 240000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-fluximg-movie-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 240000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
     "verify-fluximg-slide-parts-gui.mjs": {
       "runtime": "tsx",
       "prerequisites": [
@@ -13002,6 +13059,51 @@
       "coverage": "behavior"
     },
     "verify-fluximg-slide-export.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-fluximg-export-zoom.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-fluximg-export-bounds.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-fluximg-export-repro.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-runtime-images.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-fluximg-movie.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
