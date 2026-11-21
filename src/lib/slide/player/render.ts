@@ -42,7 +42,7 @@ import { themeCssVars } from "../theme";
 import type { Model3dHost } from "../../model3d/host";
 import type { Model3dAsset, Model3dElement, Scene3dManifest } from "../../model3d/types";
 import { fillModel3d } from "./model3d";
-import { fillFluximg } from "./fluximg";
+import { fillFluximg } from "../imageSeam";
 import type { FluximgSlideContext } from "../../fluximg/slideHost";
 import { devicePixelRatioOf, snapDelta, stageMountOf, gridOfMount, type StageGrid, type StageMount } from "./deviceGrid";
 

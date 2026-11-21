@@ -34,7 +34,7 @@ import { compileSlide } from "./compile";
 import { planHandoff } from "./handoffPlan";
 import type { GeometryCtx } from "./targetGeometry";
 import type { ModelFieldOverride } from "../model3d/types";
-import { lerpFluximgView } from "../fluximg/viewTween";
+import { lerpFluximgView } from "./imageSeam";
 import type { FluximgView } from "../fluximg/view";
 
 // --- the property law --------------------------------------------------------

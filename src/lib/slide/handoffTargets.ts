@@ -7,7 +7,9 @@ import { buildPartIndex } from "../plot/parse";
 import type { Slide, TargetRef, Track } from "./types";
 import { resolveTargetLeaves, mergeResolved, type ResolvedTarget } from "./targets";
 import { transformPreState } from "./tween";
-import { keyGroups, keyPolicyApplies, memberKeys, parseFluximgPartId, type FluximgPartIndex } from "../fluximg/parts";
+import type { FluximgPartIndex } from "../fluximg/parts";
+import { keyGroups, keyPolicyApplies, memberKeys } from "./keyMatch";
+import { parseFluximgPartId } from "./imageSeam";
 
 export function handoffTargetResolver(slide: Slide, manifestFor: (assetId: string) => FluxPlotManifest | undefined, modelManifestFor?: (assetId: string) => Scene3dManifest | undefined,
   imagePartsFor?: (assetId: string) => FluximgPartIndex | undefined) {

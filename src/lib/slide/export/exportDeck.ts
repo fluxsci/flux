@@ -9,7 +9,7 @@ import { offlineHtmlPolicy } from "../../offlineHtmlPolicy";
 
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import * as path from "node:path";
 import type { ExportPayload } from "./runtime";
 import { videoOptions, type SlideVideoOptions } from "../video";
@@ -47,9 +47,15 @@ export interface ExportAssets {
 /** Bundle the export runtime (player + render + morph + presets + motion + KaTeX)
  *  into a single minified IIFE exposing `FluxSlideRuntime`. esbuild is imported
  *  dynamically so it stays out of the shipped CLI bundle (dev-only path). */
-async function computeRuntime(entry = runtimeEntry, globalName: string | undefined = "FluxSlideRuntime", embed = false): Promise<{ text: string; sources: string[] }> {
-  const { build } = await import("esbuild");
+async function computeRuntime(entry = runtimeEntry, globalName: string | undefined = "FluxSlideRuntime", embed = false, seam?: "base" | "image"): Promise<{ text: string; sources: string[] }> {
+  const esbuild = await import("esbuild"), { build } = esbuild;
+  // Image code reaches the base runtimes only through the image runtime (scripts/runtime-seams.mjs, review B5). A dev-only
+  // path (the shipped app reads the prebuilt sidecar), so the build helpers load from the checkout.
+  const seams = seam ? await import(/* @vite-ignore */ pathToFileURL(path.join(repoRoot, "scripts/runtime-seams.mjs")).href) : null;
+  const needs = seams ? await seams.imageHostNeeds(esbuild, repoRoot) : null;
   const out = await build({
+    absWorkingDir: repoRoot,
+    plugins: seams ? [seam === "image" ? seams.imageRuntimeSeams(needs) : seams.baseRuntimeSeams(needs)] : [],
     entryPoints: [entry],
     bundle: true,
     format: "iife",
@@ -66,11 +72,15 @@ async function computeRuntime(entry = runtimeEntry, globalName: string | undefin
     legalComments: "none",
     metafile: true,
   });
+  if (seams && seam === "image") seams.assertNoEngineCode(out.metafile, repoRoot);
+  else if (seams) seams.assertNoImageCode(out.metafile, path.basename(entry, ".ts"), repoRoot);
   const sources = Object.keys(out.metafile?.inputs ?? {})
-    .map((p) => path.relative(repoRoot, path.resolve(p)))
+    .filter((p) => !p.includes(":"))
+    .map((p) => path.relative(repoRoot, path.resolve(repoRoot, p)))
     .filter((p) => !p.startsWith(".."))
     .sort();
-  return { text: out.outputFiles[0].text, sources };
+  const text = out.outputFiles[0].text;
+  return { text: seams && seam === "image" ? seams.imageRuntimeText(text) : text, sources: seams ? [...sources, "scripts/runtime-seams.mjs"].sort() : sources };
 }
 
 /** sha256 over the sorted (repo-relative path, content) pairs. */
@@ -112,7 +122,7 @@ async function computeGelasio(): Promise<string> {
  *  (KaTeX inlining left with the math element — slide text is the figure
  *  text element now; a future math element re-adds its CSS here.) */
 export async function computeExportAssets(): Promise<ExportAssets> {
-  const [rt, video, model, embed, gelasio, image] = await Promise.all([computeRuntime(), computeRuntime(path.join(here, "videoRuntime.ts"), "FluxVideoRuntime"), computeRuntime(path.join(here, "model3dRuntime.ts"), "FluxModel3dRuntime"), computeRuntime(path.join(here, '../embedDocumentRuntime.ts'), undefined, true), computeGelasio(), computeRuntime(path.join(here, "fluximgRuntime.ts"), "FluxImageRuntime")]);
+  const [rt, video, model, embed, gelasio, image] = await Promise.all([computeRuntime(runtimeEntry, "FluxSlideRuntime", false, "base"), computeRuntime(path.join(here, "videoRuntime.ts"), "FluxVideoRuntime", false, "base"), computeRuntime(path.join(here, "model3dRuntime.ts"), "FluxModel3dRuntime"), computeRuntime(path.join(here, '../embedDocumentRuntime.ts'), undefined, true, "base"), computeGelasio(), computeRuntime(path.join(here, "fluximgRuntime.ts"), "FluxImageRuntime", false, "image")]);
   const fonts = (await Promise.all(['Gelasio', 'Gelasio-italic'].map(async name => `@font-face{font-family:Gelasio;font-style:${name.endsWith('italic') ? 'italic' : 'normal'};font-weight:400 700;src:url(data:font/woff2;base64,${b64(await readFile(path.join(repoRoot, 'src/styles/fonts', `${name}.woff2`)))}) format('woff2')}`))).join('\n');
   const sources = [...new Set([...rt.sources, ...video.sources, ...model.sources, ...embed.sources, ...image.sources, 'src/styles/fonts/Gelasio.woff2', 'src/styles/fonts/Gelasio-italic.woff2'])].sort();
   let sourcesHash = "";

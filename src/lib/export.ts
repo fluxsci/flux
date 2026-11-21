@@ -8,7 +8,8 @@ import { buildRenderTree, effectiveHidden, membersDeep, type RenderNode } from "
 import { lineH, blockLayout, letterSpacing, type LaidOutLine } from "./text";
 import { resolvedRunStyle, scriptMetrics, type TextSegment } from "./textRuns";
 import { model3dStaticSvg, type Model3dSvgContext } from './model3d/static';
-import { fluximgElementMarkup, type FluximgSvgContext } from './fluximg/exportStatic';
+import type { FluximgSvgContext } from './fluximg/exportStatic';
+import { fluximgElementMarkup } from './slide/imageSeam';
 
 // stroke-dasharray attribute (or nothing) — mirrors the canvas dashAttr.
 function dashA(e: { dash?: number[] }): string {
