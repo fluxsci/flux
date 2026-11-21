@@ -6420,8 +6420,9 @@ be a few words ("Manuscript Check."), detail after it. The gate reads the BUNDLE
   folder (`place.fluximgResolvedAsset`); a deck never owns one and both the fold and `commitDeckLive` keep
   image assets external by KIND; "Edit after step" writes through `slideOps.writeStepState`, the op
   `set-image-view --slide --beat` shares; exports still draw the stand-in with `FLUXIMG_NOT_IN_SLIDES`
-  until the export package lands); TIFF / microscope-file import
-  (stage 2: the TS reference writer exists for it); tiles read on demand for huge planes (the
+  until the export package lands); TIFF import IN THE APP (the headless core is built: `src/lib/tiff/`,
+  `flux-core/tiffConvert.ts`, `place-image` / `image-info` with a `.tif`; the drop/dialog route, the child
+  process and the asking surface are the stage-2 W9 package); tiles read on demand for huge planes (the
   live driver reads whole planes of a level, so a very large mosaic zoomed to its own pixels is
   read whole); block-summary projections in the live view (`project.buildBlocks` /
   `projectRange` exist and are gated, nothing calls them yet: a projection reads every plane of
@@ -13801,3 +13802,25 @@ against new")
   redesigned surface, in every view it can host, before looking further afield.
 - The X-ray's final cost was taken while another job held twelve cores: interleave the two builds, run each
   side twice, and read the spread between the two runs of ONE build as the noise before reading a difference.
+
+### 2026-11-21 — Direct TIFF import, the core (Claude Opus 5.5, `s2/tiff`, fluximg stage 2 W3)
+**Work:** A pure TypeScript TIFF reader (`src/lib/tiff/`: classic + BigTIFF both byte orders, batched IFD walk,
+LZW / PackBits / predictors 2 and 3, coalesced page reads, ImageJ / OME-XML / shaped JSON / per-page JSON readers,
+probe, ranked proposals, answer validation, remembered rules, the `PixelSource` adapter), writer progress / cancel /
+opt-in async compression / opt-in preview.png and automatic regions, `flux-core/tiffConvert.ts` (staging folder,
+validator, one rename, the app's content id), and `place-image` / `image-info` taking a `.tif` with no new verb.
+Gate `scripts/verify-tiff.ts` (pure; `VERIFY_TIFF_SLOW=1` adds a 1 GB child-process memory check).
+**Learnings:**
+- Node's async `zlib.zstdCompress` does not always give `zstdCompressSync`'s bytes, even with `pledgedSrcSize`
+  (an incompressible 256 KiB chunk gains a 3-byte empty last block). Both are valid and deterministic, but the
+  writer's async window is OPT-IN (`concurrency`), so the pinned fixtures and every older caller keep their bytes.
+  A window also delays the shard decision by its length: `verify-fluximg-format` pins "the first shard is written
+  after at most 9 planes" for the default.
+- Parallel compression pays only when compression dominates: 2x on lossless noisy float32 (205 → 419 MB/s), nothing
+  on compact (linear16) or compressible data, where the per-pixel JS (transpose, stats, encoding) is the cost.
+- Never let metadata-free files convert silently: inference ranks guesses `low` and `place-image` refuses with the
+  proposals and the flags that pick each; `ready` needs OME, ImageJ, per-page JSON that partitions the pages, shaped
+  JSON with axis names, a single plane, or a remembered rule.
+- A converted TIFF's element records the TIFF as `source`, `frozen: true` (the watcher must not try to import a TIFF
+  as a bundle), with the content id that slide-only dedupe reads.
+
