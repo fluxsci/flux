@@ -45,6 +45,40 @@ export const liveOnSlide = (): boolean => storeTenant() === "slide";
 export const previewHooks: { stop: (() => void) | null } = { stop: null };
 
 /**
+ * Who has the keyboard while the board is open (ledger call 50: the board never takes keys that are not its own).
+ *
+ * - `liveKeys.take` is registered by the mounted board: the row of its key map (`keys.ts`) a key event is, or null.
+ *   It already says null when a surface above the board owns the keyboard (see `holdLiveKeys`).
+ * - `holdLiveKeys` lets a surface above the board say it owns the keyboard (Slide mode registers one: Present, its
+ *   editor preview, pick mode, its dialogs; the canvas keymap registers its overlays: the X-ray, the property menu,
+ *   Help, Settings, the importer). While one answers, the board takes no key at all, and on "present" it cannot open.
+ */
+export const liveKeys: { take: ((e: KeyboardEvent) => string | null) | null } = { take: null };
+const keyHolds = new Set<() => string | null>();
+export function holdLiveKeys(by: () => string | null): () => void {
+  keyHolds.add(by);
+  return () => { keyHolds.delete(by); };
+}
+/** The surface above the board that owns the keyboard now ("present", "preview", "pick", "dialog", "overlay"), or null. */
+export function liveKeysHeld(): string | null {
+  for (const h of keyHolds) { const why = h(); if (why) return why; }
+  return null;
+}
+/** Present is up: the board is closed and cannot open. */
+export const livePresenting = (): boolean => [...keyHolds].some((h) => h() === "present");
+/**
+ * A key, seen by a mode's or the canvas's key handler while the board may be open: "board" (one of the board's own
+ * keys: leave it to the board), "held" (an unmodified key the canvas keymap would apply to the image under the board:
+ * Delete, a tool letter, Tab; nothing happens), or null (the mode's: F5, F2, PageDown, every Ctrl / Cmd / Alt chord).
+ */
+export function liveKeyOwner(e: KeyboardEvent): "board" | "held" | null {
+  if (!get(fluximgLive)) return null;
+  if (liveKeys.take?.(e)) return "board";
+  if (e.ctrlKey || e.metaKey || e.altKey || /^F\d{1,2}$/.test(e.key) || e.key === "PageUp" || e.key === "PageDown" || e.key === "Home" || e.key === "End") return null;
+  return liveKeysHeld() ? null : "held";
+}
+
+/**
  * True while a gesture is streaming changes (a scrub, a drag): the element at rest postpones its new still until
  * this clears, so the decode workers serve the live view first.
  */
@@ -188,6 +222,8 @@ export function liveElement(): FluximgElement | null {
 export function fluximgLiveUnavailable(id: string): string | null {
   const tenant = storeTenant();
   if (tenant !== "figure" && tenant !== "slide") return "Images are live in figures and slides only";
+  // The board is an editing instrument: nothing of it exists while the talk is up.
+  if (livePresenting()) return "Not while presenting";
   const found = findElement(get(project), id);
   if (!found || found.element.type !== "fluximg") return "Select an image first";
   if (!selectionTargets(found.figure, new Set([id]), { editable: true }).length) return "Unlock and show the image to open it";

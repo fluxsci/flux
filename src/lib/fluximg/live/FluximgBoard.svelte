@@ -6,7 +6,7 @@
    * time lies under it like an x axis, and the console stands at its other side: the image's name, one strip per
    * channel (its histogram is its contrast control), a row of paper keys, and a map once the frame is zoomed in.
    * Everything is on the surface at once and answers the pointer where it is; the keys are the same everywhere
-   * (`actions.ts` `LIVE_KEYS`). What is "in hand" (a rail, a channel's point, the frame) is lit pink: the wheel and
+   * (`actions.ts` `LIVE_KEYS`; the whole key map, as data, is `keys.ts`). What is "in hand" (a rail, a channel's point, the frame) is lit pink: the wheel and
    * a drag on the image drive it.
    *
    * It owns the keyboard and the wheel while the live view is open and changes nothing itself: every change is an
@@ -34,12 +34,13 @@
   import { cancelImageMovie, imageMovieJob, movieFacts, movieOf, startImageMovie } from "./movie";
   import { deckOverlay, editDestination } from "../../slide/store";
   import {
-    LIVE_KEYS, MOVIE_KEY, PROJECTION_MODES, autoContrast, autoPlan, backOut, channelInHand, cycleFurnitureCorner, defaultArmed, dimKeys, dimLength, holdRail, liveContext, makeInset,
+    PROJECTION_MODES, autoContrast, autoPlan, backOut, channelInHand, cycleFurnitureCorner, defaultArmed, dimKeys, dimLength, holdRail, liveContext, makeInset,
     nudgeFurniture, nudgeGamma, nudgeLayerOpacity, nudgeStyleRange, nudgeWindow, panFrame, railDims, resetChannel, resetFrame, resizeProjection, setChannel, setPosition, setProjectionMode, setRun,
     setWindow, soloChannel, splitChannels, splitPlan, stepPosition, stepSpeed, takeChannel, toggleChannel, toggleFurniture, togglePlayback, toggleSmooth, zoomFrame, zoomInset, newElementsOff,
   } from "./actions";
   import { boardLayout, type Box } from "./boardLayout";
-  import { armLive, cancelLiveEdit, closeFluximgLive, fluximgFrame, fluximgLive, fluximgLiveProblem, fluximgPreview, fluximgReadout, fluximgTip, liveArm, liveOnSlide, livePointer, liveSampler, setLive, settleLiveEdit, type LiveSample } from "./session";
+  import { boardKeyOf, railOfKey, type BoardKeyRow, type BoardKeyState } from "./keys";
+  import { armLive, cancelLiveEdit, closeFluximgLive, liveKeys, liveKeysHeld, fluximgFrame, fluximgLive, fluximgLiveProblem, fluximgPreview, fluximgReadout, fluximgTip, liveArm, liveOnSlide, livePointer, liveSampler, setLive, settleLiveEdit, type LiveSample } from "./session";
 
   let { image, host, origin, zoom, prefetch, preview = $bindable(null) }: {
     /** The live image's screen bounds, in the canvas host's px. */
@@ -291,86 +292,97 @@
   }
 
   // --- keyboard --------------------------------------------------------------------------------------
+  // The board takes exactly the keys of its key map (`keys.ts`, the table the gates read too) and nothing else:
+  // F5, F2, PageDown and every Ctrl / Cmd chord go on to the mode. Nothing of it answers while a surface above it owns
+  // the keyboard (Present, the slide's editor preview, the X-ray, the property menu, a dialog: `liveKeysHeld`).
+  const keyState = (): BoardKeyState => ({
+    channels: ctx?.view.channels.length ?? 0, rails: keys, hasLayers: !!ctx?.manifest.layers.length, atStep,
+    insetArmed: live?.armed === "inset", choosing: choosing ? modes.length : 0, layersKeys: layersOwnKeys,
+  });
+  /** The row of the key map this key is, or null when it is not the board's now. */
+  function take(e: KeyboardEvent): BoardKeyRow | null {
+    if (!live || !ctx || e.defaultPrevented) return null;
+    if (yieldsToShellModal(e) || isAnnotateChord(e) || get(fluxFigMenuOpen) || liveKeysHeld()) return null;
+    // A focused field, menu or dialog owns its keys.
+    const t = e.target instanceof Element ? e.target : null;
+    if (t?.closest("input, textarea, select, [contenteditable='true'], [role='menu'], dialog, [role='dialog']")) return null;
+    return boardKeyOf(e, keyState());
+  }
+  $effect(() => {
+    const ask = (e: KeyboardEvent): string | null => take(e)?.action ?? null;
+    liveKeys.take = ask;
+    return () => { if (liveKeys.take === ask) liveKeys.take = null; };
+  });
   function onKey(e: KeyboardEvent): void {
-    if (!live || !ctx) return;
-    if (yieldsToShellModal(e) || isAnnotateChord(e) || get(fluxFigMenuOpen)) return;
-    if (e.ctrlKey || e.metaKey) return; // chords (undo, save, copy) stay Flux-wide
-    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return; // a focused field owns its keys
-    if (layersOwnKeys && e.key !== "Escape") return; // the layers card walks its own list (BoardLayers)
-    const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-    const done = (): void => { e.preventDefault(); e.stopImmediatePropagation(); };
-
-    if (k === "Escape") {
-      done();
-      if (choosing) { choosing = null; return; }
-      if (layersOwnKeys) { layersOwnKeys = false; return; }
-      if (!backOut()) closeFluximgLive();
-      return;
+    const row = take(e);
+    if (!row || !live || !ctx) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    switch (row.action) {
+      case "back":
+        if (choosing) { choosing = null; return; }
+        if (layersOwnKeys) { layersOwnKeys = false; return; }
+        if (!backOut()) closeFluximgLive();
+        return;
+      case "chooser-pick": {
+        const digit = /^Digit([1-9])$/.exec(e.code);
+        pickMode(digit ? Number(digit[1]) - 1 : choice, true);
+        return;
+      }
+      case "chooser-walk": {
+        const n = modes.length;
+        choice = e.key === "ArrowRight" || e.key === "ArrowDown" ? (choice + 1) % n : (choice + n - 1) % n;
+        return;
+      }
+      case "chooser-close": choosing = null; return;
+      case "chooser-hold": return;
+      case "close": if (!e.repeat) closeFluximgLive(); return;
+      case "movie": {
+        // Shift+R: the movie of the rail in hand (else the first one Play can play), or stop the one being written.
+        const d = live.armed?.startsWith("pos:") ? live.armed.slice(4) : dims.find((x) => ctx.view.projection?.dim !== x);
+        if (d && !e.repeat && ctx.view.projection?.dim !== d) { strike(`movie:${d}`); movieKey(d); }
+        return;
+      }
+      case "menu": settleLiveEdit(); fluxFigMenuOpen.set(true); return;
+      case "channel": {
+        // Digits are the channels (by the physical key, so Shift and Alt keep their digit): take in hand, show, or solo.
+        if (e.repeat) return;
+        const i = Number(/^Digit([1-9])$/.exec(e.code)![1]) - 1;
+        if (e.shiftKey) toggleChannel(i); else if (e.altKey) soloChannel(i); else takeChannel(i);
+        return;
+      }
+      case "arrow": {
+        // The rails answer the arrows spatially: left / right along the first horizontal rail, up / down through depth.
+        const by = e.shiftKey ? 10 : 1, horizontal = hDims[0], vertical = vDim ?? horizontal;
+        if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && horizontal) stepPosition(horizontal, e.key === "ArrowRight" ? by : -by);
+        else if ((e.key === "ArrowUp" || e.key === "ArrowDown") && vertical) stepPosition(vertical, e.key === "ArrowDown" ? by : -by);
+        return;
+      }
+      case "play": {
+        // Space is a TAP for play / stop and a HOLD for Space+drag panning, as everywhere in Flux: the movie toggles when
+        // the key comes up without the pointer having gone down meanwhile (and auto-repeat never toggles it).
+        const d = live.armed?.startsWith("pos:") ? live.armed.slice(4) : dims[0];
+        if (d && !e.repeat) { spaceTap = d; spaceShift = e.shiftKey && atStep; }
+        return;
+      }
+      case "inset-make": insetKey(); return;
     }
-    if (choosing) {
-      const n = modes.length;
-      if (/^[1-9]$/.test(k) && Number(k) <= n) { done(); pickMode(Number(k) - 1, true); return; }
-      if (k === "ArrowRight" || k === "ArrowDown") { done(); choice = (choice + 1) % n; return; }
-      if (k === "ArrowLeft" || k === "ArrowUp") { done(); choice = (choice + n - 1) % n; return; }
-      if (k === "Enter" || k === " ") { done(); pickMode(choice, true); return; }
-      if (k === LIVE_KEYS.projection) { done(); choosing = null; return; }
-      done(); return; // an open choice swallows stray keys rather than firing some other key
-    }
-    if (k === "r" && !e.altKey && !e.shiftKey) { done(); if (!e.repeat) closeFluximgLive(); return; }
-    if (k === MOVIE_KEY.key && e.shiftKey && !e.altKey) {
-      // Shift+R: the movie of the rail in hand (else the first one Play can play), or stop the one being written.
-      const d = live.armed?.startsWith("pos:") ? live.armed.slice(4) : dims.find((x) => ctx.view.projection?.dim !== x);
-      done();
-      if (d && !e.repeat && ctx.view.projection?.dim !== d) { strike(`movie:${d}`); movieKey(d); }
-      return;
-    }
-    if (k === "f" && !e.altKey) { done(); settleLiveEdit(); fluxFigMenuOpen.set(true); return; }
-    // Digits are the channels (by the physical key, so Shift and Alt keep their digit): take in hand, show, or solo.
-    const digit = /^Digit([1-9])$/.exec(e.code);
-    if (digit && Number(digit[1]) <= ctx.view.channels.length) {
-      const i = Number(digit[1]) - 1;
-      done();
-      if (e.repeat) return;
-      if (e.shiftKey) toggleChannel(i); else if (e.altKey) soloChannel(i); else takeChannel(i);
-      return;
-    }
-    if (e.altKey) return;
-    // The rails answer the arrows spatially: left / right along the first horizontal rail, up / down through depth.
-    if (k.startsWith("Arrow")) {
-      const by = e.shiftKey ? 10 : 1, horizontal = hDims[0], vertical = vDim ?? undefined;
-      if ((k === "ArrowLeft" || k === "ArrowRight") && horizontal) { done(); stepPosition(horizontal, k === "ArrowRight" ? by : -by); return; }
-      if ((k === "ArrowUp" || k === "ArrowDown") && (vertical ?? horizontal)) { done(); stepPosition((vertical ?? horizontal)!, k === "ArrowDown" ? by : -by); return; }
-      done(); return;
-    }
-    if (k === " ") {
-      const d = live.armed?.startsWith("pos:") ? live.armed.slice(4) : dims[0];
-      done();
-      // Space is a TAP for play / stop and a HOLD for Space+drag panning, as everywhere in Flux: the movie toggles when
-      // the key comes up without the pointer having gone down meanwhile (and auto-repeat never toggles it).
-      if (d && !e.repeat) { spaceTap = d; spaceShift = e.shiftKey && atStep; }
-      return;
-    }
-    if (k === "Enter" && live.armed === "inset") { done(); insetKey(); return; }
-    done(); // the board owns unmodified keys: nothing leaks to canvas shortcuts (no stray Delete or nudge)
     if (e.repeat) return;
-    for (const d of dims) if (keys[d] === k) {
+    switch (row.action) {
       // At a step, Shift + a rail's key plays this step through along it (the rail's key takes it in hand).
-      if (e.shiftKey && atStep) { strike("step-through"); playThroughHere(d); return; }
-      armLive(`pos:${d}`); return;
-    }
-    if (k === LIVE_KEYS.smooth && e.shiftKey && atStep) { strike("step-blend"); toggleStepBlend(); return; }
-    switch (k) {
-      case LIVE_KEYS.auto: { const one = channelInHand(live.armed); strike("auto"); autoContrast(one ? live.channel : "all"); return; }
-      case LIVE_KEYS.split: strike("split"); splitChannels(); return;
-      case LIVE_KEYS.projection: { const d = live.armed?.startsWith("pos:") || live.armed?.startsWith("run:") ? live.armed.slice(4) : dims[0]; if (d) { strike(`project:${d}`); openChooser(d); } return; }
-      case LIVE_KEYS.layers: if (ctx.manifest.layers.length) layersOwnKeys = true; return;
-      case LIVE_KEYS.frame: if (e.shiftKey) { strike("whole"); resetFrame(); } else { strike("frame"); frameKey(); } return;
-      case LIVE_KEYS.inset: strike("inset"); insetKey(); return;
-      case LIVE_KEYS.smooth: strike("pixels"); toggleSmooth(); return;
-      case LIVE_KEYS.scalebar: strike("scalebar"); furniture("scalebar", e.shiftKey); return;
-      case LIVE_KEYS.stamp: strike("stamp"); furniture("stamp", e.shiftKey); return;
-      case LIVE_KEYS.channelNames: strike("channelLabels"); furniture("channelLabels", e.shiftKey); return;
-      case LIVE_KEYS.colorbar: strike("colorbar"); furniture("colorbar", e.shiftKey); return;
+      case "through": { const d = railOfKey(e, keyState()); if (d) { strike("step-through"); playThroughHere(d); } return; }
+      case "rail": { const d = railOfKey(e, keyState()); if (d) armLive(`pos:${d}`); return; }
+      case "blend": strike("step-blend"); toggleStepBlend(); return;
+      case "auto": { const one = channelInHand(live.armed); strike("auto"); autoContrast(one ? live.channel : "all"); return; }
+      case "split": strike("split"); splitChannels(); return;
+      case "projection": { const d = live.armed?.startsWith("pos:") || live.armed?.startsWith("run:") ? live.armed.slice(4) : dims[0]; if (d) { strike(`project:${d}`); openChooser(d); } return; }
+      case "layers": layersOwnKeys = true; return;
+      case "frame": if (e.shiftKey) { strike("whole"); resetFrame(); } else { strike("frame"); frameKey(); } return;
+      case "inset": strike("inset"); insetKey(); return;
+      case "smooth": strike("pixels"); toggleSmooth(); return;
+      case "scalebar": strike("scalebar"); furniture("scalebar", e.shiftKey); return;
+      case "stamp": strike("stamp"); furniture("stamp", e.shiftKey); return;
+      case "channelLabels": strike("channelLabels"); furniture("channelLabels", e.shiftKey); return;
+      case "colorbar": strike("colorbar"); furniture("colorbar", e.shiftKey); return;
     }
   }
   let spaceTap: string | null = null;

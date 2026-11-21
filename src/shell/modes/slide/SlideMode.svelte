@@ -97,7 +97,7 @@
   import { modelOrbitBlocked } from "../../../lib/model3d/orbitSession";
   import { scene3dGeneration, scene3dManifests } from "../../../lib/model3d/store";
   import { fluximgManifests, fluximgIssues } from "../../../lib/fluximg/store";
-  import { fluximgLive } from "../../../lib/fluximg/live/session";
+  import { closeFluximgLive, fluximgLive, holdLiveKeys, liveKeyOwner, previewHooks } from "../../../lib/fluximg/live/session";
   import { tiffAsk } from "../../../lib/fluximg/tiffAsk";
   import { getAssetData } from "../../../lib/assets";
   import { assetDisplaySize } from "../../../lib/ops";
@@ -819,6 +819,8 @@
   };
   let unsubscribeFrame: (() => void) | undefined;
   async function ensurePreview(): Promise<Player | undefined> {
+    // The slide's preview and the image board's own preview never play together.
+    if (get(fluximgLive)?.playing) previewHooks.stop?.();
     if (player) return player;
     const generation=++previewGeneration;
     const deck=currentDeck(),sid=$activeFigureId;
@@ -1013,6 +1015,9 @@
   let presentDeck = $state.raw<Deck | null>(null);
   let presentStart = $state(0);
   function launchPresent(fromStart: boolean) {
+    // The board is an editing instrument: nothing of it exists while the talk is up. It closes the way any route out
+    // of it does (its open edit kept as one undo step), and cannot open again until Present closes (`holdLiveKeys`).
+    closeFluximgLive();
     exitEndpointEdit();
     const d = currentDeck();
     if (!d?.slides.length) return;
@@ -1593,8 +1598,9 @@
     const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (e.target as HTMLElement)?.isContentEditable;
     // The Plots rail owns its unmodified keys (F5 still presents); chords go on to the keymap.
     if (plotsRailOwnsKey(e) && e.key !== "F5") return;
-    // An image's live board (open on a slide too, stage 2) owns the unmodified keys; its own window listener handles them.
-    if (get(fluximgLive) && !typing && !(e.metaKey || e.ctrlKey)) return;
+    // An image's live board (open on a slide too, stage 2) takes exactly its own keys (live/keys.ts); its own window
+    // listener handles them. Everything else comes here: F5 presents, F2 renames, PageDown changes slide.
+    if (!typing && liveKeyOwner(e) === "board") return;
     // So does the TIFF asking surface (fluximg/TiffAskSurface.svelte): its window listener registers after this one.
     if (get(tiffAsk) && !(e.metaKey || e.ctrlKey)) return;
     const inAnimation = !!(e.target as HTMLElement)?.closest?.('[data-command-scope="animation"]');
@@ -1668,9 +1674,10 @@
         exitEndpointEdit();
         return;
       }
-      // Slide nav with arrows — only when nothing is selected (else the
-      // figure keymap nudges the selection).
-      if ($selection.size === 0 && !$selectedFrameId && !$partSelection && (overlay?.slides.length ?? 0) > 0) {
+      // Slide nav: PageUp / PageDown always (nothing else binds them; with the image board open too), the arrows
+      // only when nothing is selected (else the figure keymap nudges the selection).
+      const pageKey = (e.key === "PageDown" || e.key === "PageUp") && !mod && !e.altKey;
+      if ((pageKey || ($selection.size === 0 && !$selectedFrameId && !$partSelection)) && (overlay?.slides.length ?? 0) > 0) {
         const i = slideIds.indexOf($activeFigureId ?? "");
         if (e.key === "ArrowDown" || e.key === "PageDown") {
           e.preventDefault();
@@ -1706,6 +1713,9 @@
   }
 
   // --- lifecycle ---------------------------------------------------------------------
+  // While a surface of this mode owns the keyboard, an image's live board takes no key (and while Present is up it
+  // cannot open): Present, the editor preview (Space and Esc are its own), pick mode, the export menu and dialogs.
+  onMount(() => holdLiveKeys(() => presentOpen ? "present" : previewing ? "preview" : picker.mode ? "pick" : exportMenuOpen || videoDialog || ghostDialog ? "dialog" : null));
   onMount(() => {
     void initializeEditor("slide", paneId, () => alive, async () => {
     ownsEditor = true;

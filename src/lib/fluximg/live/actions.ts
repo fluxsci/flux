@@ -22,7 +22,7 @@ import { naturalRate, playStep, resizeRun, slideRun, stepIndex, type PlayMode } 
 // naturalRate lives in the pure rail module (the slide tween needs it without the stores); kept exported here.
 export { naturalRate };
 import { project, selection } from "../../store";
-import { WHEEL_SETTLE_MS, cancelLiveEdit, closeFluximgLive, fluximgLive, fluximgPreview, liveElement, liveMutate, liveOnSlide, liveSampler, liveView, previewHooks, setLive, settleLiveEdit, liveArm } from "./session";
+import { WHEEL_SETTLE_MS, cancelLiveEdit, closeFluximgLive, fluximgLive, fluximgPreview, liveElement, liveMutate, liveOnSlide, liveSampler, liveView, previewHooks, setLive, settleLiveEdit, liveArm, liveKeysHeld } from "./session";
 import { walkableDims } from "../playback";
 import { editDestination } from "../../slide/store";
 
@@ -670,6 +670,8 @@ export function togglePlayback(dim: string, mode: PlayMode = "loop", fps?: numbe
   const live = get(fluximgLive);
   if (!live) return;
   if (live.playing) { stopPlayback(); return; }
+  // The slide's own preview is up: the board's preview does not start beside it (the two never play together).
+  if (liveKeysHeld() === "preview") return;
   const c = liveContext();
   if (!c || dimLength(c.manifest, dim) <= 1 || c.view.projection?.dim === dim) return;
   const rate = fps ?? naturalRate(c.manifest, dim) * (live.speed > 0 ? live.speed : 1);
