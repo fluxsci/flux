@@ -34,6 +34,9 @@ const words = (r: Summary): string => [
   ...(r.warnings ?? []).map(w => `⚠ ${w}`),
 ].filter(Boolean).join('\n');
 
+type Movie = { path: string; elementId: string; frames: number; durationMs: number; fps: number; width: number; height: number; bytes: number; dim: string; from: number; to: number; mode: string; speed: number; blend: boolean; warnings: string[] };
+const movieWords = (m: Movie): string => `${m.frames} frames · ${(m.durationMs / 1000).toFixed(2)} s at ${Number(m.fps.toPrecision(4))} fps · ${m.width} × ${m.height} · ${(m.bytes / 1024).toFixed(0)} KB; ${m.dim} ${m.from + 1}–${m.to}, ${m.mode}${m.speed !== 1 ? `, ×${m.speed}` : ''}${m.blend ? ', blended' : ''}`;
+
 export const FLUXIMG_VERBS: VerbDef[] = [
   {
     name: 'place_image', cli: 'place-image', cliRoot: 'flags', scope: 'project',
@@ -67,6 +70,42 @@ export const FLUXIMG_VERBS: VerbDef[] = [
     render: {
       human: r => ({ out: JSON.stringify(r, null, 2), err: `✓ set the view of image ${(r as Summary).elementId}${(r as { beatId?: string }).beatId ? ` at step ${(r as { beatId?: string }).beatId}` : ''}${words(r as Summary) ? `\n${words(r as Summary)}` : ''}` }),
       mcp: r => text(`set the view of image ${(r as Summary).elementId}\n${words(r as Summary)}\n${JSON.stringify(r)}`),
+    },
+  },
+  {
+    name: 'export_image_movie', cli: 'export-image-movie', cliRoot: 'flags', scope: 'project',
+    summary: 'Write an image\'s movie as an MP4. The element as drawn (crop, view, styled layers, furniture with the stamp advancing) played along dim (default: its playback dimension, else time, else depth) over planes from..to (exclusive; default its playback range, else all), at the data\'s own rate (else the playback fps, else 12 a second) or fps planes a second, times speed; mode once (default) or bounce (there and back once); blend crossfades planes as a Change does. Size: the cropped image\'s pixels times scale (default 1), never below the element\'s box while it shows words, longest side at most 2160. H.264 + faststart, BT.709 as slide videos. On a slide pass slide (deckId/slideId); beat takes the image as it stands after that step. Needs the bundled video encoder; answers with the file, frames, duration, size and rate.',
+    params: { elementId: z.string(), out: z.string(), slide: z.string().optional(), beatId: z.string().optional(), dim: z.string().optional(), from: z.number().int().min(0).optional(), to: z.number().int().min(1).optional(),
+      speed: finite().positive().optional(), fps: finite().positive().optional(), mode: z.enum(['once', 'bounce']).optional(), blend: z.boolean().optional(), scale: finite().positive().optional() },
+    pathParams: { out: 'path' },
+    notAPath: { slide: 'deckId/slideId, not a filesystem path' },
+    cliArgs: [{ kind: 'pos', at: 0, into: 'elementId', required: true }, { kind: 'flag', at: 'out', into: 'out', required: true },
+      { kind: 'flag', at: 'slide', into: 'slide' }, { kind: 'flag', at: 'beat', into: 'beatId' }, { kind: 'flag', at: 'dim', into: 'dim' },
+      ...['from', 'to', 'speed', 'fps', 'scale'].map(at => ({ kind: 'flag' as const, at, into: at, as: 'number' as const })),
+      { kind: 'flag', at: 'mode', into: 'mode' }, { kind: 'flag', at: 'blend', into: 'blend', as: 'boolean' }],
+    handler: async (ctx, a) => {
+      const { exportImageMovie } = await import('./fluximgMovie');
+      // In the app the movie runs in this CLI as a child of the main process (as a slide video does): progress as
+      // FLUX_VIDEO lines on stderr, cancel as any line on stdin (Windows-safe), and the signals.
+      const controller = new AbortController(), abort = () => controller.abort();
+      const piped = process.env.FLUX_VIDEO_SAVED === '1';
+      process.once('SIGTERM', abort); process.once('SIGINT', abort);
+      if (piped) { process.stdin.on('data', abort); process.stdin.once('end', abort); }
+      try {
+        return await exportImageMovie(ctx.root, String(a.elementId), {
+          out: String(a.out), ...(typeof a.slide === 'string' ? { slide: a.slide } : {}), ...(typeof a.beatId === 'string' ? { beatId: a.beatId } : {}),
+          ...Object.fromEntries(['dim', 'from', 'to', 'speed', 'fps', 'mode', 'blend', 'scale'].filter(k => a[k] !== undefined).map(k => [k, a[k]])),
+          signal: controller.signal,
+          onProgress: process.env.FLUX_VIDEO_PROGRESS === '1' ? (p) => process.stderr.write(`FLUX_VIDEO ${JSON.stringify(p)}\n`) : undefined,
+        });
+      } finally {
+        process.removeListener('SIGTERM', abort); process.removeListener('SIGINT', abort);
+        if (piped) { process.stdin.removeListener('data', abort); process.stdin.removeListener('end', abort); process.stdin.pause(); }
+      }
+    },
+    render: {
+      human: r => { const m = r as Movie; return { out: JSON.stringify(Object.fromEntries(Object.entries(m).filter(([k]) => k !== 'stats'))), err: `✓ wrote the movie of image ${m.elementId} → ${m.path}\n${movieWords(m)}${m.warnings.length ? `\n${m.warnings.map(w => `⚠ ${w}`).join('\n')}` : ''}` }; },
+      mcp: r => { const m = r as Movie; return text(`wrote ${m.path}\n${movieWords(m)}${m.warnings.length ? `\n${m.warnings.map(w => `⚠ ${w}`).join('\n')}` : ''}\n${JSON.stringify(Object.fromEntries(Object.entries(m).filter(([k]) => k !== 'stats')))}`); },
     },
   },
   {
