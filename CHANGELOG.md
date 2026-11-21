@@ -83,6 +83,17 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   as a clip runs. Space previews without writing anything. The Animate panel and the Animation
   properties have the same controls; agents use `set-image-view --beat --speed --blend`,
   `--playback`, and `set-video-track` on an image.
+- **An image's objects animate on slides, and Become the series that share their key.** The
+  objects of a label or vector layer are parts of the slide: the image's X-ray lists its layers
+  and objects (each object's value beside it when the layer is coloured by a column), and they
+  appear, leave or are emphasized one by one, a whole layer in its own order or ordered by any
+  column of its table. Edit after step N, the exported deck, PDF and PowerPoint show the objects
+  that have not appeared yet hidden. A change of colouring between two steps glides object by
+  object. A new Become pairing, **by key**, flies each object into the plot series whose name or
+  id is its name (footprints into their traces); auto chooses it when enough keys match, and the
+  Animation properties show how many paired. Agents: `become --pair key`, and `--part
+  layer:<layer>` or `<layer>/<name>` on any effect.
+- A styled layer on a slide is no longer drawn uncoloured for a moment while its table loads.
 - Not yet: TIFF import, 3-D rendering of volumes.
 
 ### Flux AI

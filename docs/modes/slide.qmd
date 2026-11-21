@@ -931,6 +931,38 @@ Space on the board plays a preview and writes nothing. Split channels and Inset 
 so on a slide they work in Design only. In the Animation properties a Change of an image lists
 what it does, one chip per thing ("t 0.0 s → 5.0 s", "zooms in"); ✕ puts back just that one.
 
+## Animating an image's objects
+
+The objects of a label or vector layer (cell footprints, traced dendrites) animate one by one,
+as a plot's points do. Open the image's X-ray: **Shift+Alt+R** on the image, **R** with one of
+its objects picked, or **objects… (X-ray)** in its F-menu (the board's **f**). It lists the
+image's layers and, under each, its objects by name; a layer styled by a column shows each
+object's value (and its colour). Rest on a row and the object is outlined on the slide. Pick
+rows and press **m** then **1** to make them appear, **2** to emphasize, **3** to make them
+disappear (the Animate panel's buttons do the same with objects picked on the slide). A whole
+layer becomes one effect that brings its objects in one after another, in the layer's order; in
+the Animation properties, **by** orders them by any column of the layer's table instead (numbers
+low to high, words in natural order, objects without a value last), by position, or from the
+centre out. Every appearance works on an object: fade, rise, pop, scale, draw on, highlight,
+dim, pulse, circle it. Only count up does not (objects have no text). **Edit after step N**
+shows objects that have not appeared yet hidden, as do the exported deck, PDF and PowerPoint.
+
+A layer's eye in the X-ray shows or hides the whole layer; at a step that is a fade. A change of
+how a layer is coloured between two steps (colour by another column, opacity by a number) glides
+object by object.
+
+## Become by key
+
+A set of objects can **Become** the plot series that share their key: the footprints of cells
+s1, s2 and s3 fly into the traces named s1, s2 and s3 in one step. Pick the objects (or their
+layer), press **b** (or Become in the Animate panel), then click the plot or its traces. An
+object's key is its name in the layer's table; it matches a series whose name or id is the same
+text, ignoring case and spaces around it ("3" and "3.0" match). The Animation properties show how
+many keys paired. **Pair** is **auto** by default, which pairs by key when at least two keys match
+and more than half of the smaller side does; choose **by key** to insist. Objects and traces
+with no partner fade. The reverse (traces become footprints) and objects of two images or two
+layers with equal keys pair the same way. A whole image still crossfades into another.
+
 # Export
 
 **Export ▾** offers these formats, each written to the project's `exports/`:
