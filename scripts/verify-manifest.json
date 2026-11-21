@@ -490,6 +490,7 @@
       "verify-fluximg-model.ts",
       "verify-fluximg-gl.ts",
       "verify-fluximg-slide-player.ts",
+      "verify-fluximg-slide-player-fixes.ts",
       "verify-fluximg-slide-export-browser.ts",
       "verify-fluximg-paper-embed-browser.ts",
       "verify-fluximg-import.ts",
@@ -1702,6 +1703,7 @@
       "verify-fluximg-model.ts",
       "verify-fluximg-gl.ts",
       "verify-fluximg-slide-player.ts",
+      "verify-fluximg-slide-player-fixes.ts",
       "verify-fluximg-slide-export-browser.ts",
       "verify-fluximg-paper-embed-browser.ts",
       "verify-fluximg-import.ts",
@@ -1747,6 +1749,7 @@
       "verify-fluximg-model.ts",
       "verify-fluximg-gl.ts",
       "verify-fluximg-slide-player.ts",
+      "verify-fluximg-slide-player-fixes.ts",
       "verify-fluximg-slide-export-browser.ts",
       "verify-fluximg-paper-embed-browser.ts",
       "verify-fluximg-import.ts",
@@ -12849,6 +12852,17 @@
       "coverage": "behavior"
     },
     "verify-fluximg-slide-player.ts": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "chrome"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 300000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-fluximg-slide-player-fixes.ts": {
       "runtime": "tsx",
       "prerequisites": [
         "chrome"
