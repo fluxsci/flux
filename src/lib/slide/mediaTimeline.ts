@@ -1,9 +1,29 @@
 /** Video commands are independent of appearance and geometry. This pure clock
- * is shared by live seeking and continuous capture, including audio mixing. */
+ * is shared by live seeking and continuous capture, including audio mixing.
+ * Stage 2 (plan D7): the same three commands run an image (fluximg) along one
+ * dimension as a movie; its events come from the same list and its position from
+ * the same fold (`sampleImagePlayback`). Audio and the content end stay video-only. */
+import type { Element } from "../types";
+import type { FluximgManifest } from "../fluximg/types";
+import type { FluximgPlaybackMode } from "../fluximg/element";
+import { walkableDims } from "../fluximg/playback";
 import type { Slide, Track } from "./types";
 import type { VideoPlan } from "./video";
 import { resolveBeat, type StyleContext, type ManifestFor } from "./resolve";
 import { presetDef } from "./presetCatalog";
+
+/** An image's (fluximg) manifest by asset id, when loaded: the same lookup the compiler takes (`CompileOptions.fluximgManifest`). */
+export type FluximgManifestFor = (assetId: string) => FluximgManifest | undefined;
+
+/** What a media command (Start / Pause / Stop) may target: a video clip, or an image (fluximg) with a dimension to
+ *  play (unknown until its manifest is loaded: then it is let through, and the compiler checks it once it is). A
+ *  constant-time kind check: a deck without images takes the video branch exactly as before. */
+export function mediaTarget(el: Element | undefined, fluximgManifest?: FluximgManifestFor): boolean {
+  if (el?.type === "video") return true;
+  if (el?.type !== "fluximg") return false;
+  const m = fluximgManifest?.(el.assetId);
+  return !m || walkableDims(m).length > 0;
+}
 
 export type VideoCommand = "videoStart" | "videoPause" | "videoStop";
 export interface VideoEvent { target: string; command: VideoCommand; at: number; order: number }
@@ -11,8 +31,9 @@ export interface VideoSample { timeMs: number; running: boolean; started: boolea
 export interface VideoAudioSegment { assetId: string; startMs: number; endMs: number; offsetMs: number; loop: boolean }
 export const isVideoCommand = (track: Track): boolean => presetDef(track.preset).family === "media";
 
-function visibleVideo(slide: Slide, element: Slide["elements"][number]): boolean {
-  if (element.type !== "video" || element.hidden) return false;
+// A media target the viewer can see: a video clip or an image movie (stage 2), not hidden, nor in a hidden group.
+function visibleMedia(slide: Slide, element: Slide["elements"][number]): boolean {
+  if ((element.type !== "video" && element.type !== "fluximg") || element.hidden) return false;
   let group = element.groupId; const seen = new Set<string>();
   while (group && !seen.has(group)) {
     seen.add(group); const definition = slide.groups?.[group];
@@ -29,7 +50,7 @@ export interface MediaTimingContext extends StyleContext {
 }
 
 export function videoEvents(slide: Slide, beatStart: (beat: number) => number | undefined, context: MediaTimingContext = {}): VideoEvent[] {
-  const targets = new Set(slide.elements.filter(e => visibleVideo(slide, e)).map(e => e.id));
+  const targets = new Set(slide.elements.filter(e => visibleMedia(slide, e)).map(e => e.id));
   let order = 0;
   const events: VideoEvent[] = [];
   slide.beats.forEach((beat, bi) => {
@@ -48,7 +69,8 @@ export function videoEventsForPlan(slide: Slide, plan: Pick<VideoPlan, "cues">, 
   return videoEvents(slide, beat => plan.cues.find(c => beat >= c.fromBeat && beat <= c.beat)?.start, context);
 }
 
-export function sampleVideo(events: readonly VideoEvent[], target: string, at: number, durationMs: number, loop = false): VideoSample {
+/** The one fold of a target's commands up to `at`: how long it has run since its last Start (Pause holds, Stop resets). */
+function mediaFold(events: readonly VideoEvent[], target: string, at: number): VideoSample {
   let position = 0, origin = 0, running = false, started = false;
   for (const event of events) {
     if (event.at > at) break;
@@ -60,11 +82,44 @@ export function sampleVideo(events: readonly VideoEvent[], target: string, at: n
     else { position = 0; running = false; started = false; }
   }
   if (running) position += Math.max(0, at - origin);
+  return { timeMs: position, running, started };
+}
+
+export function sampleVideo(events: readonly VideoEvent[], target: string, at: number, durationMs: number, loop = false): VideoSample {
+  const folded = mediaFold(events, target, at);
+  let position = folded.timeMs, running = folded.running;
+  const started = folded.started;
   if (durationMs > 0) {
     if (loop) position %= durationMs;
     else if (position >= durationMs) { position = durationMs; running = false; }
   }
   return { timeMs: position, running, started };
+}
+
+/** Where an image movie stands: `plane` is the offset (0 .. planes − 1) inside its range. */
+export interface ImagePlaybackSample { plane: number; running: boolean; started: boolean }
+
+/**
+ * The image movie's clock (plan D7), on the same fold as a video's: Start restarts at the range's first plane, Pause
+ * holds, Stop returns to the state's own index (`started` false: the caller shows the step's own plane). One pass of
+ * `planes` planes lasts `passMs`; `loop` wraps, `bounce` walks a triangle whose end planes are not shown twice, `once`
+ * stops on the last plane when the pass is over. Pure and deterministic.
+ */
+export function sampleImagePlayback(events: readonly VideoEvent[], target: string, at: number, passMs: number, mode: FluximgPlaybackMode, planes: number): ImagePlaybackSample {
+  const f = mediaFold(events, target, at);
+  if (!f.started || !(planes > 1) || !(passMs > 0)) return { plane: 0, running: f.running && planes > 1 && passMs > 0, started: f.started };
+  const period = passMs / planes;
+  // Whole planes elapsed (the epsilon lands a step boundary on its own plane despite rounding, as viewTween's walk does).
+  const k = Math.floor(f.timeMs / period + 1e-9);
+  if (mode === "once") {
+    if (f.timeMs >= passMs) return { plane: planes - 1, running: false, started: true };
+    return { plane: Math.min(planes - 1, k), running: f.running, started: true };
+  }
+  if (mode === "bounce") {
+    const cycle = 2 * (planes - 1), p = k % cycle;
+    return { plane: p <= planes - 1 ? p : cycle - p, running: f.running, started: true };
+  }
+  return { plane: k % planes, running: f.running, started: true };
 }
 
 /** Last non-looping clips complete before the final hold. Earlier clips cut by

@@ -57,6 +57,7 @@ import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
 import type { ExportPayload } from "../src/lib/slide/export/runtime";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 import type { FluximgManifest } from "../src/lib/fluximg/types";
+import { walkableDims } from "../src/lib/fluximg/playback";
 import { compileSlide, trackDuration } from "../src/lib/slide/compile";
 import { transformPreState } from "../src/lib/slide/tween";
 import { sourceAt } from "../src/lib/slide/ghost";
@@ -343,8 +344,19 @@ export async function addVideoToSlide(root: string, deckId: string, slideId: str
 
 export async function setVideoTrack(root: string, deckId: string, slideId: string, beatId: string,
   target: string, action: "start" | "pause" | "stop", opts: { start?: number } = {}): Promise<void> {
+  // An image (fluximg) plays as a movie with the same commands (plan D7) when it has a dimension to play: read its manifest
+  // from its one place (a deck never owns a bundle) so the op can say whether it does.
+  const el = (await loadDeck(root, deckId)).slides.find(s => s.id === slideId)?.elements.find(e => e.id === target);
+  let image: FluximgManifest | undefined;
+  if (el?.type === "fluximg") {
+    const rel = `fig/assets/${el.assetId}.fluximg/fluximg.json`;
+    try { image = JSON.parse(await fs.readFile(safeJoin(root, rel), "utf8")) as FluximgManifest; }
+    catch { throw new Error(`The image's bundle cannot be read (${rel})`); }
+    if (!walkableDims(image).length) throw new Error("This image has no time, depth or other dimension to play as a movie");
+  }
   await mutateDeck(root, deckId, "set_video_track", deck => {
-    if (!slideOps.setVideoTrack(deck, slideId, beatId, target, action, opts)) throw new Error("Video target, step, or command timing is invalid");
+    if (!slideOps.setVideoTrack(deck, slideId, beatId, target, action, { ...opts, fluximgManifest: () => image }))
+      throw new Error(el?.type === "fluximg" ? "Image target, step, or command timing is invalid" : "Video target, step, or command timing is invalid");
   });
 }
 

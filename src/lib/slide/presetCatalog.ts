@@ -276,7 +276,11 @@ export const PRESET_PARAMS: Readonly<Record<PresetName, ParamRow>> = {
   camera: {},
   // The text-rewrite look (text morph, player/textMorph.ts via resolveTextLook): classic = drift fades, letters fade. `turn` (WP 3.3): how a
   // line / straight bond whose endpoints change turns: "shrink" (absent: the endpoint lerp) or "rigid" (keeps its length; tween.rigidSegment).
-  transform: { fadeStyle: { default: "drift" }, letters: { default: "fade" }, turn: { default: "shrink" } },
+  // `blend` (stage 2, fluximg): an image Change that walks planes crossfades neighbouring planes instead of stepping them
+  // (fluximg/viewTween.ts law 2); read by player/fluximg.ts. Absent = planes step.
+  // `pace` (stage 2, fluximg): the speed (a multiple of the data's own rate) a walk of planes was timed at; present only while
+  // the track's duration is still the walk's own (slide/ops.writeStepState re-times it; a hand re-time removes it). Write-time only.
+  transform: { fadeStyle: { default: "drift" }, letters: { default: "fade" }, turn: { default: "shrink" }, blend: { default: false }, pace: { default: null, types: ["number"], range: [0.0625, 16] } },
   videoStart: {},
   videoPause: {},
   videoStop: {},

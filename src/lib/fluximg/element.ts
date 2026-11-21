@@ -27,6 +27,23 @@ export interface FluximgElement extends ElementBase {
   view?: FluximgView;
   /** Where the bundle came from: `sha256` is the content id of the source at import. */
   source?: { bundlePath: string; sha256?: string; recipePath?: string; external?: boolean; frozen?: boolean };
+  /**
+   * How the image plays as a movie on a slide once a step Starts it (stage 2, plan D7): along one dimension, looping,
+   * bouncing or once, at a multiple of the data's own rate (or `fps` planes a second), over planes `from` (inclusive)
+   * to `to` (exclusive, as a projection's run). Design-level like a video's `loop`: never a step's Change. Absent =
+   * the defaults (`fluximg/playback.resolvePlayback`).
+   */
+  playback?: FluximgPlayback;
+}
+
+export type FluximgPlaybackMode = "loop" | "bounce" | "once";
+export interface FluximgPlayback {
+  dim: string;
+  mode: FluximgPlaybackMode;
+  speed?: number;
+  fps?: number;
+  from?: number;
+  to?: number;
 }
 
 export const FLUXIMG_ELEMENT = "fluximg" as const;

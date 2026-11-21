@@ -43,7 +43,9 @@ const FROZEN: Record<string, Record<string, unknown>> = {
   encircle: { gap: 6, radius: 6, width: 3.5, window: 0.3, color: null },
   // WP 2.5: the text-rewrite look. An absent key plays the classic look (drift fades, letters fade): old decks play as made.
   // WP 3.3: a transform's `turn` (absent = shrink, the endpoint lerp)
-  transform: { fadeStyle: "drift", letters: "fade", turn: "shrink" },
+  // fluximg stage 2: an image Change's `blend` (absent = planes step; true crossfades neighbouring planes) and `pace` (absent =
+  // the timing is not a walk's own; write-time only, slide/ops.writeStepState)
+  transform: { fadeStyle: "drift", letters: "fade", turn: "shrink", blend: false, pace: null },
 };
 h.eq(Object.keys(PRESET_PARAMS).sort(), Object.keys(PRESET_CATALOG).sort(), "one row per catalog preset (a new preset forces its row)");
 for (const [preset, keys] of Object.entries(FROZEN)) {
@@ -58,7 +60,7 @@ for (const [preset, row] of Object.entries(PRESET_PARAMS)) for (const [key, spec
 }
 h.ok(true, "every range is ordered and holds its default, every `requires` names a sibling key");
 h.eq(Object.entries(PRESET_PARAMS).flatMap(([p, row]) => Object.entries(row).filter(([, s]) => s.range).map(([k, s]) => `${p}.${k}:${s.range}`)).sort(),
-  ["dim.level:0,1", "drawOff.lag:0,1", "drawOff.penRadius:0.5,40", "drawOn.lag:0,1", "drawOn.penRadius:0.5,40", "encircle.gap:0,60", "encircle.radius:0,60", "encircle.width:0.5,12", "encircle.window:0.05,1", "highlight.lead:0,0.9", "highlight.level:0,1", "pulse.scale:1,3", "scaleIn.spin:-720,720", "scaleOut.spin:-720,720"],
+  ["dim.level:0,1", "drawOff.lag:0,1", "drawOff.penRadius:0.5,40", "drawOn.lag:0,1", "drawOn.penRadius:0.5,40", "encircle.gap:0,60", "encircle.radius:0,60", "encircle.width:0.5,12", "encircle.window:0.05,1", "highlight.lead:0,0.9", "highlight.level:0,1", "pulse.scale:1,3", "scaleIn.spin:-720,720", "scaleOut.spin:-720,720", "transform.pace:0.0625,16"],
   "only the NEW keys (levels, lead, the WP 2.2 vocabulary, the lead dot's radius) are clamped; every legacy key stays unclamped");
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -78,7 +80,8 @@ for (const file of ["src/lib/slide/player/presets.ts", "src/lib/slide/player/pla
 {
   // every table key a compiler reads is read through the table: the keys the three files name == the table's keys (minus countUp's, read by countup.ts)
   const named = new Set<string>();
-  for (const file of ["src/lib/slide/player/presets.ts", "src/lib/slide/player/player.ts", "src/lib/slide/compile.ts", "src/lib/slide/export/pptxBuilds.ts", "src/lib/slide/presetCatalog.ts", "src/lib/slide/encircleGeometry.ts", "src/lib/slide/timing.ts", "src/lib/slide/tween.ts"]) {
+  // slide/ops.ts: the write-time readers (an image walk's `pace` and `blend`: stage 2, the pace rule)
+  for (const file of ["src/lib/slide/player/presets.ts", "src/lib/slide/player/player.ts", "src/lib/slide/compile.ts", "src/lib/slide/export/pptxBuilds.ts", "src/lib/slide/presetCatalog.ts", "src/lib/slide/encircleGeometry.ts", "src/lib/slide/timing.ts", "src/lib/slide/tween.ts", "src/lib/slide/ops.ts"]) {
     for (const m of strip(readFileSync(file, "utf8")).matchAll(CALL)) for (const p of owners(m[2], m[3])) named.add(`${p}.${m[1]}`);
   }
   const declared = Object.entries(PRESET_PARAMS).filter(([p]) => p !== "countUp").flatMap(([p, row]) => Object.keys(row).map((k) => `${p}.${k}`));

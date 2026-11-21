@@ -23,6 +23,7 @@ import { handoffTargetResolver, handoffTargetsOverlap } from "./handoffTargets";
 import { targetOutlines, type GeometryCtx } from "./targetGeometry";
 import { resolveBeat, type StyleContext } from "./resolve";
 import { trackDuration } from "./timing";
+import { mediaTarget } from "./mediaTimeline";
 import { sampleCamera } from "./camera";
 import { modelPairDiagnostic, modelVideoHandoff, type ModelAssetLookup } from "./model3dMorph";
 export { trackDuration } from "./timing";
@@ -152,7 +153,8 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       else if (!KNOWN_PRESETS.has(track.preset ?? "fade")) reason = `Unknown effect: ${track.preset}`;
       else if (!track.target.startsWith("@") && !slide.elements.some((e) => e.id === track.target)) reason = "Target object is missing. Retarget or remove this effect.";
       else if (familyOf(track) === "media" && bi === 0) reason = "Add video commands to a playback step after Design.";
-      else if (familyOf(track) === "media" && slide.elements.find(e => e.id === track.target)?.type !== "video") reason = "Video commands require a video clip target.";
+      else if (familyOf(track) === "media" && !mediaTarget(slide.elements.find(e => e.id === track.target), opts.fluximgManifest))
+        reason = slide.elements.find(e => e.id === track.target)?.type === "fluximg" ? "Movie commands need an image with a time, depth or other dimension to play." : "Video commands require a video clip target.";
       else if (familyOf(track) === "media" && (track.part || track.selector || track.stagger)) reason = "Video commands apply to the whole clip.";
       if (reason) { issues.push({ trackId: track.id, target: track.target, reason }); continue; }
       if (track.preset === "transform" && track.to?.assetId && opts.plotManifest) {

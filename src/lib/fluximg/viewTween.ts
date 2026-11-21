@@ -766,13 +766,24 @@ function cmpOf(v: Obj, resolved: boolean): Cmp {
 
 /** What a Change does to an image, as a short list of phrases, most telling first. Empty when nothing changes. */
 export function describeViewChange(manifest: FluximgManifest | undefined, pre: ViewEnd, end: ViewEnd): ViewChange[] {
+  return describeAspects(manifest, pre, end).map((a) => a.change);
+}
+
+/**
+ * Which stored fields one phrase is about (internal): `index:<dim>`, `projection`, `frame`, `composite`,
+ * `channel:<i>:visible|window|colour`, `background`, `layer:<id>:visible|style`, `furniture:<piece>`, `smooth`,
+ * `layerOrder`, `insetOf`, `link`, `rest:<key>`. `dropViewChange` reverts exactly these.
+ */
+interface Aspect { change: ViewChange; aspect: string }
+
+function describeAspects(manifest: FluximgManifest | undefined, pre: ViewEnd, end: ViewEnd): Aspect[] {
   const m = manifest;
   const sparse = (v: unknown): Obj => (isObj(v) ? v : {});
   const va = (m ? resolveView(m, pre?.view) : sparse(pre?.view)) as unknown as Obj;
   const vb = (m ? resolveView(m, end?.view) : sparse(end?.view)) as unknown as Obj;
   const A = cmpOf(va, !!m), B = cmpOf(vb, !!m);
-  const out: ViewChange[] = [];
-  const add = (c: ViewChange): void => { out.push(c); };
+  const out: Aspect[] = [];
+  const add = (c: ViewChange, aspect: string): void => { out.push({ change: c, aspect }); };
 
   // Positions.
   const plane = (d: string, i: number): string => {
@@ -786,18 +797,18 @@ export function describeViewChange(manifest: FluximgManifest | undefined, pre: V
   for (const d of dims) {
     const a = A.index[d], b = B.index[d];
     if (deepEqual(a, b)) continue;
-    if (finite(a) && finite(b)) add({ kind: "position", dim: d, from: a, to: b, label: `${d} ${plane(d, a)} → ${plane(d, b)}` });
-    else add({ kind: "position", dim: d, ...(finite(b) ? { to: b } : {}), ...(finite(a) ? { from: a } : {}), label: finite(b) ? `${d} → ${plane(d, b)}` : `${d} as placed` });
+    if (finite(a) && finite(b)) add({ kind: "position", dim: d, from: a, to: b, label: `${d} ${plane(d, a)} → ${plane(d, b)}` }, `index:${d}`);
+    else add({ kind: "position", dim: d, ...(finite(b) ? { to: b } : {}), ...(finite(a) ? { from: a } : {}), label: finite(b) ? `${d} → ${plane(d, b)}` : `${d} as placed` }, `index:${d}`);
   }
 
   // Projection.
   if (!deepEqual(A.projection, B.projection)) {
     const p = A.projection as FluximgProjection | null, q = B.projection as FluximgProjection | null;
     const run = (r: FluximgProjection): string => (r.to - r.from <= 1 ? `${r.from + 1}` : `${r.from + 1}–${r.to}`);
-    if (p && q && p.dim === q.dim && p.mode === q.mode) add({ kind: "projection", dim: q.dim, label: `${q.mode} ${q.dim} ${run(p)} → ${run(q)}` });
-    else if (q && !p) add({ kind: "projection", dim: q.dim, label: `${q.mode} ${q.dim} on` });
-    else if (p && !q) add({ kind: "projection", dim: p.dim, label: `${p.mode} ${p.dim} off` });
-    else add({ kind: "projection", dim: q!.dim, label: `${p!.mode} ${p!.dim} → ${q!.mode} ${q!.dim}` });
+    if (p && q && p.dim === q.dim && p.mode === q.mode) add({ kind: "projection", dim: q.dim, label: `${q.mode} ${q.dim} ${run(p)} → ${run(q)}` }, "projection");
+    else if (q && !p) add({ kind: "projection", dim: q.dim, label: `${q.mode} ${q.dim} on` }, "projection");
+    else if (p && !q) add({ kind: "projection", dim: p.dim, label: `${p.mode} ${p.dim} off` }, "projection");
+    else add({ kind: "projection", dim: q!.dim, label: `${p!.mode} ${p!.dim} → ${q!.mode} ${q!.dim}` }, "projection");
   }
 
   // The frame.
@@ -811,24 +822,24 @@ export function describeViewChange(manifest: FluximgManifest | undefined, pre: V
       const r = (cb.width * cb.height) / (ca.width * ca.height);
       if (r < 0.99) label = "zooms in"; else if (r > 1.01) label = "zooms out";
     }
-    add({ kind: "frame", label });
+    add({ kind: "frame", label }, "frame");
   }
 
   // Channels.
   const chName = (i: number): string => m?.channels[i]?.name ?? `channel ${i + 1}`;
   if (A.composite !== B.composite || (A.solo !== B.solo && (A.composite === "single" || B.composite === "single"))) {
-    add({ kind: "channel", label: B.composite === "single" ? `only ${chName(finite(B.solo) ? B.solo : 0)}` : "all channels" });
+    add({ kind: "channel", label: B.composite === "single" ? `only ${chName(finite(B.solo) ? B.solo : 0)}` : "all channels" }, "composite");
   }
   const nCh = Math.max(A.channels.length, B.channels.length);
-  const win: ViewChange[] = [], col: ViewChange[] = [];
+  const win: Aspect[] = [], col: Aspect[] = [];
   for (let i = 0; i < nCh; i++) {
     const x = (isObj(A.channels[i]) ? A.channels[i] : {}) as Obj, y = (isObj(B.channels[i]) ? B.channels[i] : {}) as Obj;
-    if (!deepEqual(x.visible, y.visible)) add({ kind: "channel", label: `${chName(i)} ${y.visible === false ? "off" : y.visible === true ? "on" : "as placed"}` });
-    if (["range", "norm", "gamma"].some((k) => !deepEqual(x[k], y[k]))) win.push({ kind: "window", label: `${chName(i)} contrast` });
-    if (["color", "lut", "invert"].some((k) => !deepEqual(x[k], y[k]))) col.push({ kind: "colour", label: `${chName(i)} colour` });
+    if (!deepEqual(x.visible, y.visible)) add({ kind: "channel", label: `${chName(i)} ${y.visible === false ? "off" : y.visible === true ? "on" : "as placed"}` }, `channel:${i}:visible`);
+    if (["range", "norm", "gamma"].some((k) => !deepEqual(x[k], y[k]))) win.push({ change: { kind: "window", label: `${chName(i)} contrast` }, aspect: `channel:${i}:window` });
+    if (["color", "lut", "invert"].some((k) => !deepEqual(x[k], y[k]))) col.push({ change: { kind: "colour", label: `${chName(i)} colour` }, aspect: `channel:${i}:colour` });
   }
   out.push(...win, ...col);
-  if (!deepEqual(A.background, B.background)) add({ kind: "colour", label: "background" });
+  if (!deepEqual(A.background, B.background)) add({ kind: "colour", label: "background" }, "background");
 
   // Layers.
   for (const id of unionKeys(A.layers, B.layers)) {
@@ -836,8 +847,8 @@ export function describeViewChange(manifest: FluximgManifest | undefined, pre: V
     if (deepEqual(x, y)) continue;
     const name = (typeof y.name === "string" && y.name) || (typeof x.name === "string" && x.name) || m?.layers.find((l) => l.id === id)?.name || id;
     const others = unionKeys(x, y).filter((k) => k !== "visible" && !deepEqual(x[k], y[k]));
-    if (!deepEqual(x.visible, y.visible)) add({ kind: "layer", label: `${name} ${y.visible === true ? "fade in" : y.visible === false ? "fade out" : "as placed"}` });
-    if (others.length) add({ kind: "layer", label: others.length === 1 && others[0] === "opacity" ? `${name} opacity` : `${name} style` });
+    if (!deepEqual(x.visible, y.visible)) add({ kind: "layer", label: `${name} ${y.visible === true ? "fade in" : y.visible === false ? "fade out" : "as placed"}` }, `layer:${id}:visible`);
+    if (others.length) add({ kind: "layer", label: others.length === 1 && others[0] === "opacity" ? `${name} opacity` : `${name} style` }, `layer:${id}:style`);
   }
 
   // Furniture.
@@ -845,18 +856,18 @@ export function describeViewChange(manifest: FluximgManifest | undefined, pre: V
     const x = A.furniture[k], y = B.furniture[k];
     if (deepEqual(x, y)) continue;
     const word = PIECE_WORDS[k] ?? k;
-    add({ kind: "furniture", label: !x ? `${word} on` : !y ? `${word} off` : `${word} changes` });
+    add({ kind: "furniture", label: !x ? `${word} on` : !y ? `${word} off` : `${word} changes` }, `furniture:${k}`);
   }
 
   // The rest.
-  if (!deepEqual(A.smooth, B.smooth)) add({ kind: "other", label: B.smooth === true ? "smoothing on" : "smoothing off" });
-  if (!deepEqual(A.order, B.order)) add({ kind: "other", label: "layer order" });
-  if (!deepEqual(A.insetOf, B.insetOf)) add({ kind: "other", label: "inset" });
-  if (!deepEqual(A.link, B.link)) add({ kind: "other", label: "link" });
-  for (const k of unionKeys(A.rest, B.rest)) if (!deepEqual(A.rest[k], B.rest[k])) add({ kind: "other", label: k });
+  if (!deepEqual(A.smooth, B.smooth)) add({ kind: "other", label: B.smooth === true ? "smoothing on" : "smoothing off" }, "smooth");
+  if (!deepEqual(A.order, B.order)) add({ kind: "other", label: "layer order" }, "layerOrder");
+  if (!deepEqual(A.insetOf, B.insetOf)) add({ kind: "other", label: "inset" }, "insetOf");
+  if (!deepEqual(A.link, B.link)) add({ kind: "other", label: "link" }, "link");
+  for (const k of unionKeys(A.rest, B.rest)) if (!deepEqual(A.rest[k], B.rest[k])) add({ kind: "other", label: k }, `rest:${k}`);
 
   // Stable sort by kind: most telling first, the order within a kind as found.
-  return out.map((c, i) => ({ c, i })).sort((p, q) => KIND_RANK[p.c.kind] - KIND_RANK[q.c.kind] || p.i - q.i).map((x) => x.c);
+  return out.map((c, i) => ({ c, i })).sort((p, q) => KIND_RANK[p.c.change.kind] - KIND_RANK[q.c.change.kind] || p.i - q.i).map((x) => x.c);
 }
 
 /**
@@ -866,4 +877,106 @@ export function describeViewChange(manifest: FluximgManifest | undefined, pre: V
 export function naturalDurationMs(manifest: FluximgManifest, dim: string, from: number, to: number, speed = 1): number {
   const planes = Math.abs(to - from);
   return (planes / naturalRate(manifest, dim)) * 1000 / (speed > 0 && Number.isFinite(speed) ? speed : 1);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Authoring helpers (stage 2, W5+W6)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The walk a Change makes along planes: the dimension whose position moves the most planes (the first in stored
+ * order on a tie), with its plane at the start and at the end. Null when no position moves (a contrast change, a
+ * zoom, a projection). The pace of a step is written from it (`slide/ops.writeStepState`).
+ */
+export function longestWalk(manifest: FluximgManifest | undefined, pre: ViewEnd, end: ViewEnd): { dim: string; from: number; to: number } | null {
+  let best: { dim: string; from: number; to: number } | null = null;
+  for (const c of describeViewChange(manifest, pre, end)) {
+    if (c.kind !== "position" || !c.dim) continue;
+    // A sparse end with one side absent (no manifest to resolve it) walks from or to plane 0.
+    const from = Math.round(c.from ?? 0), to = Math.round(c.to ?? 0);
+    if (from === to) continue;
+    if (!best || Math.abs(to - from) > Math.abs(best.to - best.from)) best = { dim: c.dim, from, to };
+  }
+  return best;
+}
+
+/**
+ * The same frame with the plane of `dim` replaced by `index` in both pictures and the overlay (a running movie
+ * drives one dimension over whatever the tween shows). Frames are shared read-only objects: this returns a new frame
+ * that shares everything else, or the frame itself when nothing changes. A crossfade along that same dimension is
+ * dropped: the movie owns the dimension now.
+ */
+export function withIndex(frame: ViewTweenFrame, dim: string, index: number): ViewTweenFrame {
+  const swap = (p: TweenPicture): TweenPicture => (p.view.index[dim] === index ? p : { view: { ...p.view, index: { ...p.view.index, [dim]: index } }, crop: p.crop });
+  const a = swap(frame.a), b = frame.b ? swap(frame.b) : null;
+  const blendHere = !!frame.blend && frame.blend.dim === dim && !frame.blend.end;
+  if (a === frame.a && b === frame.b && !blendHere) return frame;
+  const overlay = frame.overlay === frame.a ? a : frame.overlay === frame.b && b ? b : swap(frame.overlay);
+  return { ...frame, a, b, overlay, blend: blendHere ? null : frame.blend };
+}
+
+/** Set (or, when `v` is undefined, delete) a key of a sparse object. */
+function put(o: Obj, k: string, v: unknown): void {
+  if (v === undefined) delete o[k]; else o[k] = clone(v);
+}
+
+/**
+ * The end of a Change with ONE of the aspects `describeViewChange` names put back as it was before the step (the
+ * animator's chips: dropping one reverts that aspect and keeps the others). `change` must be one of the entries
+ * `describeViewChange(manifest, pre, end)` returns for the same arguments; an unknown entry returns `end` unchanged.
+ * Works on the stored (sparse) views: the fields of that aspect are copied from `pre`, or removed where `pre` has none.
+ */
+export function dropViewChange(pre: ViewEnd, end: ViewEnd, change: ViewChange, manifest?: FluximgManifest): ViewEnd {
+  const found = describeAspects(manifest, pre, end).find((a) => deepEqual(a.change, change))
+    ?? describeAspects(manifest, pre, end).find((a) => a.change.kind === change.kind && a.change.label === change.label);
+  if (!found) return end;
+  const out: ViewEnd = { ...end };
+  const pv: Obj = isObj(pre?.view) ? (pre.view as Obj) : {};
+  const ev: Obj = isObj(end?.view) ? clone(end.view as Obj) : {};
+  const [what, id, part] = found.aspect.split(":");
+  switch (what) {
+    case "frame":
+      if (pre?.crop) out.crop = clone(pre.crop); else delete out.crop;
+      return out;
+    case "index": {
+      const idx: Obj = isObj(ev.index) ? ev.index : {};
+      put(idx, id, isObj(pv.index) ? pv.index[id] : undefined);
+      if (Object.keys(idx).length) ev.index = idx; else delete ev.index;
+      break;
+    }
+    case "composite": put(ev, "composite", pv.composite); put(ev, "solo", pv.solo); break;
+    case "channel": {
+      const i = Number(id);
+      const keys = part === "visible" ? ["visible"] : part === "window" ? ["range", "norm", "gamma"] : ["color", "lut", "invert"];
+      const src = Array.isArray(pv.channels) && isObj(pv.channels[i]) ? (pv.channels[i] as Obj) : {};
+      const arr: unknown[] = Array.isArray(ev.channels) ? ev.channels : [];
+      while (arr.length <= i) arr.push(null);
+      const ch: Obj = isObj(arr[i]) ? (arr[i] as Obj) : {};
+      for (const k of keys) put(ch, k, src[k]);
+      arr[i] = Object.keys(ch).length ? ch : null;
+      while (arr.length && arr[arr.length - 1] === null) arr.pop();
+      if (arr.length) ev.channels = arr; else delete ev.channels;
+      break;
+    }
+    case "layer": {
+      const src = isObj(pv.layers) && isObj(pv.layers[id]) ? (pv.layers[id] as Obj) : {};
+      const layers: Obj = isObj(ev.layers) ? ev.layers : {};
+      const L: Obj = isObj(layers[id]) ? (layers[id] as Obj) : {};
+      if (part === "visible") put(L, "visible", src.visible);
+      else for (const k of unionKeys(L, src)) if (k !== "visible") put(L, k, src[k]);
+      if (Object.keys(L).length) layers[id] = L; else delete layers[id];
+      if (Object.keys(layers).length) ev.layers = layers; else delete ev.layers;
+      break;
+    }
+    case "furniture": {
+      const fur: Obj = isObj(ev.furniture) ? ev.furniture : {};
+      put(fur, id, isObj(pv.furniture) ? pv.furniture[id] : undefined);
+      if (Object.keys(fur).length) ev.furniture = fur; else delete ev.furniture;
+      break;
+    }
+    case "rest": put(ev, id, pv[id]); break;
+    default: put(ev, what, pv[what]); // projection, background, smooth, layerOrder, insetOf, link
+  }
+  if (Object.keys(ev).length) out.view = ev as FluximgView; else delete out.view;
+  return out;
 }
