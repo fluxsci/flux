@@ -15,7 +15,8 @@
   import { onDestroy } from "svelte";
   import { project } from "../../store";
   import { yieldsToShellModal, isAnnotateChord } from "../../../shell/agent/annotationVisibility";
-  import { fluximgBundle, fluximgManifests, fluximgService, needLuts, resolveLut } from "../store";
+  import { fluximgBundle, fluximgLutsReady, fluximgManifests, fluximgService, needLuts, resolveLut } from "../store";
+  import { cachedObjectStyles } from "../objectStyle";
   import FluximgVectors from "../FluximgVectors.svelte";
   import { furnitureInset } from "../furniture";
   import { clampCrop, fullCrop } from "../still";
@@ -27,13 +28,20 @@
   import { channelInHand, defaultArmed, dragContrast, makeInset, moveInset, panFrame, setFurnitureCorner, type FurnitureSpot } from "./actions";
   import { LiveDriver, type FrameInfo } from "./driver";
   import { fluximgTables, needTable, objectCells, tableOf } from "./objectTables";
-  import { cancelLiveEdit, fluximgFrame, fluximgHover, fluximgLive, fluximgLiveProblem, fluximgReadout, fluximgTip, liveArm, livePointer, liveSampler, setLive, settleLiveEdit } from "./session";
+  import { cancelLiveEdit, fluximgFrame, fluximgHover, fluximgLive, fluximgLiveProblem, fluximgReadout, fluximgStylePreview, fluximgTip, liveArm, livePointer, liveSampler, setLive, settleLiveEdit } from "./session";
 
   let { element, left, top, zoom, beginPan }: { element: FluximgElement; left: number; top: number; zoom: number; beginPan: () => void } = $props();
 
   const asset = $derived($project.assets.find((a) => a.id === element.assetId && a.kind === "fluximg"));
   const manifest = $derived(asset ? $fluximgManifests[asset.id] : undefined);
   const rv = $derived(manifest ? resolveView(manifest, element.view) : null);
+  // What the image shows: its view, or, while a styling key is hovered, that key's choice on its layer (a preview:
+  // nothing is written until the key is pressed).
+  const shownView = $derived.by(() => {
+    const p = $fluximgStylePreview;
+    if (!rv || !p) return rv;
+    return { ...rv, layers: rv.layers.map((l) => (l.id === p.layerId ? { ...l, styleBy: p.styleBy } : l)) };
+  });
   const crop = $derived(manifest ? clampCrop(manifest, element.crop) : null);
   const box = $derived({ width: element.width, height: element.height });
   const live = $derived($fluximgLive);
@@ -266,13 +274,18 @@
     return () => { window.removeEventListener("keydown", onKey, { capture: true }); window.removeEventListener("keyup", onKey, { capture: true }); };
   });
 
-  // The hovered object (from the image or from the list) is lit on the image.
-  let hot: Element | null = null;
+  // The hovered object (from the image or from the list) is lit on the image; a hovered row of the key lights
+  // every object of its category.
+  let hot: Element[] = [];
   $effect(() => {
     const h = $fluximgHover;
-    hot?.classList.remove("fx-hot");
-    hot = h && wrapper ? wrapper.querySelector(`[id="${CSS.escape(`${prefix}${h.layerId}/${h.key}`)}"]`) : null;
-    hot?.classList.add("fx-hot");
+    for (const el of hot) el.classList.remove("fx-hot");
+    hot = [];
+    if (!h || !wrapper) return;
+    for (const k of h.keys ?? [h.key]) {
+      const el = wrapper.querySelector(`[id="${CSS.escape(`${prefix}${h.layerId}/${k}`)}"]`);
+      if (el) { el.classList.add("fx-hot"); hot.push(el); }
+    }
   });
 
   const prefix = $derived(`fxl-${element.id.replace(/[^A-Za-z0-9_-]/g, "_")}-`);
@@ -312,7 +325,12 @@
     const layer = manifest.layers.find((l) => l.id === h.layerId);
     const table = layer && layer.kind !== "intensity" ? tableOf($fluximgTables, asset, layer.table) : null;
     const flip = under.cx > host.w - 250, up = under.cy > host.h - 120;
-    return { key: h.key, layer: layer?.name ?? "", cells: objectCells(table, h.key).slice(0, 4), x: under.cx, y: under.cy, flip, up };
+    // The columns the layer is styled by come first: they are what its colours and opacities mean.
+    const sb = rv?.layers.find((l) => l.id === h.layerId)?.styleBy;
+    const first = [sb?.color?.column, sb?.opacity?.column].filter((c): c is string => !!c);
+    const all = objectCells(table, h.key);
+    const cells = [...first.flatMap((c) => all.filter(([n]) => n === c)), ...all.filter(([n]) => !first.includes(n))].slice(0, 4);
+    return { key: h.key, layer: layer?.name ?? "", cells, styled: first, x: under.cx, y: under.cy, flip, up };
   });
   $effect(() => {
     const h = $fluximgHover;
@@ -322,8 +340,10 @@
   });
 
   // --- annotations you can take hold of: drag one to another corner ---------------------------------
-  type Kind = "scalebar" | "stamp" | "channelLabels" | "colorbar";
-  const PARTS: Record<Kind, string> = { scalebar: '[data-part^="scalebar"]', stamp: '[data-part="stamp"]', channelLabels: '[data-part="channel"]', colorbar: '[data-part="colorbar"]' };
+  type Kind = "scalebar" | "stamp" | "channelLabels" | "colorbar" | "key";
+  const PARTS: Record<Kind, string> = { scalebar: '[data-part^="scalebar"]', stamp: '[data-part="stamp"]', channelLabels: '[data-part="channel"]', colorbar: '[data-part="colorbar"]', key: '[data-part="key"]' };
+  /** The key's rows on screen (client px), so the grip that covers the key can say which category is under the pointer. */
+  let legendRows: Array<{ layerId: string; row: string; x0: number; y0: number; x1: number; y1: number }> = [];
   let grips = $state.raw<Array<{ kind: Kind; x: number; y: number; w: number; h: number }>>([]);
   let gripDrag = $state.raw<{ pointer: number; kind: Kind; corner: FurnitureSpot } | null>(null);
   function measureGrips(): void {
@@ -340,13 +360,19 @@
       }
       if (x1 > x0) next.push({ kind, x: x0 - host.x - 4, y: y0 - host.y - 4, w: x1 - x0 + 8, h: y1 - y0 + 8 });
     }
+    legendRows = [...root.querySelectorAll<SVGGElement>('[data-part="key.entry"]')].map((el) => {
+      const r = el.getBoundingClientRect();
+      return { layerId: el.getAttribute("data-legend-layer") ?? "", row: el.getAttribute("data-legend-row") ?? "", x0: r.left, y0: r.top - 1, x1: r.right, y1: r.bottom + 1 };
+    });
     grips = next;
   }
   // Measured AFTER the frame that draws the image (the picture comes first), and only while an annotation is shown.
   let gripFrame = 0;
-  const anyFurniture = $derived(!!rv && !!(rv.furniture.scalebar || rv.furniture.stamp || rv.furniture.channelLabels || rv.furniture.colorbar));
+  const anyFurniture = $derived(!!rv && !!(rv.furniture.scalebar || rv.furniture.stamp || rv.furniture.channelLabels || rv.furniture.colorbar || rv.furniture.key));
   $effect(() => {
     void rv; void crop; void bw; void bh; void left; void top; void host;
+    // The key is drawn from a table that arrives later, and changes with a previewed styling.
+    if (rv?.furniture.key) { void $fluximgTables; void shownView; void $fluximgLutsReady; }
     if (!anyFurniture) { if (grips.length) grips = []; return; }
     if (!gripFrame) gripFrame = requestAnimationFrame(() => { gripFrame = 0; measureGrips(); });
   });
@@ -362,7 +388,22 @@
     const item = rv?.furniture[kind];
     gripDrag = { pointer: e.pointerId, kind, corner: item ? item.corner : "bottom-right" };
   }
+  /** Over the key, the category under the pointer lights its objects on the image (and nothing else is hovered). */
+  function legendHover(e: PointerEvent | null): void {
+    const was = $fluximgHover;
+    const hit = e ? legendRows.find((r) => e.clientX >= r.x0 && e.clientX <= r.x1 && e.clientY >= r.y0 && e.clientY <= r.y1) : undefined;
+    if (!hit || !manifest || !asset || !rv) { if (was?.from === "legend") fluximgHover.set(null); return; }
+    const layer = manifest.layers.find((l) => l.id === hit.layerId), lv = rv.layers.find((l) => l.id === hit.layerId);
+    if (!layer || layer.kind === "intensity" || !lv?.styleBy) return;
+    void $fluximgLutsReady;
+    const legend = cachedObjectStyles(tableOf($fluximgTables, asset, layer.table), layer.key ?? null, lv.styleBy, resolveLut).legend;
+    const keys = hit.row === "missing" ? legend?.missing?.keys : legend?.color?.kind === "category" ? legend.color.entries[Number(hit.row)]?.keys : undefined;
+    if (!keys?.length) { if (was?.from === "legend") fluximgHover.set(null); return; }
+    if (was?.from === "legend" && was.layerId === hit.layerId && was.keys?.length === keys.length && was.key === keys[0]) return;
+    fluximgHover.set({ layerId: hit.layerId, key: keys[0], keys, from: "legend" });
+  }
   function gripMove(e: PointerEvent): void {
+    if (!gripDrag && legendRows.length) { legendHover(e); return; }
     if (!gripDrag || e.pointerId !== gripDrag.pointer) return;
     const corner = cornerAt(e);
     if (corner !== gripDrag.corner) { gripDrag = { ...gripDrag, corner }; setFurnitureCorner(gripDrag.kind, corner); }
@@ -422,7 +463,7 @@
   const turn = $derived(`rotate(${element.rotation}deg)`);
   const boxStyle = $derived(`left:${left}px;top:${top}px;width:${bw}px;height:${bh}px;transform:${turn} scale(${element.flipX ? -1 : 1},${element.flipY ? -1 : 1});opacity:${element.opacity ?? 1}`);
   const frameStyle = $derived(`left:${left}px;top:${top}px;width:${bw}px;height:${bh}px;transform:${turn}`);
-  onDestroy(() => { if (moveQueued) cancelAnimationFrame(moveQueued); if (gripFrame) cancelAnimationFrame(gripFrame); clearTimeout(waiting); hot?.classList.remove("fx-hot"); });
+  onDestroy(() => { if (moveQueued) cancelAnimationFrame(moveQueued); if (gripFrame) cancelAnimationFrame(gripFrame); clearTimeout(waiting); for (const el of hot) el.classList.remove("fx-hot"); fluximgStylePreview.set(null); });
 </script>
 
 
@@ -433,7 +474,7 @@
   <canvas bind:this={canvas} class="gl" class:pixelated={!rv?.smooth} style={`left:${vis.x}px;top:${vis.y}px;width:${vis.w}px;height:${vis.h}px`}></canvas>
   {#if asset && manifest && rv && crop}
     <svg class="vec" width={bw} height={bh} viewBox={`0 0 ${box.width} ${box.height}`} preserveAspectRatio="none">
-      <FluximgVectors {asset} {manifest} view={rv} {crop} {box} {prefix} flipX={!!element.flipX} flipY={!!element.flipY} {insets} />
+      <FluximgVectors {asset} {manifest} view={shownView ?? rv} {crop} {box} {prefix} flipX={!!element.flipX} flipY={!!element.flipY} {insets} />
       {#if drawnBox}<rect class="draw" x={drawnBox.x} y={drawnBox.y} width={drawnBox.width} height={drawnBox.height} />{/if}
     </svg>
   {/if}
@@ -476,9 +517,9 @@
 {#each grips as g (g.kind)}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="fx-grip" class:held={gripDrag?.kind === g.kind} style={`left:${g.x}px;top:${g.y}px;width:${g.w}px;height:${g.h}px`} data-fxb-grip={g.kind} data-fxb-wheel={`furniture:${g.kind}`}
-    onpointerenter={() => { if (!gripDrag) fluximgTip.set({ text: g.kind === "scalebar" ? "Drag to another corner · roll: its length" : "Drag to another corner · roll: text size", hk: "", x: Math.min(host.w - 8, Math.max(8, g.x + g.w / 2)), y: g.y < 34 ? g.y + g.h + 7 : g.y - 7, below: g.y < 34 }); }}
-    onpointerleave={() => fluximgTip.set(null)}
-    onpointerdown={(e) => { fluximgTip.set(null); gripDown(e, g.kind); }} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp} onlostpointercapture={gripUp}></div>
+    onpointerenter={() => { if (!gripDrag) fluximgTip.set({ text: g.kind === "scalebar" ? "Drag to another corner · roll: its length" : g.kind === "key" ? "Drag to another corner · roll: text size · point at a value to find its objects" : "Drag to another corner · roll: text size", hk: "", x: Math.min(host.w - 8, Math.max(8, g.x + g.w / 2)), y: g.y < 34 ? g.y + g.h + 7 : g.y - 7, below: g.y < 34 }); }}
+    onpointerleave={() => { fluximgTip.set(null); legendHover(null); }}
+    onpointerdown={(e) => { fluximgTip.set(null); legendHover(null); gripDown(e, g.kind); }} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp} onlostpointercapture={gripUp}></div>
 {/each}
 
 {#each previewBoxes as b, i (i)}
@@ -488,7 +529,7 @@
 {#if card}
   <div class="fx-card" class:flip={card.flip} class:up={card.up} style={`left:${card.x}px;top:${card.y}px`} role="status" data-fxb-card>
     <b>{card.key}</b><span class="of">{card.layer}</span>
-    {#each card.cells as [name, value] (name)}<span class="cell"><i>{name}</i>{value}</span>{/each}
+    {#each card.cells as [name, value] (name)}<span class="cell" class:styled={card.styled.includes(name)}><i>{name}</i>{value}</span>{/each}
     {#if under}<span class="cell vals">{#each shown as c, i (c.index)}<span><i class="dot" style={`background:${inkOf(c)}`}></i>{fmtValue(under.values[i] ?? NaN)}</span>{/each}</span>{/if}
   </div>
 {/if}
@@ -557,6 +598,8 @@
   .fx-card .of { margin-bottom: 2px; color: var(--flx-base-500); font-family: var(--font-ui); }
   .fx-card .cell { display: flex; gap: 8px; justify-content: space-between; overflow: hidden; }
   .fx-card .cell > i { font-style: normal; color: var(--flx-base-500); }
+  /* A column the layer is styled by: what the object's colour or opacity says, in the board's pink. */
+  .fx-card .cell.styled > i { color: var(--c-guide); }
   .fx-card .vals { justify-content: flex-start; gap: 10px; margin-top: 2px; }
   .fx-card .vals span { display: inline-flex; align-items: center; gap: 4px; }
   .fx-card .dot { width: 7px; height: 7px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6); }

@@ -31,7 +31,7 @@
   import PaperKey from "./PaperKey.svelte";
   import {
     LIVE_KEYS, PROJECTION_MODES, autoContrast, autoPlan, backOut, channelInHand, cycleFurnitureCorner, defaultArmed, dimKeys, dimLength, holdRail, liveContext, makeInset,
-    nudgeFurniture, nudgeGamma, nudgeLayerOpacity, nudgeWindow, panFrame, railDims, resetChannel, resetFrame, resizeProjection, setChannel, setPosition, setProjectionMode, setRun,
+    nudgeFurniture, nudgeGamma, nudgeLayerOpacity, nudgeStyleRange, nudgeWindow, panFrame, railDims, resetChannel, resetFrame, resizeProjection, setChannel, setPosition, setProjectionMode, setRun,
     setWindow, soloChannel, splitChannels, splitPlan, stepPosition, stepSpeed, takeChannel, toggleChannel, toggleFurniture, togglePlayback, toggleSmooth, zoomFrame, zoomInset,
   } from "./actions";
   import { boardLayout, type Box } from "./boardLayout";
@@ -171,7 +171,7 @@
     }
     toggleFurniture("scalebar");
   }
-  type Furniture = "scalebar" | "stamp" | "channelLabels" | "colorbar";
+  type Furniture = "scalebar" | "stamp" | "channelLabels" | "colorbar" | "key";
   function furniture(kind: Furniture, nextCorner: boolean): void {
     if (!ctx || (kind === "stamp" && !dims.length)) return;
     // Shift walks an annotation that is on round the corners; plain switches it on and off.
@@ -342,6 +342,15 @@
     if (over === "map") { zoomFrame(Math.pow(1.12, notches * coarse * fine), null); return; }
     if (over.startsWith("layer:")) { nudgeLayerOpacity(over.slice(6), notches * coarse); return; }
     if (over.startsWith("furniture:")) { nudgeFurniture(over.slice(10) as Furniture, notches); return; }
+    if (over.startsWith("style:")) {
+      // A styling column's window: the nearer of its two handles, as on a channel's strip.
+      const [, part, id] = over.split(":");
+      const well = target?.closest("[data-fxb-style]")?.querySelector<SVGSVGElement>("[data-fxb-stylewell]") ?? null;
+      let which: 0 | 1 = 1;
+      if (well) { const r = well.getBoundingClientRect(), u = (e.clientX - r.left) / Math.max(1, r.width); which = Math.abs(u - Number(well.dataset.b)) < Math.abs(u - Number(well.dataset.w)) ? 0 : 1; }
+      nudgeStyleRange(id, part === "opacity" ? "opacity" : "color", which, notches * coarse);
+      return;
+    }
     if (over.startsWith("region:")) { zoomInset(over.slice(7), Math.pow(1.1, notches * coarse * fine)); return; }
     if (!armed) return;
     if (armed.startsWith("pos:")) stepPosition(armed.slice(4), -notches * coarse);

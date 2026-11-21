@@ -9,10 +9,12 @@ import { addFluximg } from "../../ops";
 import { pushToast } from "../../toast";
 import type { CropRect, FluximgElement, Project } from "../../types";
 import { fluximgManifests } from "../store";
+import { numericExtent } from "../objectStyle";
+import { fluximgTables, tableOf } from "./objectTables";
 import { niceLength, roundNeighbour } from "../furniture";
 import { clampCrop, fullCrop } from "../still";
 import type { FluximgManifest } from "../types";
-import type { FluximgChannelView, FluximgFurnitureView, FluximgLayerView, FluximgProjectionMode, FluximgView, PixelRect, ResolvedView } from "../view";
+import type { FluximgChannelView, FluximgFurnitureView, FluximgLayerView, FluximgProjectionMode, FluximgStyleBy, FluximgView, PixelRect, ResolvedView } from "../view";
 import { positionDims, resolveView } from "../viewOps";
 import { insetLayout, splitLayout, type SplitLayout } from "../panelLayout";
 import { autoWindow, histDomain, moveWindow, nextAutoStep, nextSampleStep, nudgeStep, sampleWindow, snapValue, sortedSample } from "./histogram";
@@ -279,6 +281,71 @@ export function moveLayer(id: string, by: 1 | -1): void {
   settleLiveEdit();
 }
 
+// --- styling objects by their table -------------------------------------------------------------
+
+/** A sparse patch of `styleBy`: any field may be left out (the column it styles by is kept), null clears. */
+type Nullable<T> = { [K in keyof T]?: T[K] | null };
+export interface StyleByPatch {
+  color?: Nullable<NonNullable<FluximgStyleBy["color"]>> | null;
+  opacity?: Nullable<NonNullable<FluximgStyleBy["opacity"]>> | null;
+  missing?: "dim" | "hide" | null;
+}
+/** Write part of a layer's `styleBy` (merged per key by `patchView`; null clears). */
+export function setStyleBy(id: string, patch: StyleByPatch, key = `style:${id}`, settleAfter = 0): void {
+  setLayer(id, { styleBy: patch as FluximgStyleBy }, key, settleAfter); // patchView merges it (viewOps mergeStyleBy)
+}
+/** Colour a layer's objects by a column, or not (null). One undo step. */
+export function colorBy(id: string, column: string | null): void {
+  setStyleBy(id, { color: column ? { column } : null }, `style-color:${id}`);
+  settleLiveEdit();
+}
+/** Set a layer's objects' opacity from a numeric column, or not (null). One undo step. */
+export function opacityBy(id: string, column: string | null): void {
+  setStyleBy(id, { opacity: column ? { column } : null }, `style-opacity:${id}`);
+  settleLiveEdit();
+}
+/** The window of a numeric colour or opacity column (dragged: the caller settles). The column's own extent clears it. */
+export function setStyleRange(id: string, part: "color" | "opacity", range: [number, number] | null): void {
+  setStyleBy(id, { [part]: { range } }, `style-range:${part}:${id}`);
+}
+/**
+ * The wheel over a styling column's strip: the nearer handle (0 = low, 1 = high) moves by a fiftieth of the column's
+ * extent per notch; back at the extent, nothing is stored. Wheel runs settle by themselves.
+ */
+export function nudgeStyleRange(id: string, part: "color" | "opacity", which: 0 | 1, steps: number): void {
+  const c = liveContext(), L = c?.view.layers.find((l) => l.id === id), layer = c?.manifest.layers.find((l) => l.id === id);
+  const column = part === "color" ? L?.styleBy?.color?.column : L?.styleBy?.opacity?.column;
+  if (!c || !L || !layer || layer.kind === "intensity" || !column || !steps) return;
+  const table = tableOf(get(fluximgTables), { id: c.element.assetId }, layer.table);
+  const ext = table && Array.isArray(table.columns[column]) ? numericExtent(table.columns[column]) : null;
+  if (!ext) return;
+  const span = ext[1] > ext[0] ? ext[1] - ext[0] : 1, own: [number, number] = [ext[0], ext[1] > ext[0] ? ext[1] : ext[0] + 1];
+  const now = (part === "color" ? L.styleBy!.color!.range : L.styleBy!.opacity!.range) ?? own;
+  const next: [number, number] = [now[0], now[1]];
+  next[which] = Number((next[which] + (steps * span) / 50).toPrecision(6));
+  if (!(next[1] > next[0])) return;
+  const same = Math.abs(next[0] - own[0]) < span * 1e-9 && Math.abs(next[1] - own[1]) < span * 1e-9;
+  setStyleBy(id, { [part]: { range: same ? null : next } }, `style-range-wheel:${part}:${id}`, WHEEL_SETTLE_MS);
+}
+/** The colour map of a numeric colour column (viridis, the default, clears it). One undo step. */
+export function setStyleLut(id: string, lut: string | null): void {
+  setStyleBy(id, { color: { lut: lut && lut !== "viridis" ? lut : null } }, `style-lut:${id}`);
+  settleLiveEdit();
+}
+export function toggleStyleReverse(id: string): void {
+  const L = liveContext()?.view.layers.find((l) => l.id === id);
+  if (!L?.styleBy?.color) return;
+  setStyleBy(id, { color: { reverse: L.styleBy.color.reverse ? null : true } }, `style-reverse:${id}`);
+  settleLiveEdit();
+}
+/** Objects without a value: dimmed (the default) or hidden. */
+export function toggleStyleMissing(id: string): void {
+  const L = liveContext()?.view.layers.find((l) => l.id === id);
+  if (!L?.styleBy) return;
+  setStyleBy(id, { missing: L.styleBy.missing === "hide" ? null : "hide" }, `style-missing:${id}`);
+  settleLiveEdit();
+}
+
 // --- furniture ----------------------------------------------------------------------------------
 
 export type FurnitureKind = keyof FluximgFurnitureView;
@@ -295,7 +362,7 @@ export function toggleFurniture(kind: FurnitureKind): void {
  * of the picture; back at the length the picture would pick by itself, nothing is stored); the others change
  * their text size by half a point.
  */
-export function nudgeFurniture(kind: "scalebar" | "stamp" | "channelLabels" | "colorbar", steps: number): void {
+export function nudgeFurniture(kind: "scalebar" | "stamp" | "channelLabels" | "colorbar" | "key", steps: number): void {
   const c = liveContext();
   const item = c?.view.furniture[kind];
   if (!c || !item || !steps) return;
@@ -321,14 +388,14 @@ export function nudgeFurniture(kind: "scalebar" | "stamp" | "channelLabels" | "c
 const CORNERS = ["bottom-right", "bottom-left", "top-left", "top-right"] as const;
 export type FurnitureSpot = (typeof CORNERS)[number];
 /** Put an annotation that is on in a corner (it is being dragged there). The caller settles the gesture on release. */
-export function setFurnitureCorner(kind: "scalebar" | "stamp" | "channelLabels" | "colorbar", corner: FurnitureSpot): void {
+export function setFurnitureCorner(kind: "scalebar" | "stamp" | "channelLabels" | "colorbar" | "key", corner: FurnitureSpot): void {
   const c = liveContext();
   const item = c?.view.furniture[kind];
   if (!c || !item || item.corner === corner) return;
   liveView(`furniture-drag:${kind}`, { furniture: { [kind]: { corner } } as FluximgFurnitureView });
 }
 /** Move an annotation that is on to the next corner (clockwise from bottom right). */
-export function cycleFurnitureCorner(kind: "scalebar" | "stamp" | "channelLabels" | "colorbar"): void {
+export function cycleFurnitureCorner(kind: "scalebar" | "stamp" | "channelLabels" | "colorbar" | "key"): void {
   const c = liveContext();
   const item = c?.view.furniture[kind];
   if (!c || !item) return;
