@@ -197,17 +197,17 @@ Live `dispatch_command` also takes `set_model_view` and `set_model_field` (camel
 parameters, `target` or the current selection) as one Undo step. Posters, `--no-poster`,
 `--state` rules and the deck refusal: `PROJECT-AND-FIGURES.md` → "3D model panels".
 
-### Figure images (fluximg)
+### Images on figures and slides (fluximg)
 
 | Verb (CLI) | MCP tool | What it does |
 |---|---|---|
-| `place-image <figureId> <bundle.fluximg> [--x n --y n --width n --name N --crop '<json>' --view '<json>']` | `place_image` | Copy a `.fluximg` folder into `fig/assets/` once (content already in the project is reused, `reused: true`) and add an image element. Canvas px; height follows the image's (or crop's) aspect; without `--width`, one image pixel per canvas px, narrowed to the figure's width. |
-| `set-image-view <elementId> [--view '<json>'] [--crop '<json>' \| --reset-crop]` | `set_image_view` | Merge a sparse view patch into the element's stored view and/or set its crop. Pixels are never touched. |
-| `image-info <elementId\|assetId>` | `image_info` | Read-only, no rendering: dims with sizes, units and positions, dtype and storage, levels, channels with default windows, min/max and percentiles, layers with object counts, regions, every placement; for an element also its box, crop, stored and resolved view, position in words and export size. |
+| `place-image <figureId\|deckId/slideId> <bundle.fluximg> [--x n --y n --width n --name N --crop '<json>' --view '<json>']` | `place_image` | Copy a `.fluximg` folder into `fig/assets/` once (content already in the project is reused, `reused: true`) and add an image element to a figure or a slide (a bare slide id works too). Canvas px; height follows the image's (or crop's) aspect; without `--width`, one image pixel per canvas px, narrowed to the figure's width (on a slide: to fit the stage). A deck never copies the bundle: it refers to `fig/assets/<id>.fluximg` by id. |
+| `set-image-view <elementId> [--view '<json>'] [--crop '<json>' \| --reset-crop] [--slide deckId/slideId [--beat <beatId>]]` | `set_image_view` | Merge a sparse view patch into the element's stored view and/or set its crop. Pixels are never touched. An image on a slide needs `--slide`; without `--beat` the edit is its Design state, with `--beat` (a step after Design) it is that step's Change (`to.state.view` / `crop`), exactly as "Edit after step" in the app: the step glides the image there. |
+| `image-info <elementId\|assetId>` | `image_info` | Read-only, no rendering: dims with sizes, units and positions, dtype and storage, levels, channels with default windows, min/max and percentiles, layers with object counts and (with a table) their columns (`kind` number/category, `distinct`, `range`), regions, every placement; for an element also its box, crop, stored and resolved view, position in words and export size. |
 
 These three are outside the core MCP toolset: in core mode call them through `flux_verb`
 (`flux_verb {verb:"set_image_view", args:{id:"…", view:{…}}}`), with the MCP parameter names
-`figureId`, `bundlePath`, `id`, `target`, `view`, `crop` (`crop: null` resets).
+`figureId`, `bundlePath`, `id`, `target`, `view`, `crop` (`crop: null` resets), `slide`, `beatId`.
 
 **`--view` (sparse; omit a key to leave it, `null` clears it back to the image's default):**
 
@@ -235,28 +235,39 @@ These three are outside the core MCP toolset: in core mode call them through `fl
   interpolates magnified pixels.
 - `layers.<id>`: `visible`, `opacity` 0–1, `color`; shape and object layers also
   `strokeWidth` (screen px) and `fillOpacity`; image layers `lut` and `range` instead.
+- `layers.<id>.styleBy` (object layers with a table; `image-info` lists their columns): style each
+  object from its row. `color: {"column": "cell_type"}` gives each category the next colour of the
+  house palette (or `palette: ["#rrggbb", …]`; categories sorted by value, colours repeat past the
+  palette); a column of numbers goes through a colour map (`lut`, default `viridis`; `range`
+  `[lo, hi]`, default its min..max; `reverse`). `opacity: {"column": "distance"}` (numbers only)
+  maps `range` onto `to` (default `[0.15, 1]`). `missing: "hide"` leaves out objects without a
+  value (default `"dim"`: grey and faint). Fields merge; naming another column starts that part
+  afresh; `null` clears. Example: `{"layers":{"cells":{"styleBy":{"color":{"column":"dendrite"},"opacity":{"column":"pixels"}}}}}`.
 - `furniture`: `scalebar` (`length` in the x unit, `corner`, `color`, `label`, `thickness` and
   `fontSize` in pt), `stamp` (`dims`, `corner`, `color`, `fontSize`), `channelLabels`
   (`corner`, `fontSize`), `names` (`layers`, `fontSize`), `colorbar` (the intensity
-  calibration bar: `corner`, `color`, `fontSize`). `{}` turns one on with defaults,
+  calibration bar: `corner`, `color`, `fontSize`), `key` (what styled objects' colours mean:
+  `layer`, `corner`, `color`, `fontSize`; default the topmost styled layer, top right). `{}` turns one on with defaults,
   `false` or `null` turns it off. Corners: `bottom-right bottom-left top-right top-left`.
 - **`--crop`**: `{"x", "y", "width", "height"}` in full-resolution image pixels, inside the
   image. It keeps the content pinned on the canvas (the box changes, as cropping a picture does).
 
-**Refusals** (nothing is copied or written): a deck or slide target ("N-dimensional images
-(fluximg) cannot be placed on slides yet: keep them in a figure."); a path that is not a folder
+**Refusals** (nothing is copied or written): a deck id as the target (name one of its slides); a path that is not a folder
 holding `fluximg.json`; a non-positive `--width`; any view key that does not fit THIS image,
 all listed at once (an unknown key or layer id, a dimension it lacks, a plane out of range,
 `to` not after `from`, an unknown colour map, a channel list longer than its channels, an
-`insetOf` that is not another placement of the same image); a crop outside the image;
-`set-image-view` with neither `--view` nor a crop. **Warnings** (the edit is made): a scale bar
+`insetOf` that is not another placement of the same image, a `styleBy` on a layer without a table
+or naming a column its table lacks, an opacity column that is not numeric); a crop outside the image;
+`set-image-view` with neither `--view` nor a crop; `--beat` without `--slide`, or on Design. **Warnings** (the edit is made): a scale bar
 on an image without a pixel size (nothing is drawn), a stamp on an image without depth or time,
 a log window whose black point is not above 0 (drawn linear).
 
 Every answer is JSON with `elementId`, `figureId`, `name`, `box`, `crop`, the stored `view`, the
 `resolved` view, `position` and `showing` in words (`"z 13/31 · 1.2 µm"`, `"membrane: #ff00ff,
-100–4000"`), `exportPixels` (`dpi` 300) and `warnings`; `place-image` adds `assetId`, `reused`,
-`copy` (`clone` or `copy`) and `image` (`"2 channels · 31 z · 1,024 × 1,024 · uint16"`).
+100–4000"`), `objects` when a layer is styled (`"footprints coloured by dendrite"`), `exportPixels` (`dpi` 300) and `warnings`; `place-image` adds `assetId`, `reused`,
+`copy` (`clone` or `copy`) and `image` (`"2 channels · 31 z · 1,024 × 1,024 · uint16"`). On a slide
+`figureId` is the slide id and the answer adds `deckId`, `slideId` (and with `--beat`, `beatId` and the written
+`trackIds`); a deck holding an image is saved as deck format 0.8.0.
 
 ```bash
 "{{FLUX_CLI}}" place-image fig2 plots/neuron_stack.fluximg --width 300 --name "Neuron stack" \
@@ -267,6 +278,8 @@ Every answer is JSON with `elementId`, `figureId`, `name`, `box`, `crop`, the st
 "{{FLUX_CLI}}" set-image-view <elementId> --crop '{"x":256,"y":256,"width":512,"height":512}'
 "{{FLUX_CLI}}" set-image-view <elementId> --view '{"projection":null,"channels":[{"range":null},null]}' --reset-crop
 "{{FLUX_CLI}}" render-figure fig2 --png --out /tmp/fig2.png
+"{{FLUX_CLI}}" place-image talk/s3 plots/neuron_stack.fluximg      # onto slide s3 of deck talk
+"{{FLUX_CLI}}" set-image-view <elementId> --slide talk/s3 --beat <beatId> --view '{"index":{"z":30}}'   # step walks the planes
 ```
 
 ### Slides (Flux Slide — see `SLIDES.md`)

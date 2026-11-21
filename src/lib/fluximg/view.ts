@@ -47,6 +47,18 @@ export interface FluximgLayerView {
   fillOpacity?: number;
   /** Display window (intensity layers). */
   range?: [number, number];
+  /** Style each object from columns of the layer's table (label and vector layers that have one). */
+  styleBy?: FluximgStyleBy | null;
+}
+
+/** Style a layer's objects from columns of its table (label and vector layers that have one). */
+export interface FluximgStyleBy {
+  /** Colour by a column. A column of numbers maps through a colour map over `range`; any other column is categorical: each distinct value takes the next colour of `palette`. */
+  color?: { column: string; lut?: string | null; palette?: string[] | null; range?: [number, number] | null; reverse?: boolean } | null;
+  /** Opacity from a numeric column: `range` (default the column's min..max) maps linearly onto `to` (default [0.15, 1]). */
+  opacity?: { column: string; range?: [number, number] | null; to?: [number, number] | null } | null;
+  /** An object with no value in a styling column: "dim" (default: neutral, faint) or "hide". */
+  missing?: "dim" | "hide" | null;
 }
 
 export type FurnitureCorner = "bottom-right" | "bottom-left" | "top-right" | "top-left";
@@ -81,6 +93,8 @@ export interface FluximgFurnitureView {
   names?: { layers?: string[]; fontSize?: number } | false;
   /** The intensity calibration bar: each shown channel's colours laid from its black point to its white point, with both values. */
   colorbar?: { corner?: FurnitureCorner; color?: string; fontSize?: number } | false;
+  /** The key to a layer styled by a column: its categories with their colours, or the colour map with both end values. */
+  key?: { layer?: string; corner?: FurnitureCorner; fontSize?: number; color?: string } | false;
 }
 
 export interface FluximgView {
@@ -145,6 +159,11 @@ export interface ResolvedLayer {
   range: [number, number] | null;
   /** Intensity layers only: opacity follows the normalized value. */
   opacityFromValue: boolean;
+  /**
+   * The validated request to style objects by table columns (label and vector layers), or null. Whether the
+   * columns exist is known only where the table is (`objectStyle.objectStyles`).
+   */
+  styleBy: FluximgStyleBy | null;
 }
 
 export interface ResolvedFurniture {
@@ -153,6 +172,8 @@ export interface ResolvedFurniture {
   channelLabels: { corner: FurnitureCorner; fontSize: number } | false;
   names: { layers: string[]; fontSize: number } | false;
   colorbar: { corner: FurnitureCorner; color: string; fontSize: number } | false;
+  /** `layer` null = the first shown layer that is styled by a column. */
+  key: { layer: string | null; corner: FurnitureCorner; fontSize: number; color: string } | false;
 }
 
 export interface ResolvedView {

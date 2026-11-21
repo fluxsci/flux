@@ -38,7 +38,7 @@ const core = await import("../flux-core/index");
 const { loadFigModel, mutateFigModel } = await import("../flux-core/model");
 const { decodePng, dataUrlPngBytes, encodePng } = await import("../flux-core/fluximgPng");
 const { nodeBundleReader, nodeZstd } = await import("../flux-core/fluximgIo");
-const { resolveFluximgLut } = await import("../flux-core/fluximgRender");
+const { resolveFluximgLut, resolveFluximgContext } = await import("../flux-core/fluximgRender");
 const { fixtures, writeFixture } = await import("./lib/fluximgFixtures");
 const { openFluximg } = await import("../src/lib/fluximg/reader");
 const { renderStill, clampCrop, stillSize } = await import("../src/lib/fluximg/still");
@@ -115,8 +115,11 @@ try {
 
   await core.createDeck(root, { id: "talk" });
   const deck = await core.addSlide(root, "talk");
-  await refuses("place_image", { figureId: deck.slideId, bundlePath: "plots/gray2d_u8.fluximg" }, /cannot be placed on slides/, "a slide is refused with the stage-1 message");
-  await refuses("place_image", { figureId: "nope", bundlePath: "plots/gray2d_u8.fluximg" }, /Figure not found: nope/, "an unknown figure is refused");
+  // fluximg stage 2 supersedes the stage-1 slide refusal pinned here: a slide takes the image (the deck refers to the bundle by id)
+  const onSlide = await call("place_image", { figureId: deck.slideId, bundlePath: "plots/gray2d_u8.fluximg" });
+  h.ok(onSlide.deckId === "talk" && onSlide.slideId === deck.slideId, `a slide (by its id) takes the image (${onSlide.elementId})`);
+  await refuses("place_image", { figureId: "talk", bundlePath: "plots/gray2d_u8.fluximg" }, /is a deck: name one of its slides/, "a deck id is refused: a slide must be named");
+  await refuses("place_image", { figureId: "nope", bundlePath: "plots/gray2d_u8.fluximg" }, /Figure or slide not found: nope/, "an unknown figure is refused");
   await refuses("place_image", { figureId, bundlePath: "plots/missing.fluximg" }, /Image bundle not found/, "a missing bundle is refused");
   await fs.mkdir(path.join(root, "plots/empty.fluximg"), { recursive: true });
   await refuses("place_image", { figureId, bundlePath: "plots/empty.fluximg" }, /is not a fluximg bundle/, "a folder without fluximg.json is refused");
@@ -161,6 +164,33 @@ try {
   const linfo = await call("image_info", { target: layered.assetId });
   h.ok(linfo.layers.find((l: { id: string }) => l.id === "footprints").objects === 4 && linfo.regions.length === 1 && linfo.encoding.kind === "linear16" && !linfo.element, "by asset id: layers with object counts, regions, the encoding");
   await refuses("image_info", { target: "nothing" }, /No image element or image asset "nothing"/, "an unknown target is refused");
+
+  // ------------------------------------------------------------------------------------------------------------------
+  h.section("B2. styling objects by a column (styleBy): checked against the layer's table, drawn headless");
+  {
+    const cols = linfo.layers.find((l: { id: string }) => l.id === "footprints").columns;
+    h.eq(cols, [{ name: "label", kind: "number", distinct: 4, range: [1, 7] }, { name: "dendrite", kind: "category", distinct: 2, missing: 1 }, { name: "pixels", kind: "number", distinct: 4, range: [5, 32] }],
+      "image-info lists a table's columns: kind, distinct values, range (what styleBy can use)");
+    h.ok(!linfo.layers.find((l: { id: string }) => l.id === "discs").columns && linfo.layers.find((l: { id: string }) => l.id === "prox_lines").columns?.length === 1, "a layer without a table lists none");
+    const styled = await call("set_image_view", { id: layered.elementId, view: { layers: { footprints: { styleBy: { color: { column: "dendrite" }, opacity: { column: "pixels" } } } }, furniture: { key: {} } } });
+    h.eq(styled.resolved.layers.find((l: { id: string }) => l.id === "footprints").styleBy, { color: { column: "dendrite" }, opacity: { column: "pixels" } }, "set-image-view accepts styleBy (answered resolved)");
+    h.eq(styled.objects, ["synapse footprints coloured by dendrite, opacity by pixels"], "…and says it in words");
+    await refuses("set_image_view", { id: layered.elementId, view: { layers: { footprints: { styleBy: { color: { column: "nope" } } } } } }, /no column "nope" in layer "footprints"'s table \(it has "label", "dendrite", "pixels"\)/, "a column the table lacks is refused (flux-core reads the table)");
+    await refuses("set_image_view", { id: layered.elementId, view: { layers: { footprints: { styleBy: { opacity: { column: "dendrite" } } } } } }, /not numeric/, "an opacity column that is not numeric is refused");
+    await refuses("set_image_view", { id: layered.elementId, view: { layers: { discs: { styleBy: { color: { column: "a" } } } } } }, /has no table/, "a layer without a table is refused");
+    const { project: now } = await loadFigModel(root);
+    const warnings: string[] = [];
+    const ctx = await resolveFluximgContext(root, now.figures.filter((f) => f.id === figureId), now.assets, { surface: "svg", warnings });
+    const { el } = await element(layered.elementId);
+    const m = fluximgElementMarkup(el, ctx);
+    const prefix = fluximgIdPrefix(layered.elementId);
+    h.ok(new RegExp(`<path id="${prefix}footprints/s1"[^>]*stroke="#4385be"[^>]*opacity="0.6222"`).test(m) && new RegExp(`<path id="${prefix}footprints/s7"[^>]*stroke="#878580"[^>]*opacity="0.35"`).test(m), "flux-core's markup carries each object's colour and opacity as attributes (s7, without a dendrite, dimmed)");
+    h.ok(new RegExp(`id="${prefix}key"[^>]*data-part="key"`).test(m) && />dendrite</.test(m), "…and the key");
+    h.eq(warnings, [], "no warnings");
+    await call("set_image_view", { id: layered.elementId, view: { layers: { footprints: { styleBy: null } }, furniture: { key: null } } });
+    const { el: back } = await element(layered.elementId);
+    h.ok(!back.view?.layers?.footprints?.styleBy && !back.view?.furniture?.key, "null takes it all off again");
+  }
 
   // ------------------------------------------------------------------------------------------------------------------
   h.section("C. the embedded still is renderStill's pixels at the stated size");
@@ -251,6 +281,7 @@ try {
       manifest: async (asset) => (await reader(asset)).manifest,
       still: async () => `data:image/png;base64,${encodePng(new Uint8Array([0, 0, 0, 255]), 1, 1).toString("base64")}`,
       text: async (asset, p) => (await reader(asset)).readText(p),
+      table: async (asset, p) => (await reader(asset)).readTable(p),
     }, { surface: "figure", namespace: "pap", onIssue: (_e, m) => h.fail(`unexpected issue: ${m}`) });
     const markup = fluximgElementMarkup(want.el, ns);
     h.ok(markup.includes(`id="${fluximgIdPrefix("pap__" + layered.elementId)}still"`) && !markup.includes(`id="${prefix}`), "Paper's display namespace prefixes every id (no collision with the live canvas)");

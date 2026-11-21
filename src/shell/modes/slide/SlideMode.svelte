@@ -96,6 +96,7 @@
   import { modelPair, modelPairIssue } from "../../../lib/slide/model3dMorph";
   import { modelOrbitBlocked } from "../../../lib/model3d/orbitSession";
   import { scene3dGeneration, scene3dManifests } from "../../../lib/model3d/store";
+  import { fluximgManifests, fluximgIssues } from "../../../lib/fluximg/store";
   import { getAssetData } from "../../../lib/assets";
   import { assetDisplaySize } from "../../../lib/ops";
   import { sendSlideToCanvas, listFigCanvases } from "../../../lib/project/convert";
@@ -763,7 +764,7 @@
   // Change content/hand-off reads as "topology unavailable" (a warning the author can never clear).
   // glyphStatus: a text ↔ shape Become whose font has no readable outlines lands
   // as boxes; the revision re-derives once a font settles (oct2 W3).
-  const animationIssues=$derived(activeSlide && $glyphFontsRevision >= 0 ? compileSlide(activeSlide,stage,{animStyles:overlay?.animStyles,modelManifest:id=>$scene3dManifests[id],plotManifest:id=>$plotManifests[id],modelAsset:id=>$project.assets.find(a=>a.id===id),glyphStatus:textGlyphStatus}).issues : []);
+  const animationIssues=$derived(activeSlide && $glyphFontsRevision >= 0 ? compileSlide(activeSlide,stage,{animStyles:overlay?.animStyles,modelManifest:id=>$scene3dManifests[id],plotManifest:id=>$plotManifests[id],modelAsset:id=>$project.assets.find(a=>a.id===id),glyphStatus:textGlyphStatus,fluximgManifest:id=>$fluximgManifests[id],fluximgIssue:id=>$fluximgIssues[id]}).issues : []);
   function inspectIssue(trackId?:string){
     if(!activeSlide||!trackId)return;
     const bi=activeSlide.beats.findIndex(b=>b.tracks.some(t=>t.id===trackId));

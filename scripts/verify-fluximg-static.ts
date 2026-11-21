@@ -294,6 +294,18 @@ h.section("H2. edge cases and cost");
   h.ok(cold < 1500 && warm < 100, `20 000 outlines: first placement ${cold.toFixed(0)} ms (parse + build), a re-crop ${warm.toFixed(1)} ms (cached parse, culled to ${(zoomed.match(/<path /g) ?? []).length} shapes)`);
 }
 
+h.section("H2. objects styled by a column: the static composition");
+{
+  const T = JSON.parse(await fsp.readFile(path.join(L.dir, "layers/footprints.table.json"), "utf8"));
+  const styled = (over: Partial<ResolvedView> = {}) => view(M, { layers: M.layers.map((l) => layerView(l, { visible: l.id === "footprints", styleBy: l.id === "footprints" ? { color: { column: "dendrite" } } : null })), ...over });
+  const withTable = fluximgStaticSvg({ manifest: M, view: styled(), crop: fullCrop, box, stillHref: null, layerSvg: { footprints: footprintsSvg }, idPrefix: "s:", tables: { footprints: T } });
+  const without = fluximgStaticSvg({ manifest: M, view: styled(), crop: fullCrop, box, stillHref: null, layerSvg: { footprints: footprintsSvg }, idPrefix: "s:" });
+  h.ok(/id="s:footprints\/s1"[^>]*stroke="#4385be"/.test(withTable) && /id="s:footprints\/s3"[^>]*stroke="#da702c"/.test(withTable), "with its table, a styled layer's outlines carry their categories' colours");
+  h.ok(!/footprints\/s1"[^>]*stroke=/.test(without), "without it, the layer is drawn as it always was");
+  const keyed = fluximgStaticSvg({ manifest: M, view: styled({ furniture: { ...FURN_OFF, key: { layer: null, corner: "top-left", color: "#ffffff", fontSize: 6 } } as ResolvedFurniture }), crop: fullCrop, box, stillHref: null, layerSvg: { footprints: footprintsSvg }, idPrefix: "s:", tables: { footprints: T } });
+  h.ok(/data-part="key"/.test(keyed) && !/data-part="key"/.test(withTable), "the key is furniture: drawn when it is on, inside the un-mirrored words group");
+}
+
 h.section("I. rasterised by resvg");
 {
   const s = composed({ background: "#000000", furniture: { scalebar: { ...SB, label: false }, stamp: false, channelLabels: false, names: false } });

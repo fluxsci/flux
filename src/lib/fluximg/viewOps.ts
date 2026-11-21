@@ -9,7 +9,7 @@
  */
 import type { FluximgManifest, FluximgLayer } from "./types";
 import type {
-  FluximgChannelView, FluximgLayerView, FluximgProjection, FluximgProjectionMode, FluximgView, FurnitureCorner,
+  FluximgChannelView, FluximgLayerView, FluximgProjection, FluximgProjectionMode, FluximgStyleBy, FluximgView, FurnitureCorner,
   PixelRect, ResolvedChannel, ResolvedFurniture, ResolvedLayer, ResolvedView,
 } from "./view";
 import { hexToRgb } from "./lut";
@@ -68,6 +68,33 @@ function resolveChannel(manifest: FluximgManifest, i: number, ov: FluximgChannel
   };
 }
 
+/**
+ * The request to style objects by table columns, cleaned (lenient: a stored view from anywhere must still draw).
+ * Only the request: whether its columns exist is known where the table is (`objectStyle.objectStyles`).
+ */
+export function resolveStyleBy(v: unknown): FluximgStyleBy | null {
+  if (!isObj(v)) return null;
+  const out: FluximgStyleBy = {};
+  const c = v.color, o = v.opacity;
+  if (isObj(c) && isName(c.column)) {
+    const color: NonNullable<FluximgStyleBy["color"]> = { column: c.column };
+    if (isName(c.lut)) color.lut = c.lut;
+    if (Array.isArray(c.palette)) { const pal = c.palette.filter(isColor); if (pal.length) color.palette = pal; }
+    if (validRange(c.range)) color.range = [c.range[0], c.range[1]];
+    if (c.reverse === true) color.reverse = true;
+    out.color = color;
+  }
+  if (isObj(o) && isName(o.column)) {
+    const opacity: NonNullable<FluximgStyleBy["opacity"]> = { column: o.column };
+    if (validRange(o.range)) opacity.range = [o.range[0], o.range[1]];
+    if (Array.isArray(o.to) && o.to.length === 2 && finite(o.to[0]) && finite(o.to[1])) opacity.to = [clamp01(o.to[0]), clamp01(o.to[1])];
+    out.opacity = opacity;
+  }
+  if (!out.color && !out.opacity) return null;
+  if (v.missing === "hide") out.missing = "hide";
+  return out;
+}
+
 function resolveLayer(layer: FluximgLayer, ov: FluximgLayerView | undefined): ResolvedLayer {
   const o = isObj(ov) ? (ov as FluximgLayerView) : undefined;
   const intensity = layer.kind === "intensity";
@@ -87,6 +114,8 @@ function resolveLayer(layer: FluximgLayer, ov: FluximgLayerView | undefined): Re
     fillOpacity: clamp01(finite(o?.fillOpacity) ? o!.fillOpacity! : layer.kind === "labels" ? 0.12 : 0),
     range,
     opacityFromValue: intensity && layer.opacity === "value",
+    // Objects of a layer with a table only (a vector layer without one has nothing to style by).
+    styleBy: intensity || (layer.kind === "vector" && !layer.table) ? null : resolveStyleBy(o?.styleBy),
   };
 }
 
@@ -97,7 +126,7 @@ function resolveFurniture(manifest: FluximgManifest, f: FluximgView["furniture"]
   const color = (v: unknown, d: string): string => (isColor(v) ? v : d);
   const dims = positionDims(manifest);
   const objectLayers = manifest.layers.filter((l) => l.kind !== "intensity").map((l) => l.id);
-  const sb = fur.scalebar, st = fur.stamp, cl = fur.channelLabels, nm = fur.names, cb = fur.colorbar;
+  const sb = fur.scalebar, st = fur.stamp, cl = fur.channelLabels, nm = fur.names, cb = fur.colorbar, ky = fur.key;
   return {
     scalebar: isObj(sb)
       ? { length: finite(sb.length) && sb.length > 0 ? sb.length : null, corner: corner(sb.corner, "bottom-right"), color: color(sb.color, "#ffffff"),
@@ -111,6 +140,9 @@ function resolveFurniture(manifest: FluximgManifest, f: FluximgView["furniture"]
       ? { layers: Array.isArray(nm.layers) ? nm.layers.filter((id) => objectLayers.includes(id)) : objectLayers, fontSize: size(nm.fontSize, 6) }
       : false,
     colorbar: isObj(cb) ? { corner: corner(cb.corner, "bottom-left"), color: color(cb.color, "#ffffff"), fontSize: size(cb.fontSize, 6) } : false,
+    key: isObj(ky)
+      ? { layer: typeof ky.layer === "string" && objectLayers.includes(ky.layer) ? ky.layer : null, corner: corner(ky.corner, "top-right"), color: color(ky.color, "#ffffff"), fontSize: size(ky.fontSize, 6) }
+      : false,
   };
 }
 
@@ -186,6 +218,26 @@ function exclusiveColor(out: Record<string, unknown>, patch: Record<string, unkn
 const isEmpty = (o: Record<string, unknown>): boolean => Object.keys(o).length === 0;
 
 /**
+ * `styleBy` merges per key: `color` and `opacity` merge field by field while they keep their column (a patch that
+ * names ANOTHER column starts that part afresh: a range or palette belongs to the column it was chosen for), null
+ * clears, `missing` is replaced. Nothing left to style by: null (the key is dropped).
+ */
+function mergeStyleBy(old: Record<string, unknown> | undefined, patch: Record<string, unknown>): Record<string, unknown> | null {
+  const out: Record<string, unknown> = isObj(old) ? clone(old) : {};
+  for (const [k, pv] of Object.entries(patch)) {
+    if (pv === undefined) continue;
+    if (pv === null) { delete out[k]; continue; }
+    if ((k === "color" || k === "opacity") && isObj(pv)) {
+      const was = isObj(out[k]) ? (out[k] as Record<string, unknown>) : undefined;
+      const same = was && (pv.column === undefined || pv.column === was.column);
+      out[k] = mergeFields(same ? was : undefined, pv);
+    } else out[k] = clone(pv);
+  }
+  for (const k of ["color", "opacity"]) if (isObj(out[k]) && isEmpty(out[k] as Record<string, unknown>)) delete out[k];
+  return isObj(out.color) || isObj(out.opacity) ? out : null;
+}
+
+/**
  * The view after a sparse patch. `index`, `layers` and `furniture` merge per key, `channels` per index (a null or
  * absent patch entry keeps the old one; within an entry fields merge); a null value anywhere clears what it
  * names (`projection: null`, `index: {z: null}`, `channels: [{range: null}]`, `furniture: {scalebar: null}`), and
@@ -210,8 +262,13 @@ export function patchView(view: FluximgView | undefined, patch: FluximgView): Fl
         for (const [id, lv] of Object.entries(pv)) {
           if (lv === undefined) continue;
           if (lv === null || !isObj(lv)) { delete layers[id]; continue; }
-          const merged = mergeFields(layers[id] as Record<string, unknown>, lv);
+          const old = layers[id] as Record<string, unknown> | undefined;
+          const merged = mergeFields(old, lv);
           exclusiveColor(merged, lv);
+          if (isObj(lv.styleBy)) {
+            const sb = mergeStyleBy(isObj(old?.styleBy) ? (old!.styleBy as Record<string, unknown>) : undefined, lv.styleBy);
+            if (sb) merged.styleBy = sb; else delete merged.styleBy;
+          }
           layers[id] = merged;
         }
         out.layers = layers;

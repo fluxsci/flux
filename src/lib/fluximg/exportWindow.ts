@@ -33,6 +33,7 @@ export function windowFluximgIO(root?: string): FluximgExportIO {
     // No slot: an export's request must never be replaced by the editor's next still for the same element.
     still: async (_asset, r) => service().still(r.key, { bundle: r.bundle, view: r.view, crop: r.crop, outWidth: r.outWidth, outHeight: r.outHeight }),
     text: async (asset, path) => service().text(fluximgBundle(asset), path),
+    table: async (asset, path) => service().table(fluximgBundle(asset), path),
   };
 }
 

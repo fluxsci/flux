@@ -6,10 +6,11 @@
  * or it is told exactly what is wrong (`problems`, which refuse the edit) before anything is written. `warnings`
  * name settings that are valid but will not show (a scale bar on an image without a pixel size).
  */
-import type { FluximgManifest } from "./types";
+import type { FluximgManifest, FluximgTable } from "./types";
 import type { FluximgView } from "./view";
 import { positionDims } from "./viewOps";
 import { hexToRgb } from "./lut";
+import { columnKind } from "./objectStyle";
 
 const MODES = ["max", "mean", "min", "sum", "std"];
 const CORNERS = ["bottom-right", "bottom-left", "top-right", "top-left"];
@@ -24,6 +25,11 @@ const list = (xs: readonly string[]): string => xs.length ? xs.map((x) => `"${x}
 export interface ViewCheckOptions {
   /** True when a colour-map name is known (load the tables first). Absent: names are not checked. */
   knownLut?: (name: string) => boolean;
+  /**
+   * The tables of object layers, by layer id, when the caller has them: then a `styleBy` column that does not exist,
+   * or an opacity column that is not numeric, is refused. Absent: column names are not checked.
+   */
+  tables?: Record<string, FluximgTable | null | undefined>;
 }
 
 export interface ViewCheck { problems: string[]; warnings: string[] }
@@ -122,15 +128,59 @@ export function checkViewPatch(manifest: FluximgManifest, patch: unknown, option
       if (lv === null) continue;
       if (!isObj(lv)) { problems.push(`layers.${id}: an object such as {"visible": true}, or null`); continue; }
       const intensity = layer.kind === "intensity";
-      keysOk(`layers.${id}`, lv, intensity ? ["visible", "opacity", "color", "lut", "range"] : ["visible", "opacity", "color", "strokeWidth", "fillOpacity"]);
+      keysOk(`layers.${id}`, lv, intensity ? ["visible", "opacity", "color", "lut", "range"] : ["visible", "opacity", "color", "strokeWidth", "fillOpacity", "styleBy"]);
       boolOk(`layers.${id}.visible`, lv.visible); unitOk(`layers.${id}.opacity`, lv.opacity); colorOk(`layers.${id}.color`, lv.color);
       if (intensity) { lutOk(`layers.${id}.lut`, lv.lut); rangeOk(`layers.${id}.range`, lv.range); }
       else {
         unitOk(`layers.${id}.fillOpacity`, lv.fillOpacity);
         if (lv.strokeWidth !== undefined && lv.strokeWidth !== null && !(finite(lv.strokeWidth) && lv.strokeWidth >= 0)) problems.push(`layers.${id}.strokeWidth: screen pixels, 0 or more`);
+        if (lv.styleBy !== undefined && lv.styleBy !== null) checkStyleBy(id, lv.styleBy, layer.kind === "labels" || !!layer.table);
       }
     }
   }
+  function checkStyleBy(id: string, sb: unknown, hasTable: boolean): void {
+    const w = `layers.${id}.styleBy`;
+    if (!hasTable) { problems.push(`${w}: layer "${id}" has no table, so there is nothing to style its objects by`); return; }
+    if (!isObj(sb)) { problems.push(`${w}: an object such as {"color": {"column": "cell_type"}, "opacity": {"column": "distance"}}, or null`); return; }
+    keysOk(w, sb, ["color", "opacity", "missing"]);
+    const table = options.tables?.[id] ?? null;
+    const columns = table ? Object.keys(table.columns).filter((c) => c !== table.key) : null;
+    const columnOk = (where: string, v: unknown, numeric: boolean): void => {
+      if (v === undefined) return; // a patch may keep the column it already styles by
+      if (typeof v !== "string" || !v) { problems.push(`${where}: the name of a column of the layer's table`); return; }
+      if (!table || !columns) return;
+      const values = table.columns[v];
+      if (!Array.isArray(values) || v === table.key) problems.push(`${where}: no column "${v}" in layer "${id}"'s table (it has ${list(columns)})`);
+      else if (numeric && columnKind(values) !== "number") problems.push(`${where}: column "${v}" is not numeric; opacity needs numbers`);
+    };
+    const c = sb.color;
+    if (c !== undefined && c !== null) {
+      if (!isObj(c)) problems.push(`${w}.color: {"column": …, "lut"?, "palette"?, "range"?, "reverse"?} or null`);
+      else {
+        keysOk(`${w}.color`, c, ["column", "lut", "palette", "range", "reverse"]);
+        columnOk(`${w}.color.column`, c.column, false);
+        lutOk(`${w}.color.lut`, c.lut); rangeOk(`${w}.color.range`, c.range); boolOk(`${w}.color.reverse`, c.reverse);
+        if (c.palette !== undefined && c.palette !== null && !(Array.isArray(c.palette) && c.palette.length > 0 && c.palette.every(isColor))) problems.push(`${w}.color.palette: a list of colours "#rrggbb", at least one`);
+        if (table && typeof c.column === "string" && Array.isArray(table.columns[c.column])) {
+          const kind = columnKind(table.columns[c.column]);
+          if (kind === "category" && (c.lut != null || c.range != null)) warnings.push(`${w}.color: column "${c.column}" is categorical; its values take palette colours, so "lut" and "range" do not apply`);
+          if (kind === "empty") warnings.push(`${w}.color: column "${c.column}" has no values, so every object is drawn as "missing"`);
+        }
+      }
+    }
+    const o = sb.opacity;
+    if (o !== undefined && o !== null) {
+      if (!isObj(o)) problems.push(`${w}.opacity: {"column": …, "range"?, "to"?} or null`);
+      else {
+        keysOk(`${w}.opacity`, o, ["column", "range", "to"]);
+        columnOk(`${w}.opacity.column`, o.column, true);
+        rangeOk(`${w}.opacity.range`, o.range);
+        if (o.to !== undefined && o.to !== null && !(Array.isArray(o.to) && o.to.length === 2 && o.to.every((x) => finite(x) && x >= 0 && x <= 1))) problems.push(`${w}.opacity.to: two opacities between 0 and 1, e.g. [0.15, 1], got ${JSON.stringify(o.to)}`);
+      }
+    }
+    if (sb.missing !== undefined && sb.missing !== null && sb.missing !== "dim" && sb.missing !== "hide") problems.push(`${w}.missing: "dim" (draw objects without a value faint and grey) or "hide"`);
+  }
+
   const order = patch.layerOrder;
   if (order !== undefined && order !== null) {
     if (!Array.isArray(order)) problems.push(`layerOrder: a list of layer ids, bottom to top`);
@@ -139,9 +189,9 @@ export function checkViewPatch(manifest: FluximgManifest, patch: unknown, option
 
   const fur = patch.furniture;
   if (fur !== undefined && fur !== null) {
-    if (!isObj(fur)) problems.push(`furniture: an object with scalebar, stamp, channelLabels, names, colorbar (each false/null for off, {} for on)`);
+    if (!isObj(fur)) problems.push(`furniture: an object with scalebar, stamp, channelLabels, names, colorbar, key (each false/null for off, {} for on)`);
     else {
-      keysOk("furniture", fur, ["scalebar", "stamp", "channelLabels", "names", "colorbar"]);
+      keysOk("furniture", fur, ["scalebar", "stamp", "channelLabels", "names", "colorbar", "key"]);
       const item = (k: string, allowed: string[]): Record<string, unknown> | null => {
         const v = fur[k];
         if (v === undefined || v === null || v === false) return null;
@@ -168,6 +218,11 @@ export function checkViewPatch(manifest: FluximgManifest, patch: unknown, option
       if (st && !dims.length) warnings.push(`furniture.stamp: this image has no depth or time dimension, so the stamp is empty`);
       item("channelLabels", ["corner", "fontSize"]);
       item("colorbar", ["corner", "color", "fontSize"]);
+      const ky = item("key", ["layer", "corner", "fontSize", "color"]);
+      if (ky && ky.layer !== undefined && ky.layer !== null) {
+        const objects = manifest.layers.filter((l) => l.kind !== "intensity").map((l) => l.id);
+        if (typeof ky.layer !== "string" || !objects.includes(ky.layer)) problems.push(`furniture.key.layer: ${JSON.stringify(ky.layer)} is not a vector or label layer (this image has ${list(objects)})`);
+      }
       const nm = item("names", ["layers", "fontSize"]);
       if (nm && nm.layers !== undefined) {
         const objects = manifest.layers.filter((l) => l.kind !== "intensity").map((l) => l.id);
@@ -188,6 +243,15 @@ export function checkMergedView(manifest: FluximgManifest, view: FluximgView | u
     const n = dims.includes(p.dim) ? manifest.pixels.shape[manifest.pixels.dims.indexOf(p.dim)] : 0;
     if (!dims.includes(p.dim) || !MODES.includes(p.mode) || !int(p.from) || !int(p.to) || p.from < 0 || p.to > n || p.to <= p.from)
       out.push(`projection: needs all of dim (${list(dims)}), mode (${list(MODES)}), from and to (0 ≤ from < to ≤ the dimension's size); the view would hold ${JSON.stringify(p)}`);
+  }
+  // A styling part assembled from two patches must name its column.
+  for (const [id, lv] of Object.entries(view?.layers ?? {})) {
+    const sb = lv?.styleBy;
+    if (!isObj(sb)) continue;
+    for (const part of ["color", "opacity"] as const) {
+      const v = (sb as Record<string, unknown>)[part];
+      if (isObj(v) && (typeof v.column !== "string" || !v.column)) out.push(`layers.${id}.styleBy.${part}: needs a "column"; the view would hold ${JSON.stringify(v)}`);
+    }
   }
   return out;
 }

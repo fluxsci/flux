@@ -855,10 +855,10 @@ export function animatePart(deck: Deck, slideId: Id, elId: Id, part: string, man
 export type AuthoringElement = Pick<Element, "type"> & { arrowStart?: boolean; arrowEnd?: boolean };
 const isArrow = (el: AuthoringElement): boolean => el.type === "line" && !!(el.arrowStart || el.arrowEnd);
 /** The Appear default of an element: rect / ellipse / arrow scaleIn (an arrow grows from its tail: `from` "auto"), a plain line or path
- *  draws on, text / image / plot rise in (`fadeRise`, y 24 authored), anything else fades. */
+ *  draws on, text / image (raster or N-dimensional) / plot rise in (`fadeRise`, y 24 authored), anything else fades. */
 export function elementEnterPreset(el: AuthoringElement): PresetName {
   switch (el.type) {
-    case "text": case "image": case "plot": return "fadeRise";
+    case "text": case "image": case "fluximg": case "plot": return "fadeRise";
     case "rect": case "ellipse": return "scaleIn";
     case "line": return isArrow(el) ? "scaleIn" : "drawOn";
     case "path": return "drawOn";

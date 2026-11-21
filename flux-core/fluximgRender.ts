@@ -82,6 +82,7 @@ export function nodeFluximgIO(root: string, session: FluximgRenderSession = flux
     manifest: async (asset) => (await fluximgReader(root, asset, session)).manifest,
     still: async (asset, request) => renderFluximgStillUrl(await fluximgReader(root, asset, session), request),
     text: async (asset, path) => (await fluximgReader(root, asset, session)).readText(path),
+    table: async (asset, path) => (await fluximgReader(root, asset, session)).readTable(path),
   };
 }
 

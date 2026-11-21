@@ -5,10 +5,11 @@
  * layers, object names, furniture. All of it sits in one nested `<svg>` the size of the element's box with
  * `overflow="hidden"`, which clips identically in Chromium and resvg. Pure string building.
  */
-import type { FluximgLayer, FluximgManifest } from "./types";
-import type { PixelRect, ResolvedView } from "./view";
+import type { FluximgLayer, FluximgManifest, FluximgTable } from "./types";
+import type { PixelRect, ResolvedLayer, ResolvedView } from "./view";
 import { furnitureSvg } from "./furniture";
 import { escapeXml, layerMarkup, namesMarkup, objectIndex, svgNum } from "./layers";
+import { cachedObjectStyles, missingStyle, type ObjectLegend, type ObjectStyles } from "./objectStyle";
 
 export interface FluximgStaticInput {
   manifest: FluximgManifest;
@@ -29,6 +30,27 @@ export interface FluximgStaticInput {
   insets?: Array<{ id: string; crop: PixelRect }>;
   /** Colour-map tables (256 "#rrggbb"), for the calibration bar. Absent: a colour map's bar is drawn gray. */
   resolveLut?: (name: string) => string[] | null;
+  /** Layer id → that layer's table: needed by a layer styled by its columns (`styleBy`). A missing one: unstyled. */
+  tables?: Record<string, FluximgTable | null | undefined>;
+}
+
+/** The table file of a label or vector layer, or null. */
+export function layerTablePath(layer: FluximgLayer | undefined): string | null {
+  if (!layer || layer.kind === "intensity") return null;
+  return layer.table || null;
+}
+
+/** Whether a resolved layer is drawn styled by its table (it is shown, and asks for a column). */
+export const wantsTable = (lv: ResolvedLayer): boolean => lv.visible && lv.kind !== "intensity" && !!lv.styleBy;
+
+const NO_LUT = (): null => null;
+/** Styles worth drawing: some part of the request applied (it has a legend). */
+export const stylesToDraw = (s: ObjectStyles | null): ObjectStyles | null => (s && s.legend ? s : null);
+
+/** The styles of a layer styled by its table (cached per table and request), or null when it is not styled. */
+export function layerStyles(layer: FluximgLayer, lv: ResolvedLayer, table: FluximgTable | null | undefined, resolveLut?: (name: string) => string[] | null): ObjectStyles | null {
+  if (!lv.styleBy || layer.kind === "intensity" || !table) return null;
+  return cachedObjectStyles(table, layer.key ?? null, lv.styleBy, resolveLut ?? NO_LUT);
 }
 
 /** The elements of a figure that are blow-outs of `parentId`, as what the parent needs to outline them. */
@@ -82,10 +104,14 @@ export function fluximgStaticSvg(input: FluximgStaticInput): string {
   else out.push(`<rect id="${escapeXml(idPrefix + "placeholder")}" x="0" y="0" width="${w}" height="${h}" fill="${PLACEHOLDER_FILL}"/>`);
 
   const byId = new Map(manifest.layers.map((l) => [l.id, l]));
+  const legends: Record<string, ObjectLegend | null> = {};
   for (const lv of view.layers) {
     const layer = byId.get(lv.id), text = layerSvg[lv.id];
     if (!layer || text === undefined || layer.kind === "intensity") continue;
-    out.push(layerMarkup(layer, text, lv, crop, box, idPrefix));
+    // Styling that could not apply (a column the table lacks) leaves the layer as it was, never all "missing".
+    const styled = stylesToDraw(layerStyles(layer, lv, input.tables?.[lv.id], input.resolveLut));
+    if (styled) legends[lv.id] = styled.legend;
+    out.push(layerMarkup(layer, text, lv, crop, box, idPrefix, styled?.byKey, styled ? missingStyle(lv.styleBy) : null));
   }
 
   out.push(insetsMarkup(input.insets, crop, box, idPrefix));
@@ -99,7 +125,7 @@ export function fluximgStaticSvg(input: FluximgStaticInput): string {
       words.push(namesMarkup(objectIndex(text), null, crop, box, { layerId: id, fontSize: names.fontSize, color: lv.color ?? layer.color ?? "#ffffff", flipX: input.flipX, flipY: input.flipY }, idPrefix));
     }
   }
-  words.push(furnitureSvg(manifest, view, crop, box, idPrefix, input.resolveLut));
+  words.push(furnitureSvg(manifest, view, crop, box, idPrefix, input.resolveLut, legends));
   const unflip = unflipTransform(box, input.flipX, input.flipY), text = words.join("");
   out.push(unflip && text ? `<g transform="${unflip}">${text}</g>` : text);
   out.push("</svg>");

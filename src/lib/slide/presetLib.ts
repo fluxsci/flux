@@ -96,6 +96,9 @@ export async function saveSlidePreset(
   const missingAssets: Id[] = [];
   for (const aid of referenced) {
     const meta = metadata.find((a) => a.id === aid);
+    // An image bundle (fluximg) is a project-level DIRECTORY that can be gigabytes: it is never embedded. The preset keeps the
+    // element and refers to the bundle by id, so it shows wherever that id resolves (this project) and stands in elsewhere.
+    if (meta?.kind === "fluximg") { missingAssets.push(aid); continue; }
     let data = resident.get(aid);
     // A native stream capability expires with its project/window. Portable
     // preset saves explicitly embed bytes; ordinary authoring never does.

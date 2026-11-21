@@ -260,8 +260,8 @@ ELEMENT_DEF.oneOf.push(elementBranch("model3d", ["assetId", "orbitAzimuth", "orb
 
 // fluximg (stage 1): the placed N-dimensional image. `view` is the sparse recipe of fluximg/view.ts: every key typed,
 // unknown TOP-LEVEL keys refused (a misspelt key would silently do nothing), numeric ranges sane. Nested objects keep the
-// house leniency so a later field can be added inside one without a format bump. Figure schemas only: the deck schema
-// leaves this branch out (ARCHITECTURE decision 8: no fluximg in a deck yet).
+// house leniency so a later field can be added inside one without a format bump. Figures (canvas 0.4.0) and, since stage 2,
+// decks (0.8.0) share this branch.
 // Non-empty without minLength: Ajv's standalone minLength needs a CommonJS `require` helper this ESM module cannot load.
 const NON_EMPTY = { type: "string", pattern: "^[\\s\\S]+$" };
 const HEX_OR_NULL = { anyOf: [{ type: "string", pattern: "^#[0-9a-fA-F]{6}$" }, { type: "null" }] };
@@ -275,9 +275,19 @@ const FLUXIMG_CHANNEL_VIEW = { type: "object", properties: {
   visible: { type: "boolean" }, color: HEX_OR_NULL, lut: NAME_OR_NULL, range: RANGE2,
   norm: { enum: ["linear", "log", "gamma"] }, gamma: { type: "number", exclusiveMinimum: 0, maximum: 100 }, invert: { type: "boolean" },
 } };
+const FLUXIMG_STYLE_BY = { anyOf: [{ type: "null" }, { type: "object", properties: {
+  color: { anyOf: [{ type: "null" }, { type: "object", properties: {
+    column: { type: "string" }, lut: NAME_OR_NULL, palette: { anyOf: [{ type: "null" }, { type: "array", items: { type: "string" } }] },
+    range: { anyOf: [{ type: "null" }, RANGE2] }, reverse: { type: "boolean" } } }] },
+  opacity: { anyOf: [{ type: "null" }, { type: "object", properties: {
+    column: { type: "string" }, range: { anyOf: [{ type: "null" }, RANGE2] },
+    to: { anyOf: [{ type: "null" }, { type: "array", minItems: 2, maxItems: 2, items: UNIT }] } } }] },
+  missing: { anyOf: [{ type: "null" }, { enum: ["dim", "hide"] }] },
+} }] };
 const FLUXIMG_LAYER_VIEW = { type: "object", properties: {
   visible: { type: "boolean" }, opacity: UNIT, color: HEX_OR_NULL, lut: NAME_OR_NULL,
   strokeWidth: { type: "number", minimum: 0, maximum: 1000 }, fillOpacity: UNIT, range: RANGE2,
+  styleBy: FLUXIMG_STYLE_BY,
 } };
 const FLUXIMG_VIEW = {
   type: "object",
@@ -302,6 +312,7 @@ const FLUXIMG_VIEW = {
       channelLabels: { anyOf: [{ const: false }, { type: "object", properties: { corner: CORNER, fontSize: FONT_SIZE } }] },
       names: { anyOf: [{ const: false }, { type: "object", properties: { layers: { type: "array", items: { type: "string" } }, fontSize: FONT_SIZE } }] },
       colorbar: { anyOf: [{ const: false }, { type: "object", properties: { corner: CORNER, color: { type: "string" }, fontSize: FONT_SIZE } }] },
+      key: { anyOf: [{ const: false }, { type: "object", properties: { layer: { type: "string" }, corner: CORNER, color: { type: "string" }, fontSize: FONT_SIZE } }] },
     } },
     insetOf: NON_EMPTY,
     link: NON_EMPTY,
@@ -639,7 +650,7 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
     // 0.1 remains the sanctioned clean break.
     required: ["schemaVersion", "id", "stage", "slides"],
     properties: {
-      schemaVersion: { type: "string", pattern: "^0\\.[234567]\\." },
+      schemaVersion: { type: "string", pattern: "^0\\.[2345678]\\." },
       id: { type: "string" },
       title: { type: "string" },
       created: { type: "string" },
@@ -783,7 +794,9 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
       },
     },
     definitions: {
-      element: { oneOf: [...ELEMENT_DEF.oneOf.filter((branch) => branch !== FLUXIMG_BRANCH), elementBranch("video", ["assetId", "posterAssetId", "durationMs"], {
+      // 0.8 (fluximg stage 2): the shared element union, image included. Its bundle stays a PROJECT asset resolved by id
+      // (fig/assets/<id>.fluximg), so the deck's own `assets[].kind` still has no fluximg: a deck never owns a bundle.
+      element: { oneOf: [...ELEMENT_DEF.oneOf, elementBranch("video", ["assetId", "posterAssetId", "durationMs"], {
         assetId: { type: "string", pattern: "[\\s\\S]" }, posterAssetId: { type: "string", pattern: "[\\s\\S]" },
         durationMs: { type: "number", exclusiveMinimum: 0 }, muted: { type: "boolean" }, loop: { type: "boolean" },
       })] },

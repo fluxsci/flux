@@ -14,15 +14,15 @@
 // ---------------------------------------------------------------------------
 
 import { makeVideoElement } from "./mediaTypes";
+import { FLUXIMG_BECOME_OTHER_IMAGE, FLUXIMG_NO_CONSUME } from "../fluximg/policy";
 import type { Model3dElement } from "../model3d/types";
 import type { Asset, Element, Figure, Id, SemanticPlotElement } from "../types";
 import { newId } from "../ids";
 import { gcGroups } from "../groups";
-import { makePlotPanel, makeImagePanel, makeText, mergePartOverride, type Box, type TextOpts } from "../ops";
+import { makePlotPanel, makeImagePanel, makeText, mergePartOverride, addFluximg, type Box, type TextOpts, type AddFluximgArgs } from "../ops";
 import { FLEXOKI } from "../flexoki";
 import { DEFAULT_THEME_ID, resolveTheme } from "./theme";
-import { cloneContentWithFreshIds, placeContentOnStage } from "./deckProject";
-import { FLUXIMG_NOT_IN_SLIDES, isFluximgElement } from "../fluximg/policy";
+import { cloneContentWithFreshIds, placeContentOnStage, DECK_CANVAS_ID } from "./deckProject";
 import { resolveTrack, resolveTrackRaw, resolveStart, ANIM_STYLE_FIELDS, INHERITED_STYLE_FIELDS, type ManifestFor } from "./resolve";
 import { patchStagger } from "./stagger";
 import { presetTrackOf } from "./animTemplates";
@@ -31,7 +31,7 @@ import { authoredFields, defaultEasingFor, defaultTimingFor, isExitPreset, rewri
 import { AUTO_DELAY_AUTHORED_MS } from "./timing";
 import { EASING_TOKENS, resolveCurve } from "./curves";
 import { suggestBeatArcs } from "./arcSuggest";
-import { attachProblem, settleAttachments, type Attach } from "./attach";
+import { attachProblem, settleAttachments, userDiff, type Attach } from "./attach";
 import { compileSlide, trackDuration, type CompileOptions } from "./compile";
 import { targetOutlines } from "./targetGeometry";
 import { diffState, transformPreState } from "./tween";
@@ -526,8 +526,8 @@ export function addFigureContentToSlide(
   figure: { elements: Element[]; groups?: Record<Id, import("../types").GroupDef> },
   opts: { x?: number; y?: number } = {},
 ): Id[] {
-  // Stage 1: a fluximg never enters a deck (ARCHITECTURE decision 8). Refuse the whole copy rather than drop part of it.
-  if (figure.elements.some(isFluximgElement)) throw new Error(FLUXIMG_NOT_IN_SLIDES);
+  // An image (fluximg) is copied like any element: its bundle stays in the project (`fig/assets/<id>.fluximg`) and the
+  // deck refers to it by id, as it does to a figure's GLB.
   const s = slideById(deck, slideId);
   if (!s) return [];
   const { elements, groups } = cloneContentWithFreshIds(figure.elements, figure.groups);
@@ -549,6 +549,26 @@ export function addFigureContentToSlide(
   if (Object.keys(groups).length) s.groups = { ...(s.groups ?? {}), ...groups };
   s.elements.push(...elements);
   return elements.map((e) => e.id);
+}
+
+/** Place an N-dimensional image (fluximg) on a slide: the headless twin of placing it on the slide's figure in the app.
+ *  The SAME core (`ops.addFluximg`, its sizing rules on a deck canvas: 1 image px = 1 stage px, fit to the stage) over the
+ *  slide projected as a figure of the deck canvas. The asset is not registered in the deck: a deck never owns a bundle, it
+ *  refers to `fig/assets/<id>.fluximg` by id. Returns the new element id. */
+export function placeFluximgOnSlide(deck: Deck, slideId: Id, args: Omit<AddFluximgArgs, "figureId">): Id {
+  const s = slideById(deck, slideId);
+  if (!s) throw new Error(`slide not found: ${slideId}`);
+  const scratch = { version: 2, name: "", canvases: [], palette: [], assets: [],
+    figures: [{ id: s.id, name: s.id, canvasId: DECK_CANVAS_ID, x: 0, y: 0, width: deck.stage.width, height: deck.stage.height, background: "", elements: s.elements }] } as unknown as import("../types").Project;
+  return addFluximg(scratch, { ...args, figureId: s.id });
+}
+
+/** "Edit after step N" in one pure op: an element edited at its end state of step `beatId` becomes that step's Change, whose
+ *  `to.state` is everything that differs from the element's state before the step (`pre`). The app's capture adapter
+ *  (slide/store.ts) and the headless view verbs (`set-image-view --beat`) both write through here. */
+export function writeStepState(deck: Deck, slideId: Id, beatId: Id, edited: Element, pre: Element): Track | null {
+  const patch = userDiff(diffState(pre, edited), edited) ?? {};
+  return setTransform(deck, slideId, beatId, edited.id, { state: patch, replaceState: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -1504,6 +1524,19 @@ export interface BecomeResult {
   ref?: TargetRef;
 }
 
+/** The Become rules of an N-dimensional image (fluximg) as a whole object. It behaves as a raster image does: a Become INTO
+ *  it is the crossfading hand-off over the moving box (the default, as for a raster image or a plot), and an image becomes
+ *  another kind as an image does. A consume INTO an image (the source rewrites itself into it) would need the image's
+ *  bundle as a content half (`to.assetId`), which an image does not carry yet, and a Become from one image bundle to
+ *  ANOTHER is not supported yet. Null = allowed. */
+export function fluximgBecomeRefusal(source: Pick<Element, "type"> & { assetId?: string } | undefined, target: Pick<Element, "type"> & { assetId?: string } | undefined, mode?: "consume" | "handoff"): string | null {
+  if (source?.type !== "fluximg" && target?.type !== "fluximg") return null;
+  if (source?.type === "fluximg" && target?.type === "fluximg" && source.assetId !== target.assetId)
+    return FLUXIMG_BECOME_OTHER_IMAGE;
+  if (mode === "consume" && target?.type === "fluximg") return FLUXIMG_NO_CONSUME;
+  return null;
+}
+
 /** Become consumes a loose drawn destination or hands off to live targets.
  * Both completions write THE source transform in one mutation. Refusals run
  * before any write and carry a user-facing reason. */
@@ -1536,12 +1569,14 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
     throw new Error("A 3D model cannot become one of its own parts. Fade the part in with Appear instead.");
   const posterVideo = isWholeElementRef(sourceRef) && isWholeElementRef(ref) && modelVideoHandoff(source, target);
   if ((source.type === "video" || target.type === "video") && (!posterVideo || opts.mode === "consume")) throw new Error("Video clips cannot take part in a Become. Use Change for their geometry.");
+  const imageRefusal = fluximgBecomeRefusal(source, target, opts.mode);
+  if (imageRefusal) throw new Error(imageRefusal);
   if (opts.duration != null && (!Number.isFinite(opts.duration) || opts.duration < 0)) throw new Error("Duration must be a finite non-negative number");
   if (opts.start != null && (!Number.isFinite(opts.start) || opts.start < 0)) throw new Error("Start must be a finite non-negative number");
   if (opts.pairLag !== undefined && (!Number.isFinite(opts.pairLag) || opts.pairLag < 0 || opts.pairLag > 1)) throw new Error("Piece lag must be between 0 and 1");
   const compiled = opts.compiled ?? compileSlide(slide, deck.stage, { ...deck, modelAsset: opts.modelAsset });
   if (opts.keepSource && opts.mode === "consume") throw new Error("Consume turns the source itself into the destination, so it cannot also stay. A Become whose source stays sends copies: use hand-off, or let the source leave.");
-  const mode = opts.mode ?? (!opts.keepSource && !posterVideo && isWholeElementRef(sourceRef) && isWholeElementRef(ref) && target.type !== "plot" && target.type !== "image" && target.type !== "model3d" && (!target.groupId || !slide.groups?.[target.groupId]) ? "consume" : "handoff");
+  const mode = opts.mode ?? (!opts.keepSource && !posterVideo && isWholeElementRef(sourceRef) && isWholeElementRef(ref) && target.type !== "plot" && target.type !== "image" && target.type !== "model3d" && target.type !== "fluximg" && (!target.groupId || !slide.groups?.[target.groupId]) ? "consume" : "handoff");
   const existing = slide.beats[bi].tracks.find(t => familyOf(t) === "transform" && trackKey(t) === targetKey(sourceRef));
   const timing = {
     ...(!existing ? { duration: opts.duration ?? defaultTimingFor("transform").duration, easing: opts.easing ?? defaultTimingFor("transform").easing, start: opts.start ?? 0 } : {}),

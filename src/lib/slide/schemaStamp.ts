@@ -8,7 +8,7 @@
 // ---------------------------------------------------------------------------
 import type { Deck } from "./types";
 import type { Element } from "../types";
-import { DECK_BASE_SCHEMA_VERSION, DECK_SCHEMA_VERSION } from "./types";
+import { DECK_ATTACH_SCHEMA_VERSION, DECK_BASE_SCHEMA_VERSION, DECK_FLUXIMG_SCHEMA_VERSION, DECK_SCHEMA_VERSION } from "./types";
 import type { Asset } from "../types";
 import {
   CANVAS_ATTACH_SCHEMA_VERSION, CANVAS_FLUXIMG_SCHEMA_VERSION, CANVAS_MODEL3D_SCHEMA_VERSION, FIG_INDEX_FLUXIMG_SCHEMA_VERSION,
@@ -19,13 +19,16 @@ import { hasAttach } from "./attach";
 /** A file feature that needs a newer format: its name (for diagnostics and gates), the version a file holding it is written as, and its test. */
 export interface SchemaFeature<T> { readonly name: string; readonly version: string; has(subject: T): boolean }
 
-/** Deck features. Registered by: WP 3.2 (attached connectors), WP 4.3 (`Stagger.by: "radial"`). */
+/** Deck features. Registered by: WP 3.2 (attached connectors), WP 4.3 (`Stagger.by: "radial"`), fluximg stage 2 (images on slides). */
 export const DECK_FEATURES: SchemaFeature<Deck>[] = [
   // an older build would play an attached connector at its stored Design geometry while its drivers move away from it
-  { name: "attach", version: DECK_SCHEMA_VERSION, has: (deck) => deck.slides.some((s) => s.elements.some(hasAttach)) },
+  { name: "attach", version: DECK_ATTACH_SCHEMA_VERSION, has: (deck) => deck.slides.some((s) => s.elements.some(hasAttach)) },
   // WP 4.3: an older build's validator rejects `stagger.by: "radial"` (and so the whole deck); a linked style can carry it too
-  { name: "radial", version: DECK_SCHEMA_VERSION, has: (deck) => deck.slides.some((s) => s.beats.some((b) => b.tracks.some((t) => t.stagger?.by === "radial")))
+  { name: "radial", version: DECK_ATTACH_SCHEMA_VERSION, has: (deck) => deck.slides.some((s) => s.beats.some((b) => b.tracks.some((t) => t.stagger?.by === "radial")))
     || Object.values(deck.animStyles ?? {}).some((st) => (st as { stagger?: { by?: unknown } }).stagger?.by === "radial") },
+  // fluximg stage 2: an older build's deck validator rejects the element kind (and so the whole deck). A Change's `to.state` never
+  // holds a type of its own for an image (a Become into an image is a hand-off), so the placed elements are the whole test.
+  { name: "fluximg", version: DECK_FLUXIMG_SCHEMA_VERSION, has: (deck) => deck.slides.some((s) => s.elements.some((e) => e.type === "fluximg")) },
 ];
 /** Canvas features, over the canvas's elements (every figure on it). Registered by: model3d (0.2.0, before the manim study), WP 3.2. */
 export const CANVAS_FEATURES: SchemaFeature<readonly Element[]>[] = [
@@ -67,7 +70,7 @@ export function canvasSchemaFor(elements: readonly Element[], features: readonly
 /** Decks this build may EDIT in place (the deck JSON schema's `schemaVersion` pattern, the 3D import's destination checks): 0.2 through the
  *  newest read format. ONE regex; electron/deckSchemaSupport.cjs is its CommonJS twin (verify-schema-stamp pins them equal). The migration-
  *  source regex in ops.ts migrateDeck (0.2–0.5 upgrade by a stamp) is a different question and stays as it is. */
-export const DECK_EDITABLE = /^0\.[234567]\./;
+export const DECK_EDITABLE = /^0\.[2345678]\./;
 export const supportsDeckSchema = (v: unknown): boolean => typeof v === "string" && DECK_EDITABLE.test(v);
 /** The newest read format, re-exported where the stamp lives. */
 export { DECK_SCHEMA_VERSION };

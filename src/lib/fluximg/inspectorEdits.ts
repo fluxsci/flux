@@ -30,7 +30,7 @@ export const integerData = (m: FluximgManifest): boolean => m.pixels.encoding.ki
 
 /** The view with nothing set. Every furniture piece is switched on so its defaults are readable too. */
 export function defaultView(m: FluximgManifest): ResolvedView {
-  return resolveView(m, { furniture: { scalebar: {}, stamp: {}, channelLabels: {}, names: {}, colorbar: {} } });
+  return resolveView(m, { furniture: { scalebar: {}, stamp: {}, channelLabels: {}, names: {}, colorbar: {}, key: {} } });
 }
 
 const same = (a: readonly number[] | null | undefined, b: readonly number[] | null | undefined): boolean =>
@@ -185,6 +185,41 @@ export function layerWindowPatch(m: FluximgManifest, layer: ResolvedLayer, which
   return { layers: { [layer.id]: { range: same(range, d.range) ? CLEAR : range } } };
 }
 
+// --- styling objects by their table -------------------------------------------------------------
+
+const stylePatch = (layerId: string, styleBy: Record<string, unknown>): FluximgView => ({ layers: { [layerId]: { styleBy: styleBy as FluximgLayerView["styleBy"] } } });
+
+/** Colour (or opacity) by a column; null = not by any column. */
+export function styleColumnPatch(layerId: string, part: "color" | "opacity", column: string | null): FluximgView {
+  return stylePatch(layerId, { [part]: column ? { column } : null });
+}
+/** One end of a numeric styling column's window; back at the column's own extent the window clears. */
+export function styleRangePatch(layerId: string, part: "color" | "opacity", extent: readonly [number, number], now: readonly [number, number], which: 0 | 1, value: number): FluximgView | null {
+  if (!Number.isFinite(value)) return null;
+  const span = Math.abs(now[1] - now[0]) * 1e-6 || 1e-12;
+  const r: [number, number] = [now[0], now[1]];
+  if (which === 0) r[0] = Math.min(value, r[1] - span); else r[1] = Math.max(value, r[0] + span);
+  return stylePatch(layerId, { [part]: { range: same(r, extent) ? null : r } });
+}
+/** A numeric colour column's colour map; viridis (the default) clears it. */
+export function styleLutPatch(layerId: string, lut: string): FluximgView {
+  return stylePatch(layerId, { color: { lut: lut === "viridis" ? null : lut } });
+}
+export function styleReversePatch(layerId: string, reverse: boolean): FluximgView {
+  return stylePatch(layerId, { color: { reverse: reverse ? true : null } });
+}
+/** Objects without a value: "dim" (the default) or "hide". */
+export function styleMissingPatch(layerId: string, mode: "dim" | "hide"): FluximgView {
+  return stylePatch(layerId, { missing: mode === "hide" ? "hide" : null });
+}
+/** Where an opacity column maps: the faint end and the opaque end; the default [0.15, 1] clears it. */
+export function styleOpacityToPatch(layerId: string, now: readonly [number, number], which: 0 | 1, value: number): FluximgView | null {
+  if (!Number.isFinite(value)) return null;
+  const to: [number, number] = [now[0], now[1]];
+  to[which] = Math.min(1, Math.max(0, value));
+  return stylePatch(layerId, { opacity: { to: to[0] === 0.15 && to[1] === 1 ? null : to } });
+}
+
 // --- annotations --------------------------------------------------------------------------------
 
 export type FurniturePiece = keyof FluximgFurnitureView;
@@ -195,7 +230,7 @@ export function furnitureOnPatch(piece: FurniturePiece, on: boolean): FluximgVie
 }
 
 /** One field of a piece of furniture that is on; its default clears the field (the piece stays on). */
-export function furnitureFieldPatch(m: FluximgManifest, piece: "scalebar" | "stamp" | "channelLabels" | "names" | "colorbar", key: string, value: string | number | boolean | null): FluximgView {
+export function furnitureFieldPatch(m: FluximgManifest, piece: "scalebar" | "stamp" | "channelLabels" | "names" | "colorbar" | "key", key: string, value: string | number | boolean | null): FluximgView {
   const d = defaultView(m).furniture[piece] as unknown as Record<string, unknown>;
   const v = value === null || (d && d[key] === value) ? CLEAR : value;
   return { furniture: { [piece]: { [key]: v } } as FluximgFurnitureView };

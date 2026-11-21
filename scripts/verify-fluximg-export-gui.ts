@@ -83,7 +83,7 @@ try {
       figureId = fig.id;
       ids = [
         ops.addFluximg(p, { figureId, asset: assets.stack_u16, x: 10, y: 10, width: 256, view: { index: { z: 4 }, channels: [{ lut: "magma", range: [100, 2500] }], furniture: { scalebar: {}, stamp: {}, channelLabels: {} } } }),
-        ops.addFluximg(p, { figureId, asset: assets.mean_f64_layers, x: 280, y: 10, width: 300, view: { layers: { prox_lines: { visible: true }, discs: { visible: true } }, furniture: { names: {} } } }),
+        ops.addFluximg(p, { figureId, asset: assets.mean_f64_layers, x: 280, y: 10, width: 300, view: { layers: { prox_lines: { visible: true }, discs: { visible: true }, footprints: { styleBy: { color: { column: "dendrite" }, opacity: { column: "pixels" } } } }, furniture: { names: {}, key: {} } } }),
         ops.addFluximg(p, { figureId, asset: assets.stack_u16, x: 10, y: 230, width: 160, crop: { x: 8, y: 8, width: 40, height: 30 }, view: { projection: { dim: "z", mode: "max", from: 0, to: 7 } } }),
         ops.addFluximg(p, { figureId, asset: assets.masked_i16, x: 600, y: 10, width: 150, view: { background: "transparent" } }),
       ];
@@ -109,6 +109,7 @@ try {
   }, placed.figureId) as { svg: string; ms: number; png: number[]; figure: Figure; assets: Asset[] };
   h.ok(typeof exported.svg === "string" && exported.svg.startsWith("<svg"), `the in-app SVG export wrote ${exported.svg.length.toLocaleString("en-US")} bytes (${exported.ms.toFixed(0)} ms)`);
   h.ok(!/data-fluximg-placeholder/.test(exported.svg), "no element fell back to the stand-in in the app");
+  h.ok(/data-key="s1"[^>]*stroke="#4385be"[^>]*opacity="0.6222"/.test(exported.svg) && /data-part="key"/.test(exported.svg), "objects styled by a column (styleBy) and the key reach the in-app export (so the parity below covers them)");
 
   // Node: the same bundles in a disk project, the same figure JSON.
   const root = path.join(scratch, "project");

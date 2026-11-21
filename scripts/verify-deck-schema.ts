@@ -35,7 +35,8 @@ function assert(cond: unknown, msg: string) {
 const good = slideOps.createDeck({ id: "g", title: "Good" });
 slideOps.addSlideText(good, good.slides[0].id, { text: "hi", x: 10, y: 10 });
 // WP 3.0 (supersedes the 0.6.0 pin deliberately): 0.7.0 is the newest READ format; a deck without a stamped feature is still WRITTEN as 0.6.0
-assert(DECK_SCHEMA_VERSION === "0.7.0" && DECK_BASE_SCHEMA_VERSION === "0.6.0", "this build reads 0.7.0 and writes a featureless deck as 0.6.0 (0.x minor = the breaking slot)");
+// fluximg stage 2 (plan D6) moved the read format to 0.8.0 (a deck holding an image); the featureless write stays 0.6.0
+assert(DECK_SCHEMA_VERSION === "0.8.0" && DECK_BASE_SCHEMA_VERSION === "0.6.0", "this build reads 0.8.0 and writes a featureless deck as 0.6.0 (0.x minor = the breaking slot)");
 assert(good.schemaVersion === "0.6.0", "a createDeck() deck is the 0.6.0 animation-v2 format");
 assert(validateDeckFile(good).length === 0, "a createDeck() deck validates against the bundled schema");
 
@@ -245,9 +246,10 @@ assert(validateDeckFile(oldDeck).length > 0, "a 0.1.x deck (textBox elements) FA
 assert(!isNewerSchema(oldDeck.schemaVersion, DECK_SCHEMA_VERSION), "…and it is NOT 'newer' — it takes the quarantine path, not the refuse path");
 
 // --- forward-version guard runs BEFORE validation ---------------------------------
-// WP 3.0 supersedes "0.7 is newer": 0.7 is the content-derived stamp of a deck with attached connectors or a radial order, read by this build
-assert(isNewerSchema("0.8.0", DECK_SCHEMA_VERSION), "a 0.8.x deck is NEWER (refuse + toast; never rewritten, never quarantined)");
-assert(!isNewerSchema("0.7.9", DECK_SCHEMA_VERSION) && !isNewerSchema("0.6.9", DECK_SCHEMA_VERSION), "0.6.x and 0.7.x are OUR line (loadable)");
+// WP 3.0 supersedes "0.7 is newer": 0.7 is the content-derived stamp of a deck with attached connectors or a radial order, read by this build;
+// fluximg stage 2 supersedes "0.8 is newer" the same way (0.8 = a deck holding an N-dimensional image)
+assert(isNewerSchema("0.9.0", DECK_SCHEMA_VERSION), "a 0.9.x deck is NEWER (refuse + toast; never rewritten, never quarantined)");
+assert(!isNewerSchema("0.8.9", DECK_SCHEMA_VERSION) && !isNewerSchema("0.7.9", DECK_SCHEMA_VERSION) && !isNewerSchema("0.6.9", DECK_SCHEMA_VERSION), "0.6.x, 0.7.x and 0.8.x are OUR line (loadable)");
 assert(!isNewerSchema("0.5.0", DECK_SCHEMA_VERSION), "0.5.x is OLDER — it takes the migrate path, never the refuse path");
 assert(!isNewerSchema("0.2.0", DECK_SCHEMA_VERSION), "0.2.x is OLDER — it takes the migrate path, never the refuse path");
 
