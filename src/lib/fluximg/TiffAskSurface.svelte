@@ -39,9 +39,16 @@
   const s = $derived($tiffAsk);
   const PLATE_W = 400, INNER = PLATE_W - 18;
   let plateH = $state(0);
-  // Centred on where the image will land, and always whole inside the canvas.
-  const left = $derived(Math.round(Math.max(8, Math.min(host.w - PLATE_W - 8, x - PLATE_W / 2))));
-  const top = $derived(Math.round(Math.max(8, Math.min(Math.max(8, host.h - plateH - 8), y - Math.min(plateH, 420) / 2))));
+  // Beside where the image will land (a pink mark stands on that point), the right side first, else the left, else
+  // over it; always whole inside the canvas, so the figure it lands on stays in view.
+  const GAP = 26;
+  const left = $derived.by(() => {
+    const right = x + GAP, leftSide = x - GAP - PLATE_W;
+    const at = right + PLATE_W <= host.w - 8 ? right : leftSide >= 8 ? leftSide : x - PLATE_W / 2;
+    return Math.round(Math.max(8, Math.min(host.w - PLATE_W - 8, at)));
+  });
+  const top = $derived(Math.round(Math.max(8, Math.min(Math.max(8, host.h - plateH - 8), y - Math.min(plateH, 360) / 3))));
+  const markShown = $derived(x >= 0 && y >= 0 && x <= host.w && y <= host.h && (x < left - 6 || x > left + PLATE_W + 6));
 
   const a = $derived(s?.answer ?? { dims: [] });
   const probe = $derived(s?.probe);
@@ -79,24 +86,34 @@
     idx.splice(drag.to, 0, m);
     return idx;
   });
+  // A drag reorders the keys live (the keyed list moves its nodes, which ends a pointer capture), so the gesture
+  // listens on the window until the button comes up.
   function keyDown(e: PointerEvent, i: number): void {
     if (e.button !== 0) return;
     e.stopPropagation();
     if ((e.target as Element).closest("[data-ask-edit], [data-ask-sub]")) return;
     drag = { from: i, to: i, x0: e.clientX, pointer: e.pointerId, moved: false };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    const move = (ev: PointerEvent): void => keyMove(ev);
+    const up = (ev: PointerEvent): void => {
+      if (ev.pointerId !== e.pointerId) return;
+      window.removeEventListener("pointermove", move, true); window.removeEventListener("pointerup", up, true); window.removeEventListener("pointercancel", up, true);
+      ev.stopPropagation();
+      keyUp(ev, i, ev.type === "pointercancel");
+    };
+    window.addEventListener("pointermove", move, true); window.addEventListener("pointerup", up, true); window.addEventListener("pointercancel", up, true);
   }
   function keyMove(e: PointerEvent): void {
     if (!drag || e.pointerId !== drag.pointer) return;
     if (!drag.moved && Math.abs(e.clientX - drag.x0) < 4) return;
+    e.stopPropagation();
     let to = 0;
     a.dims.forEach((_, i) => { if (i === drag!.from) return; const r = keyEls[i]?.getBoundingClientRect(); if (r && e.clientX > r.left + r.width / 2) to++; });
     drag = { ...drag, moved: true, to };
   }
-  function keyUp(e: PointerEvent, i: number): void {
-    if (!drag || e.pointerId !== drag.pointer) return;
+  function keyUp(_e: PointerEvent, i: number, cancelled = false): void {
     const d = drag;
     drag = null;
+    if (!d || cancelled) return;
     if (d.moved && d.to !== d.from && probe) set(moveDim(probe, a, d.from, d.to));
     else if (!d.moved) cycleName(i);
   }
@@ -158,7 +175,7 @@
     const el = e.target instanceof Element ? e.target.closest<HTMLElement>("[data-tip]") : null;
     tip = el ? { text: el.dataset.tip ?? "", hk: el.dataset.hk ?? "" } : null;
   }
-  const hint = $derived(tip?.text ? tip : s?.problem ? { text: `Convert is off: ${s.problem}`, hk: "", bad: true } : { text: `${s?.batch.count && s.batch.count > 1 ? `File ${s.batch.index} of ${s.batch.count}: the others of its kind follow this answer. ` : ""}Enter converts · Esc leaves nothing`, hk: "" });
+  const hint = $derived(tip?.text ? tip : { text: `${s?.batch.count && s.batch.count > 1 ? `File ${s.batch.index} of ${s.batch.count}: the others of its kind follow this answer. ` : ""}Enter converts · Esc leaves nothing`, hk: "" });
 
   // --- keyboard ---------------------------------------------------------------------------------------------
   let root = $state<HTMLDivElement>();
@@ -230,6 +247,7 @@
 <svelte:window onkeydown={onKey} />
 
 {#if s && probe}
+  {#if markShown}<span class="land" style={`left:${Math.round(x)}px;top:${Math.round(y)}px`} aria-hidden="true" data-ask-landing></span>{/if}
   <!-- The plate swallows its own presses (nothing behind it moves); its keys are the window listener's above. -->
   <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
   <div class="fxb ask" bind:this={root} bind:offsetHeight={plateH} tabindex="-1" role="group" aria-label={`How to read ${s.name}`} data-tiff-ask={s.id}
@@ -297,7 +315,7 @@
             <div class="pk" class:dragging={drag?.moved && drag.from === i} class:rest={d.size === "rest"} bind:this={keyEls[i]} tabindex="0" role="button" data-ask-page={i} data-fxb-key={`page:${i}`}
               data-tip={`${d.name ? `"${d.name}"` : "This dimension"}: click to rename (t, z, c or a name), drag to reorder; Space, digits, Alt+arrows, Delete`}
               aria-label={`Page dimension ${d.name || "unnamed"}, ${d.size === "rest" ? `the rest (${sizes[i] ?? "?"})` : d.size}`}
-              onpointerdown={(e) => keyDown(e, i)} onpointermove={keyMove} onpointerup={(e) => keyUp(e, i)} onpointercancel={() => (drag = null)}>
+              onpointerdown={(e) => keyDown(e, i)}>
               <span class="nm">{#if naming === i}<AskEdit bind:this={nameEds[i]} kind="text" id={`name:${i}`} value="" placeholder="name" tip="A name: lower-case letters, digits, _" onedit={(t) => editName(i, t)} />{:else}{d.name || "?"}{/if}</span>
               <span class="sz" data-ask-sub>
                 <AskEdit bind:this={sizeEds[i]} id={`size:${i}`} value={d.size === "rest" ? String(sizes[i] ?? "?") : String(d.size)} tip={d.size === "rest" ? "The rest: whatever the page count leaves. Type a number to fix it" : "Its size: type a number, or * for the rest"}
@@ -377,9 +395,10 @@
         </div>
       {/if}
 
-      <!-- the hint line and Convert -->
+      <!-- the hint line and Convert; while the answer does not fit, Convert says why right beside it -->
+      {#if s.problem}<div class="why" data-ask-why>Convert is off: {s.problem}</div>{/if}
       <div class="foot">
-        <span class="hint" class:bad={"bad" in hint} data-ask-hint>{hint.text}{#if hint.hk}<kbd>{hint.hk}</kbd>{/if}</span>
+        <span class="hint" data-ask-hint>{hint.text}{#if hint.hk}<kbd>{hint.hk}</kbd>{/if}</span>
         <button type="button" class="convert" disabled={!!s.problem} data-fxb-key="convert" data-ask-convert aria-label={s.problem ? `Convert is off: ${s.problem}` : "Convert"}
           onpointerdown={stop} onclick={(e) => { e.stopPropagation(); askConvert(); }}>Convert<kbd>↵</kbd></button>
       </div>
@@ -393,6 +412,11 @@
     --fxb-tx: var(--flx-base-200); --fxb-tx-hi: var(--flx-paper); --fxb-tx-dim: var(--flx-base-500); --fxb-shadow: 0 10px 26px -10px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.4); }
   .ask { position: absolute; z-index: 4; box-sizing: border-box; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; border-radius: 12px; background: var(--fxb-plate); border: 1px solid var(--fxb-line);
     box-shadow: var(--fxb-shadow); color: var(--fxb-tx); font: 12px var(--font-ui); outline: none; cursor: default; animation: ask-in 150ms linear backwards; }
+  /* Where the image will land: a pink ring and cross (the guides' pink), still. */
+  .land { position: absolute; z-index: 4; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--c-guide), 0 0 0 1px rgba(0, 0, 0, 0.35); pointer-events: none; }
+  .land::before, .land::after { content: ""; position: absolute; background: var(--c-guide); }
+  .land::before { left: 8px; top: -6px; width: 2px; height: 30px; }
+  .land::after { top: 8px; left: -6px; height: 2px; width: 30px; }
   @keyframes ask-in { from { opacity: 0; } to { opacity: 1; } }
   @media (prefers-reduced-motion: no-preference) { .ask { animation-name: ask-settle; animation-timing-function: var(--ease-enter); } }
   @keyframes ask-settle { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
@@ -466,7 +490,7 @@
   /* The foot: one hint line (it wraps rather than being cut) and Convert, the one lit key. */
   .foot { display: flex; align-items: center; gap: 8px; padding: 4px 4px 2px 8px; }
   .hint { flex: 1; min-width: 0; color: var(--fxb-tx-dim); font: 10.5px/14px var(--font-mono); overflow-wrap: anywhere; white-space: normal; }
-  .hint.bad { color: color-mix(in oklab, var(--c-danger) 80%, var(--fxb-tx-hi)); }
+  .why { padding: 2px 8px 0; color: color-mix(in oklab, var(--c-danger) 70%, var(--fxb-tx-hi)); font: 10.5px/14px var(--font-mono); overflow-wrap: anywhere; }
   .hint kbd, .convert kbd { margin-left: 6px; padding: 0 3px; border: 1px solid currentColor; border-bottom-width: 2px; border-radius: 3px; font: 600 9px/11px var(--font-mono); opacity: 0.8; }
   .convert { flex: none; height: 30px; padding: 0 12px; border-radius: 7px; border: 1px solid color-mix(in oklab, var(--flx-paper) 50%, var(--c-layout-gap)); background: var(--c-layout-gap); color: var(--flx-paper);
     font: 600 12.5px var(--font-ui); box-shadow: 0 0 10px -2px var(--fxb-pink), 0 1.5px 2.5px rgba(0, 0, 0, 0.5); cursor: var(--cursor-cross-hover); outline: none; transition: background-color 80ms linear, opacity 80ms linear; }

@@ -27,8 +27,10 @@
   let el = $state<HTMLSpanElement>();
   const TYPED = $derived(kind === "text" ? /^[a-z0-9_ .\-]$/i : /^[0-9.,\-−eE*r]$/);
 
+  // Begun from a click (or Enter), the old text is shown as if selected: the first key typed replaces it.
+  let fresh = false;
   /** Start editing (from a key or a click), with `initial` as the text. */
-  export function begin(initial = value): void { buf = initial; bad = false; el?.focus(); }
+  export function begin(initial = value, selected = false): void { buf = initial; fresh = selected; bad = false; el?.focus(); }
   function commit(): void {
     if (buf === null) return;
     if (onedit(buf.trim()) === false) { bad = true; return; }
@@ -38,7 +40,7 @@
     if (e.ctrlKey || e.metaKey || e.altKey) return; // chords stay Flux-wide; Alt is the surface's
     const take = (): void => { e.preventDefault(); e.stopPropagation(); };
     if (buf === null) {
-      if (e.key === "Enter" || e.key === "F2") { take(); begin(value); return; }
+      if (e.key === "Enter" || e.key === "F2") { take(); begin(value, true); return; }
       if (e.key.length === 1 && TYPED.test(e.key)) { take(); begin(e.key); return; }
       if ((e.key === "ArrowUp" || e.key === "ArrowDown") && onnudge) { take(); onnudge(e.key === "ArrowUp" ? 1 : -1, e.shiftKey); return; }
       if (e.key === "Backspace" || e.key === "Delete") { take(); onedit(""); return; }
@@ -48,15 +50,15 @@
     take();
     if (e.key === "Escape") { buf = null; bad = false; return; }
     if (e.key === "Enter") { commit(); return; }
-    if (e.key === "Backspace") { buf = buf.slice(0, -1); bad = false; return; }
-    if (e.key.length === 1 && buf.length < 40) { buf += e.key; bad = false; }
+    if (e.key === "Backspace") { buf = fresh ? "" : buf.slice(0, -1); fresh = false; bad = false; return; }
+    if (e.key.length === 1 && (fresh || buf.length < 40)) { buf = fresh ? e.key : buf + e.key; fresh = false; bad = false; }
   }
 </script>
 
 <span class="ed" class:editing={buf !== null} class:bad class:empty={!value} class:wide bind:this={el} tabindex="0" role="button" aria-label={tip}
   data-tip={tip} data-hk={hk || undefined} data-ask-edit={id} data-ask-wheel={onnudge ? id : undefined}
-  onkeydown={key} onpointerdown={(e) => e.stopPropagation()} onclick={(e) => { e.stopPropagation(); if (buf === null) begin(value); }} onblur={commit}
->{#if buf !== null}{buf}<span class="caret"></span>{:else}{value || placeholder}{/if}{#if mark && buf === null && value}<sup class="mark">{mark}</sup>{/if}</span>
+  onkeydown={key} onpointerdown={(e) => e.stopPropagation()} onclick={(e) => { e.stopPropagation(); if (buf === null) begin(value, true); }} onblur={commit}
+>{#if buf !== null}<span class:sel={fresh && !!buf}>{buf}</span><span class="caret"></span>{:else}{value || placeholder}{/if}{#if mark && buf === null && value}<sup class="mark">{mark}</sup>{/if}</span>
 
 <style>
   .ed { position: relative; display: inline-flex; align-items: baseline; min-width: 22px; height: 19px; padding: 0 4px; box-sizing: border-box; border-radius: 4px; border: 1px solid transparent;
@@ -69,5 +71,6 @@
   .ed.bad { border-color: var(--c-danger); }
   /* A still caret: nothing on the surface moves at rest. */
   .caret { display: inline-block; width: 1.5px; height: 12px; margin-left: 1px; align-self: center; background: var(--fxb-pink); }
+  .sel { background: color-mix(in oklab, var(--fxb-pink) 35%, transparent); border-radius: 2px; }
   .mark { margin-left: 3px; font: 600 8px var(--font-mono); letter-spacing: 0.02em; color: var(--fxb-pink-hi); opacity: 0.8; text-transform: lowercase; }
 </style>

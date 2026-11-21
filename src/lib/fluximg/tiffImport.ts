@@ -292,6 +292,8 @@ export async function importTiffSources(sources: TiffSource[], figId: string, at
         const made = {
           label: item.label,
           make: async (r: string, assetId: string): Promise<FluximgImportResult> => {
+            // Change or Cancel pressed before the conversion started: it never starts.
+            if (change || cancel) throw abortError();
             const res: TiffConvertResult = await bridge.convertTiff!({ root: r, token: item.result.token, answer, assetId, jobId });
             notes.push(...(res.notes ?? []));
             return res;
@@ -301,6 +303,8 @@ export async function importTiffSources(sources: TiffSource[], figId: string, at
         try {
           const inc = await readMadeFluximg(made, figId);
           off?.();
+          // Pressed as the conversion finished: the person's word wins over the finished work.
+          if (change || cancel) { await inc.discard?.().catch(() => {}); throw abortError(); }
           incoming.push(inc);
           tiffJobs.update((l) => l.map((j) => (j.jobId === jobId ? { ...j, state: "placed" } : j)));
           break;
@@ -338,6 +342,8 @@ export async function importTiffSources(sources: TiffSource[], figId: string, at
   if (!updateToast(toast, { level: "success", msg: doneMsg, detail, progress: undefined, actions: [], ttl: 6000 })) pushToast("success", doneMsg, { detail, ttl: 6000 });
   return incoming.length;
 }
+
+const abortError = (): Error => Object.assign(new Error("The TIFF conversion was cancelled"), { name: "AbortError" });
 
 /** Probe-free helper for the Plots rail and dialog: TIFF paths among others. */
 export const tiffPaths = (paths: string[]): string[] => paths.filter((p) => isTiffName(p));
