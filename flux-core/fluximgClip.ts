@@ -35,13 +35,15 @@ function electronModule<T>(name: string): T {
 }
 
 /**
- * Encoder settings (measured 2026-11-21 on synthetic two-channel stacks; see the export gate's numbers):
- *   - `-g 15 -bf 0`: a keyframe every 15 frames and no B-frames, so a seek decodes at most 14 frames forward (an
- *     all-intra clip seeks in one frame but repeats of an unchanged plane each cost a whole I-frame);
- *   - `-crf 12 -preset medium -tune stillimage`: a scientific image's fine structure survives 4:2:0;
+ * Encoder settings, measured 2026-11-21 on a synthetic 512 x 512 two-channel uint16 stack drawn at the slide scale
+ * (1024 x 1024 clips; a 4 s linear walk of 48 planes = 241 frames at 60 fps, 48 distinct pictures):
+ *   - GOP: all-intra (`-g 1`) 15.3 MB, `-g 15` 1.9 MB, `-g 60` 0.7 MB (CRF 15-18). `-g 15 -bf 0`: a seek decodes at most
+ *     14 frames forward and lands frame-exactly; all-intra costs 8x the bytes for repeats of an unchanged plane.
+ *   - CRF 15: decoded mean channel error 1.03/255 against the reference frames (CRF 12: 0.97, CRF 18: 1.07; the
+ *     maxima, ~100/255 at one-pixel colour edges, are 4:2:0 chroma and barely move with CRF), 1.9 MB vs 3.1 MB (12).
  *   - the slide-video colour constants (BT.709, limited range, tagged), so a clip matches an exported slide video.
  */
-export const IMAGE_CLIP_SETTINGS = { crf: 12, gop: 15, preset: "medium", tune: "stillimage" } as const;
+export const IMAGE_CLIP_SETTINGS = { crf: 15, gop: 15, preset: "medium", tune: "stillimage" } as const;
 export type ImageClipSettings = { crf: number; gop: number; preset: string; tune?: string };
 const settingsKey = (s: ImageClipSettings) => `crf${s.crf}-g${s.gop}-${s.preset}${s.tune ? `-${s.tune}` : ""}-bf0-${colorConstants().VIDEO_COLOR_FILTER}`;
 
