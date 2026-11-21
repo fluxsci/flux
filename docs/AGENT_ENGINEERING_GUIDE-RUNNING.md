@@ -4486,7 +4486,7 @@ geometry, projections incl. block summaries, histograms, Auto), `-static` (layer
 furniture, the element SVG, resvg pixels), `-files` (native module, IPC checks, memory bridge),
 `-model` (asset + element kind, byte-identical saves on both engines, GC, ops), `-gl` (headless
 Chrome, the parity law, `exclusive`), `-import` (index rules, placement, dedupe, view carry, the
-watcher hot swap, one-step undo, slide refusal) and `-export` (`place-image` / `set-image-view` /
+watcher hot swap, one-step undo, a slide takes the image on the same route) and `-export` (`place-image` / `set-image-view` /
 `image-info`, embedded stills ≡ `renderStill`). ui tier (dev server): `verify-fluximg-place-gui`
 (rail tile → placed element → hot swap → Ctrl+Z), `verify-fluximg-export-gui` (in-app export ≡
 Paper ≡ flux-core) and `verify-fluximg-inspector` (sections, one undo per edit, defaults clear
@@ -6441,20 +6441,20 @@ be a few words ("Manuscript Check."), detail after it. The gate reads the BUNDLE
   attempted. Slides support model camera/shape Changes, Turntable, semantic-part
   appearances, Ghost and model transitions through the existing animation engine;
   PDF/PPTX use documented mesh/furniture stills rather than live 3D.
-- **fluximg stage 1 is figures and `.fluximg` bundles only (2026-11-19).** Deliberately deferred,
-  each with a clear refusal or a stated limit: Slides (stage 2 admits images into decks, 2026-11-20:
-  deck format 0.8.0 only while a slide holds one; the bundle stays a PROJECT asset at
+- **fluximg: figures, slides and `.fluximg` bundles (stage 1 2026-11-19, stage 2 2026-11-21).** Images
+  are on slides (deck format 0.8.0 only while a slide holds one; the bundle stays a PROJECT asset at
   `fig/assets/<id>.fluximg`, resolved by id from fig/index.json or, for a slide-only import, from that
   folder (`place.fluximgResolvedAsset`); a deck never owns one and both the fold and `commitDeckLive` keep
-  image assets external by KIND; "Edit after step" writes through `slideOps.writeStepState`, the op
-  `set-image-view --slide --beat` shares; exports still draw the stand-in with `FLUXIMG_NOT_IN_SLIDES`
-  until the export package lands); TIFF import IN THE APP (the headless core is built: `src/lib/tiff/`,
-  `flux-core/tiffConvert.ts`, `place-image` / `image-info` with a `.tif`; the drop/dialog route, the child
-  process and the asking surface are the stage-2 W9 package); tiles read on demand for huge planes (the
+  image assets external by KIND). A step's change of an image is an ordinary Change whose `to.state.view`
+  is a PATCH over the view before the step (`viewOps.viewPatch`, folded by `tween.applyState`) and whose
+  `to.state.crop` is whole; "Edit after step" writes through `slideOps.writeStepState`, the op
+  `set-image-view --slide --beat` shares. Exports carry stills and clips; style-by-column, objects as
+  parts, Become by key and TIFF import in the app are built (stage 2 W4-W9). Deliberately deferred,
+  each with a clear refusal or a stated limit: tiles read on demand for huge planes (the
   live driver reads whole planes of a level, so a very large mosaic zoomed to its own pixels is
   read whole); block-summary projections in the live view (`project.buildBlocks` /
   `projectRange` exist and are gated, nothing calls them yet: a projection reads every plane of
-  its run); style-by-column on layers and Become / animation of images; 3-D rendering of
+  its run); a Become from one image bundle to another (`FLUXIMG_BECOME_OTHER_IMAGE`); 3-D rendering of
   volumes; `world.matrix` (kept verbatim, not interpreted); image bundles in the global plot
   library. Not yet built: a headless update for a changed bundle (`sync-figure` skips images),
   a UI for freezing an image against its source (the Inspector shows the source's state and
@@ -13904,3 +13904,29 @@ Pair policy `"key"` (correspondence.byKey; auto only when an image object is on 
 - `resolve.beatResolver` asked for an anchor's manifest even for whole-element tracks; it now asks only for a
   part-bound track (an image's lookup may load files).
 
+
+### 2026-11-21 — Images on slides, fix package F2: model and authoring (Claude Opus 5.5, `s2/fix-model`)
+**Work:** B2 (supersedes plan D1's "whole"): a step's `to.state.view` on an image is a PATCH over the view before the
+step, in `set-image-view`'s language. ONE merge (`viewOps.patchView`) and its inverse `viewOps.viewPatch(before, after)`
+(per dimension, per channel and per field, per layer and per field with `styleBy` per part, per furniture piece; a
+projection restated whole; a container `after` lacks cleared entry by entry; law pinned on 400 seeded pairs in
+`verify-fluximg-view-tween`). The fold is `tween.applyState` / `tween.diffState` themselves (a kind check on the `view`
+key), so every capture and every reader of "the image at step N" (compiler, player, step card, exports,
+flux-core) goes through it; `addImageWalk` and the animator's chips (`slideOps.setImageChangeEnd`) write patches.
+**Existing decks:** no migration (0.8.0 was only in dev and test decks). A stored whole view read as a patch shows
+the same picture, except that a key Design sets and the step's view lacks now shows Design's value at that step.
+C1: `lerpElement` takes the image's manifest; `compile.sample` then gives `viewTween.framePicture(planViewTween(…)
+.frame(t, raw))` written out with `viewOps.explicitView`: the player's frame. `lerpFluximgView` is the documented
+fallback of a compile given no manifest (no surface that draws pixels compiles without one). C11: a track is paced
+iff it carries `params.pace` (`authoredTransformTiming`, a comparison with the defaults, is gone). C6:
+`delete-element` finds slide elements (`slideOps.deleteSlideElements`, the figure core over the slide + the Ghost
+births rule `orphanedBirths`, shared with the store's edit adapter); an id found nowhere is an error. B3: Update from
+source in the slide tenant moves the Design element through `commitDeckLive` and re-composes the step display. C5:
+slide presets holding an image are `fluxPreset: 2` + `schemaVersion` (released builds skip them); insert refuses
+an image whose bundle is not in the project, by name. `set-track --stagger-by column:<name>`.
+**Learnings:**
+- A patch that merges (`patchView`) is not a patch composer: composing two patches with it loses their nulls. Keep
+  ONE patch per Change, always computed against the view before the step (`viewPatch(pre.view, end)`).
+- flux-core's deck save keeps a slide's key order as loaded; the app's fold writes `groups` after `elements`. A
+  test that adds `groups` to a loaded slide must keep that order, or byte comparisons fail for the wrong reason.
+- `ColorField`'s hex input selects on focus; a triple-click deselects it again: press Ctrl+A before typing.

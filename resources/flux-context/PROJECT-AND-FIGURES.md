@@ -220,7 +220,8 @@ defaults; pixels never enter figure JSON and are never changed.
 - Exports, Paper and `render-figure` draw each image from its full-resolution pixels at the
   output's resolution (SVG / PDF / Paper: 300 dpi at the printed size; PNG: its scale); layers of
   shapes and objects, names and the scale bar stay vector.
-- Images go on figures only: a deck or slide target is refused.
+- Images go on figures and on slides: `place-image <deckId>/<slideId> <bundle>` (or a bare slide id). On a
+  slide, steps animate the view (planes walk, windows glide, movies play): SLIDES.md, "Images".
 
 ## Conventions and identity
 

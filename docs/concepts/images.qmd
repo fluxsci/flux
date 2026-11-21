@@ -371,7 +371,8 @@ and **Unlink** sets it free.
 
 On a slide the same board opens with **R**. In **Design** it sets how the image rests; at
 **Edit after step N** each gesture becomes that step's Change, so the image glides from one step
-to the next (planes step, contrast and the frame glide, layers fade). A card beside the console
+to the next (planes step, contrast and the frame glide, layers fade). A step keeps only what it
+changes, so a colour or contrast set later in Design shows at every step that leaves it alone. A card beside the console
 says what the step does and offers **Play through**, its **Pace** and **Blend planes**, and
 **Start**, **Pause** and **Stop movie** with loop, bounce or once. Space plays a preview that
 changes nothing. Split channels and Inset work in Design only. The
