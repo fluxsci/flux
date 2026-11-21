@@ -309,6 +309,16 @@ point, and the others follow. What each panel shows stays its own (which channel
 colours, its frame, its annotations). The Inspector says how many panels a panel moves with,
 and **Unlink** sets it free.
 
+# On a slide
+
+On a slide the same board opens with **R**. In **Design** it sets how the image rests; at
+**Edit after step N** each gesture becomes that step's Change, so the image glides from one step
+to the next (planes step, contrast and the frame glide, layers fade). A card beside the console
+says what the step does and offers **Play through**, its **Pace** and **Blend planes**, and
+**Start**, **Pause** and **Stop movie** with loop, bounce or once. Space plays a preview that
+changes nothing. Split channels and Inset work in Design only. The
+[Slides guide](../modes/slide.qmd#images) has the details.
+
 # The Inspector
 
 With an image selected, the Inspector shows the same settings as numbers, whether or not the
@@ -333,7 +343,6 @@ show the same pixels.
 
 # Limits of this first version
 
-- Images go on **figures** only. A slide refuses them for now ("keep them in a figure").
 - Only `.fluximg` folders can be placed. TIFF and other microscope files cannot be dragged in
   yet: save them with fluxplot first.
 - There is no 3-D rendering. Depth is a dimension to step through or project.
