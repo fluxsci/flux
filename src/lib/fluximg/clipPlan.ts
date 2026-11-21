@@ -47,10 +47,7 @@ export interface ImageClip {
 }
 
 /** A running movie's setting as a clip needs it (`playback.resolvePlayback`, speed applied to `periodMs`). */
-export interface ClipPlayback { dim: string; mode: "loop" | "bounce" | "once"; from: number; to: number; periodMs: number;
-  /** Bounce only: end back ON the first plane (a movie file plays there and back once; a looped clip must not, or the
-   *  first plane would show twice at every turn). */
-  close?: boolean }
+export interface ClipPlayback { dim: string; mode: "loop" | "bounce" | "once"; from: number; to: number; periodMs: number }
 
 /** What one running movie asks of a baker: ONE pass of its range at its rate, drawn with the picture the image has
  *  while it runs (`state`: its view and crop at the step; only `index[dim]` walks). Loop: the pass, looped natively;
@@ -157,7 +154,6 @@ export function playbackPlanes(p: ClipPlayback): number[] {
   const n = Math.max(1, p.to - p.from), out: number[] = [];
   for (let k = 0; k < n; k++) out.push(p.from + k);
   if (p.mode === "bounce") for (let k = n - 2; k >= 1; k--) out.push(p.from + k);
-  if (p.mode === "bounce" && p.close && n > 1) out.push(p.from);
   return out;
 }
 

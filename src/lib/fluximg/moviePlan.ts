@@ -189,9 +189,17 @@ export function planMovieClip(m: FluximgManifest, state: TweenPicture, stored: {
     for (let i = 0; i < frames.length; i++) if (!i || frames[i].key !== frames[i - 1].key) distinct++;
     return { frames, fps, rate: String(fps), durationMs: (frames.length * 1000) / fps, distinct };
   }
-  const p: ClipPlayback = { dim: s.dim, mode: s.mode === "bounce" ? "bounce" : "once", from: s.from, to: s.to, periodMs: s.periodMs, ...(s.mode === "bounce" ? { close: true } : {}) };
+  const p: ClipPlayback = { dim: s.dim, mode: s.mode === "bounce" ? "bounce" : "once", from: s.from, to: s.to, periodMs: s.periodMs };
   const clip = planPlaybackClip(m, state, p, W, H);
-  return { frames: clip.frames, fps: clip.fps, rate: playbackRate(s.periodMs), durationMs: clip.frames.length * s.periodMs, distinct: clip.distinct };
+  let frames = clip.frames, distinct = clip.distinct;
+  // A looped bounce clip turns without showing its first plane twice; a movie file plays there and back ONCE, so it
+  // ends back on the first plane (that plane's frame, as the deck clip's planner draws it).
+  if (s.mode === "bounce" && s.planes > 1) {
+    const first = planPlaybackClip(m, state, { ...p, mode: "once", to: s.from + 1 }, W, H).frames[0];
+    frames = [...frames, first];
+    if (first.key !== frames[frames.length - 2].key) distinct++;
+  }
+  return { frames, fps: clip.fps, rate: playbackRate(s.periodMs), durationMs: frames.length * s.periodMs, distinct };
 }
 
 /** Whether anything is drawn over the pixels (furniture, layer names, vector or label layers): the legibility floor

@@ -192,9 +192,13 @@ async function prepareOverlay(reader: Awaited<ReturnType<typeof fluximgReader>>,
   const box = s.box, crop = s.crop, prefix = fluximgIdPrefix(element.id);
   const insets = insetsOf(siblings, element.id, element.assetId);
   let inner: string;
-  const input = { manifest, view: rv, crop, tables, box, stillHref: null, layerSvg, idPrefix: prefix, flipX: !!element.flipX, flipY: !!element.flipY, insets, resolveLut, overlayOnly: true };
+  const input = { manifest, view: rv, crop, tables, box, stillHref: null, layerSvg, idPrefix: prefix, flipX: !!element.flipX, flipY: !!element.flipY, insets, resolveLut };
   try { inner = fluximgStaticSvg(input); }
   catch { warnings.push("the image's vector layers could not be placed; the movie is drawn without them"); inner = fluximgStaticSvg({ ...input, layerSvg: {} }); }
+  // The pixels (and their background) are drawn by the frame pass: what the static composer puts under the vectors (its
+  // background and its stand-in for a missing still, its own ids) goes, so it never covers them. Done here rather than
+  // by an option of the composer, which every exported deck carries.
+  inner = inner.replace(new RegExp(`<rect id="${escRe(prefix)}(?:background|placeholder)"[^>]*/>`, "g"), "");
   // The pixels are mirrored by the element's own transform on the canvas: the overlay is mirrored with them here (its
   // words carry their own un-mirroring inside, as on the canvas).
   const mirrorT = element.flipX || element.flipY ? unflipTransform(box, element.flipX, element.flipY) : "";
@@ -218,6 +222,7 @@ async function prepareOverlay(reader: Awaited<ReturnType<typeof fluximgReader>>,
   return { needed: true, base: /<(path|rect|text|circle|line|polyline|polygon|ellipse|image|use)\b/.test(base) ? wrapped : "", stamp };
 }
 
+const escRe = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const STAMP_RE = (prefix: string) => new RegExp(`<g id="${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}stamp" data-part="stamp">[\\s\\S]*?</g>`);
 
 /**
