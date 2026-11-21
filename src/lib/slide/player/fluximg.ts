@@ -141,6 +141,16 @@ let identitySerial = 0;
 const identity = (o: object | null | undefined): number => { if (!o) return 0; let n = identities.get(o); if (!n) identities.set(o, n = ++identitySerial); return n; };
 interface NamesGroup { g: SVGGElement; sig: string; index: LayerObject[]; nodes: Map<string, SVGTextElement>; place: string }
 
+/** Whether a table's column is numeric, read once per (table object, column): the overlay asks every frame of a tween. */
+const kinds = new WeakMap<object, Map<string, boolean>>();
+function numericColumn(table: { columns?: Record<string, unknown[]> }, column: string): boolean {
+  let per = kinds.get(table);
+  if (!per) kinds.set(table, per = new Map());
+  let v = per.get(column);
+  if (v === undefined) { const values = table.columns?.[column]; v = Array.isArray(values) && columnKind(values) === "number"; per.set(column, v); }
+  return v;
+}
+
 /** Set an attribute only when its value changes (a frame that changes nothing writes nothing). */
 function attr(last: Record<string, string | null>, node: Element, name: string, value: string | null): void {
   if (last[name] === value) return;
@@ -289,8 +299,7 @@ class Overlay {
     if (table === undefined) return true;
     const c = lv.styleBy?.color;
     if (!table || !c || !this.ctx.fluximgLut) return false;
-    const values = table.columns?.[c.column];
-    const numeric = Array.isArray(values) && columnKind(values) === "number" && !(Array.isArray(c.palette) && c.palette.length && !c.lut);
+    const numeric = numericColumn(table, c.column) && !(Array.isArray(c.palette) && c.palette.length && !c.lut);
     return numeric && !this.ctx.fluximgLut(typeof c.lut === "string" && c.lut ? c.lut : DEFAULT_STYLE_LUT);
   }
 
