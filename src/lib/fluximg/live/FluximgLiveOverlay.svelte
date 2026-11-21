@@ -330,7 +330,10 @@
     const first = [sb?.color?.column, sb?.opacity?.column].filter((c): c is string => !!c);
     const all = objectCells(table, h.key);
     const cells = [...first.flatMap((c) => all.filter(([n]) => n === c)), ...all.filter(([n]) => !first.includes(n))].slice(0, 4);
-    return { key: h.key, layer: layer?.name ?? "", cells, styled: first, x: under.cx, y: under.cy, flip, up };
+    // The object's own colour beside the value it comes from.
+    void $fluximgLutsReady;
+    const own = sb?.color && layer && layer.kind !== "intensity" ? cachedObjectStyles(table, layer.key ?? null, sb, resolveLut).byKey.get(h.key)?.color ?? null : null;
+    return { key: h.key, layer: layer?.name ?? "", cells, styled: first, swatch: own, swatchOf: sb?.color?.column ?? "", x: under.cx, y: under.cy, flip, up };
   });
   $effect(() => {
     const h = $fluximgHover;
@@ -517,7 +520,7 @@
 {#each grips as g (g.kind)}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="fx-grip" class:held={gripDrag?.kind === g.kind} style={`left:${g.x}px;top:${g.y}px;width:${g.w}px;height:${g.h}px`} data-fxb-grip={g.kind} data-fxb-wheel={`furniture:${g.kind}`}
-    onpointerenter={() => { if (!gripDrag) fluximgTip.set({ text: g.kind === "scalebar" ? "Drag to another corner · roll: its length" : g.kind === "key" ? "Drag to another corner · roll: text size · point at a value to find its objects" : "Drag to another corner · roll: text size", hk: "", x: Math.min(host.w - 8, Math.max(8, g.x + g.w / 2)), y: g.y < 34 ? g.y + g.h + 7 : g.y - 7, below: g.y < 34 }); }}
+    onpointerenter={() => { if (!gripDrag) fluximgTip.set({ text: g.kind === "scalebar" ? "Drag to another corner · roll: its length" : g.kind === "key" ? "Drag to a corner · roll: text size · point at a value" : "Drag to another corner · roll: text size", hk: "", x: Math.min(host.w - 8, Math.max(8, g.x + g.w / 2)), y: g.y < 34 ? g.y + g.h + 7 : g.y - 7, below: g.y < 34 }); }}
     onpointerleave={() => { fluximgTip.set(null); legendHover(null); }}
     onpointerdown={(e) => { fluximgTip.set(null); legendHover(null); gripDown(e, g.kind); }} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp} onlostpointercapture={gripUp}></div>
 {/each}
@@ -529,7 +532,7 @@
 {#if card}
   <div class="fx-card" class:flip={card.flip} class:up={card.up} style={`left:${card.x}px;top:${card.y}px`} role="status" data-fxb-card>
     <b>{card.key}</b><span class="of">{card.layer}</span>
-    {#each card.cells as [name, value] (name)}<span class="cell" class:styled={card.styled.includes(name)}><i>{name}</i>{value}</span>{/each}
+    {#each card.cells as [name, value] (name)}<span class="cell" class:styled={card.styled.includes(name)}><i>{name}</i><span class="v">{#if card.swatch && name === card.swatchOf}<i class="sw" style={`background:${card.swatch}`}></i>{/if}{value}</span></span>{/each}
     {#if under}<span class="cell vals">{#each shown as c, i (c.index)}<span><i class="dot" style={`background:${inkOf(c)}`}></i>{fmtValue(under.values[i] ?? NaN)}</span>{/each}</span>{/if}
   </div>
 {/if}
@@ -600,6 +603,8 @@
   .fx-card .cell > i { font-style: normal; color: var(--flx-base-500); }
   /* A column the layer is styled by: what the object's colour or opacity says, in the board's pink. */
   .fx-card .cell.styled > i { color: var(--c-guide); }
+  .fx-card .v { display: inline-flex; align-items: center; gap: 5px; }
+  .fx-card .sw { width: 8px; height: 8px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6); }
   .fx-card .vals { justify-content: flex-start; gap: 10px; margin-top: 2px; }
   .fx-card .vals span { display: inline-flex; align-items: center; gap: 4px; }
   .fx-card .dot { width: 7px; height: 7px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6); }

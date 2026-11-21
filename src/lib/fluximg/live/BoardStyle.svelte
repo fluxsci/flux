@@ -250,7 +250,7 @@
   .style { display: flex; flex-direction: column; gap: 7px; padding: 4px 9px 9px 10px; cursor: var(--cursor-cross); }
   .cols { display: flex; flex-wrap: wrap; gap: 5px; }
   /* A column as a paper key: what choosing it does, drawn small, over its name. */
-  .ck { position: relative; display: flex; flex-direction: column; align-items: stretch; gap: 3px; width: 50px; height: 34px; box-sizing: border-box; padding: 5px 5px 3px; border-radius: 5px; border: 1px solid color-mix(in oklab, var(--c-layout-gap) 45%, transparent);
+  .ck { position: relative; display: flex; flex-direction: column; align-items: stretch; gap: 3px; min-width: 46px; max-width: 104px; height: 34px; box-sizing: border-box; padding: 5px 5px 3px; border-radius: 5px; border: 1px solid color-mix(in oklab, var(--c-layout-gap) 45%, transparent);
     background: var(--flx-paper); box-shadow: 0 1.5px 2.5px rgba(0, 0, 0, 0.5); cursor: var(--cursor-cross-hover); transition: background-color 80ms linear, border-color 80ms linear; }
   .ck:hover, .ck.kb { background: color-mix(in oklab, var(--c-layout-gap) 16%, var(--flx-paper)); border-color: var(--c-layout-gap); }
   .ck:active { transform: translateY(1px); box-shadow: 0 0 1px rgba(0, 0, 0, 0.6); }

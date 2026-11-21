@@ -150,6 +150,14 @@ and one large one (2048 × 2048 or more, tens of planes).
     narrows. Rest on a layer's row and roll the wheel over its **%** (or drag it sideways):
     opacity. Press **d**: **the card is outlined pink and has the keys** (**↑ / ↓**, **x**,
     **e**, **c**, **q**, **Shift+↑ / ↓**); **Escape** gives them back.
+30b. Still on `mean_f64_layers`: rest on the synapse footprints row and press its **colour by**
+    key. **The table's columns appear as keys, each with a picture.** Rest on **dendrite**: **the
+    outlines take two colours on the image, the one without a dendrite grey; nothing is written
+    yet.** Press it: kept, one undo step. Press **opacity by**, then **pixels**: **the smaller
+    objects are fainter.** Drag the strip's pink handles, roll the wheel over it. Press the
+    **key** beside the filter: **a key with d1, d2 and "no value" appears on the image**; drag it
+    to another corner, rest on d1: **its two objects light up.** **R** closes: the element at rest
+    shows the same colours; an SVG export carries them.
 31. Pan the canvas (Space-drag) so the image is at its left edge, then its right edge; zoom the
     canvas in (**Ctrl** + wheel) until the image fills the window. **The rail and the console
     change sides as their room goes, and stand over the image's edges only when it fills the
