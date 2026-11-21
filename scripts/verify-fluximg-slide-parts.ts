@@ -111,7 +111,7 @@ try {
     h.eq(columnCoordinates({ key: "k", columns: { k: ["a10", "a2", "a1", "b"], v: ["x10", "x2", "x1", null] } }, "k", "v", ["L/a10", "L/a2", "L/a1", "L/b"]), [2, 1, 0, null], "natural order: x1 < x2 < x10");
     const byX = objectStaggerCoordinates(index, ids, { by: "x" }, () => undefined)!;
     h.eq(byX, fp.objects.map((o) => o.cx), "by x: the objects' centres");
-    const s = slideWith([[{ id: "t2", target: "img", part: "layer:footprints", preset: "fade", duration: 300, stagger: { perMs: 100, by: { key: "pixels" } } }]]);
+    const s = slideWith([[{ id: "t2", target: "img", part: "layer:footprints", preset: "fade", duration: 300, stagger: { perMs: 100, by: { column: "pixels" } } }]]);
     const c = compileSlide(s, { width: 640, height: 360 }, partsOf(index));
     h.eq(c.cues[1].tracks[0].ranks, [2, 3, 1, 0], "the compiler ranks a column stagger by the column");
     const op = (t: number) => fp.objects.map((o) => c.sample(1, t).presentation.partStates.img?.[o.partId]?.opacity ?? 0);
@@ -286,7 +286,7 @@ try {
   {
     const base = createDeck({ id: "d", title: "d" });
     const st = deckSchemaFor(base);
-    const col = structuredClone(base); col.slides[0].beats.push({ id: "x", tracks: [{ id: "t", target: "gone", part: "l/1", preset: "fade", stagger: { by: { key: "dendrite" } } }] } as never);
+    const col = structuredClone(base); col.slides[0].beats.push({ id: "x", tracks: [{ id: "t", target: "gone", part: "l/1", preset: "fade", stagger: { by: { column: "dendrite" } } }] } as never);
     h.eq(deckSchemaFor(col), "0.8.0", "a column stagger (even on a dangling track) is written as 0.8.0");
     const plain = structuredClone(base); plain.slides[0].beats.push({ id: "x", tracks: [{ id: "t", target: "gone", preset: "fade", stagger: { by: { key: "value" } } }] } as never);
     h.eq(deckSchemaFor(plain), st, "a plot key stagger keeps the old stamp");
@@ -414,7 +414,7 @@ async function w8Page(D: { manifest: any; byPath: Record<string, string>; tableB
         { id: "b1", tracks: [{ id: "ap", target: "img", part: "layer:footprints", preset: "fade", start: 0, duration: 300, ...lin, stagger: { perMs: 100 } }] },
         { id: "b2", tracks: [{ id: "cz", target: "img", preset: "transform", start: 0, duration: 1000, ...lin, to: { state: { crop: CROP } } }, { id: "dm", target: "img", part: "footprints/s2", preset: "dim", start: 0, duration: 1000, ...lin, params: { level: 0.3 } }] },
         { id: "b3", tracks: [{ id: "rz", target: "img", part: "discs/a", preset: "fadeRise", start: 0, duration: 400, ...lin, params: { y: 12 } }] }] },
-      { id: "s1", elements: [el(V)], beats: [{ id: "c0", tracks: [] }, { id: "c1", tracks: [{ id: "ac", target: "img", part: "layer:footprints", preset: "fade", start: 0, duration: 300, ...lin, stagger: { perMs: 100, by: { key: "pixels" } } }] }] },
+      { id: "s1", elements: [el(V)], beats: [{ id: "c0", tracks: [] }, { id: "c1", tracks: [{ id: "ac", target: "img", part: "layer:footprints", preset: "fade", start: 0, duration: 300, ...lin, stagger: { perMs: 100, by: { column: "pixels" } } }] }] },
       { id: "s2", elements: [el(V)], beats: [{ id: "e0", tracks: [] }, { id: "e1", tracks: [{ id: "st", target: "img", preset: "transform", start: 0, duration: 1000, ...lin, to: { state: { view: VS } } }] }] },
       { id: "s3", elements: [el(VS)], beats: [{ id: "f0", tracks: [] }] },
       { id: "s4", elements: [el(V), { ...el(V), id: "img2", x: 360, y: 150, width: 200, height: 125 }], beats: [{ id: "g0", tracks: [] },

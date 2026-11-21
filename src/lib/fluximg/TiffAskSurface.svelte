@@ -413,7 +413,7 @@
   .fxb { --fxb-plate: #0b0b0a; --fxb-card: #1a1918; --fxb-well: #070707; --fxb-line: rgba(255, 252, 240, 0.09); --fxb-lift: inset 0 1px 0 rgba(255, 252, 240, 0.05); --fxb-paper: var(--flx-paper); --fxb-pink: var(--c-guide); --fxb-pink-hi: #ff7ab0;
     --fxb-tx: var(--flx-base-200); --fxb-tx-hi: var(--flx-paper); --fxb-tx-dim: var(--flx-base-500); --fxb-shadow: 0 10px 26px -10px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.4); }
   .ask { position: absolute; z-index: 4; box-sizing: border-box; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; border-radius: 12px; background: var(--fxb-plate); border: 1px solid var(--fxb-line);
-    box-shadow: var(--fxb-shadow); color: var(--fxb-tx); font: 12px var(--font-ui); outline: none; cursor: default; animation: ask-in 150ms linear backwards; }
+    box-shadow: var(--fxb-shadow); color: var(--fxb-tx); font: 12px var(--font-ui); outline: none; cursor: var(--cursor-cross); animation: ask-in 150ms linear backwards; }
   /* Where the image will land: a pink ring and cross (the guides' pink), still. */
   .land { position: absolute; z-index: 4; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--c-guide), 0 0 0 1px rgba(0, 0, 0, 0.35); pointer-events: none; }
   .land::before, .land::after { content: ""; position: absolute; background: var(--c-guide); }

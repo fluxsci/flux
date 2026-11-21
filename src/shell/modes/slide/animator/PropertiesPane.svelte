@@ -300,11 +300,11 @@
     if (!by) return "index";
     if (typeof by === "string") return by === "data" ? "value" : by;
     // an image's objects ordered by a column of their table (W8)
-    if (curTargetEl?.type === "fluximg") return `col:${by.key}`;
+    if ("column" in by) return `col:${by.column}`;
     return by.key === "index" ? "data-index" : by.key;
   }
   function staggerByFrom(value: string): Stagger["by"] {
-    if (value.startsWith("col:")) return { key: value.slice(4) };
+    if (value.startsWith("col:")) return { column: value.slice(4) };
     return value === "value" ? { key: "value" } : value === "count" ? { key: "count" } : value === "data-index" ? { key: "index" } : value as "index" | "x" | "y" | "radial";
   }
   function staggerMode(total: boolean) {
@@ -517,7 +517,7 @@
     const out = new Set<string>();
     for (const l of index.layers) if (layers.has(l.id) && l.table) for (const c of staggerColumns(appFluximgTable(curTargetEl.assetId, l.table) ?? null, l)) out.add(c);
     const cur = curTrack.stagger?.by;
-    if (cur && typeof cur === "object") out.add(cur.key);
+    if (cur && typeof cur === "object" && "column" in cur) out.add(cur.column);
     return [...out];
   });
   // --- an image's Change (stage 2): its aspects as chips, the walk's pace, blend and end plane ---------------------------

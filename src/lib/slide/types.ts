@@ -310,11 +310,11 @@ export interface Stagger {
    *  cell's value, a bar's height), `{ key: "count" }` = observations per hexagon
    *  (data-count), `{ key: "index" }` = the generator's index (data-index).
    *  (The never-implemented "series"/"dom" options were dropped in 0.3.0.)
-   *  On an IMAGE's objects (stage 2) `{ key: <column> }` orders them by that column of their layer's table (numbers
+   *  On an IMAGE's objects (stage 2) `{ column: <name> }` orders them by that column of their layer's table (numbers
    *  ascending, strings in natural order, nulls last; `fluximg/parts.columnCoordinates`); "x"/"y"/"radial" by their
-   *  centres in image pixels. A column name other than value/count/index is used only on image objects: a deck that
-   *  holds one is written as 0.8.0 (schemaStamp "objectStagger"). */
-  by?: "index" | "x" | "y" | "data" | "radial" | { key: "value" | "count" | "index" | (string & {}) };
+   *  centres in image pixels. The column form is its own shape, so the data keys stay a closed list (an unknown key is
+   *  still refused); a deck that holds one is written as 0.8.0 (schemaStamp "objectStagger"). */
+  by?: "index" | "x" | "y" | "data" | "radial" | { key: "value" | "count" | "index" } | { column: string };
   from?: "start" | "end" | "center" | "edges" | "random";
   /** WP 4.3 (W7), `by: "radial"`: the point the order ripples out from (`from: "start"`, nearest first) or collapses into (`"end"`), in
    *  DATA units of the plot's axes. Absent = the centre of the targets. Distances are measured in the plot's PIXEL space (a log axis,

@@ -38,8 +38,8 @@ export const DECK_FEATURES: SchemaFeature<Deck>[] = [
 function deckTrackLike(deck: Deck): Array<{ stagger?: { by?: unknown } }> {
   return [...deck.slides.flatMap((s) => s.beats.flatMap((b) => b.tracks)), ...(deck.animStyles ?? []).map((st) => st.track ?? {})];
 }
-/** `{ key: <column> }` with a column name a 0.7 build does not know. */
-const columnStagger = (by: unknown): boolean => !!by && typeof by === "object" && !["value", "count", "index"].includes((by as { key?: unknown }).key as string);
+/** `{ column: <name> }`: an order a 0.7 build does not know. */
+const columnStagger = (by: unknown): boolean => !!by && typeof by === "object" && typeof (by as { column?: unknown }).column === "string";
 /** Canvas features, over the canvas's elements (every figure on it). Registered by: model3d (0.2.0, before the manim study), WP 3.2. */
 export const CANVAS_FEATURES: SchemaFeature<readonly Element[]>[] = [
   { name: "model3d", version: CANVAS_MODEL3D_SCHEMA_VERSION, has: (els) => els.some((e) => e.type === "model3d") },

@@ -372,7 +372,7 @@ export function keyPolicyApplies(A: readonly KeyedMember[], B: readonly KeyedMem
 // --- stagger by a table column ------------------------------------------------------------------------------------
 
 /**
- * Each object's rank coordinate under a table column, for `Stagger.by = { key: <column> }` on image objects: numbers
+ * Each object's rank coordinate under a table column, for `Stagger.by = { column: <name> }` on image objects: numbers
  * ascending, strings in natural order (`objectStyle.compareCells`: numbers, then strings, then booleans), each
  * distinct value one rank; a null value, an object without a row or a column the table lacks → null (after the
  * ranked ones, in their own order: `staggerRanks`). The row of an object is the first row whose key text is the
@@ -405,8 +405,8 @@ export function staggerColumns(table: FluximgTable | null | undefined, layer: { 
 
 /**
  * The stagger coordinates of an image's objects (both engines call this: the compiler for `sample`, the player for its
- * delays): `{ key: <column> }` → `columnCoordinates` over the column of each object's layer table (`{ key: "index" }`
- * without such a column = the layer order); "x" / "y" → the objects' centres in image pixels; "radial" → the distance
+ * delays): `{ column: <name> }` → `columnCoordinates` over that column of each object's layer table; "x" / "y" → the
+ * objects' centres in image pixels; "radial" → the distance
  * from `origin` (image pixels; absent = the centre of the objects); anything else (or no index) → undefined (plain order).
  */
 export function objectStaggerCoordinates(index: FluximgPartIndex | undefined, partIds: readonly string[],
@@ -420,7 +420,7 @@ export function objectStaggerCoordinates(index: FluximgPartIndex | undefined, pa
     const c = stagger?.origin ?? (known.length ? { x: known.reduce((a, o) => a + o.cx, 0) / known.length, y: known.reduce((a, o) => a + o.cy, 0) / known.length } : { x: 0, y: 0 });
     return objects.map((o) => (o ? Math.hypot(o.cx - c.x, o.cy - c.y) : null));
   }
-  const column = typeof by === "object" && by && typeof (by as { key?: unknown }).key === "string" ? (by as { key: string }).key : by === "data" ? "value" : null;
+  const column = typeof by === "object" && by && typeof (by as { column?: unknown }).column === "string" ? (by as { column: string }).column : null;
   if (!column) return undefined;
   // One column read per layer (a stagger may span the objects of several layers).
   const out: Array<number | null> = partIds.map(() => null);

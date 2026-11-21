@@ -353,9 +353,8 @@ export function partStageOutlines(plot: SemanticPlotElement, leafIds: string[], 
     const part = geo.ids.get(id);
     if (!part) continue;
     const info = index[id];
-    const seriesName = info?.series ? seriesNames(manifest).get(info.series) : undefined;
     const owner: OutlineOwner = { elementId: plot.id, partId: id,
-      ...(info?.role ? { role: info.role } : {}), ...(info?.series ? { series: info.series } : {}), ...(seriesName ? { seriesName } : {}),
+      ...(info?.role ? { role: info.role } : {}), ...(info?.series ? { series: info.series } : {}),
       ...(info?.index != null ? { index: info.index } : {}),
       ...(info?.x != null || info?.y != null ? { data: { ...(info.x != null ? { x: info.x } : {}), ...(info.y != null ? { y: info.y } : {}) } } : {}),
     };
@@ -424,6 +423,26 @@ export function imageObjectStageOutlines(el: FluximgElement, index: FluximgPartI
     out.push(stage({ nodes: ring.nodes, closed: o.closed || ring.closed }, m, { elementId: el.id, partId: id, role: "object", key: o.key }, paint));
   }
   return out;
+}
+
+/**
+ * The same outlines with each plot part's series NAME beside its series id (`owner.seriesName`), for the pair policy
+ * "key" (an image object's key matches a series' name or id). Asked only where key pairing is in play (an image's
+ * objects on a side, or the policy named): outlines everywhere else are exactly what they always were. New owner
+ * objects; the input is not touched.
+ */
+export function withSeriesNames(outlines: StageOutline[], frame: SlideFrame, ctx: GeometryCtx): StageOutline[] {
+  if (!outlines.some((o) => o.owner.series !== undefined)) return outlines;
+  const plots = new Map<string, Map<string, string>>();
+  const namesOf = (elementId: string): Map<string, string> => {
+    let m = plots.get(elementId);
+    if (!m) { const el = frame.elements.find((e) => e.id === elementId); m = el?.type === "plot" ? seriesNames(geometryPlotManifest(ctx, el as SemanticPlotElement)) : new Map(); plots.set(elementId, m); }
+    return m;
+  };
+  return outlines.map((o) => {
+    const name = o.owner.series !== undefined ? namesOf(o.owner.elementId).get(o.owner.series) : undefined;
+    return name ? { ...o, owner: { ...o.owner, seriesName: name } } : o;
+  });
 }
 
 export function targetOutlines(ref: TargetRef, frame: SlideFrame, ctx: GeometryCtx): StageOutline[] {

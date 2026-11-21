@@ -111,7 +111,8 @@ export function patchStagger(current: Stagger | undefined, patch: Partial<Stagge
   }
   if (patch.seed !== undefined && (!Number.isInteger(patch.seed) || patch.seed < 0 || patch.seed > 0xffffffff)) throw new Error("Stagger seed must be an unsigned 32-bit integer");
   // `{ key }`: a plot's value / count / index, or (an image's objects, W8) any column of their table
-  if (patch.by !== undefined && !(typeof patch.by === "string" ? ["index", "x", "y", "data", "radial"].includes(patch.by) : typeof patch.by?.key === "string" && patch.by.key.trim() !== "")) throw new Error("Unknown stagger ordering key");
+  if (patch.by !== undefined && !(typeof patch.by === "string" ? ["index", "x", "y", "data", "radial"].includes(patch.by)
+    : "column" in patch.by ? typeof patch.by.column === "string" && patch.by.column.trim() !== "" : ["value", "count", "index"].includes(patch.by?.key ?? ""))) throw new Error("Unknown stagger ordering key");
   if (patch.origin !== undefined && patch.origin !== null && !(Number.isFinite(patch.origin.x) && Number.isFinite(patch.origin.y))) throw new Error("A radial stagger's origin needs finite x and y");
   if (patch.from !== undefined && !["start", "end", "center", "edges", "random"].includes(patch.from)) throw new Error("Unknown stagger origin");
   if (patch.spacing !== undefined && !["even", "true"].includes(patch.spacing)) throw new Error("Unknown stagger spacing");

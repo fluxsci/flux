@@ -3,7 +3,7 @@
 //   * The image's X-ray (Shift+Alt+R, and the F-menu's door): its layers (eye) and objects (no eye) as rows, the styling
 //     column's value as each object's preview; hovering an object row outlines it on the canvas.
 //   * Picked object rows → m 1 → ONE part-bound Appear track (staggered), one undo step; a layer row → a staggered Appear of
-//     the layer; the Animation properties order it by a table column (stagger.by = { key: <column> }).
+//     the layer; the Animation properties order it by a table column (stagger.by = { column: <name> }).
 //   * "Edit after step N" draws the objects that have not appeared yet hidden (absent from the image's layer markup).
 //   * Become by key: the layer picked, b, click the traces plot → a hand-off; the Animation properties show "3 pairs by
 //     key"; the Pair select offers and writes "key"; each is one undo step. A preview of the step plays it.
@@ -152,7 +152,7 @@ try {
   await page.select('select[aria-label="Stagger order"]', "col:pixels");
   await waitForFrame(page);
   tr = (await authored()).beats.flatMap((b) => b.tracks).find((t) => t.part === "layer:footprints");
-  h.eq(tr?.stagger?.by, { key: "pixels" }, "ordering by a column writes stagger.by = { key: 'pixels' }");
+  h.eq(tr?.stagger?.by, { column: "pixels" }, "ordering by a column writes stagger.by = { column: 'pixels' }");
   const issues = await F((id) => { const f = window.__flux, sid = f.get(f.fig.activeFigureId); return f.slide.compileIssues ? f.slide.compileIssues(sid) : null; }, tr.id);
   void issues;
 
@@ -200,6 +200,24 @@ try {
   await waitForFrame(page);
   h.eq((await authored()).beats[3].tracks.find((t) => t.id === bk.id)?.to?.become?.pair, "key", "choosing by key writes pair: key");
   h.eq(await past(), p0 + 1, "…one undo step");
+  // The planner itself pairs by the series' NAMES (their ids are "trace-<name>"): the plot's outlines carry the name
+  // only for this pairing; asked plainly they are the outlines they always were.
+  const planned = await F(async (trackId) => {
+    const f = window.__flux, { compileSlide } = await import("/src/lib/slide/compile.ts"), { planHandoff } = await import("/src/lib/slide/handoffPlan.ts"), { targetOutlines } = await import("/src/lib/slide/targetGeometry.ts"), { fluximgPartsLookup } = await import("/src/lib/fluximg/parts.ts");
+    const d = f.slide.currentDeck(), sl = d.slides.find((x) => x.id === f.get(f.fig.activeFigureId));
+    const manifest = (id) => f.get(f.plot.plotManifests)[id], { appFluximgParts } = await import("/src/lib/fluximg/partStore.ts");
+    // the window's own lookup when this copy of the module has it, else the image store's (a hot-reloaded dev server
+    // can hand a plain import a second copy of a module the app already holds under a versioned URL)
+    const fluximgParts = fluximgPartsLookup() ?? ((assetId) => appFluximgParts(assetId));
+    const frame = compileSlide(sl, d.stage, { plotManifest: manifest, fluximgParts }).sample(3);
+    const ctx = { manifest, plotRoot: (id) => f.plot.plotDom.get(id), groups: sl.groups, fluximgParts };
+    const track = sl.beats[3].tracks.find((t) => t.id === trackId);
+    const plan = planHandoff(track, frame, ctx);
+    const plain = targetOutlines({ element: "traces" }, frame, ctx);
+    return { policy: plan.policy, both: plan.pairs.filter((x) => x.a && x.b).length, named: plain.filter((o) => "seriesName" in o.owner).length, series: plain.filter((o) => o.owner.series).length };
+  }, bk.id);
+  h.ok(planned.policy === "key" && planned.both === 3, `the planner pairs three footprints with their traces by the series' names (policy ${planned.policy}, ${planned.both} pairs)`);
+  h.ok(planned.named === 0 && planned.series > 0, `asked plainly, the plot's outlines carry no series name (${planned.named} of ${planned.series} series parts)`);
   // the preview plays it (a screenshot mid-flight for the eye)
   await F(() => { for (const b of document.querySelectorAll(".step-controls button")) if (b.title === "Replay this step") b.click(); });
   await waitFor(page, () => !!document.querySelector(".preview-overlay"), null, { label: "the preview", timeout: 4000 });
