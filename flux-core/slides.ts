@@ -1580,12 +1580,16 @@ export async function nodeImageIO(root: string, opts: { imageClipUrl?: (file: st
   const { fluximgRenderSession, nodeSlideImageIO } = await import("./fluximgRender");
   const session = fluximgRenderSession();
   let encoder: Promise<{ path: string; identity: string } | null> | undefined;
+  // The clips this export uses: the cache's prune after a fresh bake never takes them (fluximgClip.IMAGE_CLIP_CACHE_LIMITS).
+  const used = new Set<string>();
   return {
     ...nodeSlideImageIO(root, session),
     imageClip: async (asset, request, ease) => {
-      const { bakeImageClip, imageClipEncoder } = await import("./fluximgClip");
+      const { bakeImageClip, imageClipEncoder, pruneImageClipCache } = await import("./fluximgClip");
       encoder ??= imageClipEncoder();
       const baked = await bakeImageClip(root, asset, request, ease, { session, encoder: await encoder, signal: opts.signal, onProgress: opts.onImageClip });
+      used.add(baked.key);
+      if (!baked.cached) await pruneImageClipCache(root, { protect: used }).catch(() => []);
       const url = opts.imageClipUrl ? await opts.imageClipUrl(baked.file, baked) : `data:video/mp4;base64,${(await fs.readFile(baked.file)).toString("base64")}`;
       return { url, fps: baked.fps, frames: baked.frames, durationMs: baked.durationMs, width: baked.width, height: baked.height, ...(baked.loop ? { loop: true } : {}) };
     },

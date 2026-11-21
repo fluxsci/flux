@@ -200,6 +200,26 @@ function imageRuntimeFor(payload: ExportPayload, assets: ExportAssets): string {
   return assets.fluximgRuntime;
 }
 
+const mb = (n: number) => (n / 1048576).toFixed(1);
+/** base64 text → the bytes it carries. */
+const carried = (values: Iterable<string>) => { let n = 0; for (const v of values) n += v.length * 0.75; return n; };
+
+/** ONE warning for an export over `threshold` bytes, in plain words, naming what makes it big and that kind's own
+ *  levers: a video's are its source clip; an image movie's are its walk (range, speed), its size on the slide and its
+ *  crop (review C3); a 3D model's is its face count. Empty under the threshold. */
+export function exportSizeWarning(payload: ExportPayload, bytes: number, threshold: number): string {
+  if (bytes <= threshold) return "";
+  const parts: Array<[number, string]> = [];
+  const videos = carried(Object.values(payload.videos ?? {}).filter((u) => u.startsWith("data:")));
+  const images = carried(Object.values(payload.imageClips ?? {}).map((c) => c.url).filter((u) => u.startsWith("data:")));
+  const models = carried(Object.values(payload.models ?? {}));
+  if (videos > 0) parts.push([videos, `video clips ${mb(videos)} MB (shorter clips make it smaller)`]);
+  if (images > 0) parts.push([images, `image movies ${mb(images)} MB (walk a shorter range or at a higher speed, show the image smaller, or crop it)`]);
+  if (models > 0) parts.push([models, `3D models ${mb(models)} MB (fewer faces: max_faces= in fluxplot)`]);
+  parts.sort((a, b) => b[0] - a[0]);
+  return `The exported file is ${mb(bytes)} MB, over ${(threshold / 1048576).toFixed(0)} MB${parts.length ? `: ${parts.map((p) => p[1]).join("; ")}` : ""}.`;
+}
+
 export interface ExportResult {
   html: string;
   bytes: number;
@@ -266,10 +286,7 @@ ${imageRuntime ? `<script>${imageRuntime}</script>\n` : ""}<script>${runtime}</s
 
   const bytes = Buffer.byteLength(html, "utf8");
   const threshold = opts.warnThreshold ?? 25 * 1024 * 1024;
-  if (bytes > threshold) warnings.push(`Exported file is ${(bytes / 1048576).toFixed(1)} MB (> ${(threshold / 1048576).toFixed(0)} MB) — embedded clips increase file size; shorter source clips make the portable file smaller.`);
-  if (modelRuntime) {
-    const modelBytes = Object.values(payload.models ?? {}).reduce((n, value) => n + value.length * .75, 0);
-    if (bytes > threshold) warnings.push(`3D models add ${(modelBytes / 1048576).toFixed(1)} MB; use max_faces= in fluxplot to shrink the deck`);
-  }
+  const size = exportSizeWarning(payload, bytes, threshold);
+  if (size) warnings.push(size);
   return { html, bytes, warnings };
 }
