@@ -243,6 +243,29 @@ try {
     h.eq(objectStyleTween(a, null, new Map(a), null, ["s1", "s2", "s3"], { stroke: "#cccccc", fill: "none" }), null, "equal styles at both ends: no tween (nothing written)");
   }
 
+  h.section("M. headless: pair \"key\" through the become verb and slideOps");
+  {
+    const { VERBS } = await import("../flux-core/registry");
+    const verb = VERBS.find((v) => v.name === "become")!;
+    const { z } = await import("zod");
+    const schema = z.object(verb.params as Record<string, never>);
+    h.ok(schema.safeParse({ deckId: "d", slideId: "s", beatId: "b", sourceId: "img", pair: "key" }).success, "the become verb accepts pair: \"key\" (no new verb)");
+    const { becomeTransform } = await import("../src/lib/slide/ops");
+    const deck = createDeck({ id: "dk", title: "k" });
+    const s = deck.slides[0];
+    s.elements = [el as never, { ...el, id: "img2", x: 360 } as never];
+    s.beats.push({ id: "b1", tracks: [] });
+    const r = becomeTransform(deck, s.id, "b1", { element: "img", parts: ["layer:footprints"] }, { element: "img2", parts: ["layer:footprints"] }, { pair: "key", compiled: compileSlide(s, deck.stage, partsOf(index)) });
+    const t = s.beats[1].tracks.find((x) => x.id === r?.trackId);
+    h.ok(t?.to?.become?.pair === "key" && t.to.become.mode === "handoff", "becomeTransform writes a hand-off paired by key between two images' objects");
+    const c = compileSlide(s, deck.stage, partsOf(index));
+    h.eq(c.issues.filter((i) => i.trackId === t?.id), [], "it compiles without issues (objects of two images may hand off)");
+    const { handoffKeyPairs } = await import("../src/lib/slide/handoffTargets");
+    const hk = c.handoffs[0] ? handoffKeyPairs(c.resolvedSlide, c.handoffs[0].source, c.handoffs[0].destination, {}) : null;
+    h.eq(hk && [hk.pairs, hk.source, hk.destination, hk.auto], [4, 4, 4, true], "handoffKeyPairs: 4 keys pair, auto would pair by key");
+    h.eq(deckSchemaFor(deck), "0.8.0", "the deck is written as 0.8.0");
+  }
+
   h.section("K. stamps and the deck without images");
   {
     const base = createDeck({ id: "d", title: "d" });
@@ -323,6 +346,10 @@ try {
       h.ok(!r.hold.settledEarly, "settled() does not resolve before the table lands");
       h.ok(r.hold.settledAfter && r.hold.styledAfter, "once the table lands the layer shows, styled, and settled() resolves");
       h.eq(r.hold.unstyledFrames, 0, "no frame ever showed the styled layer unstyled");
+      // 8. a Become by key between two images' objects
+      h.ok(r.become.start.src.every(Boolean) && r.become.start.dst.every((v: boolean) => !v), `Become by key: before the flight the source footprints show, the destination's wait (${JSON.stringify(r.become.start)})`);
+      h.ok(r.become.mid.flight >= 4 && r.become.mid.src.every((v: boolean) => !v), `mid-flight the footprints fly as ${r.become.mid.flight} paths on the flight layer (sources hidden)`);
+      h.ok(r.become.end.dst.every(Boolean) && r.become.end.src.every((v: boolean) => !v), `at the landing the destination's footprints show and the source's are gone (${JSON.stringify(r.become.end)})`);
       // 6. rise in stage px under the crop's scale
       if (Math.abs(r.rise.lift - 12) >= 0.6) console.log(JSON.stringify(r.rise.debug));
       for (const p of r.presets) h.ok(p.sameNode && Number.isFinite(p.mid.x), `preset ${p.preset}: plays on the object (mid opacity ${(+p.midState.opacity).toFixed(2)}, transform ${p.midState.transform}, clip ${p.midState.clip}, dash ${p.midState.dash})`);
@@ -374,6 +401,8 @@ async function w8Page(D: { manifest: any; byPath: Record<string, string>; tableB
       { id: "s1", elements: [el(V)], beats: [{ id: "c0", tracks: [] }, { id: "c1", tracks: [{ id: "ac", target: "img", part: "layer:footprints", preset: "fade", start: 0, duration: 300, ...lin, stagger: { perMs: 100, by: { key: "pixels" } } }] }] },
       { id: "s2", elements: [el(V)], beats: [{ id: "e0", tracks: [] }, { id: "e1", tracks: [{ id: "st", target: "img", preset: "transform", start: 0, duration: 1000, ...lin, to: { state: { view: VS } } }] }] },
       { id: "s3", elements: [el(VS)], beats: [{ id: "f0", tracks: [] }] },
+      { id: "s4", elements: [el(V), { ...el(V), id: "img2", x: 360, y: 150, width: 200, height: 125 }], beats: [{ id: "g0", tracks: [] },
+        { id: "g1", tracks: [{ id: "bk", target: "img", part: "layer:footprints", preset: "transform", start: 0, duration: 1000, ...lin, to: { become: { ref: { element: "img2", parts: ["layer:footprints"] }, mode: "handoff", pair: "key" } } }] }] },
     ] };
   let release = true;
   const tableOf = (_: string, p: string) => (release ? D.tableByPath[p] ?? null : undefined);
@@ -448,6 +477,19 @@ async function w8Page(D: { manifest: any; byPath: Record<string, string>; tableB
       out.presets.push({ preset, rest, mid, end, midState, endState, endOpacity: opacityOf(endN), sameNode: endN === n, errors: 0 });
     }
     P3.destroy(); host3.dispose();
+  }
+  // 8. a Become by key between two images' footprints (the hand-off driver over image objects)
+  {
+    const nodes = (el: string) => ids.map((id: string) => FX.fluximgPartNode(mount.querySelector(`[data-slide-fluximg-root="${el}"]`), id) as SVGElement);
+    const visible = (n: Element) => { for (let x: Element | null = n; x && x !== mount; x = x.parentElement) { const cs = getComputedStyle(x); if (cs.visibility === "hidden" || cs.display === "none" || Number(cs.opacity) === 0) return false; } return true; };
+    await at(4, 1, 0);
+    const start = { src: nodes("img").map(visible), dst: nodes("img2").map(visible) };
+    await at(4, 1, 500);
+    const flight = [...mount.querySelectorAll("svg path")].filter((p) => !p.closest("[data-slide-fluximg-root]")).length;
+    const mid = { src: nodes("img").map(visible), dst: nodes("img2").map(visible), flight };
+    await at(4, 1, 1000);
+    const end = { src: nodes("img").map(visible), dst: nodes("img2").map(visible) };
+    out.become = { start, mid, end };
   }
   // 6. a styled layer waits for its table
   release = false;
