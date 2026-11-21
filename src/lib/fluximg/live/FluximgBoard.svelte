@@ -314,6 +314,7 @@
     return () => { if (liveKeys.take === ask) liveKeys.take = null; };
   });
   function onKey(e: KeyboardEvent): void {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return; // (take() says so too; the chord census reads it here)
     const row = take(e);
     if (!row || !live || !ctx) return;
     e.preventDefault(); e.stopImmediatePropagation();
