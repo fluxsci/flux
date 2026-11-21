@@ -15,8 +15,8 @@ export {
   fluximgTableLookup, imageToBox, imageToStage, objectStaggerCoordinates, parseFluximgPartId, partIndexFromTexts,
 } from "./parts";
 export { checkMergedView, checkViewPatch } from "./viewCheck";
-export { lerpFluximgView, planViewTween } from "./viewTween";
-export { resolveView } from "./viewOps";
+export { lerpFluximgView, planViewTween, sampleViewTween } from "./viewTween";
+export { resolveView, explicitView, isEmptyViewPatch, patchView, viewPatch } from "./viewOps";
 export { cachedObjectStyles, missingStyle } from "./objectStyle";
 export { walkableDims } from "./playback";
 export { fluximgElementMarkup } from "./exportStatic";

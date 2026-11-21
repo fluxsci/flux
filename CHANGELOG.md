@@ -83,6 +83,13 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   as a clip runs. Space previews without writing anything. The Animate panel and the Animation
   properties have the same controls; agents use `set-image-view --beat --speed --blend`,
   `--playback`, and `set-video-track` on an image.
+- **A Design edit of an image now carries through the steps.** A step keeps only what it changes
+  about the image (a later plane, a window), so a colour or contrast you set in Design afterwards
+  shows at every step that does not change that same setting, as it does for every other kind of
+  object. A duration you type for an image's walk stays yours, even when it equals the default.
+  `delete-element` now takes an element off a slide, Update from source works on a slide, a
+  slide preset holding an image is refused by name in a project that does not have the image, and
+  `set-track --stagger-by column:<name>` orders an image's objects by a column.
 - **TIFF files come in directly.** Drop a `.tif` on a figure or a slide, paste it, import it,
   or place it from the Plots rail; Flux converts it into an image bundle and places it. ImageJ,
   OME, tifffile and per-page metadata are read on their own, and such a file converts at once,

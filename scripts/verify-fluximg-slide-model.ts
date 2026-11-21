@@ -82,7 +82,7 @@ const diskFiles = async (deckId: string): Promise<Map<string, string>> => new Ma
 try {
   await core.scaffold(root, { title: "slides with images" });
   const fx = Object.fromEntries(fixtures().map((f) => [f.name, f]));
-  for (const name of ["stack_u16", "gray2d_u8"]) await writeFixture(path.join(root, "plots"), fx[name]);
+  for (const name of ["stack_u16", "gray2d_u8", "movie_f32"]) await writeFixture(path.join(root, "plots"), fx[name]);
   const stackManifest = JSON.parse(await fs.readFile(path.join(root, "plots/stack_u16.fluximg/fluximg.json"), "utf8")) as FluximgManifest;
   const nz = stackManifest.pixels.shape[stackManifest.pixels.dims.indexOf("z")];
 
@@ -208,7 +208,8 @@ try {
   const changeOf = (bi: number, target: string) => slide.beats[bi].tracks.filter((t) => t.preset === "transform" && t.target === target);
   const c1 = changeOf(1, placed.elementId), c2 = changeOf(2, placed.elementId), c3 = changeOf(3, placed.elementId);
   h.ok(c1.length === 1 && c2.length === 1 && c3.length === 1 && s1.trackIds.includes(c1[0].id) && s3.trackIds.includes(c3[0].id), "each --beat edit is ONE Change on its step");
-  h.eq((c1[0].to!.state as Record<string, unknown>).view, { index: { z: 5 }, link: "pair" }, "step 1's to.state.view is the end's whole view");
+  // B2 (supersedes plan D1's "whole"): a step's view is the PATCH over the view before the step, so Design's link is not restated
+  h.eq((c1[0].to!.state as Record<string, unknown>).view, { index: { z: 5 } }, "step 1's to.state.view is the patch over the view before the step (Design's link is not frozen into it)");
   h.ok(Object.keys(c1[0].to!.state!).join() === "view", `step 1 changes nothing else (${Object.keys(c1[0].to!.state!).join()})`);
   const st2 = c2[0].to!.state as Record<string, unknown>;
   h.eq(st2.crop, { x: 16, y: 12, width: 32, height: 24 }, "step 2's to.state.crop is the end's crop");
@@ -259,10 +260,11 @@ try {
     }
     h.ok(valid, "every mid-flight sample of step 1 is a valid view of the image (whole planes, in range) [W1a]");
     h.ok([...planes].every((z) => z >= 1 && z <= 5) && planes.size >= 3, `step 1 walks the planes between its ends (${[...planes].sort().join(",")}) [W1a]`);
-    // step 2's crop is one-sided (absent before = the whole image): the existing rule steps it at raw 0.5 (the player
-    // resolves both ends itself, plan D2)
+    // step 2's crop is one-sided (absent before = the whole image). C1: the sample is the player's own frame, so it GLIDES
+    // from the whole image to the end's crop (it stepped at raw 0.5 while compile.sample had its own recipe)
     const crop2 = (frac: number) => (compiled.sample(2, compiled.cues[2].duration * frac).elements.find((e) => e.id === placed.elementId) as FluximgElement).crop;
-    h.ok(crop2(0.2) === undefined && crop2(0.9)?.width === 32, `a one-sided crop steps (before raw 0.5: the whole image; after: the end's crop ${JSON.stringify(crop2(0.9))})`);
+    const w2 = crop2(0.2)?.width ?? 0, w5 = crop2(0.5)?.width ?? 0, w9 = crop2(0.9)?.width ?? 0;
+    h.ok(w2 < 64 && w2 > w5 && w5 > w9 && w9 > 32, `a one-sided crop glides from the whole image to the end's crop, as the player draws it (widths ${[w2, w5, w9].map((w) => w.toFixed(2)).join(" > ")})`);
     // lerpElement dispatches `view` on the kind: a plot view is still the plot law
     const plotA = { type: "plot", id: "p", assetId: "a", x: 0, y: 0, width: 10, height: 10, rotation: 0, view: { x: { domain: [0, 10] } } } as unknown as Element;
     const plotB = { ...plotA, view: { x: { domain: [10, 20] } } } as unknown as Element;
@@ -301,7 +303,7 @@ try {
   {
     const pre = image({ view: { index: { z: 1 } } });
     const cur = { ...structuredClone(pre), assetId: "other", source: { bundlePath: "plots/x.fluximg" }, playback: { dim: "t", mode: "loop" }, view: { index: { z: 2 } }, crop: { x: 0, y: 0, width: 8, height: 8 } } as unknown as Element;
-    h.eq(diffState(pre, cur), { view: { index: { z: 2 } }, crop: { x: 0, y: 0, width: 8, height: 8 } }, "assetId, source and playback are never a step's state; view and crop are (whole)");
+    h.eq(diffState(pre, cur), { view: { index: { z: 2 } }, crop: { x: 0, y: 0, width: 8, height: 8 } }, "assetId, source and playback are never a step's state; view (a patch over the view before the step) and crop (whole) are");
     const d = slideOps.createDeck({ id: "g", title: "G" });
     const s = d.slides[0], b = slideOps.addBeat(d, s.id, {})!;
     s.elements.push(image());
@@ -358,7 +360,8 @@ try {
     let saved: any = null;
     (globalThis as any).window = { fig: { writeSlideLibrary: async (_rel: string, snap: unknown) => { saved = snap; return true; } } };
     const { saveSlidePreset } = await import("../src/lib/slide/presetLib");
-    const { loadDeckModel } = await import("../src/lib/slide/store");
+    const { loadDeckModel, currentDeck } = await import("../src/lib/slide/store");
+    const currentDeckNow = () => currentDeck()!;
     const { setStoreTenant } = await import("../src/lib/tenancy");
     const { embeddedProjectRoot } = await import("../src/lib/store");
     setStoreTenant("slide"); embeddedProjectRoot.set(root);
@@ -368,7 +371,150 @@ try {
     const res = await saveSlidePreset("with image", pd.slides[0].id);
     h.ok(!!res && res.missingAssets.includes("img-a") && !!saved && !(saved.assets ?? []).some((a: { asset: Asset }) => a.asset.kind === "fluximg") && saved.slide.elements.some((e: Element) => e.type === "fluximg"),
       "a saved preset keeps the image element, embeds no bundle and reports the asset as not embedded");
+    // C5: stamped with the content-derived minimum, so a build that would drop the image never lists it
+    const { slidePresetEntries, insertSlidePreset, slidePresetStamp } = await import("../src/lib/slide/presetLib");
+    h.ok(saved.fluxPreset === 2 && saved.schemaVersion === "0.8.0", `a preset holding an image is stamped fluxPreset 2, format ${saved.schemaVersion} (deckSchemaFor over its slide)`);
+    const oldReader = (p: { fluxPreset?: unknown; kind?: unknown }) => p.fluxPreset === 1 && p.kind === "slide"; // every released build's filter
+    h.ok(!oldReader(saved), "…which every older build's preset filter skips: it is never inserted there with the image dropped");
+    h.eq(slidePresetStamp(slideOps.createDeck({ id: "p", title: "P" }).slides[0]), { fluxPreset: 1 }, "a slide without an image stays fluxPreset 1 with no stamp (its file as before)");
+    const listed = slidePresetEntries([{ rel: "a.json", payload: saved }, { rel: "b.json", payload: { ...saved, schemaVersion: "0.9.0" } }, { rel: "c.json", payload: { ...saved, fluxPreset: 3 } }]);
+    h.ok(!listed[0].refusal && /written by a newer Flux/.test(listed[1].refusal ?? "") && /written by a newer Flux/.test(listed[2].refusal ?? ""), `a preset of a newer format or version is listed with the "newer Flux" words: "${listed[1].refusal}"`);
+    let why = "";
+    try { await insertSlidePreset(listed[1]); } catch (e) { why = (e as Error).message; }
+    h.ok(/newer Flux/.test(why), "…and inserting it is refused with them");
+    // survives save → insert in this build (the bundle is registered here)
+    const n0 = currentDeckNow().slides.length;
+    const nid = await insertSlidePreset(listed[0]);
+    const ins = currentDeckNow().slides.find((x) => x.id === nid);
+    h.ok(!!nid && currentDeckNow().slides.length === n0 + 1 && ins!.elements.some((e) => e.type === "fluximg" && e.assetId === "img-a"), "the preset inserts into this project with its image");
+    // another project, where the bundle does not exist: a refusal naming the image, not a grey box
+    const other = path.join(scratch, "other");
+    await core.scaffold(other, { title: "other" });
+    (globalThis as any).window.fig = { ...(globalThis as any).window.fig, readText: async (p: string) => fs.readFile(p, "utf8"), exists: async (p: string) => fs.stat(p).then(() => true, () => false) };
+    embeddedProjectRoot.set(other);
+    const od = slideOps.createDeck({ id: "od", title: "Other" });
+    loadDeckModel(od, [], new Set());
+    why = "";
+    try { await insertSlidePreset({ ...listed[0], preset: { ...listed[0].preset, slide: { ...listed[0].preset.slide, elements: listed[0].preset.slide.elements.map((e) => (e.type === "fluximg" ? { ...e, name: "Stack A" } : e)) } } }); } catch (e) { why = (e as Error).message; }
+    h.ok(/"Stack A".*not in this project/.test(why) && currentDeckNow().slides.length === 1, `inserting it in another project is refused, naming the image: "${why}"`);
+    // …and where the bundle IS in that project's fig/assets but not loaded yet, it is registered with the insert
+    await writeFixture(path.join(other, "fig/assets"), fx["gray2d_u8"]);
+    const there = { ...listed[0], preset: { ...listed[0].preset, slide: { ...listed[0].preset.slide, elements: listed[0].preset.slide.elements.map((e) => (e.type === "fluximg" ? { ...e, assetId: "gray2d_u8" } : e)) } } };
+    const nid2 = await insertSlidePreset(there);
+    const { project: figProject } = await import("../src/lib/store");
+    const { get: getStore } = await import("svelte/store");
+    h.ok(!!nid2 && currentDeckNow().slides.find((x) => x.id === nid2)!.elements.some((e) => e.type === "fluximg" && e.assetId === "gray2d_u8")
+      && getStore(figProject).assets.some((a: Asset) => a.id === "gray2d_u8" && a.kind === "fluximg"), "a bundle present in the project's fig/assets is registered with the insert");
     setStoreTenant("figure");
+  }
+
+  // ----------------------------------------------------------------------------------------------------------------
+  h.section("I. a step's view is a patch over the view before it: Design edits carry through (B2)");
+  {
+    const { resolveView } = await import("../src/lib/fluximg/viewOps");
+    await core.createDeck(root, { id: "patch", title: "Patch" });
+    const sid = (await slidesCore.loadDeck(root, "patch")).slides[0].id;
+    const pb: string[] = [];
+    for (let i = 0; i < 3; i++) pb.push((await slidesCore.addBeat(root, "patch", sid, {})).beatId);
+    const mv = await call("place_image", { figureId: `patch/${sid}`, bundlePath: "plots/movie_f32.fluximg", name: "Movie" });
+    const movieManifest = JSON.parse(await fs.readFile(path.join(root, "plots/movie_f32.fluximg/fluximg.json"), "utf8")) as FluximgManifest;
+    const start = structuredClone(await readDeck("patch"));
+    // The edits, in the order the owner makes them: step 1 walks t and sets a window; Design then changes channel 1's colour.
+    const edits: Array<{ beat?: number; view: Record<string, unknown> }> = [
+      { beat: 1, view: { index: { t: 8 }, channels: [{ range: [0, 500] }] } },
+      { view: { channels: [{ color: "#00ffff" }] } },
+    ];
+    const apply = async (e: { beat?: number; view: Record<string, unknown> }) =>
+      call("set_image_view", { id: mv.elementId, view: e.view, slide: `patch/${sid}`, ...(e.beat ? { beatId: pb[e.beat - 1] } : {}) });
+    for (const e of edits) await apply(e);
+    let deck = await readDeck("patch");
+    const at = async (bi: number) => {
+      const c = await slidesCore.compileDeckSlide(root, deck, sid);
+      return resolveView(movieManifest, (c.sample(bi).elements.find((e) => e.id === mv.elementId) as FluximgElement).view);
+    };
+    const s1 = await at(1);
+    h.ok(s1.index.t === 8 && JSON.stringify(s1.channels[0].range) === "[0,500]" && s1.channels[0].color === "#00ffff",
+      `the review's repro: step 1 shows the walk (t ${s1.index.t}), the window (${JSON.stringify(s1.channels[0].range)}) AND the new Design colour (${s1.channels[0].color})`);
+    const s3 = await at(3);
+    h.ok(s3.channels[0].color === "#00ffff" && s3.index.t === 8, "…and so do the later steps (step 3: the colour, and step 1's walk held)");
+    h.eq((deck.slides[0].beats[1].tracks.find((t) => t.target === mv.elementId)!.to!.state as { view: unknown }).view, { index: { t: 8 }, channels: [{ range: [0, 500] }] },
+      "the step stores only what it changes (the patch), never the Design colour");
+    // A Design edit of something the step DOES change does not leak into the step.
+    edits.push({ view: { index: { t: 3 }, channels: [{ range: [0, 1000] }] } });
+    await apply(edits[edits.length - 1]);
+    deck = await readDeck("patch");
+    const d0 = await at(0), d1 = await at(1);
+    h.ok(d0.index.t === 3 && d1.index.t === 8 && JSON.stringify(d1.channels[0].range) === "[0,500]" && JSON.stringify(d0.channels[0].range) === "[0,1000]",
+      "a Design edit of what the step changes (the plane, the window) moves Design only: step 1 still shows t 8 and [0,500]");
+    // A step that CLEARS a setting holds: projection off at step 2 while Design has it on.
+    edits.push({ view: { projection: { dim: "t", mode: "max", from: 0, to: 24 } } });
+    await apply(edits[edits.length - 1]);
+    edits.push({ beat: 2, view: { projection: null } });
+    await apply(edits[edits.length - 1]);
+    deck = await readDeck("patch");
+    const p0 = await at(0), p1 = await at(1), p2 = await at(2), p3 = await at(3);
+    h.ok(!!p0.projection && !!p1.projection && p2.projection === null && p3.projection === null,
+      `a step that clears a setting holds: projection on in Design and step 1, off at step 2 and after (${[p0, p1, p2, p3].map((v) => v.projection ? "on" : "off").join(", ")})`);
+    h.eq((deck.slides[0].beats[2].tracks.find((t) => t.target === mv.elementId)!.to!.state as { view: unknown }).view, { projection: null }, "…stored as the patch {projection: null}");
+
+    // Twin engines: the app's capture (the store's adapter: the edited end through ops.setFluximgView, then
+    // slideOps.writeStepState against compile.preState) gives the same deck bytes as the headless verb.
+    const app = structuredClone(start);
+    const appSlide = app.slides[0];
+    const imgOf = (els: Element[]) => els.find((e) => e.id === mv.elementId) as FluximgElement;
+    for (const e of edits) {
+      if (!e.beat) { const proj = deckToProject(app, []); ops.setFluximgView(proj, mv.elementId, e.view as never); appSlide.elements = proj.figures[0].elements; continue; }
+      const compiled = compileSlide(appSlide, app.stage, { fluximgManifest: () => movieManifest });
+      const ends = structuredClone(compiled.sample(e.beat).elements);
+      const proj = { ...deckToProject(app, []) };
+      proj.figures = [{ ...proj.figures[0], elements: ends }];
+      ops.setFluximgView(proj, mv.elementId, e.view as never);
+      slideOps.writeStepState(app, appSlide.id, appSlide.beats[e.beat].id, imgOf(proj.figures[0].elements), compiled.preState(mv.elementId, e.beat) ?? imgOf(appSlide.elements), { fluximgManifest: () => movieManifest });
+    }
+    const norm = (d: Deck) => JSON.stringify(d.slides[0].beats.map((b) => b.tracks.map(({ id: _id, ...t }) => t))) + JSON.stringify(imgOf(d.slides[0].elements));
+    h.eq(norm(app), norm(deck), "twin engines: the app's capture path and the headless verb write the same Changes and the same Design element");
+  }
+
+  // ----------------------------------------------------------------------------------------------------------------
+  h.section("J. headless delete-element on a slide (C6)");
+  {
+    await core.createDeck(root, { id: "del", title: "Del" });
+    const sid = (await slidesCore.loadDeck(root, "del")).slides[0].id;
+    const b1 = (await slidesCore.addBeat(root, "del", sid, {})).beatId;
+    const a = await call("place_image", { figureId: `del/${sid}`, bundlePath: "plots/stack_u16.fluximg" });
+    const keep = await call("place_image", { figureId: `del/${sid}`, bundlePath: "plots/gray2d_u8.fluximg", x: 300 });
+    await call("set_image_view", { id: a.elementId, view: { index: { z: 5 } }, slide: `del/${sid}`, beatId: b1 });
+    // a group of the two and a Ghost birth from the kept image (its copies are born at step 1)
+    await slidesCore.mutateDeck(root, "del", "prep", (d) => {
+      const s = d.slides[0];
+      const beats = s.beats; delete (s as Partial<typeof s>).beats; // the app's key order: groups after the elements
+      s.groups = { g1: { name: "Pair" } } as never; s.beats = beats;
+      for (const e of s.elements) e.groupId = "g1";
+      slideOps.addGhostTransform(d, s.id, b1, keep.elementId, { count: 1 });
+    });
+    const before = await readDeck("del");
+    const ghostId = before.slides[0].beats[1].tracks.find((t) => t.ghostFrom)!.target;
+    const r = await call("delete_elements", { ids: [a.elementId, ghostId] });
+    const after = await readDeck("del");
+    h.eq(r.deleted, [a.elementId, ghostId], "delete-element finds elements on a slide and says what it deleted");
+    h.ok(!after.slides[0].elements.some((e) => e.id === a.elementId || e.id === ghostId), "the image and the Ghost copy are gone from the slide");
+    h.ok(!after.slides[0].beats.some((b) => b.tracks.some((t) => t.ghostFrom && t.target === ghostId)), "the Ghost copy's birth goes with it");
+    h.ok(after.slides[0].beats[1].tracks.some((t) => t.target === a.elementId && t.preset === "transform"), "the image's own Change stays, as in the editor (dangling tracks are never auto-pruned)");
+    // the app's engine: the figure store's Delete (ops.deleteElements over the projected slide) folded back, plus the adapter's birth rule
+    const app = structuredClone(before);
+    const proj = deckToProject(app, app.assets);
+    ops.deleteElements(proj, [a.elementId, ghostId]);
+    const folded = projectIntoDeck(proj, app);
+    const gone = new Set([a.elementId, ghostId]);
+    slideOps.removeTracks(folded, sid, slideOps.orphanedBirths(folded.slides[0], gone));
+    const clock = (t: string) => t.replace(/"modified": "[^"]*"/, '"modified": ""'); // each write point stamps its own clock
+    const appText = clock(await appSave(folded, await diskFiles("del")));
+    h.ok(appText === clock(await fs.readFile(deckFile("del"), "utf8")), "twin engines: the editor's Delete (folded and written by the app's write point) and the headless delete give the same deck bytes");
+    await refuses("delete_elements", { ids: ["no-such-element"] }, /No element "no-such-element" in any figure or slide/, "an id found nowhere is an error, never a false \"deleted\"");
+    const { figureId } = await core.createFigure(root, { id: "fig-del", name: "D", width: 200, height: 100 });
+    const onFig = await call("place_image", { figureId, bundlePath: "plots/gray2d_u8.fluximg" });
+    const r2 = await call("delete_elements", { ids: [onFig.elementId] });
+    h.eq(r2.deleted, [onFig.elementId], "a figure element is still deleted through the figure core");
   }
 } finally {
   await fs.rm(scratch, { recursive: true, force: true });

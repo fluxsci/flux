@@ -48,7 +48,7 @@ import {
 } from "../store";
 import { familyOf } from "./family";
 import { applyDeckSourceUpdates, reconcileDeckExternalAssetSizes } from "./sourceSync";
-import { removeTracks, writeStepState } from "./ops";
+import { orphanedBirths, removeTracks, writeStepState } from "./ops";
 import { compileSlide, evaluateSlideState, type SlideFrame } from "./compile";
 import { plotManifests } from "../plot/store";
 import { scene3dManifests } from '../model3d/store';
@@ -566,7 +566,7 @@ export function registerSlideEditAdapter(onUserEdit?:()=>void): () => void {
       // Design shows the label where it belongs (not where it was until the next edit or save re-solved it)
       if (attachChanged) resolveAttachments(fig.elements.map(e => baselines.get(e.id) ?? structuredClone(e)));
       const surviving = new Set(fig.elements.map(e => e.id));
-      const removedBirths = slide.beats.flatMap(b => b.tracks.filter(t => t.ghostFrom && t.id && previousElements.has(t.target) && !surviving.has(t.target)).map(t => t.id!));
+      const removedBirths = orphanedBirths(slide, new Set([...previousElements.keys()].filter(id => !surviving.has(id))));
       if (removedBirths.length) { removeTracks(o, sid!, removedBirths); changed = true; }
       for (const id of baselines.keys()) if (!surviving.has(id)) {
         baselines.delete(id);

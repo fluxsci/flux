@@ -391,7 +391,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
         const pre = transformPreState(slide, track.target, bi) ?? el;
         const end = transformEndState(pre, track);
         const u = ct.ease.fn(raw);
-        const sampled = arcBox(overshootBox(lerpElement(pre, end, t, raw, { turn: turnOf(track) }), pre, end, u), pre, end, u, track.arc);
+        const sampled = arcBox(overshootBox(lerpElement(pre, end, t, raw, { turn: turnOf(track), ...(el.type === "fluximg" ? { fluximgManifest: opts.fluximgManifest?.(el.assetId) } : {}) }), pre, end, u), pre, end, u, track.arc);
         for (const key of Object.keys(el)) if (!(key in sampled)) delete (el as unknown as Record<string, unknown>)[key];
         Object.assign(el, sampled);
         continue;

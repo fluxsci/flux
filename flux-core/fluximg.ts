@@ -24,6 +24,7 @@ import { clampCrop } from "../src/lib/fluximg/still";
 import { fluximgStillRequest, fluximgSurfaceScale } from "../src/lib/fluximg/exportStatic";
 import { DECK_CANVAS_ID } from "../src/lib/slide/deckProject";
 import * as slideOps from "../src/lib/slide/ops";
+import { transformEndState } from "../src/lib/slide/tween";
 import type { Deck, Slide } from "../src/lib/slide/types";
 import { colormapLut, ensureColormapLuts } from "../src/lib/color/colormapLuts";
 import { loadFigModel, mutateFigModel, requireProject } from "./model";
@@ -452,7 +453,7 @@ export async function setImageView(root: string, elementId: string, patch: unkno
       const track = slide.beats[bi].tracks.find((t) => t.preset === "transform" && t.target === elementId && !t.part && !t.parts && !t.selector);
       if (!track) throw new ValidationError("This step does not change the image: give a view (a plane to walk to) as well, or use a step that does");
       const pre = compiled.preState(elementId, bi) ?? slide.elements.find((e) => e.id === elementId);
-      const end = edits ? ends.find((e) => e.id === elementId) : pre && { ...pre, ...(track.to?.state ?? {}) };
+      const end = edits ? ends.find((e) => e.id === elementId) : pre && transformEndState(pre, track); // the step's view is a patch: the one fold
       if (options.speed !== undefined && pre && end) slideOps.retimeImageWalk(track, pre, end as typeof pre, { fluximgManifest: manifestFor, speed: options.speed, force: true });
       if (options.blend !== undefined) { const p = { ...(track.params ?? {}) }; if (options.blend) p.blend = true; else delete p.blend; if (Object.keys(p).length) track.params = p; else delete track.params; }
       if (track.id && !trackIds.includes(track.id)) trackIds.push(track.id);

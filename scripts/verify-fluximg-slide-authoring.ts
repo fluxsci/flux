@@ -100,6 +100,8 @@ try {
     edit(end);
     return slideOps.writeStepState(d, s.id, s.beats[bi].id, end, pre, opts)!;
   }
+  /** The end of track `t` at step 1 of `d`'s slide (the one fold). */
+  const applyFold = (d: Deck, t: Track) => transformEndState(transformPreState(slideOf(d), t.target, 1)!, t);
   const at = (el: FluximgElement, index: Record<string, number>) => { el.view = { ...(el.view ?? {}), index: { ...(el.view?.index ?? {}), ...index } }; };
   const authored = authoredFields("transform");
 
@@ -151,8 +153,39 @@ try {
     const d = deck(img("a", "stack"));
     const t = capture(d, 1, "a", (e) => { e.view = { channels: [{ range: [100, 2000] }] }; });
     h.eq([t.duration, t.easing, t.params?.pace], [authored.duration, authored.easing, undefined], "a Change that walks nothing keeps the ordinary transform timing (authoredFields)");
+    // C11: the flag is the rule. That Change carries no pace, so a walk added to it later keeps its timing (the pace dial
+    // or Play through pace it); it was paced before by comparing its timing with the defaults.
     const t2 = capture(d, 1, "a", (e) => at(e, { z: 6 }));
-    h.eq([t2.duration, t2.params?.pace], [Math.round(3 / 12 * 1000), 1], "…a walk added later to that still-default Change paces it (the default z is 3: 3 → 6)");
+    h.eq([t2.duration, t2.easing, t2.params?.pace], [authored.duration, authored.easing, undefined], "…a walk added later to that unpaced Change keeps its timing (paced iff params.pace)");
+    const sv = slideOps.walkPace(t2);
+    slideOps.retimeImageWalk(t2, d.slides[0].elements[0], applyFold(d, t2), { fluximgManifest: lookup, speed: 1, force: true });
+    h.eq([sv, t2.duration, t2.params?.pace], [null, Math.round(3 / 12 * 1000), 1], "…and the pace dial (force) sets the flag and paces it");
+  }
+  h.section("A2. the pace flag, both directions (C11)");
+  {
+    // A hand-typed duration EQUAL to the default Change duration is still the author's: the next scrub does not re-pace it.
+    const d = deck(img("a", "stack", { view: { index: { z: 0 } } }));
+    let t = capture(d, 1, "a", (e) => at(e, { z: 6 }));
+    h.ok(t.params?.pace === 1 && t.duration !== authored.duration, "a capture that walks is paced");
+    slideOps.setTrack(d, "s", t.id!, { duration: authored.duration });
+    h.ok(t.params?.pace === undefined && t.duration === authored.duration, `typing the default duration by hand (${authored.duration} ms) drops the flag`);
+    t = capture(d, 1, "a", (e) => at(e, { z: 2 }));
+    h.eq([t.duration, t.params?.pace], [authored.duration, undefined], "…and the next scrub does NOT re-pace it (it did when the rule compared values)");
+    // the curve too: a hand-chosen curve equal to the authored one
+    const d2 = deck(img("a", "stack", { view: { index: { z: 0 } } }));
+    const t2 = capture(d2, 1, "a", (e) => at(e, { z: 6 }));
+    slideOps.setTrack(d2, "s", t2.id!, { duration: authored.duration, easing: authored.easing });
+    slideOps.setTrackCurve(d2, "s", t2.id!, authored.curve ? structuredClone(authored.curve) : "smooth");
+    const t2b = capture(d2, 1, "a", (e) => at(e, { z: 4 }));
+    h.ok(t2b.params?.pace === undefined && t2b.duration === authored.duration, "a hand-set default curve and duration: never re-paced");
+    // setting a pace sets the flag; a paced track follows the walk
+    const d3 = deck(img("a", "stack", { view: { index: { z: 0 } } }));
+    const t3 = capture(d3, 1, "a", (e) => at(e, { z: 6 }));
+    slideOps.setTrack(d3, "s", t3.id!, { duration: 777 });
+    slideOps.retimeImageWalk(t3, d3.slides[0].elements[0], applyFold(d3, t3), { fluximgManifest: lookup, speed: 2, force: true });
+    h.eq([t3.params?.pace, t3.duration], [2, Math.round(6 / 12 * 1000 / 2)], "setting a pace (×2) sets the flag and re-times");
+    const t3b = capture(d3, 1, "a", (e) => at(e, { z: 3 }));
+    h.eq([t3b.params?.pace, t3b.duration], [2, Math.round(3 / 12 * 1000 / 2)], "…and the next scrub follows the walk at that pace");
   }
   {
     const src = await fs.readFile("src/lib/slide/ops.ts", "utf8"), ta = await fs.readFile("src/shell/modes/slide/animator/trackActions.ts", "utf8");
@@ -345,6 +378,16 @@ try {
     await call("set_image_view", { id: placed.elementId, slide: where, beatId: b1, speed: 0.5, blend: true });
     t = (await readDeck()).slides[0].beats[1].tracks.find((x) => x.target === placed.elementId)!;
     h.eq([t.duration, t.params?.pace, t.params?.blend], [500, 0.5, true], "--speed 0.5 --blend (no view): the step's walk re-timed and blended");
+    {
+      // C11 headless: set-track --duration (even the default's own value) drops the pace; set-image-view --speed sets it again.
+      const tid = t.id!;
+      await call("set_track", { deckId: "talk", slideId, trackId: tid, duration: authored.duration });
+      const hand = (await readDeck()).slides[0].beats[1].tracks.find((x) => x.id === tid)!;
+      await call("set_image_view", { id: placed.elementId, view: { index: { t: 22 } }, slide: where, beatId: b1 });
+      const after = (await readDeck()).slides[0].beats[1].tracks.find((x) => x.id === tid)!;
+      h.ok(hand.params?.pace === undefined && after.duration === authored.duration && after.params?.pace === undefined, `set-track --duration ${authored.duration} (the default's value) drops the pace; a later --beat walk keeps the hand timing`);
+      await call("set_image_view", { id: placed.elementId, slide: where, beatId: b1, speed: 0.5, blend: true, view: { index: { t: 20 } } });
+    }
     await refuses("set_image_view", { id: placed.elementId, slide: where, speed: 2 }, /--speed and --blend time a step/, "--speed without --beat is refused");
     await refuses("set_image_view", { id: placed.elementId, slide: where, beatId: b2, blend: true }, /does not change the image/, "--blend on a step that does not change it is refused");
     await refuses("set_image_view", { id: placed.elementId, slide: where, beatId: b1, speed: 40 }, /at most 16/, "a speed past 16 is refused");

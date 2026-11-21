@@ -1,12 +1,5 @@
 /** Placement policy for fluximg (pure; shared by both engines). */
 
-/**
- * Stage 2 admits images onto slides (a deck refers to the project's bundle by id). What has not caught up yet is the
- * EXPORT of a deck holding one (stills and clips are a later package): the export payload warns with this text and
- * the exported slide draws the stand-in. The name is kept for that one remaining use.
- */
-export const FLUXIMG_NOT_IN_SLIDES = "N-dimensional images (fluximg) are not in exported decks yet: an exported slide shows a placeholder in their place.";
-
 /** True for a fluximg element (structural, so deck element unions without the kind can use it too). */
 export const isFluximgElement = (el: { type: string }): boolean => el.type === "fluximg";
 

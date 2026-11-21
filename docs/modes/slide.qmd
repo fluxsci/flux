@@ -909,6 +909,10 @@ walks the frames there; drag a contrast handle and the window glides; zoom the f
 slide zooms in; switch a layer off and it fades. Each gesture is one undo step. Planes step one
 by one; they are never blended unless you ask for it.
 
+A step keeps only what it changes. Give the image a new colour or contrast in Design later, and
+every step that does not change that same setting shows it too; a step that walks the frames keeps
+walking them, in the new colour.
+
 A walk through planes is timed by the data: a time axis plays in real time, anything else at
 12 planes a second. The board's step card (beside its console, on a slide only) says what the
 step does and holds the keys for it:

@@ -41,24 +41,80 @@ import { commitDeckLive, currentDeck, selectSlide } from "./store";
 import { slideAnimStyles } from "./resolve";
 import { underRoot } from "./payload";
 import { slideAssetIds, slideDefaultBackground } from "./deckProject";
+import { deckSchemaFor, compareSchema } from "./schemaStamp";
+import { DECK_ATTACH_SCHEMA_VERSION, DECK_SCHEMA_VERSION, type Deck } from "./types";
+import { isNewerSchema, newerSchemaMessage, joinPath } from "../project/types";
+import { fluximgResolvedAsset } from "../fluximg/place";
+import type { FluximgManifest } from "../fluximg/types";
+import type { Asset } from "../types";
 
 export interface SlidePresetEntry {
   rel: string;
   preset: SlidePresetSnapshot;
+  /** Set when this build cannot insert it (written by a newer Flux): the words to show; insert refuses with them. */
+  refusal?: string;
 }
 
-function sane(list: unknown): SlidePresetEntry[] {
+/**
+ * How a slide preset is stamped (C5): the content-derived minimum the deck stamps use (`deckSchemaFor` over the slide and
+ * its styles). A slide a fluxPreset-1 reader holds whole (format up to 0.7.0, every build that ever read presets) stays
+ * `fluxPreset: 1` with no stamp, byte for byte as before; one that needs more (an image: an older build's fold drops the
+ * kind) is `fluxPreset: 2` with its `schemaVersion`, which those builds never list, so they can never insert it short.
+ */
+export function slidePresetStamp(slide: SlidePresetSnapshot["slide"], animStyles: SlidePresetSnapshot["animStyles"] = []): Pick<SlidePresetSnapshot, "fluxPreset" | "schemaVersion"> {
+  const v = deckSchemaFor({ slides: [slide], animStyles, assets: [] } as unknown as Deck);
+  return compareSchema(v, DECK_ATTACH_SCHEMA_VERSION) > 0 ? { fluxPreset: 2, schemaVersion: v } : { fluxPreset: 1 };
+}
+
+/** The presets of a library listing this build can show: version 1, version 2 whose format it reads, and (listed, but
+ *  refused at insert with the "newer Flux" words) a later version or format. Anything else is skipped. */
+export function slidePresetEntries(list: unknown): SlidePresetEntry[] {
   if (!Array.isArray(list)) return [];
   const out: SlidePresetEntry[] = [];
   for (const it of list) {
     const e = it as { rel?: unknown; payload?: unknown };
     if (!e || typeof e.rel !== "string") continue;
     const p = e.payload as SlidePresetSnapshot | undefined;
-    if (!p || p.fluxPreset !== 1 || p.kind !== "slide" || typeof p.name !== "string") continue;
+    if (!p || typeof p.fluxPreset !== "number" || p.fluxPreset < 1 || p.kind !== "slide" || typeof p.name !== "string") continue;
     if (!p.slide || !Array.isArray(p.slide.elements)) continue;
-    out.push({ rel: e.rel, preset: p });
+    const format = p.fluxPreset === 1 ? null : typeof p.schemaVersion === "string" ? p.schemaVersion : `preset ${p.fluxPreset}`;
+    const newer = p.fluxPreset > 2 || (format !== null && isNewerSchema(format, DECK_SCHEMA_VERSION)) || (p.fluxPreset === 2 && typeof p.schemaVersion !== "string");
+    out.push({ rel: e.rel, preset: p, ...(newer ? { refusal: newerSchemaMessage(`The slide preset "${p.name}"`, format, DECK_SCHEMA_VERSION) } : {}) });
   }
   return out.sort((a, b) => a.rel.localeCompare(b.rel));
+}
+const sane = slidePresetEntries;
+
+/** Read an image bundle's manifest from this project (`fig/assets/<id>.fluximg`), or null when it is not there. */
+async function projectBundleManifest(root: string, assetId: string): Promise<FluximgManifest | null> {
+  const fb = fileBridge();
+  if (!root || !fb) return null;
+  const bundle = `fig/assets/${assetId}.fluximg`;
+  try {
+    const text = fb.readFluximg
+      ? new TextDecoder().decode(await fb.readFluximg({ root, bundle, path: "fluximg.json", offset: 0, length: -1 }))
+      : await fb.readText(joinPath(root, bundle, "fluximg.json"));
+    const m = JSON.parse(text) as FluximgManifest;
+    return m?.spec === "fluximg/1" ? m : null;
+  } catch { return null; }
+}
+
+/**
+ * The images a preset's slide holds, resolved in THIS project: a bundle is project-level (never embedded), so an image
+ * is insertable only where its bundle is. Registered already: nothing to do; in `fig/assets` but not loaded: its record,
+ * to register with the insert; nowhere: a refusal naming the image (never a grey stand-in).
+ */
+export async function presetImagesHere(snap: SlidePresetSnapshot, root: string, registered: readonly Asset[]): Promise<{ add: Asset[]; missing: string[] }> {
+  const add: Asset[] = [], missing: string[] = [], seen = new Set<string>();
+  for (const el of snap.slide.elements) {
+    if (el.type !== "fluximg" || seen.has(el.assetId)) continue;
+    seen.add(el.assetId);
+    if (registered.some((a) => a.id === el.assetId && a.kind === "fluximg")) continue;
+    const m = await projectBundleManifest(root, el.assetId);
+    if (m) add.push(fluximgResolvedAsset(el.assetId, m, el.source?.sha256));
+    else missing.push(el.name || el.source?.bundlePath?.split("/").pop() || el.assetId);
+  }
+  return { add, missing };
 }
 
 export async function listSlidePresets(): Promise<SlidePresetEntry[]> {
@@ -156,8 +212,9 @@ export async function saveSlidePreset(
     catch (error) { const reason = errMsg(error); if (!previewIssues.includes(reason)) previewIssues.push(reason); }
   }
   const baseName = rel.replace(/\.json$/i, "").split("/").pop() || "slide";
+  const styles = slideAnimStyles(slide, deck);
   const snap: SlidePresetSnapshot = {
-    fluxPreset: 1,
+    ...slidePresetStamp(slide, styles),
     kind: "slide",
     name: baseName,
     savedAt: new Date().toISOString(),
@@ -165,7 +222,7 @@ export async function saveSlidePreset(
     thumbBackground: slide.background ?? slideDefaultBackground(deck),
     ...(Object.keys(modelPosters).length ? { modelPosters } : {}),
     slide: structuredClone(slide),
-    animStyles: slideAnimStyles(slide, deck),
+    animStyles: styles,
     ...(assets.length ? { assets } : {}),
   };
   const ok = await fileBridge()?.writeSlideLibrary?.(rel, snap);
@@ -176,9 +233,17 @@ export async function saveSlidePreset(
  *  register the embedded asset bytes under their remapped ids, and select the
  *  new slide. Returns the new slide id (null = no deck loaded). */
 export async function insertSlidePreset(entry: SlidePresetEntry, afterSlideId?: Id | null): Promise<Id | null> {
+  if (entry.refusal) throw new Error(entry.refusal);
   let snap = entry.preset;
   const deckNow = currentDeck();
   if (!deckNow) return null;
+  // Images: their bundles live in a project, never in the preset. Refuse, naming them, where they are not.
+  const images = snap.slide.elements.some((e) => e.type === "fluximg")
+    ? await presetImagesHere(snap, get(embeddedProjectRoot) ?? "", get(project).assets) : { add: [], missing: [] };
+  if (images.missing.length) {
+    const names = images.missing.map((n) => `"${n}"`).join(", ");
+    throw new Error(`This preset shows ${images.missing.length === 1 ? "the image" : "the images"} ${names}, which ${images.missing.length === 1 ? "is" : "are"} not in this project: an image's data stays in the project it was placed in. Place ${images.missing.length === 1 ? "it" : "them"} here first, or insert the preset in that project.`);
+  }
   const idx = afterSlideId ? deckNow.slides.findIndex((s) => s.id === afterSlideId) : -1;
   const at = idx >= 0 ? idx + 1 : undefined;
   const capturedRoot = get(embeddedProjectRoot), root = capturedRoot ?? "";
@@ -190,7 +255,8 @@ export async function insertSlidePreset(entry: SlidePresetEntry, afterSlideId?: 
   try {
     if (!current()) throw new Error("The destination deck changed");
     res = commitDeckLive(d => {
-      d.assets.push(...prepared.assets);
+      // an image bundle found in fig/assets is registered with the insert (the projected project holds a deck's images)
+      d.assets.push(...prepared.assets, ...images.add);
       return slideOps.insertSlideSnapshot(d, snap, { at });
     });
   } catch (error) { await prepared.discard(); throw error; }

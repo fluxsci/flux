@@ -26,6 +26,7 @@ import { attachFromArgs, attachProblem, settleAttachments, type AttachArgs } fro
 import { buildScaffoldTree } from "../src/lib/project/scaffoldTree";
 import * as fluxlib from "./fluxlib";
 import { atomicWrite } from "./fsx";
+import { NotFoundError } from "./errors";
 import { j } from "./journal";
 import {
   safeJoin,
@@ -938,10 +939,27 @@ export async function saveGlobalTextStyle(style: TextStyle): Promise<void> {
 // wrong panel, align a column, group, etc. Thin mutateFigModel wrappers. ---
 
 /** delete elements by id (across the active figures). */
-export async function deleteElements(root: string, ids: string[]): Promise<void> {
-  await mutateFigModel(root, "delete", ({ project }) => {
-    ops.deleteElements(project, ids);
-  });
+/** Delete elements by id from whatever figure or slide holds them: figures through the figure core, slides through
+ *  `slideOps.deleteSlideElements` (exactly the editor's Delete on a slide). An id found nowhere is an error naming it
+ *  (after the others are deleted): it never reports a delete that did not happen. */
+export async function deleteElements(root: string, ids: string[]): Promise<{ deleted: string[] }> {
+  const want = new Set(ids);
+  const { project } = await loadFigModel(root);
+  const onFigures = new Set(project.figures.flatMap((f) => f.elements.filter((e) => want.has(e.id)).map((e) => e.id)));
+  if (onFigures.size) await mutateFigModel(root, "delete", ({ project }) => { ops.deleteElements(project, [...onFigures]); });
+  const deleted = new Set(onFigures);
+  const rest = ids.filter((id) => !deleted.has(id));
+  if (rest.length) {
+    const { listDecks, loadDeck, mutateDeck } = await import("./slides");
+    for (const d of await listDecks(root)) {
+      const deck = await loadDeck(root, d.id).catch(() => null);
+      if (!deck?.slides.some((s) => s.elements.some((e) => rest.includes(e.id)))) continue;
+      for (const id of await mutateDeck(root, d.id, "delete", (dk) => slideOps.deleteSlideElements(dk, rest))) deleted.add(id);
+    }
+  }
+  const missing = ids.filter((id) => !deleted.has(id));
+  if (missing.length) throw new NotFoundError(`No element ${missing.map((id) => `"${id}"`).join(", ")} in any figure or slide${deleted.size ? ` (deleted: ${[...deleted].join(", ")})` : ""}`);
+  return { deleted: ids.filter((id) => deleted.has(id)) };
 }
 
 /** delete a whole figure. Returns the id the GUI would activate next.

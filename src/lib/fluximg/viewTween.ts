@@ -2,8 +2,9 @@
  * The tween of an image's view between two states of a slide (stage 2: fluximg in Slides).
  *
  * A placed image stores how it is shown as numbers (`view.ts`), so a slide step that changes any of them is a
- * Change like any other: `to.state` holds the end's `view` and `crop`, and this module says what every frame in
- * between shows. It is the ONE definition: the slide tween core (`slide/tween.ts`), the compiler, the player's
+ * Change like any other: `to.state.view` is a PATCH over the view before the step (`viewOps.viewPatch`, merged by the
+ * one fold `slide/tween.applyState`), `to.state.crop` the end's crop, and this module says what every frame between
+ * the two resulting views shows. It is the ONE definition: the slide tween core (`slide/tween.ts`), the compiler, the player's
  * live surface, the export bakers and flux-core all call it. Pure: no DOM, no service, no Svelte, no Node.
  *
  * THE LAW (owner-approved plan, feature 10: "Time, depth, contrast, crop and layer opacity all animate. Planes
@@ -616,6 +617,33 @@ function overlayChanges(A: ResolvedView, B: ResolvedView, lyPlans: PartPlan[], o
 }
 
 // ---------------------------------------------------------------------------------------------
+// One moment as one picture (a slide sampled between two steps)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * A frame as the ONE picture a still of that moment shows: the overlay picture (`a`, or `b` from raw 0.5 on when the
+ * frame has two), with each furniture piece that is fading shown while its opacity is at least one half. Shared,
+ * read-only.
+ */
+export function framePicture(frame: ViewTweenFrame): TweenPicture {
+  const p = frame.overlay, fades = Object.entries(frame.furnitureOpacity) as Array<[keyof ResolvedFurniture, number | undefined]>;
+  if (!fades.some(([, o]) => (o ?? 1) < 0.5)) return p;
+  const furniture = { ...p.view.furniture } as Record<string, unknown>;
+  for (const [k, o] of fades) if ((o ?? 1) < 0.5) furniture[k] = false;
+  return { view: { ...p.view, furniture: furniture as unknown as ResolvedFurniture }, crop: p.crop };
+}
+
+/**
+ * The image of a slide sampled between two steps (`slide/tween.lerpElement` with the image's manifest, and through it
+ * `compile.sample`): `framePicture(planViewTween(manifest, pre, end).frame(t, raw))`, i.e. exactly what the player draws
+ * at that moment, in one picture. Callers with no manifest fall back to the sparse recipe (`lerpFluximgView`), which
+ * agrees wherever both ends state a field.
+ */
+export function sampleViewTween(manifest: FluximgManifest, pre: ViewEnd, end: ViewEnd, t: number, raw: number): TweenPicture {
+  return framePicture(planViewTween(manifest, pre, end).frame(t, raw));
+}
+
+// ---------------------------------------------------------------------------------------------
 // The sparse recipe form
 // ---------------------------------------------------------------------------------------------
 
@@ -666,8 +694,10 @@ const LAYER_L = { opacity: unitL, fillOpacity: unitL, strokeWidth: nonNegL, colo
 const PIECE_L = { length: posL, thickness: posL, fontSize: posL, color: colourL };
 
 /**
- * The same tween as a sparse RECIPE, for callers that hold no manifest (`slide/tween.lerpElement`, and through it
- * `compile.sample`). Numbers present at both ends lerp, plane positions present at both ends step by law 2,
+ * The same tween as a sparse RECIPE, the documented FALLBACK for callers that hold no manifest (`slide/tween.lerpElement`
+ * without one: `compile.sample` of a compile given no `fluximgManifest`; every surface that draws an image's pixels has
+ * the manifest, so none of them reaches this). Without the manifest a key present at one end only cannot be resolved to
+ * its default, so there it steps at `raw` 0.5 where the player glides. Numbers present at both ends lerp, plane positions present at both ends step by law 2,
  * colours present at both ends lerp, everything else steps at `raw` 0.5. Exact ends (law 4). Returns undefined
  * for "no view" (the default view).
  *

@@ -98,7 +98,7 @@ flux animate-like <deck> <slideId> --from t1 --to t2,t3 [--beat beatId] # (anima
 flux set-track <deck> <slideId> <trackId> [--style id | --no-style]
      [--anchor t1:start|end[:offsetMs] | --no-anchor] [--start ms --duration ms --curve grammar] # (set_track)
      [--stagger-each ms | --stagger-total ms] [--stagger-curve token|spring|bezier|steps]
-     [--stagger-from start|end|center|edges|random] [--stagger-by index|x|y|value|count|data-index|radial] [--stagger-origin x,y] [--stagger-spacing even|true] [--seed uint32]
+     [--stagger-from start|end|center|edges|random] [--stagger-by index|x|y|value|count|data-index|radial|column:<name>] [--stagger-origin x,y] [--stagger-spacing even|true] [--seed uint32]
 flux align-tracks <deck> <slideId> --tracks t1,t2 --edge start|end --to ms|t3[:start|end]
      [--beat beatId|index] [--resize]                             # (align_tracks) Alt+A / Alt+D: land resolved edges on a time/edge
 flux inherit-track <deck> <slideId> --from t1 --to t2,t3 [--beat beatId|index] [--include-start] # (inherit_track) exact animation of t1
@@ -518,6 +518,35 @@ copies have independent playback commands; Ghost transforms are unavailable for 
 Portable HTML includes video/audio. `export-slide-video` includes decoded moving frames
 and unmuted audio, waits for the final active non-looping clip, and bounds loops to the
 export timeline. For another deck import the clip again or use a portable whole-slide preset.
+
+## Images (fluximg)
+
+An N-dimensional image (a `.fluximg` bundle, PROJECT-AND-FIGURES.md "Image panels") goes on a slide
+like on a figure; its view is numbers, so a step that changes it is an ordinary Change:
+
+```sh
+flux place-image <deck>/<slideId> plots/stack.fluximg --width 480          # Design view: --view '<json>' or set-image-view below
+flux set-image-view <elId> --slide <deck>/<slideId> --view '{"channels":[{"color":"#00ffff"}]}'   # Design
+flux set-image-view <elId> --slide <deck>/<slideId> --beat <beatId> --view '{"index":{"t":120}}' [--speed 2] [--blend true]
+flux set-image-view <elId> --slide <deck>/<slideId> --playback '{"dim":"t","mode":"loop"}'      # how it plays as a movie
+flux set-video-track <deck> <slideId> <beatId> <elId> start                 # start|pause|stop the movie at that step
+```
+
+- `--beat` makes the edit that step's Change, as "Edit after step" does in the app. The step stores a
+  **patch** over the view before it (only what the step changes), so a later Design edit of anything
+  else (a colour, another channel's window) shows at every step too. `null` in the patch clears a
+  setting at that step (`{"projection":null}`).
+- Planes step (never blended unless `--blend true`); numbers glide. A walk of planes is timed at the
+  data's own pace (a time axis in real time) times `--speed`; a duration typed by hand
+  (`set-track --duration`) keeps the hand timing from then on.
+- An image's objects are parts: `layer:<layerId>` (the whole layer) or `<layerId>/<key>` (one
+  object), for `set-animation --target <elId> --part …` (fade them in one by one). Order a stagger over them by a column of
+  the layer's table with `set-track --stagger-by column:<name>`.
+- `become … --pair key` hands objects over to plot series (or other objects) whose name or id equals
+  their key; unmatched members fade.
+- `delete-element <elId>` takes an image (or any element) off its slide.
+- Exports carry each step's still and, with the video encoder, one clip per Change that moves pixels;
+  PDF and PPTX show the still.
 
 ## Present + export
 

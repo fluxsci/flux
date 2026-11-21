@@ -57,6 +57,12 @@ export const partIndexFromTexts: K["partIndexFromTexts"] = (...a) => need().part
 export const checkMergedView: K["checkMergedView"] = (...a) => need().checkMergedView(...a);
 export const checkViewPatch: K["checkViewPatch"] = (...a) => need().checkViewPatch(...a);
 export const lerpFluximgView: K["lerpFluximgView"] = (...a) => need().lerpFluximgView(...a);
+// a step's view as a patch over the view before it (the tween core's applyState / diffState, on an image only)
+export const patchView: K["patchView"] = (...a) => need().patchView(...a);
+export const viewPatch: K["viewPatch"] = (...a) => need().viewPatch(...a);
+export const isEmptyViewPatch: K["isEmptyViewPatch"] = (...a) => need().isEmptyViewPatch(...a);
+export const explicitView: K["explicitView"] = (...a) => need().explicitView(...a);
+export const sampleViewTween: K["sampleViewTween"] = (...a) => need().sampleViewTween(...a);
 export const planViewTween: K["planViewTween"] = (...a) => need().planViewTween(...a);
 export const insetsOf: K["insetsOf"] = (...a) => need().insetsOf(...a);
 export const clampCrop: K["clampCrop"] = (...a) => need().clampCrop(...a);

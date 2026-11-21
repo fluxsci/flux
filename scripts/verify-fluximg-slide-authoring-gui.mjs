@@ -35,6 +35,14 @@ const scratch = mkdtempSync(path.join(tmpdir(), "fx-authoring-gui-"));
   await writeFixture(scratch, { name: "tz_u16", about: "time and depth", dims: ["t", "c", "z", "y", "x"], shape: [T, C, Z, Hh, Ww], dtype: "uint16", data: d, expectEncoding: "exact",
     input: { axes: { t: { unit: "s", scale: 0.5 }, z: { unit: "µm", scale: 1.5 }, y: { unit: "µm", scale: 0.3 }, x: { unit: "µm", scale: 0.3 } }, channels: [{ name: "a", color: "#ff00ff" }, { name: "b", color: "#00ff00" }] } });
 }
+{
+  // The same image re-exported with fewer time frames (4): "Update from source" on a slide (B3).
+  const T = 4, C = 2, Z = 5, Hh = 36, Ww = 48, d = new Uint16Array(T * C * Z * Hh * Ww);
+  let k = 0;
+  for (let t = 0; t < T; t++) for (let c = 0; c < C; c++) for (let z = 0; z < Z; z++) for (let y = 0; y < Hh; y++) for (let x = 0; x < Ww; x++) d[k++] = 200 + ((x * (c + 2) * 7 + y * 3 + t * 90 + z * 60) % 1100);
+  await writeFixture(scratch, { name: "tz4_u16", about: "time and depth, re-exported shorter", dims: ["t", "c", "z", "y", "x"], shape: [T, C, Z, Hh, Ww], dtype: "uint16", data: d, expectEncoding: "exact",
+    input: { axes: { t: { unit: "s", scale: 0.5 }, z: { unit: "µm", scale: 1.5 }, y: { unit: "µm", scale: 0.3 }, x: { unit: "µm", scale: 0.3 } }, channels: [{ name: "a", color: "#ff00ff" }, { name: "b", color: "#00ff00" }] } });
+}
 function bundleFiles(name) {
   const root = path.join(scratch, `${name}.fluximg`), out = {};
   const walk = (d) => { for (const n of readdirSync(d)) { const p = path.join(d, n); if (statSync(p).isDirectory()) walk(p); else out[path.relative(root, p).split(path.sep).join("/")] = readFileSync(p).toString("base64"); } };
@@ -42,6 +50,26 @@ function bundleFiles(name) {
   return out;
 }
 
+
+/** The same edits through flux-core's verbs on a scratch project holding the same bundle: the deck slide they produce. */
+async function headlessTwin(edits) {
+  const { z } = await import("zod");
+  const { VERBS } = await import("../flux-core/registry");
+  const core = await import("../flux-core/index");
+  const slidesCore = await import("../flux-core/slides");
+  const root = path.join(scratch, "twin");
+  await core.scaffold(root, { title: "twin" });
+  const fsx = await import("node:fs/promises");
+  await fsx.cp(path.join(scratch, "tz_u16.fluximg"), path.join(root, "plots/tz.fluximg"), { recursive: true });
+  const call = async (name, args) => { const v = VERBS.find((x) => x.name === name); return v.handler({ root, transport: "mcp" }, z.object(v.params).parse(args)); };
+  await core.createDeck(root, { id: "twin", title: "Twin" });
+  const sid = (await slidesCore.loadDeck(root, "twin")).slides[0].id, beats = [];
+  for (let i = 0; i < 2; i++) beats.push((await slidesCore.addBeat(root, "twin", sid, {})).beatId);
+  const placed = await call("place_image", { figureId: `twin/${sid}`, bundlePath: "plots/tz.fluximg" });
+  for (const e of edits) await call("set_image_view", { id: placed.elementId, view: e.view, slide: `twin/${sid}`, ...(e.beat ? { beatId: beats[e.beat - 1] } : {}) });
+  const deck = JSON.parse(await fsx.readFile(path.join(root, "slides/twin/deck.json"), "utf8"));
+  return { slide: deck.slides[0], id: placed.elementId };
+}
 const { browser, page } = await launch({ width: 1500, height: 960 });
 const errs = realErrors(page);
 const F = (fn, arg) => page.evaluate(fn, arg);
@@ -292,6 +320,90 @@ try {
   h.ok(await F(() => !!document.querySelector(".props select[aria-label='Movie mode']")), "the movie command's Properties show its mode, speed, range and dimension");
 
   // ------------------------------------------------------------------------------------------------------------
+  h.section("a step's view is a patch: a Design edit made later carries through the step (B2), board + Inspector");
+  {
+    const insp = (s) => `.rail ${s}`;
+    const typeField = async (selector, text) => {
+      const input = await page.$(insp(selector));
+      if (!input) throw new Error(`no field ${selector}`);
+      await input.click({ clickCount: 3 });
+      await page.keyboard.down("Control"); await page.keyboard.press("KeyA"); await page.keyboard.up("Control");
+      await page.keyboard.type(text); await page.keyboard.press("Enter");
+      await sleep(150);
+    };
+    const BLACK0 = '[data-fluximg-channel="0"] .three label:nth-child(1) input';
+    const setColour0 = async (hex) => {
+      await page.click(insp('[data-fluximg-channel="0"] .swatch'));
+
+      const field = await page.waitForSelector('[role="dialog"] input[aria-label="Hex colour"]', { timeout: 3000 });
+      await field.click();
+      await page.keyboard.down("Control"); await page.keyboard.press("KeyA"); await page.keyboard.up("Control");
+      await page.keyboard.type(hex); await page.keyboard.press("Enter");
+      await page.click('[role="dialog"] button[aria-label="Done"]').catch(() => {});
+      await sleep(150);
+    };
+    const at = async (bi) => { await F((bi) => { const f = window.__flux; if (bi === 0) f.slide.setEditDestination({ kind: "design" }); else f.slide.editAfterBeat(bi); f.slide.activeBeat.set(bi); }, bi); await waitForFrame(page); await sleep(120); return (await shownEl(IMG)).view ?? {}; };
+    // a clean slate: no tracks, Design as placed
+    await F(() => window.__flux.fluximg.live.closeFluximgLive());
+    await F((id) => { const f = window.__flux, sid = f.get(f.fig.activeFigureId); f.slide.commitDeckLive((d) => { const s = d.slides.find((x) => x.id === sid); for (const b of s.beats) b.tracks = []; const e = s.elements.find((x) => x.id === id); delete e.view; delete e.playback; }); f.fig.resetHistory(); }, IMG);
+    // Step 1: the board walks t (a wheel run), the Inspector sets channel 1's black point.
+    await at(1);
+    await F(() => document.activeElement?.blur?.());
+    await F((id) => window.__flux.fluximg.live.openFluximgLive(id), IMG);
+    await waitFor(page, () => !!document.querySelector("[data-fxb-step]") && !!document.querySelector("[data-fluximg-live]"), null, { label: "the board open at step 1", timeout: 10000 });
+    const tStart = await idx("t");
+    await wheel(img.cx, img.cy, 100, 3); await settled();
+    await press("Escape"); await F(() => window.__flux.fluximg.live.closeFluximgLive());
+    await F((id) => window.__flux.fig.selectOnly(id), IMG); await waitForFrame(page);
+    await F(() => [...document.querySelectorAll(".inspector-tabs button")].find((b) => b.textContent.trim() === "Object")?.click());
+    await page.waitForSelector(insp(BLACK0), { timeout: 5000 });
+    await typeField(BLACK0, "500");
+    const patch1 = (await changeAt(1, IMG))?.to.state.view;
+    h.ok(patch1?.index?.t === tStart + 3 && patch1?.channels?.[0]?.range?.[0] === 500 && patch1?.channels?.[0]?.color === undefined,
+      `step 1 (board walk + Inspector window) stores the patch ${JSON.stringify(patch1)}`);
+    // Design: the Inspector changes channel 1's colour.
+    await at(0);
+    await F((id) => window.__flux.fig.selectOnly(id), IMG); await waitForFrame(page);
+    const p0 = await past(), bytes0 = await deckBytes();
+    await setColour0("#00ffff");
+    h.eq((await designOf(IMG)).view?.channels?.[0]?.color, "#00ffff", "the Inspector's colour lands on Design");
+    h.eq(await past(), p0 + 1, "…as one undo step");
+    const bytes1 = await deckBytes();
+    let v1 = await at(1), v2 = await at(2);
+    h.ok(v1.index?.t === tStart + 3 && v1.channels?.[0]?.range?.[0] === 500 && v1.channels?.[0]?.color === "#00ffff",
+      `the review's repro, in the app: step 1 shows the walk (t ${v1.index?.t}), the window (${v1.channels?.[0]?.range?.[0]}) AND the Design colour (${v1.channels?.[0]?.color})`);
+    h.ok(v2.channels?.[0]?.color === "#00ffff" && v2.index?.t === tStart + 3, "…and so does step 2");
+    await press("z", ["Control"]);
+    h.ok((await deckBytes()) === bytes0 && (await at(1)).channels?.[0]?.color !== "#00ffff", "undo is exact: the deck's bytes as before the colour, and step 1 without it");
+    await press("z", ["Control", "Shift"]);
+    h.ok((await deckBytes()) === bytes1 && (await at(1)).channels?.[0]?.color === "#00ffff", "redo is exact");
+    // A Design edit of what the step changes does not leak into the step.
+    await at(0); await F((id) => window.__flux.fig.selectOnly(id), IMG); await waitForFrame(page);
+    await typeField(BLACK0, "300");
+    v1 = await at(1);
+    h.ok((await designOf(IMG)).view?.channels?.[0]?.range?.[0] === 300 && v1.channels?.[0]?.range?.[0] === 500, "a Design edit of the black point the step sets moves Design only (step 1 keeps 500)");
+    // A step that clears a setting holds: projection on in Design, off at step 2.
+    await at(0); await F((id) => window.__flux.fig.selectOnly(id), IMG); await waitForFrame(page);
+    await page.select(insp("[data-fluximg-projection]"), "max"); await sleep(150);
+    await at(2); await F((id) => window.__flux.fig.selectOnly(id), IMG); await waitForFrame(page);
+    await page.select(insp("[data-fluximg-projection]"), ""); await sleep(150);
+    const pr = [await at(0), await at(1), await at(2)].map((v) => !!v.projection);
+    h.eq(pr, [true, true, false], "a step that clears a setting holds: projection on in Design and step 1, off at step 2");
+    h.eq((await changeAt(2, IMG))?.to.state.view, { projection: null }, "…stored as the patch {projection: null}");
+    // Twin engines: the same edits through the headless verbs give the same Changes and Design.
+    const gui = await authored();
+    const twin = await headlessTwin([
+      { beat: 1, view: { index: { t: tStart + 3 } } }, { beat: 1, view: { channels: [{ range: [500, patch1.channels[0].range[1]] }] } },
+      { view: { channels: [{ color: "#00ffff" }] } }, { view: { channels: [{ range: [300, (await designOf(IMG)).view.channels[0].range[1]] }] } },
+      { view: { projection: (await designOf(IMG)).view.projection } }, { beat: 2, view: { projection: null } },
+    ]);
+    const norm = (slide, id) => JSON.stringify({ design: slide.elements.find((e) => e.id === id).view ?? null, steps: slide.beats.map((b) => b.tracks.filter((t) => t.target === id).map(({ id: _i, target: _t, ...t }) => t)) });
+    h.eq(norm(twin.slide, twin.id), norm(gui, IMG), "twin engines: the headless verbs write the same Design view and the same Changes as the board and the Inspector");
+    await at(0);
+    await F((id) => { const f = window.__flux, sid = f.get(f.fig.activeFigureId); f.slide.commitDeckLive((d) => { const s = d.slides.find((x) => x.id === sid); for (const b of s.beats) b.tracks = []; delete s.elements.find((x) => x.id === id).view; }); }, IMG);
+  }
+
+  // ------------------------------------------------------------------------------------------------------------
   h.section("the player: a started movie runs on its own while the slide rests, and costs nothing once stopped");
   await F((id) => { const f = window.__flux, sid = f.get(f.fig.activeFigureId);
     f.slide.commitDeckLive((d) => { const s = d.slides.find((x) => x.id === sid); s.beats[1].tracks = [{ id: "mv", target: id, preset: "videoStart", duration: 0, start: 0 }]; s.beats[2].tracks = [];
@@ -313,6 +425,71 @@ try {
   await sleep(200);
   const r2 = await F(() => window.__mvRaf); await sleep(500);
   h.eq((await F(() => window.__mvRaf)) - r2, 0, "stopped: no animation frame any more");
+
+  // ------------------------------------------------------------------------------------------------------------
+  h.section("Delete on a slide: the editor's key and the headless delete-element agree (C6)");
+  {
+    const slideOps = await import("../src/lib/slide/ops.ts");
+    await F((id) => { const f = window.__flux, sid = f.get(f.fig.activeFigureId);
+      f.slide.commitDeckLive((d) => { const s = d.slides.find((x) => x.id === sid); s.beats[1].tracks = [{ id: "w1", target: id, preset: "transform", duration: 800, to: { state: { view: { index: { t: 5 } } } } }]; s.beats[2].tracks = []; });
+      f.slide.setEditDestination({ kind: "design" }); f.slide.activeBeat.set(0); }, IMG);
+    await waitForFrame(page);
+    const snapshot = await F(() => structuredClone(window.__flux.slide.currentDeck()));
+    await F(() => document.activeElement?.blur?.());
+    await F((id) => window.__flux.fig.selectOnly(id), IMG);
+    const r = await box(`[data-editor-element-id="${IMG}"]`);
+    if (r) await page.mouse.move(r.cx, r.cy);
+    await press("Delete");
+    await waitFor(page, (id) => !window.__flux.slide.currentDeck().slides.some((s) => s.elements.some((e) => e.id === id)), IMG, { label: "the image deleted", timeout: 3000 });
+    const gui = await F(() => structuredClone(window.__flux.slide.currentDeck()));
+    const deleted = slideOps.deleteSlideElements(snapshot, [IMG]);
+    h.eq(deleted, [IMG], "deleteSlideElements (what delete-element runs) deletes the image from its slide");
+    h.eq(JSON.stringify(snapshot.slides), JSON.stringify(gui.slides), "twin engines: the editor's Delete and the headless op leave the same slides (the image's Change stays, as a dangling track)");
+  }
+
+  // ------------------------------------------------------------------------------------------------------------
+  h.section("Update from source on a slide, through the Inspector (B3)");
+  {
+    const SRC = await F(async () => {
+      const f = window.__flux, root = f.get(f.fig.embeddedProjectRoot) ?? f.get(f.fig.projectDir), sid = f.get(f.fig.activeFigureId);
+      const assetId = f.fluximg.place.fluximgAssetId("tz", "src");
+      const result = await window.fig.importFluximg({ root, sourcePath: "plots/tz.fluximg", assetId });
+      const asset = f.fluximg.place.fluximgAsset(assetId, result, "plots/tz.fluximg");
+      let id;
+      f.fig.commit((p) => { const s = p.figures.find((x) => x.id === sid); id = f.ops.addFluximg(p, { figureId: sid, asset, x: 60, y: 60, width: 200, source: { bundlePath: "plots/tz.fluximg", sha256: asset.sha256 } }); });
+      f.slide.commitDeckLive((d) => { const s = d.slides.find((x) => x.id === sid); s.beats[1].tracks = [{ id: "src1", target: id, preset: "transform", duration: 800, to: { state: { view: { index: { t: 6 }, channels: [{ range: [300, 900] }] } } } }]; s.beats[2].tracks = []; });
+      f.slide.editAfterBeat(1); f.slide.activeBeat.set(1);
+      f.fig.resetHistory();
+      return { id, assetId };
+    });
+    await waitFor(page, (id) => { const f = window.__flux, el = f.figures().flatMap((x) => x.elements).find((e) => e.id === id); return !!el && !!f.get(f.fluximg.store.fluximgManifests)[el.assetId]; }, SRC.id, { label: "the source image's manifest", timeout: 15000 });
+    // the source is re-exported shorter (4 frames instead of 8)
+    await F((files) => window.__fluxSeedFluximg("plots/tz.fluximg", files), bundleFiles("tz4_u16"));
+    await F(() => document.activeElement?.blur?.());
+    await F((id) => window.__flux.fig.selectOnly(id), SRC.id);
+    await F(() => [...document.querySelectorAll(".inspector-tabs button")].find((b) => b.textContent.trim() === "Object")?.click());
+    const upd = await waitFor(page, () => { const b = document.querySelector(".rail [data-fluximg-update-source]"); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, null, { label: "the Inspector offers Update", timeout: 8000 });
+    const p0 = await past(), stepBefore = JSON.stringify(await changeAt(1, SRC.id));
+    await page.mouse.click(upd.x, upd.y);
+    const moved = await waitFor(page, ({ id, was }) => { const el = window.__flux.slide.currentDeck().slides.flatMap((s) => s.elements).find((e) => e.id === id); return el && el.assetId !== was ? el.assetId : null; }, { id: SRC.id, was: SRC.assetId }, { label: "the Design element moved to the new bundle", timeout: 15000 });
+    const design = await designOf(SRC.id);
+    h.ok(!!moved && design.assetId === moved && design.source?.sha256 && design.source.sha256 !== undefined, `Update on a slide moves the image's Design state to the new bundle (${SRC.assetId} → ${moved})`);
+    h.eq(await past(), p0 + 1, "…in one undo step");
+    h.eq(JSON.stringify(await changeAt(1, SRC.id)), stepBefore, "the step's Change (its view patch) is kept as it was");
+    await waitFor(page, ({ id, now }) => window.__flux.figures().flatMap((x) => x.elements).find((e) => e.id === id)?.assetId === now, { id: SRC.id, now: moved }, { label: "the step shows the new bundle", timeout: 5000 });
+    h.ok(true, "at step 1 the editor shows the updated image (the display was re-composed)");
+    // the step's plane 6 is past the new bundle's end (4 frames): drawn clamped and reported, the viewCheck policy
+    const { compileSlide } = await import("../src/lib/slide/compile.ts");
+    const manifest = JSON.parse(readFileSync(path.join(scratch, "tz4_u16.fluximg/fluximg.json"), "utf8"));
+    const deckNow = await F(() => structuredClone(window.__flux.slide.currentDeck()));
+    const sl = deckNow.slides.find((s) => s.elements.some((e) => e.id === SRC.id));
+    const issues = compileSlide(sl, deckNow.stage, { fluximgManifest: (id) => (id === moved ? manifest : undefined) }).issues.filter((i) => i.trackId === "src1");
+    h.ok(issues.some((i) => /does not fit the image/.test(i.reason) && /index\.t/.test(i.reason)), `a step patch that no longer fits is reported, not dropped: "${issues[0]?.reason ?? "no issue"}"`);
+    await press("z", ["Control"]);
+    h.eq((await designOf(SRC.id)).assetId, SRC.assetId, "undo brings the previous bundle back");
+    await press("z", ["Control", "Shift"]);
+    h.eq((await designOf(SRC.id)).assetId, moved, "redo the new one");
+  }
 } catch (e) {
   h.fail(`threw: ${e?.stack ?? e}`);
   await page.screenshot({ path: `${SHOTS}/authoring-gui-failure.png` }).catch(() => {});

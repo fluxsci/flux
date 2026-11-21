@@ -7,6 +7,11 @@
  * (importCore.carryFluximgView; a toast says what had to change). The old asset's caches are dropped; the old asset
  * itself stays registered for undo and is collected with the other unused assets.
  *
+ * On a slide (the slide tenant) the same update moves the image's DESIGN state, through the deck (one `commitDeckLive`,
+ * one undo step), whatever step the editor stands at: a step's view is a patch over the view before it, so every
+ * step's Change keeps applying to the updated image; a patch that no longer fits the new bundle (a plane past its end)
+ * is drawn clamped and reported by the compiler, as any view that does not fit (`viewCheck`).
+ *
  * No thrash while a script is still writing: the writer puts `fluximg.json` LAST, so a bundle is looked at only
  * after its events have been quiet for QUIET_MS and only once its manifest exists; work per bundle is serialized
  * (a change arriving meanwhile runs once more afterwards, never in parallel), and an import that saw files change
@@ -30,6 +35,8 @@ export type FluximgSourceState = "current" | "changed" | "missing" | "external";
 export const QUIET_MS = 400;
 
 const rootNow = (): string => get(embeddedProjectRoot) ?? get(projectDir) ?? "";
+/** The tenants whose placed images follow their sources: a figure, and a slide deck (its slides are figures here). */
+const tenantFollows = (): boolean => storeTenant() === "figure" || storeTenant() === "slide";
 const norm = (p: string): string => p.replace(/\\/g, "/").replace(/\/+$/, "");
 const absOf = (root: string, bundlePath: string): string => (/^([A-Za-z]:)?[\\/]/.test(bundlePath) ? bundlePath : joinPath(root, bundlePath));
 
@@ -59,7 +66,7 @@ export function ensureFluximgSourceWatch(): void {
   const fb = fileBridge();
   if (!fb?.onFsChangedBatch) return;
   unwatch = fb.onFsChangedBatch((info) => {
-    if (info.subsystem !== "plots" || storeTenant() !== "figure") return;
+    if (info.subsystem !== "plots" || !tenantFollows()) return;
     const root = rootNow();
     if (!root) return;
     if (info.rescan) {
@@ -148,8 +155,10 @@ const unfinished = (message: string): boolean => /fluximg\.json|changed while|no
 async function updateBundle(bundlePath: string, also: ReadonlySet<string>, explicit: boolean): Promise<number> {
   const fb = fileBridge();
   const root = rootNow();
-  if (!fb?.importFluximg || !fb.discardFluximg || !root || storeTenant() !== "figure") return 0;
-  const isCurrent = (): boolean => rootNow() === root && storeTenant() === "figure";
+  const tenant = storeTenant();
+  if (explicit && !tenantFollows()) throw new Error("Update from source works on an image on a figure or a slide");
+  if (!fb?.importFluximg || !fb.discardFluximg || !root || !tenantFollows()) return 0;
+  const isCurrent = (): boolean => rootNow() === root && storeTenant() === tenant;
   const following = (): boolean => get(project).figures.some((f) => f.elements.some((e) => e.type === "fluximg" && (followsBundle(e, bundlePath) || also.has(e.id))));
   if (!following()) { seenChanged.delete(bundlePath); return 0; }
   const abs = absOf(root, bundlePath), outside = abs === bundlePath;
@@ -176,16 +185,26 @@ async function updateBundle(bundlePath: string, also: ReadonlySet<string>, expli
     let next: Asset;
     if (existing) { await discard(); next = existing; }
     else next = fluximgAsset(assetId, result, bundlePath);
-    // Plan against the model as it is NOW; the commit re-checks each element (it may have moved on meanwhile).
-    const plan = planFluximgSourceUpdate(get(project), bundlePath, next, result.manifest);
+    // Plan against the model as it is NOW; the commit re-checks each element (it may have moved on meanwhile). On a slide
+    // the plan is made against the Design state (the store may show an element as it stands after a step).
+    const slide = tenant === "slide" ? await import("../slide/store") : null;
+    const deckNow = slide?.currentDeck() ?? null;
+    if (slide && !deckNow) throw new Error("The deck is not open");
+    const model: Project = deckNow ? { ...get(project), figures: deckNow.slides.map((s) => ({ id: s.id, elements: s.elements })) as unknown as Project["figures"] } : get(project);
+    const plan = planFluximgSourceUpdate(model, bundlePath, next, result.manifest);
     if (also.size) {
-      const extra = planFluximgSourceUpdate(withUnfrozen(get(project), also), bundlePath, next, result.manifest);
+      const extra = planFluximgSourceUpdate(withUnfrozen(model, also), bundlePath, next, result.manifest);
       for (const m of extra.moves) if (!plan.moves.some((x) => x.elementId === m.elementId)) plan.moves.push(m);
       for (const id of extra.oldAssetIds) if (!plan.oldAssetIds.includes(id)) plan.oldAssetIds.push(id);
     }
     if (!plan.moves.length) { await discard(); seenChanged.delete(bundlePath); return 0; }
     let moved = 0;
-    commit((p) => { moved = applyFluximgSourceUpdate(p, plan, next); });
+    if (slide) {
+      // The deck's Design elements move (and the asset is registered: a deck's image bundles live in the projected
+      // project's assets while it is open), in ONE undo step; then the editor re-composes what a step shows.
+      slide.commitDeckLive((deck) => { moved = applyFluximgSourceUpdate({ figures: deck.slides, assets: deck.assets } as unknown as Project, plan, next); });
+      slide.refreshEndpointDisplay();
+    } else commit((p) => { moved = applyFluximgSourceUpdate(p, plan, next); });
     if (!moved) { await discard(); return 0; }
     ownCopy = false; // registered: the new asset folder belongs to the project now
     if (next.id === assetId) fluximgManifests.update((m) => ({ ...m, [next.id]: result.manifest }));
@@ -265,7 +284,10 @@ export async function updateFluximgFromSource(elementId: string): Promise<number
   const bundlePath = el.source.external ? el.source.bundlePath : norm(el.source.bundlePath);
   const t = timers.get(bundlePath);
   if (t) { clearTimeout(t); timers.delete(bundlePath); }
-  return run(bundlePath, new Set([elementId]), true);
+  const moved = await run(bundlePath, new Set([elementId]), true);
+  // Never silent: an explicit update that moved nothing says so.
+  if (!moved) pushToast("info", "Nothing to update", { detail: "The image already shows its source as it is now." });
+  return moved;
 }
 
 /** Dev/test: bundles waiting for a quiet spell or being updated. */

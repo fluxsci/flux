@@ -943,13 +943,13 @@ export const VERBS: VerbDef[] = [
     cli: "delete-element",
     aliases: ["delete-elements"],
     cliRoot: "flags",
-    summary: "Delete elements by id (removes them from whatever figure they're in). Use to remove a wrong panel/label/shape.",
+    summary: "Delete elements by id (removes them from whatever figure or slide they're in). Use to remove a wrong panel/label/shape.",
     params: { ids: z.array(z.string()) },
     cliArgs: [{ kind: "rest", at: 0, into: "ids", required: true }],
     handler: (ctx, a) => core.deleteElements(ctx.root, sArr(a.ids)),
     render: {
-      human: (_r, a) => ({ err: `✓ deleted ${sArr(a.ids).length} element(s)` }),
-      mcp: (_r, a) => text(`deleted ${sArr(a.ids).length} element(s)`),
+      human: (r) => ({ err: `✓ deleted ${(r as { deleted: string[] }).deleted.length} element(s)` }),
+      mcp: (r) => text(`deleted ${(r as { deleted: string[] }).deleted.length} element(s)`),
     },
   },
   {
@@ -3170,12 +3170,12 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_track", scope: "project", cli: "set-track", cliRoot: "flags",
-    summary: "Edit a track's linked style, same-beat timing anchor, or timing overrides. anchor is trackId:start|end[:offsetMs]. noStyle materializes inherited fields; noAnchor retains the resolved start. start on an anchored track edits its offset. Stagger Each/Total are exclusive; the distribution uses the clamped curve grammar. Random order uses seed (default: stable track-id hash). staggerBy orders the ramp: index (target order), x / y (data position), data or value (each part's data-value: a hexagon's mean, a cell's value, a bar's height), count (observations per hexagon), data-index. staggerSpacing true (with staggerBy x|y, from start|end) waits each part in proportion to its distance along the axis (an x sweep's markers); even is one step per part. staggerBy radial orders the parts by their distance (in the plot's pixel space) from staggerOrigin x,y (data units; absent = their centre): from start ripples out, from end collapses in (a deck holding it is written as 0.7.0).",
+    summary: "Edit a track's linked style, same-beat timing anchor, or timing overrides. anchor is trackId:start|end[:offsetMs]. noStyle materializes inherited fields; noAnchor retains the resolved start. start on an anchored track edits its offset. Stagger Each/Total are exclusive; the distribution uses the clamped curve grammar. Random order uses seed (default: stable track-id hash). staggerBy orders the ramp: index (target order), x / y (data position), data or value (each part's data-value: a hexagon's mean, a cell's value, a bar's height), count (observations per hexagon), data-index. staggerSpacing true (with staggerBy x|y, from start|end) waits each part in proportion to its distance along the axis (an x sweep's markers); even is one step per part. staggerBy radial orders the parts by their distance (in the plot's pixel space) from staggerOrigin x,y (data units; absent = their centre): from start ripples out, from end collapses in (a deck holding it is written as 0.7.0). staggerBy column:<name> orders an image's objects by a column of their layer's table.",
     params: {
       deckId: z.string().min(1), slideId: z.string().min(1), trackId: z.string().min(1),
       staggerEach: z.number().nonnegative().optional(), staggerTotal: z.number().nonnegative().optional(),
       staggerCurve: z.string().optional(), staggerFrom: z.enum(["start", "end", "center", "edges", "random"]).optional(),
-      staggerBy: z.enum(["index", "x", "y", "data", "value", "count", "data-index", "radial"]).optional(),
+      staggerBy: z.enum(["index", "x", "y", "data", "value", "count", "data-index", "radial"]).or(z.string().regex(/^column:\S/, "column:<name>")).optional(),
       staggerOrigin: z.string().describe("A radial order's centre, x,y in the plot's data units (staggerBy radial; absent = the centre of the parts)").optional(),
       staggerSpacing: z.enum(["even", "true"]).optional(),
       seed: z.number().int().min(0).max(0xffffffff).optional(),
@@ -3212,7 +3212,8 @@ export const VERBS: VerbDef[] = [
         if (a.staggerBy !== undefined) {
           // the CLI spelling: value / count / data-index name the data keys, the rest are the axes
           const by = s(a.staggerBy);
-          stagger.by = by === "value" ? { key: "value" } : by === "count" ? { key: "count" } : by === "data-index" ? { key: "index" } : by as "index" | "x" | "y" | "data" | "radial";
+          stagger.by = by === "value" ? { key: "value" } : by === "count" ? { key: "count" } : by === "data-index" ? { key: "index" }
+            : by.startsWith("column:") ? { column: by.slice(7) } : by as "index" | "x" | "y" | "data" | "radial";
         }
         if (a.staggerSpacing !== undefined) {
           if (a.staggerSpacing !== "even" && a.staggerSpacing !== "true") throw new ValidationError("stagger spacing must be even or true");

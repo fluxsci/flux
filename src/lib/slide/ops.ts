@@ -21,12 +21,12 @@ import { longestWalk, naturalDurationMs } from "../fluximg/viewTween";
 import { defaultWalkDim, playbackProblems, walkableDims } from "../fluximg/playback";
 import { mediaTarget, type FluximgManifestFor } from "./mediaTimeline";
 export { mediaTarget, type FluximgManifestFor };
-import { resolveView } from "../fluximg/viewOps";
+import { resolveView, viewPatch } from "../fluximg/viewOps";
 import type { Model3dElement } from "../model3d/types";
 import type { Asset, Element, Figure, Id, SemanticPlotElement } from "../types";
 import { newId } from "../ids";
 import { gcGroups } from "../groups";
-import { makePlotPanel, makeImagePanel, makeText, mergePartOverride, addFluximg, type Box, type TextOpts, type AddFluximgArgs } from "../ops";
+import { makePlotPanel, makeImagePanel, makeText, mergePartOverride, addFluximg, deleteElements as deleteFigureElements, type Box, type TextOpts, type AddFluximgArgs } from "../ops";
 import { FLEXOKI } from "../flexoki";
 import { DEFAULT_THEME_ID, resolveTheme } from "./theme";
 import { cloneContentWithFreshIds, placeContentOnStage, DECK_CANVAS_ID } from "./deckProject";
@@ -321,7 +321,11 @@ export interface SlidePresetAssetEntry {
   modelMetadataActive?: boolean;
 }
 export interface SlidePresetSnapshot {
-  fluxPreset: 1;
+  /** 1: what every build reads. 2: the slide holds something a fluxPreset-1 reader would drop (an image), so those builds
+   *  never list it; `schemaVersion` then says which deck format it needs (presetLib.slidePresetStamp). */
+  fluxPreset: 1 | 2;
+  /** With fluxPreset 2: the content-derived deck format the slide needs (`deckSchemaFor`), refused by a build that reads less. */
+  schemaVersion?: string;
   kind: "slide";
   name: string;
   savedAt: string;
@@ -550,11 +554,6 @@ export function walkDurationMs(manifest: FluximgManifest | undefined, dim: strin
   return Math.max(1, Math.round(ms));
 }
 
-/** A track's timing is still the one a Change is written with (nobody chose another): duration and curve as authored. */
-function authoredTransformTiming(t: Track): boolean {
-  const a = authoredFields("transform");
-  return !t.styleId && !t.influence && t.duration === a.duration && JSON.stringify(t.curve ?? null) === JSON.stringify(a.curve ?? null) && (t.easing ?? null) === (a.easing ?? null);
-}
 /** The walk pace a track was written at, or null when its timing is not the walk's own (absent, or re-timed by hand). */
 export const walkPace = (t: Pick<Track, "preset" | "params">): number | null => (familyOf(t as Track) === "transform" ? presetParam<number | null>(t, "pace", "transform") : null);
 
@@ -571,9 +570,12 @@ export function dropWalkPace(track: Track): void {
  * THE PACE RULE (stage 2: a walk's pace is written, never played). A Change that makes an image walk planes (the
  * longest walk when several dimensions move: `viewTween.longestWalk`) is timed at the data's own rate times `speed`
  * with a linear curve, and records `params.pace = speed` -- but only while the timing is still the walk's own: the
- * track was just made (`created`), already carries a pace, or still has the plain authored Change timing. A track
- * the author re-timed by hand is left alone. A paced track whose walk is gone returns to the ordinary Change timing.
- * `force` (Play through, the pace dial) paces it whatever its timing was.
+ * track was just made (`created`) or already carries a pace. THE FLAG IS THE RULE (C11): a track is paced if and only
+ * if it carries `params.pace`; never by comparing its timing with the defaults (a duration typed by hand that happens to
+ * equal the default is still the author's). Typing a duration, choosing a curve or linking a style drops the flag
+ * (`dropWalkPace`: setTrack, setTrackCurve, the cascade, the timeline's nudge); setting a pace sets it. So a track the
+ * author re-timed, or an image Change made before it walked anything, is left alone; Play through and the pace dial
+ * (`force`) pace it whatever its timing was. A paced track whose walk is gone returns to the ordinary Change timing.
  */
 export function retimeImageWalk(track: Track, pre: Element, end: Element, opts: { fluximgManifest?: FluximgManifestFor; speed?: number; created?: boolean; force?: boolean } = {}): void {
   if (pre.type !== "fluximg" || end.type !== "fluximg" || familyOf(track) !== "transform") return;
@@ -588,7 +590,7 @@ export function retimeImageWalk(track: Track, pre: Element, end: Element, opts: 
     }
     return;
   }
-  if (!opts.force && !opts.created && paced === null && !authoredTransformTiming(track)) return;
+  if (!opts.force && !opts.created && paced === null) return;
   const speed = opts.speed ?? paced ?? 1;
   track.duration = walkDurationMs(m, walk.dim, walk.from, walk.to, speed);
   delete track.curve; delete track.influence; delete track.styleId;
@@ -648,6 +650,20 @@ export function placeFluximgOnSlide(deck: Deck, slideId: Id, args: Omit<AddFluxi
   const scratch = { version: 2, name: "", canvases: [], palette: [], assets: [],
     figures: [{ id: s.id, name: s.id, canvasId: DECK_CANVAS_ID, x: 0, y: 0, width: deck.stage.width, height: deck.stage.height, background: "", elements: s.elements }] } as unknown as import("../types").Project;
   return addFluximg(scratch, { ...args, figureId: s.id });
+}
+
+/** An image Change's end written as its state (the animator's chips and end plane): the step's `view` is the patch over the
+ *  view before the step (`viewOps.viewPatch`; an empty patch drops the key), its `crop` whole (dropped when it equals the
+ *  start, null when the end clears it). A paced walk follows the new end (the pace rule); other keys are kept. */
+export function setImageChangeEnd(track: Track, pre: Element, next: { view?: FluximgElement["view"] | null; crop?: FluximgElement["crop"] | null }, opts: { fluximgManifest?: FluximgManifestFor } = {}): void {
+  if (pre.type !== "fluximg") return;
+  const st = { ...((track.to?.state ?? {}) as Record<string, unknown>) };
+  const patch = viewPatch(pre.view, next.view ?? undefined);
+  if (Object.keys(patch).length) st.view = patch; else delete st.view;
+  const crop = next.crop ?? undefined;
+  if (JSON.stringify(crop ?? null) === JSON.stringify(pre.crop ?? null)) delete st.crop; else st.crop = crop === undefined ? null : structuredClone(crop);
+  track.to = { ...(track.to ?? {}), state: st };
+  retimeImageWalk(track, pre, transformEndState(pre, track), opts);
 }
 
 /** "Edit after step N" in one pure op: an element edited at its end state of step `beatId` becomes that step's Change, whose
@@ -1608,12 +1624,13 @@ export function addImageWalk(deck: Deck, opts: { slideId: Id; beatId: Id; target
   const to = opts.to ?? (from === n - 1 ? 0 : n - 1);
   if (!Number.isInteger(to) || to < 0 || to >= n) throw new Error(`Play through ends on a whole plane 0..${n - 1}`);
   if (to === from) throw new Error(`The image already stands on plane ${to + 1} of ${dim}`);
-  // The end the step already reaches (its other changes kept), walked along `dim`: `view` is replaced whole (plan D1).
+  // The end the step already reaches (its other changes kept), walked along `dim`; the step's `view` is the patch over the
+  // view before the step that reaches it (B2: the one diff, viewOps.viewPatch).
   const existing = wholeChange(slide.beats[bi], opts.target);
   const end = existing ? transformEndState(pre, existing) as FluximgElement : pre;
   const endView = structuredClone(end.view ?? {});
   endView.index = { ...(endView.index ?? {}), [dim]: to };
-  const track = setTransform(deck, opts.slideId, opts.beatId, opts.target, { state: { view: endView }, ...(opts.start !== undefined ? { start: opts.start } : !existing ? { start: 0 } : {}) });
+  const track = setTransform(deck, opts.slideId, opts.beatId, opts.target, { state: { view: viewPatch(pre.view, endView) }, ...(opts.start !== undefined ? { start: opts.start } : !existing ? { start: 0 } : {}) });
   if (!track) return null;
   retimeImageWalk(track, pre, { ...end, view: endView } as Element, { fluximgManifest: opts.fluximgManifest, speed: opts.speed ?? walkPace(track) ?? 1, force: true });
   if (opts.blend !== undefined) {
@@ -2087,6 +2104,29 @@ export function migrateDeck(deck: Deck): Deck {
     if (typeof style.track?.easing === "string" && !EASING_TOKENS.includes(style.track.easing)) delete style.track.easing;
   }
   return deck;
+}
+
+/** The Ghost births (`ghostFrom` tracks) of elements that are gone: a birth goes with the element it makes. ONE rule for the
+ *  editor's edit adapter (slide/store.ts) and the headless delete (`deleteSlideElements`). */
+export function orphanedBirths(slide: Slide, gone: ReadonlySet<Id>): Id[] {
+  return slide.beats.flatMap((b) => b.tracks.filter((t) => t.ghostFrom && t.id && gone.has(t.target)).map((t) => t.id!));
+}
+
+/** Delete elements from whatever slide holds them, exactly as the editor's Delete does on a slide: the figure core
+ *  (`ops.deleteElements`: the elements and their now-empty group defs) over the slide, and the Ghost births of what is
+ *  gone. Every other track bound to a deleted element stays, as in the editor (a dangling track is tolerated, surfaced by
+ *  the diagnostics and never auto-pruned: undo or a re-target can still use it). Returns the ids deleted, in `ids` order. */
+export function deleteSlideElements(deck: Deck, ids: readonly Id[]): Id[] {
+  const want = new Set(ids), deleted = new Set<Id>();
+  for (const s of deck.slides) {
+    const here = s.elements.filter((e) => want.has(e.id)).map((e) => e.id);
+    if (!here.length) continue;
+    deleteFigureElements({ figures: [s] } as unknown as Parameters<typeof deleteFigureElements>[0], here);
+    const births = orphanedBirths(s, new Set(here));
+    if (births.length) removeTracks(deck, s.id, births);
+    for (const id of here) deleted.add(id);
+  }
+  return ids.filter((id) => deleted.has(id));
 }
 
 /** THE deck-load chokepoint — every seam that reads a deck from disk (GUI
