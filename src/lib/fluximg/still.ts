@@ -15,10 +15,10 @@ import { decoderOf, renderView, type RenderInput, type RenderPlane } from "./ren
 import type { FluximgManifest, FluximgTypedArray } from "./types";
 import type { FluximgView, PixelRect } from "./view";
 import { planeRequests, resolveView, type PlaneRequest } from "./viewOps";
-import { fullCrop, clampCrop, tieredStillSize } from "./crop";
+import { fullCrop, clampCrop, tieredStillSize, stillSize, type StillSizeOptions } from "./crop";
 
-/** The frame helpers live in crop.ts (pure callers import them from there); re-exported for everyone else. */
-export { fullCrop, clampCrop, tieredStillSize };
+/** The frame and size helpers live in crop.ts (pure callers import them from there); re-exported for everyone else. */
+export { fullCrop, clampCrop, tieredStillSize, stillSize, type StillSizeOptions };
 
 export interface StillSpec {
   view: FluximgView | null | undefined;
@@ -44,34 +44,6 @@ export interface Still { rgba: Uint8ClampedArray; width: number; height: number;
 export class StillCancelled extends Error {
   constructor() { super("cancelled"); this.name = "StillCancelled"; }
 }
-
-export interface StillSizeOptions {
-  /**
-   * false (the editor): never more pixels than the crop holds; the display magnifies true pixels itself.
-   * true (exports, flux-core): draw every requested pixel, so a viewer that smooths magnified images cannot blur it.
-   */
-  magnify?: boolean;
-  /** Upper bound on width x height. The aspect is kept. */
-  maxPixels?: number;
-}
-
-/**
- * How many pixels a still needs: the box at `scale` device pixels per canvas pixel, bounded by the crop's own
- * pixels (unless `magnify`) and by `maxPixels`. Always at least 1 x 1, and never a different aspect than the box
- * by more than rounding.
- */
-export function stillSize(crop: PixelRect, box: { width: number; height: number }, scale: number, options: StillSizeOptions = {}): { width: number; height: number } {
-  let w = Math.max(1, box.width * scale), h = Math.max(1, box.height * scale);
-  if (!options.magnify) {
-    // Bound by the denser axis: a box narrower than its crop on one axis only still wants the crop's pixels on the other.
-    const k = Math.min(1, Math.max(crop.width / w, crop.height / h));
-    w *= k; h *= k;
-  }
-  const max = options.maxPixels ?? 16_777_216;
-  if (w * h > max) { const k = Math.sqrt(max / (w * h)); w *= k; h *= k; }
-  return { width: Math.max(1, Math.round(w)), height: Math.max(1, Math.round(h)) };
-}
-
 
 const channelCount = (m: FluximgManifest): number => {
   const ci = m.pixels.dims.indexOf("c");

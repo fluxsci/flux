@@ -41,6 +41,11 @@ export interface ExportPayload {
    *  the characters that take part in a text ↔ shape Become: the offline file
    *  cannot read system fonts, so letters fly from these. */
   glyphs?: Record<string, BakedGlyphFont>;
+  /** Images (fluximg) by asset id: trimmed manifest, layer texts, tables, colour tables (slide/imageExport.ts). Their
+   *  stills ride in `assets` under `fluximg:` keys; the decoder never runs in an exported document. */
+  images?: Record<string, import("../imageExport").ExportImage>;
+  /** One baked MP4 per image Change that moves pixels, by `clipPlan.clipLookupKey`. */
+  imageClips?: Record<string, import("../../fluximg/clipPlan").ImageClip>;
 }
 
 export function boot(mount: HTMLElement, payload: ExportPayload): Player {

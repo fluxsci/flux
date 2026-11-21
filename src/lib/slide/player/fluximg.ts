@@ -12,7 +12,7 @@
  */
 import type { FluximgElement } from "../../types";
 import type { FluximgManifest, FluximgLayer } from "../../fluximg/types";
-import type { FluximgSurface } from "../../fluximg/slideHost";
+import type { FluximgSurface, FluximgSurfaceMotion } from "../../fluximg/slideHost";
 import type { PixelRect, ResolvedFurniture, ResolvedLayer } from "../../fluximg/view";
 import { planViewTween, type TweenPicture, type ViewTweenFrame, type ViewTweenPlan } from "../../fluximg/viewTween";
 import { pixelKey, resolveView } from "../../fluximg/viewOps";
@@ -95,11 +95,13 @@ const manifestOf = (ctx: SlideRenderCtx, assetId: string): FluximgManifest | und
  *  the manifest is still loading (play waits for it). */
 export interface FluximgTween {
   frame(u: number, raw: number): ViewTweenFrame | null;
-  motion(raw: number): { plan: ViewTweenPlan; raw: number; ease: (raw: number) => number } | undefined;
+  motion(raw: number): FluximgMotion | undefined;
   ready?: { isReady(): boolean; ready(): Promise<void> };
 }
-export function fluximgTween(pre: FluximgElement, end: FluximgElement, ctx: SlideRenderCtx & { fluximgBlend?: boolean; fluximgEase?: (raw: number) => number }): FluximgTween {
+export function fluximgTween(pre: FluximgElement, end: FluximgElement, ctx: SlideRenderCtx & { fluximgBlend?: boolean; fluximgEase?: (raw: number) => number; fluximgTrack?: string; fluximgCurve?: string; durationMs?: number }): FluximgTween {
   const blend = !!ctx.fluximgBlend, ease = ctx.fluximgEase ?? ((raw: number) => raw);
+  // What a host playing baked clips needs to find this Change's clip (exported deck); the live host ignores it.
+  const id = { blend, ...(ctx.fluximgTrack ? { track: ctx.fluximgTrack } : {}), ...(ctx.durationMs !== undefined ? { durationMs: ctx.durationMs } : {}), ...(ctx.fluximgCurve ? { curve: ctx.fluximgCurve } : {}) };
   let plan: ViewTweenPlan | undefined;
   const make = (manifest: FluximgManifest) => { plan = fluximgPlan(manifest, pre, end, blend); };
   const known = manifestOf(ctx, pre.assetId);
@@ -111,7 +113,7 @@ export function fluximgTween(pre: FluximgElement, end: FluximgElement, ctx: Slid
   } : undefined;
   return {
     frame: (u, raw) => (plan ? plan.frame(u, raw) : null),
-    motion: (raw) => (plan ? { plan, raw, ease } : undefined),
+    motion: (raw) => (plan ? { plan, raw, ease, ...id } : undefined),
     ...(ready ? { ready } : {}),
   };
 }
@@ -336,7 +338,7 @@ class Overlay {
 // The binding
 // ---------------------------------------------------------------------------------------------
 
-export interface FluximgMotion { plan: ViewTweenPlan; raw: number; ease: (raw: number) => number }
+export interface FluximgMotion extends FluximgSurfaceMotion { plan: ViewTweenPlan; raw: number; ease: (raw: number) => number }
 
 export interface SlideFluximgBinding {
   readonly root: HTMLElement;
@@ -481,10 +483,13 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
       const key = frameKey(manifest, f, width, height);
       // A frame that waited for its planes is drawn by the surface the moment they land: nothing to ask again.
       if (key === drawnKey && pending && surface?.exact) { pending = false; setPending(handle, false); }
-      if (key !== drawnKey || pending) {
+      if (key !== drawnKey || pending || (motion && surface?.clocked)) {
         if (!surface?.shown) showStill(manifest, f.a);
         surface ??= ctx.fluximg.surface(canvas);
-        pending = !surface.draw(el.assetId, f, width, height);
+        pending = !surface.draw(el.assetId, f, width, height, motion);
+        // A surface that hands the picture back to the still (an exported clip at its end) is shown by the still of THIS
+        // frame, in the same task: never a frame of the old still.
+        if (!surface.shown) showStill(manifest, f.a);
         if (key !== drawnKey) {
           slideFluximgStats.asked++;
           if (pending) slideFluximgStats.late++;
