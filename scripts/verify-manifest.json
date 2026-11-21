@@ -497,6 +497,7 @@
       "verify-fluximg-live.ts",
       "verify-fluximg-view-tween.ts",
       "verify-fluximg-object-style.ts",
+      "verify-fluximg-board-keys.ts",
       "verify-fluximg-split-look.ts",
       "verify-fluximg-slide-model.ts",
       "verify-fluximg-slide-authoring.ts",
@@ -712,6 +713,8 @@
       "verify-fluximg-slide-place-gui.mjs",
       "verify-fluximg-slide-player-gui.mjs",
       "verify-fluximg-slide-authoring-gui.mjs",
+      "verify-fluximg-board-step-gui.mjs",
+      "verify-fluximg-board-keys-gui.mjs",
       "verify-fluximg-board-slide-dock-gui.mjs",
       "verify-fluximg-board-room-gui.mjs",
       "verify-fluximg-slide-export-gui.mjs",
@@ -1710,6 +1713,8 @@
       "verify-fluximg-slide-place-gui.mjs",
       "verify-fluximg-slide-player-gui.mjs",
       "verify-fluximg-slide-authoring-gui.mjs",
+      "verify-fluximg-board-step-gui.mjs",
+      "verify-fluximg-board-keys-gui.mjs",
       "verify-fluximg-board-slide-dock-gui.mjs",
       "verify-fluximg-board-room-gui.mjs",
       "verify-fluximg-slide-export-gui.mjs",
@@ -1719,6 +1724,7 @@
       "verify-fluximg-live.ts",
       "verify-fluximg-view-tween.ts",
       "verify-fluximg-object-style.ts",
+      "verify-fluximg-board-keys.ts",
       "verify-fluximg-split-look.ts",
       "verify-fluximg-slide-model.ts",
       "verify-fluximg-slide-authoring.ts",
@@ -1748,6 +1754,7 @@
       "verify-fluximg-live.ts",
       "verify-fluximg-view-tween.ts",
       "verify-fluximg-object-style.ts",
+      "verify-fluximg-board-keys.ts",
       "verify-fluximg-split-look.ts",
       "verify-fluximg-slide-model.ts",
       "verify-fluximg-slide-authoring.ts",
@@ -1769,6 +1776,8 @@
       "verify-fluximg-slide-place-gui.mjs",
       "verify-fluximg-slide-player-gui.mjs",
       "verify-fluximg-slide-authoring-gui.mjs",
+      "verify-fluximg-board-step-gui.mjs",
+      "verify-fluximg-board-keys-gui.mjs",
       "verify-fluximg-board-slide-dock-gui.mjs",
       "verify-fluximg-board-room-gui.mjs",
       "verify-fluximg-slide-export-gui.mjs",
@@ -12967,6 +12976,28 @@
       "exclusive": true,
       "coverage": "behavior"
     },
+    "verify-fluximg-board-step-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 240000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-fluximg-board-keys-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 240000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
     "verify-fluximg-board-slide-dock-gui.mjs": {
       "runtime": "tsx",
       "prerequisites": [
@@ -13052,6 +13083,15 @@
       "coverage": "behavior"
     },
     "verify-fluximg-object-style.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-fluximg-board-keys.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
