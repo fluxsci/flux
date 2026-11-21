@@ -269,7 +269,7 @@ try {
   h.section("remembered answers: list rules, fingerprints, re-validation");
   const probeA = (await probeTiff(stack)).probe, probeB = (await probeTiff(family2)).probe;
   h.eq(probeA.fingerprint, probeB.fingerprint, "two files of one family share a fingerprint whatever their page count (24 and 18 pages)");
-  const rule = answerRule({ ...A2, dims: [{ name: "t", size: 12 }, { name: "c", size: 2 }], transpose: true, pixelSize: { x: 0.25, unit: "µm" }, time: { rate: 80 } }, probeA);
+  const rule = answerRule({ ...A2, dims: [{ name: "t", size: 12 }, { name: "c", size: 2 }], transpose: true, pixelSize: { x: 0.5, unit: "µm" }, time: { rate: 40 } }, probeA);
   h.eq(rule.answer.dims[0].size, "rest", "a remembered rule keeps the slowest size open (\"the rest\")");
   const top = inferDims(probeB, { rules: [rule] })[0];
   h.ok(top.from === "remembered" && top.ready && top.summary.startsWith("t 9 × c 2"), `a file of the family is answered at once: "${top.summary}"`);
@@ -296,7 +296,7 @@ try {
   h.section("the asking surface's edits (askOps), the no-data suggestion, the rail's picture, the CLI's rules");
   {
     const P = probeA;
-    let x: DimsAnswer = { dims: [{ name: "t", size: "rest" }, { name: "c", size: 2 }], time: { rate: 80 }, channels: [{ name: "a" }, { name: "b" }] };
+    let x: DimsAnswer = { dims: [{ name: "t", size: "rest" }, { name: "c", size: 2 }], time: { rate: 40 }, channels: [{ name: "a" }, { name: "b" }] };
     h.eq(ops.resolvedSizes(P, x), [12, 2], "sizes resolve \"the rest\" from the page count");
     x = ops.moveDim(P, x, 1, 0);
     h.eq(x.dims.map((d) => d.name), ["c", "t"], "a page key drags to another place (slowest first)");
@@ -313,7 +313,7 @@ try {
     h.eq(ops.addDim(P, { dims: [{ name: "t", size: 24 }] }).dims, [{ name: "t", size: "rest" }, { name: "z", size: 2 }], "a second key goes fastest; the slowest becomes the rest");
     h.eq(ops.removeDim(P, { dims: [{ name: "t", size: "rest" }, { name: "c", size: 2 }] }, 0).dims, [{ name: "c", size: "rest" }], "removing the rest hands the rest on");
     h.eq(ops.toggle(ops.toggle({ dims: [] }, "transpose"), "transpose"), { dims: [] }, "toggles go on and off without leftovers");
-    h.eq(ops.setTime({ dims: [{ name: "t", size: "rest" }], time: { rate: 80, t0: 2 } }, "interval", 0.0125).time, { interval: 0.0125, unit: "s", t0: 2 }, "rate to interval keeps t0");
+    h.eq(ops.setTime({ dims: [{ name: "t", size: "rest" }], time: { rate: 40, t0: 2 } }, "interval", 0.025).time, { interval: 0.025, unit: "s", t0: 2 }, "rate to interval keeps t0");
     h.eq(ops.setChannel(P, { dims: [{ name: "t", size: "rest" }, { name: "c", size: 2 }] }, 1, { name: "red", color: "#ff0000" }).channels, [{}, { name: "red", color: "#ff0000" }], "a channel chip names and colours its channel");
     h.eq([ops.parseNumber("0.25"), ops.parseNumber(".5"), ops.parseNumber("1e-3"), ops.parseNumber("−1"), ops.parseNumber("x"), ops.parseNumber("")], [0.25, 0.5, 0.001, -1, null, null], "numbers typed in place");
     h.eq(ops.nextColour(null), "#00ff00", "a chip's colour cycles from gray to green, …");

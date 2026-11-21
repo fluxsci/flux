@@ -133,7 +133,7 @@ Flux converts it into an image bundle first, then places it like any other.
 
 The command line does the same with `flux place-image <figure> <file.tif>`; when the file does not
 say how its pages are ordered it lists the suggestions with the flags that choose each (`--dims
-t,c=2 --transpose --pixel-size 0.25 --rate 80`), and it uses the project's remembered answers.
+t,c=2 --transpose --pixel-size 0.5 --rate 40`), and it uses the project's remembered answers.
 
 # The live view
 

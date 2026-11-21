@@ -177,11 +177,11 @@ try {
   h.ok(true, "T transposes, and the pictures turn");
   // Pixel size and rate written in place.
   await page.click('[data-ask-edit="pixel"]');
-  await page.keyboard.type("0.25"); await page.keyboard.press("Enter");
+  await page.keyboard.type("0.5"); await page.keyboard.press("Enter");
   await page.click('[data-ask-edit="time"]');
-  await page.keyboard.type("80"); await page.keyboard.press("Enter");
+  await page.keyboard.type("40"); await page.keyboard.press("Enter");
   st = await ask();
-  h.eq({ px: st.answer.pixelSize, rate: st.answer.time?.rate }, { px: { x: 0.25, unit: "µm" }, rate: 80 }, "pixel size and rate are written in place (no boxes)");
+  h.eq({ px: st.answer.pixelSize, rate: st.answer.time?.rate }, { px: { x: 0.5, unit: "µm" }, rate: 40 }, "pixel size and rate are written in place (no boxes)");
   // A size that does not fit: Convert is off and says why.
   await page.click('[data-ask-edit="size:1"]');
   await page.keyboard.type("3"); await page.keyboard.press("Enter");
@@ -208,7 +208,7 @@ try {
   const placedA = await waitFor(page, () => window.__flux.figures().flatMap((f) => f.elements).find((e) => e.type === "fluximg") ?? null, null, { label: "placed", timeout: 20000 });
   const ma = await manifestOf(placedA.assetId);
   h.eq({ dims: ma?.pixels.dims, shape: ma?.pixels.shape, ch: ma?.channels.length }, { dims: ["t", "c", "y", "x"], shape: [40, 2, 72, 48], ch: 2 }, "converting places the image with the answered dims, the transposed plane and two channels");
-  h.ok(ma?.axes?.x?.scale === 0.25 && Math.abs((ma?.axes?.t?.scale ?? 0) - 0.0125) < 1e-12, `…with its pixel size and frame interval (${ma?.axes?.x?.scale} ${ma?.axes?.x?.unit}, ${ma?.axes?.t?.scale} s)`);
+  h.ok(ma?.axes?.x?.scale === 0.5 && Math.abs((ma?.axes?.t?.scale ?? 0) - 0.025) < 1e-12, `…with its pixel size and frame interval (${ma?.axes?.x?.scale} ${ma?.axes?.x?.unit}, ${ma?.axes?.t?.scale} s)`);
   const pj = await S((root) => window.fig.readText(`${root}/project.json`).then((t) => JSON.parse(t).tiffRules ?? []), root);
   h.ok(pj.length === 1 && pj[0].answer.transpose === true && pj[0].answer.dims[0].size === "rest", "the answer is remembered in project.json as a rule (the slowest size left open)");
 
