@@ -61,12 +61,13 @@
   // --- the pictures -----------------------------------------------------------------------------------------
   const pics = $derived(s?.hover ?? s?.preview ?? null);
   const nChan = $derived(probe ? channelCount(probe, a) : 1);
-  const thumb = $derived.by(() => {
+  // Each picture as large as its share of the plate allows (a row of up to three), at most 170 px tall.
+  const slot = $derived.by(() => {
     const n = Math.max(1, Math.min(pics?.channels.length ?? 1, 6)), gap = 6;
     const perRow = n <= 3 ? n : Math.ceil(n / 2);
-    return Math.floor(Math.min(150, (INNER - 16 - gap * (perRow - 1)) / perRow));
+    return { w: Math.floor((INNER - 16 - gap * (perRow - 1)) / perRow), h: n > 3 ? 120 : 170 };
   });
-  const fit = (w: number, h: number): { w: number; h: number } => { const k = thumb / Math.max(w, h); return { w: Math.max(1, Math.round(w * k)), h: Math.max(1, Math.round(h * k)) }; };
+  const fit = (w: number, h: number): { w: number; h: number } => { const k = Math.min(slot.w / w, slot.h / h); return { w: Math.max(1, Math.round(w * k)), h: Math.max(1, Math.round(h * k)) }; };
   const isFloat = $derived(probe?.plane.dtype === "float32" || probe?.plane.dtype === "float64");
   const nodataOffer = $derived(isFloat ? (a.nodata != null ? a.nodata : s?.preview?.frequentMin?.value ?? null) : null);
 
@@ -263,6 +264,7 @@
           <PaperKey quiet size={20} glyph="close" label="Leave it: nothing is converted" hotkey="Esc" id="close" onpress={() => askCancel()} />
         </div>
         <div class="l2">{#each facts as f (f)}<span class="fact">{f}</span>{/each}</div>
+        {#if s.reason}<div class="reason" data-ask-reason>{s.reason}</div>{/if}
       </div>
 
       <!-- what the file suggests -->
@@ -429,6 +431,7 @@
   .ttl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 13.5px var(--font-serif); color: var(--fxb-tx-hi); }
   .batch { font: 600 10px var(--font-mono); color: var(--fxb-pink-hi); }
   .l2 { display: flex; flex-wrap: wrap; padding-left: 15px; font: 10px/15px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--fxb-tx-dim); }
+  .reason { margin-top: 5px; padding-left: 15px; color: var(--fxb-pink-hi); font: 10.5px/14px var(--font-mono); overflow-wrap: anywhere; }
   .fact + .fact::before { content: "·"; margin: 0 6px; opacity: 0.6; }
   /* Proposals: paper slips, the chosen one lit. */
   .props { display: flex; flex-direction: column; gap: 3px; padding: 5px; }

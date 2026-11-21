@@ -29,6 +29,8 @@ function family(t, W = 72, H = 48, ch = 2) {
   }) }));
 }
 const imagej = b64(writeTiff({ pages: Array.from({ length: 12 }, (_, p) => ({ width: 40, height: 30, dtype: "uint8", data: Uint8Array.from({ length: 1200 }, (_, i) => (p * 9 + i) % 251), descriptions: p === 0 ? ["ImageJ=1.54f\nimages=12\nchannels=2\nslices=3\nframes=2\nhyperstack=true\nunit=micron\nspacing=0.5\nfinterval=0.1\n"] : [], resolution: { x: 4, y: 4, unit: 1 } })) }));
+// An ImageJ float stack whose unscanned pixels hold -1: its pages are settled, the -1 is the one question.
+const holes = b64(writeTiff({ pages: Array.from({ length: 4 }, (_, p) => ({ width: 40, height: 30, dtype: "float32", data: Float32Array.from({ length: 1200 }, (_, i) => (i % 40 < 10 ? -1 : 5 + p + (i % 9))), descriptions: p === 0 ? ["ImageJ=1.54f\nimages=4\nslices=4\nhyperstack=true\nunit=micron\nspacing=1\n"] : [], resolution: { x: 2, y: 2, unit: 1 } })) }));
 const jpeg = b64(writeTiff({ pages: [{ width: 8, height: 8, dtype: "uint8", data: new Uint8Array(64), compressionCode: 7 }] }));
 const famA = family(40), famB = family(25), famKeys = family(30, 50, 40, 3);
 
@@ -111,6 +113,21 @@ try {
   await page.mouse.click(1100, 800);
   await page.keyboard.down("Control"); await page.keyboard.press("KeyZ"); await page.keyboard.up("Control");
   h.ok(await waitFor(page, () => !window.__flux.figures().flatMap((f) => f.elements).some((e) => e.type === "fluximg"), null, { label: "undo" }).then(() => true, () => false), "one Ctrl+Z removes it");
+
+  h.section("a settled file with a -1 fill: one question");
+  await drop(holes, "holes.tif");
+  await surface();
+  const reason = await S(() => document.querySelector("[data-ask-reason]")?.textContent ?? "");
+  h.ok(/does -1 .* mean "no data"/.test(reason), `a float file whose pages are settled is asked one question when -1 fills its plane: "${reason}"`);
+  await page.keyboard.press("d");
+  h.eq((await ask()).answer.nodata, -1, "D answers it");
+  await page.keyboard.press("Enter");
+  const hp = await waitFor(page, () => window.__flux.figures().flatMap((f) => f.elements).find((e) => e.type === "fluximg") ?? null, null, { label: "the -1 stack placed", timeout: 15000 });
+  const hm = await manifestOf(hp.assetId);
+  h.ok(hm && hm.channels[0].stats.min >= 5, `…and -1 is no data in the bundle: the stored minimum is ${hm?.channels[0].stats.min}, not -1`);
+  await page.mouse.click(1100, 800);
+  await page.keyboard.down("Control"); await page.keyboard.press("KeyZ"); await page.keyboard.up("Control");
+  await waitFor(page, () => !window.__flux.figures().flatMap((f) => f.elements).some((e) => e.type === "fluximg"), null, { label: "undo" });
 
   h.section("a stack without metadata: the asking surface");
   const dropAt = await drop(famA, "rec_001.tif");

@@ -30,6 +30,8 @@ export interface AskState {
   remember: RememberScope;
   /** A rule already remembered for files like this one. */
   remembered: { scope: "project" | "machine"; summary: string } | null;
+  /** Why a file whose metadata says enough is asked about anyway (a value that looks like "no data"), or null. */
+  reason: string | null;
   /** This file is n of m TIFFs of one drop that need an answer. */
   batch: { index: number; count: number };
 }

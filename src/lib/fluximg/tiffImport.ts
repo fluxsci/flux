@@ -58,13 +58,13 @@ function fileSays(probe: TiffProbe): Record<string, string> {
 }
 
 /** Open the asking surface for one file; resolves with the answer, or null when the person cancels. */
-function ask(token: string, root: string, r: TiffProbeResult, figureId: string, at: { x: number; y: number }, start: DimsAnswer | null, remembered: AskState["remembered"], batch: AskState["batch"]): Promise<{ answer: DimsAnswer; remember: RememberScope } | null> {
+function ask(token: string, root: string, r: TiffProbeResult, figureId: string, at: { x: number; y: number }, start: DimsAnswer | null, remembered: AskState["remembered"], batch: AskState["batch"], reason: string | null = null): Promise<{ answer: DimsAnswer; remember: RememberScope } | null> {
   return new Promise((resolve) => {
     const answer: DimsAnswer = JSON.parse(JSON.stringify(start ?? r.proposals[0]?.answer ?? { dims: [] }));
     open = { token, resolve, root, seq: 0, inflight: false, queued: null, hoverSeq: 0 };
     tiffAsk.set({
       id: ++askSeq, figureId, at, name: r.name, probe: r.probe, proposals: r.proposals, answer, chosen: start ? -1 : 0, fileSays: fileSays(r.probe),
-      preview: start ? null : r.preview, hover: null, problem: validateAnswer(r.probe, answer), remember: "off", remembered, batch,
+      preview: start ? null : r.preview, hover: null, problem: validateAnswer(r.probe, answer), remember: "off", remembered, batch, reason,
     });
     if (start) requestPreview(answer);
   });
@@ -229,15 +229,23 @@ export async function importTiffSources(sources: TiffSource[], figId: string, at
   // 2. Answers: from the file or a remembered rule at once; otherwise asked, once per family of this drop.
   const family = new Map<string, ReturnType<typeof answerRule>>();
   const skipped = new Set<string>();
-  const toAsk = items.filter((it) => !it.result.proposals[0]?.ready);
+  // A file whose metadata settles the pages is still asked ONE question when its plane is float and a negative round
+  // value fills a good part of it (−1 written where nothing was measured): left unanswered, that value would set the
+  // black point and the stored range. A frequent 0 is offered in the surface but never forces the question.
+  const nodataQuestion = (it: Item): string | null => {
+    const top = it.result.proposals[0], fm = it.result.preview?.frequentMin;
+    if (!top?.ready || top.from === "remembered" || top.answer.nodata != null || !fm || !(fm.value < 0)) return null;
+    return `The file says how its pages are ordered. One question: does ${fm.value} (${Math.round(fm.share * 100)} % of this plane) mean "no data"? D says yes; Enter converts.`;
+  };
+  const toAsk = items.filter((it) => !it.result.proposals[0]?.ready || nodataQuestion(it));
   let asked = 0;
   const plan: Array<{ item: Item; answer: DimsAnswer; how: "file" | "remembered" | "asked" | "family" }> = [];
   const rememberedOf = (probe: TiffProbe): AskState["remembered"] => {
     const p = pRules.find((r) => r.fingerprint === probe.fingerprint), m = mRules.find((r) => r.fingerprint === probe.fingerprint);
     return p ? { scope: "project", summary: p.summary } : m ? { scope: "machine", summary: m.summary } : null;
   };
-  const askFor = async (item: Item, start: DimsAnswer | null): Promise<DimsAnswer | null> => {
-    const got = await ask(item.result.token, root, item.result, figId, where, start, rememberedOf(item.result.probe), { index: ++asked, count: Math.max(asked, toAsk.length) });
+  const askFor = async (item: Item, start: DimsAnswer | null, reason: string | null = null): Promise<DimsAnswer | null> => {
+    const got = await ask(item.result.token, root, item.result, figId, where, start, rememberedOf(item.result.probe), { index: ++asked, count: Math.max(asked, toAsk.length) }, reason);
     if (!got) return null;
     if (got.remember !== "off") {
       try { await remember(root, item.result.probe, got.answer, got.remember); }
@@ -250,9 +258,10 @@ export async function importTiffSources(sources: TiffSource[], figId: string, at
     if (skipped.has(fp)) continue;
     const rule = family.get(fp);
     if (rule) { const a = applyRule(rule, item.result.probe); if (a.answer && !a.problems.length) { plan.push({ item, answer: a.answer, how: "family" }); continue; } }
-    if (top?.ready) { plan.push({ item, answer: top.answer, how: top.from === "remembered" ? "remembered" : "file" }); continue; }
+    const why = nodataQuestion(item);
+    if (top?.ready && !why) { plan.push({ item, answer: top.answer, how: top.from === "remembered" ? "remembered" : "file" }); continue; }
     if (!current()) break;
-    const answer = await askFor(item, null);
+    const answer = await askFor(item, null, why);
     if (!answer) { skipped.add(fp); continue; }
     family.set(fp, answerRule(answer, item.result.probe));
     plan.push({ item, answer, how: "asked" });
