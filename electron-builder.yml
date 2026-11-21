@@ -72,6 +72,10 @@ asarUnpack:
   - node_modules/@xmldom/xmldom/**
   - resources/fonts/**
   - electron/generated/figureRasterWorker.bundle.mjs
+  # TIFF import's conversion child (ELECTRON_RUN_AS_NODE) and the Plots rail's TIFF picture, imported inside the
+  # thumbnail child: self-contained bundles (scripts/build-tiff-worker.mjs).
+  - electron/generated/tiffWorker.bundle.mjs
+  - electron/generated/tiffThumb.bundle.mjs
   - electron/sceneRasterWorker.mjs
   - electron/sceneRasterEngine.mjs
   - electron/sceneRasterProtocol.cjs

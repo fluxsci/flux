@@ -187,6 +187,17 @@ const CHANNELS = [
   { channel: "fluximg:read", kind: "invoke", scope: "read" },
   { channel: "fluximg:discard", kind: "invoke", scope: "write" },
   { channel: "fluximg:importDropped", kind: "invoke", scope: "write" },
+  // --- TIFF → image bundle (electron/ipc/tiff.cjs): probe in a supervised child, small previews, convert with
+  // progress and cancel, publish into fig/assets; remembered answers for every project live in FluxConfig ---------
+  { channel: "tiff:probe", kind: "invoke", scope: "read" },
+  { channel: "tiff:probeDropped", kind: "invoke", scope: "read" },
+  { channel: "tiff:preview", kind: "invoke", scope: "read" },
+  { channel: "tiff:convert", kind: "invoke", scope: "write" },
+  { channel: "tiff:cancel", kind: "invoke", scope: "write" },
+  { channel: "tiff:release", kind: "invoke", scope: "read" },
+  { channel: "tiff:rules", kind: "invoke", scope: "read" },
+  { channel: "tiff:setRules", kind: "invoke", scope: "write" },
+  { channel: "tiff:progress", kind: "push", scope: "read" },
   // --- fonts (text ↔ shape letter outlines) ------------------------------------
   { channel: "fonts:lookup", kind: "invoke", scope: "read" },
   // --- the Plots rail (listing, header probes, thumbnails, dissection counts) --------------

@@ -27,6 +27,25 @@ contextBridge.exposeInMainWorld("fig", {
     if (!sourcePath) return Promise.reject(new Error("Drop a .fluximg folder from your file manager"));
     return ipcRenderer.invoke("fluximg:importDropped", { root: request.root, assetId: request.assetId, sourcePath }).then((result) => ({ ...result, sourcePath }));
   },
+  // TIFF → image bundle: probe (a path the window may read, or a DROPPED file whose path comes from the File itself),
+  // previews of an answer, convert with progress and cancel; tokens stand for a probed file from then on.
+  probeTiff: (request) => ipcRenderer.invoke("tiff:probe", request),
+  probeDroppedTiff: (file, request) => {
+    const sourcePath = webUtils.getPathForFile(file);
+    if (!sourcePath) return Promise.reject(new Error("Drop a .tif or .tiff file from your file manager"));
+    return ipcRenderer.invoke("tiff:probeDropped", { root: request.root, rules: request.rules, max: request.max, sourcePath });
+  },
+  previewTiff: (request) => ipcRenderer.invoke("tiff:preview", request),
+  convertTiff: (request) => ipcRenderer.invoke("tiff:convert", request),
+  cancelTiff: (jobId) => ipcRenderer.invoke("tiff:cancel", jobId),
+  releaseTiff: (token) => ipcRenderer.invoke("tiff:release", token),
+  readTiffRules: () => ipcRenderer.invoke("tiff:rules"),
+  writeTiffRules: (rules) => ipcRenderer.invoke("tiff:setRules", rules),
+  onTiffProgress: (cb) => {
+    const handler = (_event, value) => cb(value);
+    ipcRenderer.on("tiff:progress", handler);
+    return () => ipcRenderer.removeListener("tiff:progress", handler);
+  },
   fontLookup: (request) => ipcRenderer.invoke("fonts:lookup", request),
   rasterizeFigure: (request) => ipcRenderer.invoke("figure:rasterize", request),
   cancelFigureRaster: (rid) => ipcRenderer.invoke("figure:cancelRaster", rid),

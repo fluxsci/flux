@@ -324,4 +324,4 @@ async function discardBundle({ root, assetId, checkCurrent = () => {} }) {
   await shareRetry(() => fsp.rm(aside, { recursive: true, force: true }));
 }
 
-module.exports = { importBundle, readRange, discardBundle, loadRules };
+module.exports = { importBundle, readRange, discardBundle, loadRules, assetsLocation, syncDirectory };

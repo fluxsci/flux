@@ -61,3 +61,23 @@ export function isFluximgJunkName(name: string): boolean;
 export function parseFluximgManifest(text: string): import("../src/lib/fluximg/types").FluximgManifest;
 export function compareCodePoints(a: string, b: string): number;
 export function fluximgContentIdText(entries: Iterable<{ path: string; sha256: string }>): string;
+
+export const TIFF_RE: RegExp;
+export function isTiffName(name: unknown): boolean;
+export const TIFF_STAGING_RE: RegExp;
+export const TIFF_MAX_RULES: number;
+export const tiffErrors: {
+  sourcePath(): string;
+  notTiff(p: string): string;
+  sourceEscapes(): string;
+  sourceSymlinkEscapes(): string;
+  notFile(p: string): string;
+  missing(p: string): string;
+  token(): string;
+  answer(): string;
+  cancelled(): string;
+  stopped(detail: string): string;
+  job(): string;
+};
+export function tiffSourcePath(p: unknown): string;
+export function tiffJobId(id: unknown): string;

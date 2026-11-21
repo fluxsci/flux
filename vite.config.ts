@@ -2,6 +2,8 @@ import { defineConfig, searchForWorkspaceRoot, type Plugin } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import fs from "node:fs";
 import path from "node:path";
+// Dev server only: the in-memory bridge converts TIFFs through this route to the real converter child (fluximg stage 2).
+import { tiffDevPlugin } from "./scripts/lib/tiffDevRoutes.mjs";
 
 // Serve pdf.js's resource dirs (standard_fonts, cmaps, wasm) at /pdfjs/… . pdf.js needs
 // these to render non-embedded fonts (else Latin text falls back to the Symbol font and
@@ -55,7 +57,7 @@ export default defineConfig({
   // Worktrees can share node_modules. Their dependency graphs must not share
   // Vite's default optimizer cache or one server invalidates another's imports.
   cacheDir: path.resolve(".generated/vite-cache"),
-  plugins: [svelte(), pdfjsAssets(), cspStrict(), {
+  plugins: [svelte(), pdfjsAssets(), cspStrict(), tiffDevPlugin(), {
     name: "flux-slide-embed-csp",
     transformIndexHtml(html) {
       const { csp, model3dCsp } = JSON.parse(fs.readFileSync(path.resolve(".generated/slide-embed-assets.json"), "utf8"));
