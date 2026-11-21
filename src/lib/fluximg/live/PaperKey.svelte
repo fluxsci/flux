@@ -8,7 +8,7 @@
    */
   import { GLYPHS, type GlyphName } from "./glyphs";
 
-  let { glyph, label, hotkey = "", on = false, disabled = false, size = 24, round = false, quiet = false, id = "", onpress, onenter = undefined, onleave = undefined }: {
+  let { glyph, label, hotkey = "", on = false, disabled = false, size = 24, round = false, quiet = false, id = "", lamp = "", onpress, onenter = undefined, onleave = undefined }: {
     glyph: GlyphName;
     /** What the key does, as the label says it. */
     label: string;
@@ -19,6 +19,8 @@
     round?: boolean;
     /** A key on an instrument's own face: no paper until the pointer is on it. */
     quiet?: boolean;
+    /** A key with a second state shows it in a small lamp at its corner (a CSS background: the colours it will use). */
+    lamp?: string;
     /** `data-fxb-key`, for the keyboard's flash and for gates. */
     id?: string;
     onpress: (e: MouseEvent) => void;
@@ -31,6 +33,7 @@
   style={`--s:${size}px`} onpointerdown={(e) => e.stopPropagation()} ondblclick={(e) => e.stopPropagation()} onclick={(e) => { e.stopPropagation(); onpress(e); }}
   onpointerenter={onenter} onpointerleave={onleave}>
   <span class="face"><svg viewBox="0 0 16 16" aria-hidden="true">{@html GLYPHS[glyph]}</svg></span>
+  {#if lamp}<span class="lamp" style={`background:${lamp}`} data-fxb-lamp aria-hidden="true"></span>{/if}
 </button>
 
 <style>
@@ -47,6 +50,9 @@
   .pk:active:not(:disabled) .face, .pk:global(.struck) .face { transform: translateY(1px); box-shadow: 0 0 1px rgba(0, 0, 0, 0.6); background: color-mix(in oklab, var(--c-layout-gap) 30%, var(--flx-paper)); }
   .pk.on .face { background: var(--c-layout-gap); border-color: color-mix(in oklab, var(--flx-paper) 60%, var(--c-layout-gap)); color: var(--flx-paper); }
   .pk.on:hover:not(:disabled) .face { background: color-mix(in oklab, var(--flx-paper) 14%, var(--c-layout-gap)); }
+  /* The lamp: a bead set into the key's corner, ringed in paper so it reads on the dark board and on the lit key. */
+  .lamp { position: absolute; right: -2px; bottom: -2px; width: 8px; height: 8px; border-radius: 50%; box-sizing: border-box; border: 1.5px solid var(--flx-paper); box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.6); pointer-events: none; }
+  .pk:active:not(:disabled) .lamp, .pk:global(.struck) .lamp { transform: translateY(1px); }
   .pk:disabled { cursor: var(--cursor-cross); }
   .pk:disabled .face { opacity: 0.32; box-shadow: none; }
   /* A quiet key is only its mark until it is wanted. */

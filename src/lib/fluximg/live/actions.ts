@@ -7,7 +7,7 @@
 import { get } from "svelte/store";
 import { addFluximg } from "../../ops";
 import { pushToast } from "../../toast";
-import type { CropRect, FluximgElement, Project } from "../../types";
+import type { CropRect, Element as AnyElement, FluximgElement, Project } from "../../types";
 import { fluximgManifests } from "../store";
 import { numericExtent } from "../objectStyle";
 import { fluximgTables, tableOf } from "./objectTables";
@@ -15,14 +15,16 @@ import { niceLength, roundNeighbour } from "../furniture";
 import { clampCrop, fullCrop } from "../still";
 import type { FluximgManifest } from "../types";
 import type { FluximgChannelView, FluximgFurnitureView, FluximgLayerView, FluximgProjectionMode, FluximgStyleBy, FluximgView, PixelRect, ResolvedView } from "../view";
-import { resolveView } from "../viewOps";
-import { insetLayout, splitLayout, type SplitLayout } from "../panelLayout";
+import { patchView, resolveView } from "../viewOps";
+import { insetLayout, splitLayout, type PanelBox, type SplitLayout } from "../panelLayout";
+import { flipPlan, splitLookOf, splitPanelView, type SplitElement, type SplitLook } from "../splitLook";
+import { settings } from "../../settings";
 import { autoWindow, histDomain, moveWindow, nextAutoStep, nextSampleStep, nudgeStep, sampleWindow, snapValue, sortedSample } from "./histogram";
 import { naturalRate, playStep, resizeRun, slideRun, stepIndex, type PlayMode } from "./rail";
 // naturalRate lives in the pure rail module (the slide tween needs it without the stores); kept exported here.
 export { naturalRate };
 import { project, selection } from "../../store";
-import { WHEEL_SETTLE_MS, cancelLiveEdit, closeFluximgLive, fluximgLive, fluximgPreview, liveElement, liveMutate, liveOnSlide, liveSampler, liveView, previewHooks, setLive, settleLiveEdit, liveArm } from "./session";
+import { WHEEL_SETTLE_MS, cancelLiveEdit, closeFluximgLive, fluximgFitDue, fluximgLive, fluximgPreview, liveElement, liveMutate, liveOnSlide, liveSampler, liveView, previewHooks, setLive, settleLiveEdit, liveArm } from "./session";
 import { walkableDims } from "../playback";
 import { editDestination } from "../../slide/store";
 
@@ -522,19 +524,65 @@ function elementFigure(p: Project, id: string): { figureId: string; element: Flu
   return null;
 }
 
-/** Where Split channels would put its panels, in the figure's own coordinates (for the key's preview). */
-export function splitPlan(): SplitLayout | null {
+/**
+ * What a hovered key (or an inset being drawn) would make, for the overlay to draw on the figure and for the board to
+ * show where it will stand afterwards: boxes in the FIGURE's coordinates, each with its label and, for channel panels,
+ * a wash in the look they will have (empty: the plain ghost). `adds`: the boxes are new panels (the board will keep
+ * them in view); a flip only recolours panels that are there.
+ */
+export type BoardGhosts = { ghosts: Array<{ box: PanelBox; label: string; wash: string }>; adds: boolean } | null;
+
+/** The form Split channels uses next (the one last used; colour for a first-time user). */
+export const splitLookPref = (): SplitLook => get(settings).fluximgSplitLook;
+const rememberSplitLook = (look: SplitLook): void => { if (get(settings).fluximgSplitLook !== look) settings.update((s) => ({ ...s, fluximgSplitLook: look })); };
+
+/** The live image's figure elements (its family lives there). */
+function liveFigureElements(id: string): AnyElement[] {
+  return get(project).figures.find((f) => f.elements.some((e) => e.id === id))?.elements ?? [];
+}
+
+/** The look of the live image's split, when it has one (its key is then lit and flips it). */
+export function liveSplitLook(): SplitLook | null {
   const c = liveContext();
-  if (!c || c.view.channels.length < 2) return null;
-  const figure = get(project).figures.find((f) => f.elements.some((e) => e.id === c.element.id));
-  return figure ? splitLayout(figure, c.element, c.view.channels.length) : null;
+  if (!c) return null;
+  return splitLookOf(liveFigureElements(c.element.id) as SplitElement[], c.element as SplitElement);
 }
 
 /**
- * Split channels: one panel per channel to the right of the image (each showing that channel alone, in gray so
- * intensities read on a neutral scale), the composite staying where it is. One undo step.
+ * What the Split key would do, for its preview: where new panels would go and in which look (the remembered form, or
+ * the other one with Shift), or, when the image is already split, the look a flip would give its panels.
  */
-export function splitChannels(): void {
+export type SplitPreview = { kind: "split"; plan: SplitLayout; look: SplitLook } | { kind: "flip"; to: SplitLook; ids: string[] };
+export function splitPlan(other = false): SplitPreview | null {
+  const c = liveContext();
+  if (!c || c.view.channels.length < 2) return null;
+  const elements = liveFigureElements(c.element.id);
+  const flip = flipPlan(elements as SplitElement[], c.element as SplitElement);
+  if (flip) return { kind: "flip", to: flip.to, ids: flip.patches.map((p) => p.id) };
+  const figure = get(project).figures.find((f) => f.elements.some((e) => e.id === c.element.id));
+  const pref = splitLookPref();
+  return figure ? { kind: "split", plan: splitLayout(figure, c.element, c.view.channels.length), look: other ? (pref === "color" ? "gray" : "color") : pref } : null;
+}
+
+/**
+ * The Split key. An image that is not split yet: one panel per channel beside it (or sharing its box when the figure
+ * has no room), the composite staying where it is, each panel in the look last used (`other`: the other one, which is
+ * then remembered). An image that is already split: its panels flip between gray and colour. One undo step either way.
+ */
+export function splitKey(other = false): void {
+  const c = liveContext();
+  if (!c) return;
+  if (flipPlan(liveFigureElements(c.element.id) as SplitElement[], c.element as SplitElement)) { flipSplit(); return; }
+  const pref = splitLookPref();
+  splitChannels(other ? (pref === "color" ? "gray" : "color") : pref);
+}
+
+/**
+ * Split channels: one panel per channel to the right of the image, each showing that channel alone, in its colour
+ * from the merged image (`color`) or in gray so intensities read on a neutral scale (`gray`); the composite stays where
+ * it is. One undo step. The form is remembered as the one last used.
+ */
+export function splitChannels(look: SplitLook = splitLookPref()): void {
   const c = liveContext();
   if (!c) return;
   if (newElementsOff()) { pushToast("info", "Split channels makes new panels: switch to Design to split"); return; }
@@ -554,13 +602,12 @@ export function splitChannels(): void {
     const layout = splitLayout(figure, src, n);
     done.place = layout.place;
     if (layout.place === "inPlace") { src.x = layout.source.x; src.y = layout.source.y; src.width = layout.source.width; src.height = layout.source.height; }
-    // The composite and its channel panels move together from now on (position, projection, each channel's window).
+    // The composite and its channel panels move together from now on (position, projection, each channel's window;
+    // a coloured panel also follows its channel's colour).
     const link = src.view?.link ?? `split-${src.id}`;
     src.view = { ...(src.view ?? {}), link };
     for (let i = 0; i < n; i++) {
-      const channels: Array<FluximgChannelView | null> = [];
-      for (let k = 0; k < n; k++) channels.push(k === i ? { ...(src.view?.channels?.[k] ?? {}), lut: "gray", color: null as unknown as undefined } : (src.view?.channels?.[k] ?? null));
-      const view: FluximgView = { ...structuredClone(src.view ?? {}), link, composite: "single", solo: i, channels, furniture: { channelLabels: {} } };
+      const view = splitPanelView(src.view, i, n, link, look);
       const cell = layout.channels[i];
       const nid = addFluximg(p, {
         figureId: found.figureId, asset, x: cell.x, y: cell.y, width: cell.width,
@@ -572,7 +619,39 @@ export function splitChannels(): void {
     }
   });
   settleLiveEdit();
-  if (created.length) pushToast("info", `Split into ${created.length} channel panels`, done.place === "inPlace" ? { detail: "The figure has no room beside the image, so they share its place." } : {});
+  rememberSplitLook(look);
+  if (created.length) {
+    fluximgFitDue.set(true);
+    pushToast("info", `Split into ${created.length} channel panels${look === "gray" ? " in gray" : " in colour"}`, done.place === "inPlace" ? { detail: "The figure has no room beside the image, so they share its place." } : {});
+  }
+}
+
+/** Flip the live image's split panels between gray and their colour in the merged image. One undo step, no new panels. */
+export function flipSplit(): void {
+  const c = liveContext();
+  if (!c) return;
+  const plan = flipPlan(liveFigureElements(c.element.id) as SplitElement[], c.element as SplitElement);
+  if (!plan) return;
+  if (!plan.patches.length) { pushToast("info", "Every channel panel has a colour of its own", { detail: "Panels recoloured by hand keep their colour." }); return; }
+  liveMutate("split-look", (p) => { for (const q of plan.patches) setFluximgViewOnly(p, q.id, q.view); });
+  settleLiveEdit();
+  rememberSplitLook(plan.to);
+}
+
+/** One element's view patched on its own (a split's look is the panel's, never shared through the link). */
+function setFluximgViewOnly(p: Project, id: string, patch: FluximgView): void {
+  const e = elementFigure(p, id)?.element;
+  if (!e) return;
+  const next = patchView(e.view, patch);
+  if (Object.keys(next).length) e.view = next; else delete e.view;
+}
+
+/** Where an inset of this shape (width / height of its region) would go, for its preview (the figure's coordinates). */
+export function insetPlan(aspect: number): { place: "right" | "below" | "inside"; box: PanelBox } | null {
+  const c = liveContext();
+  if (!c || !(aspect > 0) || newElementsOff()) return null;
+  const figure = get(project).figures.find((f) => f.elements.some((e) => e.id === c.element.id));
+  return figure ? insetLayout(figure, c.element, aspect) : null;
 }
 
 /**
@@ -611,6 +690,7 @@ export function makeInset(restore: CropRect | null, drawn?: PixelRect): string |
     if (!drawn) { if (restore) src.crop = { ...restore }; else delete src.crop; }
   });
   settleLiveEdit();
+  if (created && done.place !== "inside") fluximgFitDue.set(true);
   // An inset standing ON its image lies under the live picture: the view closes on it, with the inset selected,
   // so what was just made is what you see and can drag.
   if (created && done.place === "inside") { closeFluximgLive(); selection.set(new Set([created])); }

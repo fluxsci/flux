@@ -15,14 +15,14 @@
   import { get } from "svelte/store";
   import { yieldsToShellModal, isAnnotateChord } from "../../../shell/agent/annotationVisibility";
   import { project } from "../../store";
-  import { fluxFigMenuOpen } from "../../settings";
+  import { fluxFigMenuOpen, settings } from "../../settings";
   import { WheelStepper, wheelDelta } from "../../interact/wheelLaw";
   import { pushToast } from "../../toast";
   import { channelTable } from "../lut";
   import { fluximgLutsReady, fluximgManifests, needLuts, resolveLut } from "../store";
   import { fullCrop } from "../still";
   import { insetsOf } from "../static";
-  import type { SplitLayout } from "../panelLayout";
+  import { boundsOf, familyOf, type FamilyElement, type PanelBox } from "../panelLayout";
   import { contributingChannelIndices, formatNumber } from "../viewOps";
   import BoardChannel from "./BoardChannel.svelte";
   import BoardLayers from "./BoardLayers.svelte";
@@ -36,12 +36,12 @@
   import {
     LIVE_KEYS, MOVIE_KEY, PROJECTION_MODES, autoContrast, autoPlan, backOut, channelInHand, cycleFurnitureCorner, defaultArmed, dimKeys, dimLength, holdRail, liveContext, makeInset,
     nudgeFurniture, nudgeGamma, nudgeLayerOpacity, nudgeStyleRange, nudgeWindow, panFrame, railDims, resetChannel, resetFrame, resizeProjection, setChannel, setPosition, setProjectionMode, setRun,
-    setWindow, soloChannel, splitChannels, splitPlan, stepPosition, stepSpeed, takeChannel, toggleChannel, toggleFurniture, togglePlayback, toggleSmooth, zoomFrame, zoomInset, newElementsOff,
+    setWindow, soloChannel, splitKey, splitPlan, liveSplitLook, splitLookPref, insetPlan, type BoardGhosts, stepPosition, stepSpeed, takeChannel, toggleChannel, toggleFurniture, togglePlayback, toggleSmooth, zoomFrame, zoomInset, newElementsOff,
   } from "./actions";
-  import { boardLayout, type Box } from "./boardLayout";
-  import { armLive, cancelLiveEdit, closeFluximgLive, fluximgFrame, fluximgLive, fluximgLiveProblem, fluximgPreview, fluximgReadout, fluximgTip, liveArm, liveOnSlide, livePointer, liveSampler, setLive, settleLiveEdit, type LiveSample } from "./session";
+  import { boardClear, boardFit, boardLayout, type BoardFit, type BoardNeeds, type Box } from "./boardLayout";
+  import { armLive, cancelLiveEdit, closeFluximgLive, fluximgFitDue, fluximgFrame, fluximgLive, fluximgLiveProblem, fluximgPreview, fluximgReadout, fluximgTip, liveArm, liveOnSlide, livePointer, liveSampler, setLive, settleLiveEdit, type LiveSample } from "./session";
 
-  let { image, host, origin, zoom, prefetch, preview = $bindable(null) }: {
+  let { image, host, origin, zoom, prefetch, preview = $bindable(null), moveView = undefined }: {
     /** The live image's screen bounds, in the canvas host's px. */
     image: Box;
     host: { w: number; h: number };
@@ -50,8 +50,10 @@
     zoom: number;
     /** Decode ahead along a dimension (the overlay's driver). */
     prefetch: (dim: string, steps: readonly number[]) => void;
-    /** What a hovered key would do, for the overlay to draw on the image: the corner frame it would take, etc. */
-    preview?: null | { kind: "split"; plan: SplitLayout };
+    /** What a hovered key would make (or an inset being drawn), for the overlay to draw on the figure. */
+    preview?: BoardGhosts;
+    /** Change the canvas view (the board asks for room: `boardFit`). Absent: the view is never moved. */
+    moveView?: (f: BoardFit) => void;
   } = $props();
 
   /** The console plate, and the modules that sit in it. */
@@ -123,7 +125,6 @@
     if (!myMovie || !movieJob?.running) return null;
     return { text: movieJob.cancelling ? "Stopping the movie" : movieJob.total ? `Writing the movie · ${movieJob.frame.toLocaleString("en-US")} of ${movieJob.total.toLocaleString("en-US")} frames` : "Writing the movie" };
   });
-  const readoutLine = $derived(writingLine ?? movieLine);
   /** What a rail's movie key shows. */
   function movieState(dim: string): { writing: boolean; stopping: boolean; progress: number; label: string } {
     const mine = myMovie && movieJob?.running && movieJob.dim === dim;
@@ -281,6 +282,50 @@
     if (phase === "end") settleLiveEdit();
   }
 
+  // --- the Split key: two forms (S: the look last used; Shift+S: the other), and a lamp for the look -------------
+  /** The look of the image's split, when it has one: the key is lit and a press flips it. */
+  const splitLook = $derived.by(() => { void $project; return ctx ? liveSplitLook() : null; });
+  const nextLook = $derived.by(() => { void $settings; return splitLookPref(); });
+  const LOOK_WORDS = { color: "in colour", gray: "in gray" } as const;
+  const splitLabel = $derived(atStep ? "Split channels · in Design only"
+    : splitLook ? `Channel panels ${LOOK_WORDS[splitLook]} · click: ${LOOK_WORDS[splitLook === "color" ? "gray" : "color"]}`
+    : `Split channels ${LOOK_WORDS[nextLook]} · ⇧ ${LOOK_WORDS[nextLook === "color" ? "gray" : "color"]}`);
+  const GRAY_LAMP = "linear-gradient(135deg, #1a1918 10%, #f2f0e5 90%)";
+  /** The key's lamp: the look its press gives (a split's present look when lit), its channels' colours or a gray ramp. */
+  const splitLamp = $derived.by(() => {
+    const look = splitLook ?? nextLook;
+    if (look === "gray" || !ctx) return GRAY_LAMP;
+    const inks = ctx.view.channels.map((c) => inkOf(c));
+    return `conic-gradient(${inks.map((k, i) => `${k} ${(i / inks.length) * 360}deg ${((i + 1) / inks.length) * 360}deg`).join(",")})`;
+  });
+  let splitHover = false, splitShift = $state(false);
+  const wash = (look: "color" | "gray", ink: string): string => (look === "gray" ? "linear-gradient(135deg, rgba(0,0,0,0.62) 12%, rgba(242,240,229,0.5))" : `linear-gradient(135deg, rgba(0,0,0,0.62) 12%, color-mix(in oklab, ${ink} 72%, transparent))`);
+  /** What the Split key would make (or recolour), in the look it would have. */
+  function splitGhosts(other: boolean): BoardGhosts {
+    const plan = atStep || !ctx ? null : splitPlan(other);
+    if (!plan || !ctx) return null;
+    const names = ctx.view.channels.map((c) => c.name), inks = ctx.view.channels.map((c) => inkOf(c));
+    if (plan.kind === "flip") {
+      const ghosts = plan.ids.flatMap((id) => {
+        const e = figureEls.find((x) => x.id === id);
+        const k = e && e.type === "fluximg" ? e.view?.solo ?? 0 : 0;
+        return e ? [{ box: boundsOf(e as unknown as FamilyElement), label: `${names[k] ?? ""} ${LOOK_WORDS[plan.to]}`, wash: wash(plan.to, inks[k] ?? "#888") }] : [];
+      });
+      return { ghosts, adds: false };
+    }
+    return {
+      ghosts: [...(plan.plan.place === "inPlace" ? [{ box: plan.plan.source, label: "all", wash: "" }] : []), ...plan.plan.channels.map((b, i) => ({ box: b, label: names[i] ?? String(i + 1), wash: wash(plan.look, inks[i] ?? "#888") }))],
+      adds: true,
+    };
+  }
+  // Holding Shift over the key previews the other form.
+  $effect(() => {
+    const shift = (e: KeyboardEvent): void => { if (e.key !== "Shift" || splitShift === e.shiftKey) return; splitShift = e.shiftKey; if (splitHover) preview = splitGhosts(splitShift); };
+    window.addEventListener("keydown", shift);
+    window.addEventListener("keyup", shift);
+    return () => { window.removeEventListener("keydown", shift); window.removeEventListener("keyup", shift); };
+  });
+
   /** A key struck from the keyboard goes down on the board too. */
   let rootEl = $state<HTMLDivElement>();
   function strike(id: string): void {
@@ -361,7 +406,7 @@
     if (k === LIVE_KEYS.smooth && e.shiftKey && atStep) { strike("step-blend"); toggleStepBlend(); return; }
     switch (k) {
       case LIVE_KEYS.auto: { const one = channelInHand(live.armed); strike("auto"); autoContrast(one ? live.channel : "all"); return; }
-      case LIVE_KEYS.split: strike("split"); splitChannels(); return;
+      case LIVE_KEYS.split: strike("split"); preview = null; splitKey(e.shiftKey); return;
       case LIVE_KEYS.projection: { const d = live.armed?.startsWith("pos:") || live.armed?.startsWith("run:") ? live.armed.slice(4) : dims[0]; if (d) { strike(`project:${d}`); openChooser(d); } return; }
       case LIVE_KEYS.layers: if (ctx.manifest.layers.length) layersOwnKeys = true; return;
       case LIVE_KEYS.frame: if (e.shiftKey) { strike("whole"); resetFrame(); } else { strike("frame"); frameKey(); } return;
@@ -468,12 +513,47 @@
   // --- where everything stands ------------------------------------------------------------------------
   let consoleH = $state(0), layersH = $state(0);
   const hasLayers = $derived(!!ctx && ctx.manifest.layers.length > 0);
-  const layout = $derived(boardLayout({
+  /** The live image's figure (or slide): its family lives there. */
+  const figureEls = $derived.by(() => { if (!ctx) return []; void $project; return $project.figures.find((g) => g.elements.some((e) => e.id === ctx.element.id))?.elements ?? []; });
+  /** A box of the figure, in the canvas host's px. */
+  const onHost = (b: PanelBox): Box => ({ x: origin.x + b.x * zoom, y: origin.y + b.y * zoom, w: b.width * zoom, h: b.height * zoom });
+  /** The image's own panels (its linked channel panels, its insets): the board keeps them in view (boardLayout's KEPT boxes). */
+  const kept = $derived(ctx ? familyOf(figureEls as unknown as FamilyElement[], ctx.element as unknown as FamilyElement).map((e) => onHost(boundsOf(e))) : []);
+  const needs = $derived<BoardNeeds>({
     host, image, depth: !!vDim, rows: hDims.length,
     console: { w: CONSOLE_W, h: consoleH || 60 + (ctx?.view.channels.length ?? 1) * 84 + 44 },
     layers: hasLayers ? { w: LAYERS_W, h: Math.min(layersH || 160, 520) } : null,
     step: card ? { w: CONSOLE_W, h: stepH || (card.design ? 50 : 86) } : null,
-  }));
+    kept,
+  });
+  // Runs when the board opens, when one of its inputs changes (a measured height, a panel made, the view or the window
+  // moved), never per frame: about 25 µs for the largest case (verify-fluximg-live).
+  const layout = $derived(boardLayout(needs));
+  // The view makes room (boardFit) once the console is measured: when the board opens and after a split or an inset
+  // (`fluximgFitDue`). The image stays where it is on screen when everything already stands clear.
+  $effect(() => {
+    if (!$fluximgFitDue || !ctx || !consoleH) return;
+    const f = boardFit(needs);
+    fluximgFitDue.set(false);
+    if (f && moveView) moveView(f);
+  });
+  /**
+   * Honest previews: while a key shows the panels it would make, the board shows where its instruments will stand once
+   * they are there (a dashed outline for each that moves), so the press moves them once, to exactly there. When even
+   * that would not stand clear, the readout says the view will make room.
+   */
+  const afterward = $derived.by((): { moved: Box[]; line: string } => {
+    if (!preview?.adds) return { moved: [], line: "" };
+    const more: BoardNeeds = { ...needs, kept: [...kept, ...preview.ghosts.map((g) => onHost(g.box))] };
+    const next = boardLayout(more);
+    const pairs: Array<[Box | null, Box | null]> = [[layout.console, next.console], [layout.step, next.step], [layout.layers, next.layers], [layout.depth, next.depth], ...layout.rows.map((r, i): [Box, Box | null] => [r, next.rows[i] ?? null])];
+    const moved = pairs.filter(([a, b]) => !!a && !!b && (Math.abs(a.x - b.x) > 1 || Math.abs(a.y - b.y) > 1 || Math.abs(a.h - b.h) > 1 || Math.abs(a.w - b.w) > 1)).map(([, b]) => b!);
+    const line = boardClear(more, next) ? "" : boardFit(more) ? "The view will make room for them" : "";
+    return { moved, line };
+  });
+  const previewLine = $derived<{ text: string; bad?: boolean; tip?: string } | null>(afterward.line ? { text: afterward.line } : null);
+  /** The readout's one line: the movie's progress or its word, else what a hovered key's preview needs to say. */
+  const readoutLine = $derived(writingLine ?? movieLine ?? previewLine);
   const at = (b: Box): string => `left:${Math.round(b.x)}px;top:${Math.round(b.y)}px`;
   /**
    * The narrow gaps between the image and the instruments that stand next to it belong to the board: a press that
@@ -584,14 +664,15 @@
               onenter={() => { const one = channelInHand(live.armed); ghosts = autoPlan(one ? live.channel : "all"); }} onleave={() => (ghosts = null)} />
             {#if ctx.view.channels.length > 1}
               <span class="offkey" class:off={atStep}>
-              <PaperKey glyph="split" label={atStep ? "Split channels · in Design only" : "Split channels"} hotkey="S" id="split" onpress={() => { preview = null; splitChannels(); }}
-                onenter={() => { const plan = atStep ? null : splitPlan(); preview = plan ? { kind: "split", plan } : null; }} onleave={() => (preview = null)} />
+              <PaperKey glyph="split" label={splitLabel} hotkey={splitLook ? "S" : "S · ⇧S"} id="split" on={!!splitLook} lamp={splitLamp} onpress={(e) => { preview = null; splitKey(e.shiftKey); }}
+                onenter={() => { splitHover = true; preview = splitGhosts(splitShift); }} onleave={() => { splitHover = false; preview = null; }} />
               </span>
             {/if}
           </span>
           <span class="grp">
             <PaperKey glyph="frame" label="Frame in hand: roll to zoom, drag to move" hotkey="V" id="frame" on={live.armed === "zoom"} onpress={frameKey} />
-            <span class="offkey" class:off={atStep}><PaperKey glyph="inset" label={atStep ? "Inset · in Design only" : live.armed === "inset" ? "Drag a box on the image" : "Inset: drag a box on the image"} hotkey="X" id="inset" on={live.armed === "inset"} onpress={insetKey} /></span>
+            <span class="offkey" class:off={atStep}><PaperKey glyph="inset" label={atStep ? "Inset · in Design only" : live.armed === "inset" ? (whole ? "Drag a box on the image" : "Pull the frame out as an inset, or drag a box on the image") : "Inset: drag a box on the image"} hotkey="X" id="inset" on={live.armed === "inset"} onpress={() => { preview = null; insetKey(); }}
+              onenter={() => { if (live.armed === "inset" && !whole) { const at = insetPlan(ctx.crop.width / ctx.crop.height); preview = at ? { ghosts: [{ box: at.box, label: "inset", wash: "" }], adds: at.place !== "inside" } : null; } }} onleave={() => (preview = null)} /></span>
           </span>
           <span class="grp">
             <PaperKey glyph="scalebar" label={hasPixelSize ? "Scale bar" : "Scale bar (the image has no pixel size)"} hotkey="B" id="scalebar" on={!!ctx.view.furniture.scalebar} onpress={(e) => furniture("scalebar", e.shiftKey)} />
@@ -665,6 +746,10 @@
       </div>
     {/if}
 
+    <!-- Where the instruments will stand once what a key shows is made (the press moves them there, once). -->
+    {#each afterward.moved as b, i (i)}
+      <div class="after" style={`${at(b)};width:${Math.round(b.w)}px;height:${Math.round(b.h)}px`} aria-hidden="true" data-fxb-after></div>
+    {/each}
     {#if tip && tip.text}
       <div class="tip" class:below={tip.below} style={`left:${tip.x}px;top:${tip.y}px`} role="tooltip">{tip.text}{#if tip.hk}<kbd>{tip.hk}</kbd>{/if}</div>
     {/if}
@@ -678,6 +763,8 @@
     --fxb-tx: var(--flx-base-200); --fxb-tx-hi: var(--flx-paper); --fxb-tx-dim: var(--flx-base-500); --fxb-shadow: 0 10px 26px -10px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.4);
     position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 3; color: var(--fxb-tx); font: 12px var(--font-ui); }
   .bridge { position: absolute; }
+  /* An instrument's place to come: the dashed pink of Flux's guides, nothing filled, never in the pointer's way. */
+  .after { position: absolute; box-sizing: border-box; z-index: 2; border: 1.5px dashed color-mix(in oklab, var(--fxb-pink) 80%, transparent); border-radius: 10px; pointer-events: none; }
   .part, .console { position: absolute; animation: fxb-in 150ms linear backwards; }
   /* The console is one plate with its modules set into it. */
   .console { box-sizing: border-box; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; border-radius: 12px; background: var(--fxb-plate); border: 1px solid var(--fxb-line); box-shadow: var(--fxb-shadow); animation-delay: 30ms; }
@@ -702,7 +789,8 @@
   /* One line of the readout: a little smaller, from under the lamp, so a movie's facts fit the console's width. */
   .movieline { margin-left: -15px; overflow: hidden; text-overflow: ellipsis; color: var(--fxb-tx-hi); font-size: 9px; letter-spacing: -0.1px; }
   .movieline.bad { color: var(--c-danger); }
-  .keypad { display: flex; align-items: center; gap: 9px; padding: 7px 8px 8px; }
+  /* The keys stay at the console's foot when it is compacted and scrolls (a short canvas): never clipped away. */
+  .keypad { position: sticky; bottom: 0; z-index: 1; display: flex; align-items: center; gap: 9px; padding: 7px 8px 8px; }
   .grp { display: inline-flex; gap: 3px; }
   /* A key that makes new elements, on a slide's step: still there (its label says why it is off), dimmed. */
   .offkey { display: inline-flex; }

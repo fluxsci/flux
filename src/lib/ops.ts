@@ -2115,8 +2115,9 @@ export { setModelView };
 // is metadata (its bundle directory was published by the native import), the element is a box + a sparse view.
 // ---------------------------------------------------------------------------
 import type { Asset, FluximgElement } from "./types";
-import type { FluximgView } from "./fluximg/view";
+import type { FluximgChannelView, FluximgView } from "./fluximg/view";
 import { patchView, sharedPatch } from "./fluximg/viewOps";
+import { followPatch } from "./fluximg/splitLook";
 import { DECK_CANVAS_ID } from "./slide/deckProject";
 
 /** The margin kept on each side when a too-wide image is scaled down to its figure's width (canvas px). */
@@ -2188,6 +2189,7 @@ export function setFluximgView(p: Project, elementId: Id, patch: FluximgView): v
     if (e.type !== "fluximg") throw new Error(`element ${elementId} is a ${e.type}, not a fluximg`);
     // The ONE merge law is viewOps.patchView (undefined is ignored, null clears, objects merge, a null channel entry
     // leaves that channel alone). A view equal to the defaults is stored as no view at all.
+    const before = e.view;
     const next = patchView(e.view, patch);
     if (Object.keys(next).length) e.view = next;
     else delete e.view;
@@ -2196,10 +2198,18 @@ export function setFluximgView(p: Project, elementId: Id, patch: FluximgView): v
     // slide: there an edit may be a step's Change ("Edit after step N" captures the active slide's elements), and it must
     // never write into another slide's Design.
     const link = next.link, shared = link ? sharedPatch(patch) : null;
-    if (link && shared) {
+    // A composite's channel colour reaches the split panels showing that channel in the composite's colour (a gray
+    // panel stays gray; one recoloured by hand keeps the hand's choice: splitLook.followPatch). Only from the composite.
+    const recolours = link && next.composite !== "single" && Array.isArray(patch.channels) && patch.channels.some((c) => c && ("color" in c || "lut" in c || "invert" in c));
+    if (link && (shared || recolours)) {
       for (const g of f.canvasId === DECK_CANVAS_ID ? [f] : p.figures) for (const other of g.elements) {
         if (other === e || other.type !== "fluximg" || other.assetId !== e.assetId || other.view?.link !== link) continue;
-        const merged = patchView(other.view, shared);
+        let merged = shared ? patchView(other.view, shared) : other.view ?? {};
+        const k = other.view?.composite === "single" && !other.view.insetOf ? other.view.solo : undefined;
+        if (recolours && typeof k === "number") {
+          const follow = followPatch(patch.channels![k], before?.channels?.[k], other.view?.channels?.[k]);
+          if (follow) { const channels: Array<FluximgChannelView | null> = []; for (let i = 0; i < k; i++) channels.push(null); channels.push(follow); merged = patchView(merged, { channels }); }
+        }
         if (Object.keys(merged).length) other.view = merged; else delete other.view;
       }
     }
