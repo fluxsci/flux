@@ -2811,11 +2811,13 @@ Persistence invariants (all machine-checked — do not weaken):
     time and added a third to its style time; as a glyph font they still added a tenth to style; as inline
     SVG they were eight elements a row. The owner: "icons are not really critical". The X-ray's eye and
     twisty stay text glyphs; its row marks were left out.
-  - **Draw per-row decoration with ONE static rule.** The X-ray's skeleton lines are three background
-    layers every indented row shares (a cover over the row's content box, a rib, a repeating line in the
-    indent); nothing is computed per row and no element is spent. A per-row class from a constructed
-    stylesheet cost 5% on every arrow key in a 92-row tree. Because the cover hides `background-color`,
-    hover and selection are inset shadows without blur.
+  - **Per-row decoration is paid per row, however it is drawn.** The X-ray's skeleton lines were built
+    twice. As a class per pattern from a constructed stylesheet they cost 5% on every arrow key in a
+    92-row tree. As ONE static rule (three background layers shared by every indented row: a cover over
+    the row's content box, a rib, a repeating line in the indent) they were free at open, but the cover
+    hides `background-color`, so hover and selection had to become inset shadows, and a hovered row then
+    cost 5 to 20% more. The owner: "skeleton lines are also not critical if they hurt performance". They
+    were left out, like the marks.
   - **No `text-shadow` on anything that changes as the pointer or the keys move.** It grows ink overflow
     and is laid out again each time; the picked row glows from its rail with an INSET shadow instead.
   - **Count elements.** The Flux mark as 88 live circles was a third of the menu's elements at every
@@ -13755,9 +13757,9 @@ against new")
 - Settle a look in a viewer first: an HTML page with the real tokens and fonts, the exact scenario from the
   owner's screenshot, live interactions, today's version at the same scale, every state side by side, and a
   "your pick" line to paste back. One round, no rework of the look.
-- A viewer does not show cost. Two things the owner picked there (row icons, skeleton lines as drawn there)
-  were not free in the app; say so as soon as the numbers do, and offer the cheaper form. They answered within
-  minutes ("icons are not really critical").
+- A viewer does not show cost. Two things the owner picked there (row icons, skeleton lines) were not free in
+  the app in any form I could find; say so as soon as the numbers do. They answered within minutes ("icons are
+  not really critical", then "skeleton lines are also not critical if they hurt performance").
 - A mockup's key may be taken: `?` was the X-ray legend's key in the viewer and is the app's keyboard reference.
 - When a patch replaces "from marker X to the end of the file", find X after a known anchor: `{#if $xrayOpen}`
   also appeared in a comment in the script, and the first match cut the component in half.

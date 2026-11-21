@@ -163,7 +163,6 @@
   --xr-hot:     #f0fffc;                                        /* what is picked       */
   --xr-box:     #e2f5f0;                                        /* a light-box key face */
   --xr-ink:     #073a39;                                        /* the mark on that face */
-  --xr-rule:    rgba(90, 189, 172, 0.24);                       /* skeleton lines */
   --xr-halo:    0 0 9px rgba(90, 189, 172, 0.5);                /* a box's soft glow (a shadow; --xr-glow above is a colour) */
   --xr-halo-tx: 0 0 9px rgba(90, 189, 172, 0.6);                /* a word's soft glow   */
 

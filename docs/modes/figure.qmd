@@ -464,7 +464,6 @@ Hovering a row outlines its parts on the canvas — on every plot, for a common 
 The X-ray is a dark plate with cards. Its head carries a bright **X-RAY** marker and the
 breadcrumb of where you are, with the source path on the line under them. The picked row glows
 softly from the rail at its left.
-Thin lines in a row's indent tie it to its parents.
 Under the readout, **Properties** (**Enter** or **F**) is the one bright button; **Animate**
 (**m**, Slide mode only) and **Axis view** (**v**, on an axis row) are quieter. The foot is one
 hint line for what you can do now; the small **?** button at its end shows every X-ray key in

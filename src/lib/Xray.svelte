@@ -1142,7 +1142,6 @@
                 {@const h = built.heads.get(r.node.id)}
                 <div class="shead">{#if locator && h?.plotId}<svg class="loc" viewBox={`0 0 ${locator.w} ${locator.h}`} aria-hidden="true">{#each locator.boxes as b (b.id)}<rect x={b.x} y={b.y} width={b.w} height={b.h} class:me={b.id === h.plotId} />{/each}</svg>{/if}<span class="hkey">{h?.label}</span>{#if h?.hint}<span class="hhint">{h.hint}</span>{/if}<span class="hcount">{h?.count}</span></div>
               {/if}
-              <!-- A row. Its skeleton lines are its own background, drawn in its indent by one static rule. -->
               <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
               <div
                 class="row"
@@ -1159,7 +1158,9 @@
                 on:dblclick={() => onRowDblClick(r.node)}
               >
                 {#if r.node.children.length && !q}
-                  <button class="tw" aria-label="Open or close" aria-expanded={expanded.has(r.node.id)} on:click|stopPropagation={() => toggleExpand(r.node)}>{expanded.has(r.node.id) ? "▾" : "▸"}</button>
+                  <button class="tw" on:click|stopPropagation={() => toggleExpand(r.node)}>
+                    {expanded.has(r.node.id) ? "▾" : "▸"}
+                  </button>
                 {/if}
                 <button
                   class="eye"
@@ -1247,28 +1248,17 @@
         <div class="foot">
           <span class="hints">
             {#if !tree}
-              <span><b class="hk">r</b> <b class="hk">esc</b> close</span>
+              <b class="hk">r</b><b class="hk j">esc</b>close
             {:else if animMenu}
-              <span>press an animation's key</span>
-              <span><b class="hk">esc</b> cancel</span>
+              press an animation's key<b class="hk">esc</b>cancel
             {:else if mode === "search"}
-              <span><b class="hk">↵</b> to the rows</span>
-              <span><b class="hk">alt+a</b> pick every result</span>
-              <span><b class="hk">esc</b> clear</span>
+              <b class="hk">↵</b>to the rows<b class="hk">alt+a</b>pick every result<b class="hk">esc</b>clear
             {:else if $xrayBecomeSource && canAnimate}
-              <span><b class="hk">␣</b> <b class="hk">b</b> become the picked rows</span>
-              <span><b class="hk">esc</b> close</span>
+              <b class="hk">␣</b><b class="hk j">b</b>become the picked rows<b class="hk">esc</b>close
             {:else if selectedIds.size > 1}
-              <span><b class="hk">↵</b> properties for all</span>
-              <span><b class="hk">x</b> hide</span>
-              <span><b class="hk">a</b> siblings</span>
-              <span><b class="hk">esc</b> close</span>
+              <b class="hk">↵</b>properties for all<b class="hk">x</b>hide<b class="hk">a</b>siblings<b class="hk">esc</b>close
             {:else}
-              <span><b class="hk">↑↓</b> walk</span>
-              <span><b class="hk">←</b> family</span>
-              <span><b class="hk">a</b> siblings</span>
-              <span><b class="hk">x</b> hide</span>
-              <span><b class="hk">dbl</b> re-root</span>
+              <b class="hk">↑↓</b>walk<b class="hk">←</b>family<b class="hk">a</b>siblings<b class="hk">x</b>hide<b class="hk">dbl</b>re-root
             {/if}
           </span>
           {#if tree}<button class="keys" class:on={showKeys} aria-label="Every X-ray key" aria-pressed={showKeys} title="Every X-ray key (the whole keyboard reference: ?)" on:click={() => { showKeys = !showKeys; panelEl?.focus({ preventScroll: true }); }}>?</button>{/if}
@@ -1287,9 +1277,7 @@
      skeleton lines=on · part icons=on · row=22"). A radiograph viewer: a near-black plate with cards set into
      it, mono type and phosphor, always dark by nature (the --xr-* ramp, never the theme-scoped --c-* ramp). A
      lead marker names it; what is picked glows softly; one key is lit from behind (properties, what you came
-     for) and the others are glass. Thin skeleton lines tie each row to its parent: backgrounds of the row itself,
-     painted in its indent by ONE static rule, so a row has no more elements than it had, no image, and nothing is
-     computed per row. Still: no blur, no backdrop filter,
+     for) and the others are glass. Still: no blur, no backdrop filter,
      no scanline layer, nothing animating at rest. (Its tokens are on :root in tokens.css, deliberately not here.) */
   .xbackdrop { position: fixed; inset: 0; background: transparent; z-index: 290; }
   /* Sits UNDER the property menu (300/301): Show Properties opens it on top. */
@@ -1364,32 +1352,21 @@
   .xhead, .xdetail, .actions, .foot, .legend, .animmenu { flex-shrink: 0; }
   .section { display: flex; align-items: baseline; gap: 8px; padding: 8px 9px 3px; font-size: 9.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: var(--xr-tx-dim); }
   .scount { text-transform: none; letter-spacing: 0; font-weight: 400; }
-  /* THE SKELETON, with no knowledge of the tree. A row's indent is its left padding (6 + 14 per level, inline), and
-     an ancestor's twisty stands in each 14 px of it. Three background layers, the same for every row:
-       1. a cover in the card's colour over the row's CONTENT box (everything right of the indent);
-       2. the rib: 8 px at mid-height, ending where the content begins;
-       3. one line every 14 px across the whole row: under layer 1 it shows only in the indent, which is one line
-          under each ancestor's twisty.
-     (Layer 3 stops 9 px short of the row's right edge, where the row's right padding is.) Because the
-     cover hides the row's own background colour, hover and selection are tints laid OVER the row (an inset shadow
-     without blur): still translucent, still never a solid fill. */
-  .row { display: flex; align-items: center; gap: 5px; height: 22px; padding-right: 9px; scroll-margin-block: 4px; cursor: var(--cursor-cross-hover); font-size: 12px; user-select: none;
-    background-image: linear-gradient(#07141b, #07141b), linear-gradient(rgba(90, 189, 172, 0.24), rgba(90, 189, 172, 0.24)), repeating-linear-gradient(90deg, transparent 0 12px, rgba(90, 189, 172, 0.24) 12px 13px, transparent 13px 14px);
-    background-clip: content-box, padding-box, padding-box; background-origin: content-box, content-box, padding-box; background-position: 0 0, -8px 50%, 0 0; background-size: 100% 100%, 8px 1px, calc(100% - 9px) 100%; background-repeat: no-repeat; }
-  /* A row with no indent (the root, a search result) has no parent to be tied to. */
-  .row[style*="left:6px"], .row[style*="left: 6px"] { background-image: none; }
-  .row:hover { box-shadow: inset 0 0 0 99px var(--xr-tint-2); }
+  .row { display: flex; align-items: center; gap: 5px; height: 22px; padding-right: 9px; scroll-margin-block: 4px; cursor: var(--cursor-cross-hover); font-size: 12px; user-select: none; }
+  .row:hover { background-color: var(--xr-tint-2); }
   /* Selection = phosphor tint + inset rail — NOT a solid fill; the primary row of a multi-pick carries the rail,
-     and what is picked glows softly in its name. */
-  .row.sel { box-shadow: inset 0 0 0 99px var(--xr-tint); }
-  /* The picked row glows from its rail: an INSET glow. (A glow on its name, a text-shadow, grows the row's ink
-     overflow and is laid out again at every row the arrow keys cross; an inset shadow costs no layout.) */
-  .row.sel.primary { box-shadow: inset 2px 0 0 var(--xr-phos-hi), inset 12px 0 10px -9px rgba(90, 189, 172, 0.6), inset 0 0 0 99px var(--xr-tint); }
-  .row.sel .rlabel { color: var(--xr-hot); }
+     and glows softly from it: an INSET glow. (A glow on its name, a text-shadow, grows the row's ink overflow and
+     is laid out again at every row the arrow keys cross; an inset shadow costs no layout.)
+     The viewer the owner picked from also showed skeleton lines tying each row to its parent, and a mark for
+     what kind of part a row is. Both were built and measured and both cost something at every open or every
+     hovered row (the engineering guide has the numbers); the owner: "icons are not really critical", "skeleton
+     lines are also not critical if they hurt performance". Neither is here. */
+  .row.sel { background-color: var(--xr-tint); }
+  .row.sel.primary { box-shadow: inset 2px 0 0 var(--xr-phos-hi), inset 12px 0 10px -9px rgba(90, 189, 172, 0.6); }
   /* open / closed. A row with nothing to open has no twisty: its eye stands where the twisty's eye would. */
   .tw { width: 14px; flex: 0 0 14px; padding: 0; background: none; border: none; color: var(--xr-tx-dim); font-size: 9px; font-family: inherit; cursor: var(--cursor-cross-hover); }
   .row > .eye:first-child { margin-left: 19px; }
-  .row.sel button.tw { color: var(--xr-phos-hi); }
+  .row.sel .tw { color: var(--xr-phos-hi); }
   /* Shown is the norm, so it is quiet; partly hidden / hidden / the picked rows stand out. The button still SAYS
      its state: ◉ drawn, ○ hidden, ◐ partly hidden. */
   .eye { width: 16px; height: 16px; flex: 0 0 16px; padding: 0; background: none; border: none; border-radius: 4px; color: color-mix(in oklab, var(--xr-phos) 60%, transparent); cursor: var(--cursor-cross-hover); font-size: 12px; font-family: inherit; }
@@ -1431,7 +1408,6 @@
   /* A member reads by its VALUE ("SWS"); its index label steps back. */
   .row.member { font-size: 11.5px; }
   .row.member .rlabel { color: var(--xr-tx-dim); }
-  .row.member.sel .rlabel { color: var(--xr-hot); }
   .row.member .rprev { color: var(--xr-tx); }
   .xmore { display: block; width: 100%; height: 22px; text-align: left; background-color: transparent; border: none; color: var(--xr-phos); font: 11px var(--font-mono); cursor: var(--cursor-cross-hover); }
   .xmore:hover { background-color: var(--xr-tint-2); color: var(--xr-phos-hi); }
@@ -1473,8 +1449,12 @@
 
   /* the foot: one line of what the hand can do now, and a key for the whole legend */
   .foot { display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 1px 0 8px; font-size: 10px; color: var(--xr-tx-dim); white-space: nowrap; }
-  .hints { flex: 1; min-width: 0; display: flex; align-items: center; gap: 11px; overflow: hidden; }
-  .hints span, .legend span { flex: none; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+  /* The hints are one run of text: a key cap, its word, the next cap. No element per hint. */
+  .hints { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hints .hk { margin: 0 4px 0 11px; }
+  .hints .hk:first-child { margin-left: 0; }
+  .hints .hk.j { margin-left: -2px; }
+  .legend span { flex: none; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
   .foot .hk, .legend .hk { min-width: 14px; height: 13px; padding: 0 3px; font-size: 9px; line-height: 10px; }
   .keys { flex: none; width: 22px; height: 20px; padding: 0; background: none; border: 1px solid transparent; border-radius: 5px; color: var(--xr-tx-dim); font: 700 10.5px/1 var(--font-mono); cursor: var(--cursor-cross-hover); }
   .keys:hover { background: var(--xr-box); color: var(--xr-ink); }

@@ -191,8 +191,8 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
     hand; the search key (**s**) is at its end. The colour picker keeps everything it had.
 - **The X-ray (R), redrawn.** Same tree, keys and actions.
   - A dark plate with cards; a bright **X-RAY** marker leads the head, with the breadcrumb, and
-    the source path is the head's second line. The picked row glows softly from its rail, and
-    thin lines in a row's indent tie it to its parents. Rows are a little closer (22 px).
+    the source path is the head's second line. The picked row glows softly from its rail.
+    Rows are a little closer (22 px).
   - The readout under the tree is two lines: where the row is, its name and value; then what it
     is and its id.
   - **Properties** (was **Show Properties**; **Enter** or **F**) is the one bright button;

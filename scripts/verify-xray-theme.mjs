@@ -5,16 +5,17 @@
 // ("the x-ray I think we can push even further to look like an x-ray … your redesign here looks absolutely
 // amazing"). That SUPERSEDES two lines of the 2026-09-15 flat contract this gate used to pin: "no glow" (the
 // lead marker, the one bright key and the picked row's rail now glow softly) and the 2 px / 3 px radii (the X-ray is a plate with cards,
-// like the image board and the property menu). The part icons of that pick were built three ways, measured,
-// and left out (each cost paint or style time at every open; the owner: "icons are not really critical"); the
-// eye and the twisty stay the text glyphs they always were. Everything else of the 2026-09-15 contract still
-// holds and is still asserted here:
+// like the image board and the property menu). Two things of that pick are NOT in the app: the part icons and
+// the skeleton lines. Each was built more than one way and measured against the old X-ray on production
+// bundles, and each cost something at every open or every hovered row; the owner: "icons are not really
+// critical", "skeleton lines are also not critical if they hurt performance". The eye and the twisty stay the
+// text glyphs they always were. Everything else of the 2026-09-15 contract still holds and is still asserted:
 //   · NO backdrop-filter, NO filter, NO gradient field on the panel, NO ::after scanline/vignette layer
 //   · mono type on the tree rows; the head's lead marker is uppercase and letterspaced
 //   · selection = translucent phosphor tint (never a solid fill); the primary row of a pick carries an inset
 //     2px rail and glows softly FROM it, inside the row (blur ≤ 12 px); no row's name is text-shadowed
-//   · rows are 22 px; skeleton lines tie a row to its parent as BACKGROUNDS of the row, from one static rule
-//     (no element, no image, nothing computed per row); a row with nothing to open carries no empty twisty
+//   · rows are 22 px, carry no image and no decoration of their own, and a row with nothing to open carries no
+//     empty twisty (two elements fewer per row than before)
 //   · the readout is two lines of fixed height; one key is bright (properties), the others glass
 //   · one hint line; the key at its end shows and hides the whole legend
 //   · nothing animates at rest (document.getAnimations() empty ≥ 200ms after open) and
@@ -132,32 +133,31 @@ try {
     return { bg: cs.backgroundColor, shadow: cs.boxShadow, glow: getComputedStyle(r.querySelector(".rlabel")).textShadow, primary: r.classList.contains("primary") };
   });
   ok(!!sel, "a selected row exists");
-  // The tint is laid OVER the row (an inset shadow without blur: the row's own background is its skeleton's
-  // cover), so its alpha is read from the shadow that spreads across the row. A computed shadow reads
-  // "<colour> <x> <y> <blur> <spread> inset"; colours carry their alpha as "rgba(…, a)" or "… / a)".
-  const shadows = sel ? sel.shadow.split(/,(?![^(]*\))/).map((t) => { const m = t.trim().match(/^(.*?)\s+(-?[\d.]+)px\s+(-?[\d.]+)px\s+([\d.]+)px\s+(-?[\d.]+)px\s+inset$/); if (!m) return null; const a = m[1].match(/\/\s*([\d.]+)\s*\)$/) || m[1].match(/rgba\([^)]+,\s*([\d.]+)\)$/); return { x: +m[2], blur: +m[4], spread: +m[5], alpha: a ? parseFloat(a[1]) : 1 }; }).filter(Boolean) : [];
-  const tint = shadows.find((x) => x.spread > 20), rail = shadows.find((x) => x.x === 2 && x.blur === 0 && x.spread === 0), halo = shadows.find((x) => x.blur > 0);
-  ok(sel && !!tint && tint.blur === 0 && tint.alpha > 0 && tint.alpha < 0.5, `.sel = translucent phosphor tint over the row, not a solid fill (alpha ${tint?.alpha}; ${sel?.shadow})`);
-  ok(sel && sel.primary && !!rail && rail.alpha === 1, "…the primary row carries the inset 2px rail");
+  const alphaM = sel && (sel.bg.match(/\/\s*([\d.]+)\s*\)/) || sel.bg.match(/rgba\([^)]+,\s*([\d.]+)\)/));
+  const alpha = alphaM ? parseFloat(alphaM[1]) : 1;
+  ok(sel && alpha > 0 && alpha < 0.5, `.sel = translucent phosphor tint, not a solid fill (alpha ${alpha}: ${sel?.bg})`);
+  // A computed shadow reads "<colour> <x> <y> <blur> <spread> inset".
+  const shadows = sel ? sel.shadow.split(/,(?![^(]*\))/).map((t) => { const m = t.trim().match(/^(.*?)\s+(-?[\d.]+)px\s+(-?[\d.]+)px\s+([\d.]+)px\s+(-?[\d.]+)px\s+inset$/); return m ? { x: +m[2], blur: +m[4], spread: +m[5] } : null; }).filter(Boolean) : [];
+  const rail = shadows.find((x) => x.x === 2 && x.blur === 0 && x.spread === 0), halo = shadows.find((x) => x.blur > 0);
+  ok(sel && sel.primary && !!rail && shadows.length === (sel.shadow.match(/inset/g) ?? []).length, "…the primary row carries the inset 2px rail, and every shadow on it is INSIDE the row");
   // The pick glows FROM ITS RAIL, inside the row: an inset shadow costs no layout. Its name carries no text-shadow
   // (a text glow grows the row's ink overflow and is laid out again at every row the arrow keys cross).
-  ok(sel && !!halo && halo.blur <= 12 && sel.glow === "none", `…and what is picked glows softly from its rail, inside the row (blur ${halo?.blur}px; no text-shadow on its name)`);
+  ok(sel && !!halo && halo.blur <= 12 && sel.glow === "none", `…and what is picked glows softly from its rail (blur ${halo?.blur}px; no text-shadow on its name)`);
   ok((await page.evaluate(() => [...document.querySelectorAll(".xray .row .rlabel")].filter((l) => getComputedStyle(l).textShadow !== "none").length)) === 0, "…no row's name is text-shadowed");
 
-  // --- the skeleton: drawn, never built -----------------------------------------------
+  // --- rows: nothing drawn that is not theirs, nothing built that is not needed ----------
   const tree = await page.evaluate(() => [...document.querySelectorAll(".xray .row")].map((r) => { const cs = getComputedStyle(r), eye = r.querySelector(".eye"), tw = r.querySelector(".tw");
-    return { label: r.querySelector(".rlabel")?.textContent.trim(), depth: (parseFloat(r.style.paddingLeft) - 6) / 14, image: cs.backgroundImage, layers: cs.backgroundImage === "none" ? 0 : (cs.backgroundImage.match(/linear-gradient/g) ?? []).length, clip: cs.backgroundClip,
-      kids: [...r.children].map((c) => c.classList[0]).join(" "), open: tw?.getAttribute("aria-expanded") ?? null, twSays: tw?.textContent.trim() ?? null, twTag: tw?.tagName ?? null,
+    return { label: r.querySelector(".rlabel")?.textContent.trim(), image: cs.backgroundImage, images: [r, ...r.querySelectorAll("*")].filter((n) => !n.classList.contains("sw") && getComputedStyle(n).backgroundImage !== "none").length,
+      kids: [...r.children].map((c) => c.classList[0]).join(" "), twSays: tw?.textContent.trim() ?? null, twTag: tw?.tagName ?? null,
       eye: { says: eye.textContent.trim(), size: getComputedStyle(eye).fontSize, left: Math.round(eye.getBoundingClientRect().left - r.getBoundingClientRect().left - parseFloat(r.style.paddingLeft)) } }; }));
   const byLabel = (l) => tree.find((r) => r.label === l);
-  ok(tree[0].depth === 0 && tree[0].layers === 0, `the root row has no skeleton line (${tree[0].image})`);
-  ok(tree.slice(1).every((r) => r.depth >= 1 && r.layers === 3 && /repeating-linear-gradient/.test(r.image) && r.clip === "content-box, padding-box, padding-box"), `every other row is tied to its parent by three background layers: a cover over its content, a rib, the lines of its indent (${tree[1].layers})`);
-  ok(new Set(tree.slice(1).map((r) => r.image)).size === 1, "…the same three for every row: one static rule, nothing computed per row");
-  ok(tree.every((r) => r.kids.split(" ").every((c) => ["tw", "eye", "rmain", "rprev", "tag", "count"].includes(c))), `a row holds no element for its lines (${tree[1].kids})`);
+  ok(tree.every((r) => r.image === "none" && r.images === 0), "no row, and nothing in a row, is drawn with a background image");
+  ok(tree.every((r) => r.kids.split(" ").every((c) => ["tw", "eye", "rmain", "rprev", "tag", "count"].includes(c))), `a row holds only what it held before, less what it did not need (${tree[1].kids})`);
   const xAxis = byLabel("X axis"), spine = byLabel("Spine");
-  ok(xAxis?.twTag === "BUTTON" && xAxis.open === "true" && xAxis.twSays === "▾" && byLabel("Y axis")?.open === "false" && byLabel("Y axis")?.twSays === "▸", "an open branch says so (▾, aria-expanded), a closed one too (▸)");
+  ok(xAxis?.twTag === "BUTTON" && xAxis.twSays === "▾" && byLabel("Y axis")?.twSays === "▸", "an open branch says so (▾), a closed one too (▸)");
   ok(!!spine && spine.twTag === null && spine.kids.startsWith("eye") && spine.eye.left === 19 && xAxis.eye.left === 19, `a row with nothing to open carries no empty twisty, and its eye stands where the others' do (${spine?.eye.left}px / ${xAxis?.eye.left}px)`);
   ok(tree.every((r) => r.eye.says === "◉" && r.eye.size === "12px"), "the eye is the glyph it always was (◉ drawn)");
+  ok(await page.evaluate(() => [...document.querySelectorAll(".xray .rprev")].every((p) => !p.querySelector(".ptext"))), "a preview's text is its own (no wrapper)");
 
   // --- the readout, the keys, the hint line -----------------------------------------
   const chrome = await page.evaluate(() => { const q = (s) => document.querySelector(".xray " + s), r = (s) => q(s)?.getBoundingClientRect(), cs = (s) => (q(s) ? getComputedStyle(q(s)) : null);
