@@ -101,7 +101,7 @@ async function bundleContentId(files: Array<{ rel: string; abs: string }>): Prom
   return createHash("sha256").update(fluximgContentIdText(entries), "utf8").digest("hex");
 }
 
-function findImage(project: Project, elementId: string): { figure: Figure; element: FluximgElement } {
+export function findImage(project: Project, elementId: string): { figure: Figure; element: FluximgElement } {
   for (const figure of project.figures) for (const element of figure.elements) {
     if (element.id !== elementId) continue;
     if (element.type !== "fluximg") throw new ValidationError(`Element ${elementId} is a ${element.type}, not an image (fluximg)`);
@@ -110,7 +110,7 @@ function findImage(project: Project, elementId: string): { figure: Figure; eleme
   throw new NotFoundError(`Image element not found: ${elementId}`);
 }
 
-function imageAsset(project: Project, assetId: string): Asset {
+export function imageAsset(project: Project, assetId: string): Asset {
   const asset = project.assets.find((a) => a.id === assetId);
   if (!asset || asset.kind !== "fluximg") throw new NotFoundError(`Image asset not found: ${assetId}`);
   return asset;
@@ -118,7 +118,7 @@ function imageAsset(project: Project, assetId: string): Asset {
 
 /** The asset of an image on a slide, resolved by id as the app's slide bridge does: the figure index's record when it lists
  *  the asset, else the record rebuilt from the bundle at its one place (`fig/assets/<id>.fluximg`). */
-async function deckImageAsset(root: string, project: Project, element: FluximgElement): Promise<Asset> {
+export async function deckImageAsset(root: string, project: Project, element: FluximgElement): Promise<Asset> {
   const registered = project.assets.find((a) => a.id === element.assetId && a.kind === "fluximg");
   if (registered) return registered;
   const file = path.join(path.resolve(root), "fig", "assets", `${element.assetId}.fluximg`, "fluximg.json");
@@ -128,7 +128,7 @@ async function deckImageAsset(root: string, project: Project, element: FluximgEl
 }
 
 /** Where a slide target lives: `deckId/slideId`, or a bare slide id found in one of the project's decks. Null: not a slide. */
-async function findSlideTarget(root: string, target: string): Promise<{ deckId: string; slideId: string } | null> {
+export async function findSlideTarget(root: string, target: string): Promise<{ deckId: string; slideId: string } | null> {
   const parts = target.split("/");
   if (parts.length === 2 && parts.every(Boolean)) return { deckId: parts[0], slideId: parts[1] };
   if (parts.length !== 1) return null;

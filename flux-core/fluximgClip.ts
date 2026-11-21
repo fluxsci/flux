@@ -22,7 +22,7 @@ import { renderStill } from "../src/lib/fluximg/still";
 import { planViewTween, type TweenPicture } from "../src/lib/fluximg/viewTween";
 import { pixelKey } from "../src/lib/fluximg/viewOps";
 import { ensureColormapLuts } from "../src/lib/color/colormapLuts";
-import { frameLayers, imageClipCacheKey, matteRgba, mixRgba, planImageClip, planPlaybackClip, playbackRate, tweenPictureView, type ImageClip, type ImageClipPlan, type ImageClipRequest, type ImagePlaybackRequest } from "../src/lib/fluximg/clipPlan";
+import { frameLayers, imageClipCacheKey, type ClipFrame, matteRgba, mixRgba, planImageClip, planPlaybackClip, playbackRate, tweenPictureView, type ImageClip, type ImageClipPlan, type ImageClipRequest, type ImagePlaybackRequest } from "../src/lib/fluximg/clipPlan";
 import { resolveView } from "../src/lib/fluximg/viewOps";
 import { clampCrop } from "../src/lib/fluximg/crop";
 import { ImageClipUnavailable } from "../src/lib/slide/payloadImages";
@@ -112,14 +112,52 @@ export async function bakeImageClip(root: string, asset: Asset, request: ImageCl
   if (options.signal?.aborted) throw aborted();
 
   await fs.mkdir(dir, { recursive: true });
+  const stats = await encodeImageFrames({ reader: base, assetId: asset.id, clip, width: W, height: H, rate, matte: request.matte }, file, encoder, settings, options);
+  stats.totalMs = performance.now() - t0;
+  return { ...meta, file, cached: false, stats };
+}
+
+/** One pass of frames through the pinned encoder: what a deck clip and an image's movie file have in common. */
+export interface FramePass {
+  reader: FluximgReader;
+  assetId: string;
+  clip: Pick<ImageClipPlan, "frames" | "distinct">;
+  /** The drawn picture's size (what `renderStill` draws). */
+  width: number;
+  height: number;
+  /** The encoder's frame rate (a number or an exact rational). */
+  rate: string;
+  /** Transparent pixels land on this colour (an MP4 has no alpha). */
+  matte: string;
+  /** The file's size when it is not the picture's (a movie pads to even sides). */
+  out?: { width: number; height: number };
+  /** After the matte, before the encoder: lays what is drawn over the pixels (a movie's vectors and furniture) and pads.
+   *  Gets pixels it may change in place; returns the file-sized frame. */
+  finish?: (frame: ClipFrame, index: number, pixels: Uint8ClampedArray) => Promise<Uint8ClampedArray> | Uint8ClampedArray;
+  /** The identity of a frame's FINISHED pixels (default: the planned key; a movie adds its stamp). */
+  frameKey?: (frame: ClipFrame, index: number) => string;
+  /** Decoded pieces kept for this pass, in bytes (default 256 MiB). */
+  pieceBudget?: number;
+}
+
+/**
+ * Draw `pass.clip`'s frames with the reference renderer and encode them into `file` (written beside it under a
+ * temporary name, synced, then renamed: a cancelled or failed pass leaves nothing). One frame in flight; a picture is
+ * drawn once per run of equal frames; decoded pieces stay under `pieceBudget`.
+ */
+export async function encodeImageFrames(pass: FramePass, file: string, encoder: { path: string }, settings: ImageClipSettings, options: Pick<BakeOptions, "signal" | "onProgress"> = {}): Promise<BakeStats> {
+  const t0 = performance.now();
+  const { clip, width: W, height: H } = pass;
+  const manifest = pass.reader.manifest, budget = pass.pieceBudget ?? 256 * 1024 * 1024;
+  const out = pass.out ?? { width: W, height: H };
   await ensureColormapLuts();
   const stats: BakeStats = { frames: clip.frames.length, distinct: clip.distinct, pictures: 0, readMs: 0, renderMs: 0, encodeWaitMs: 0, totalMs: 0, bytes: 0 };
-  const reader = timedReader(base, stats);
+  const reader = timedReader(pass.reader, stats);
   // Decoded pieces for this bake only, capped: a walk reads each plane once, a contrast glide reads one plane once.
   const pieces = new Map<string, FluximgTypedArray>(); let pieceBytes = 0;
   const cache = { get: (k: string) => pieces.get(k), set: (k: string, v: FluximgTypedArray) => {
     pieces.set(k, v); pieceBytes += v.byteLength;
-    while (pieceBytes > 256 * 1024 * 1024 && pieces.size > 1) { const [first, old] = pieces.entries().next().value as [string, FluximgTypedArray]; pieces.delete(first); pieceBytes -= old.byteLength; }
+    while (pieceBytes > budget && pieces.size > 1) { const [first, old] = pieces.entries().next().value as [string, FluximgTypedArray]; pieces.delete(first); pieceBytes -= old.byteLength; }
   } };
   // The last few drawn pictures: a mix or a blend shares its pictures with the frames around it.
   const drawn = new Map<string, Uint8ClampedArray>();
@@ -127,7 +165,7 @@ export async function bakeImageClip(root: string, asset: Asset, request: ImageCl
     const k = pixelKey(manifest, p.view, p.crop, W, H), hit = drawn.get(k);
     if (hit) { drawn.delete(k); drawn.set(k, hit); return hit; }
     const r0 = performance.now(), before = stats.readMs;
-    const s = await renderStill(reader, { view: tweenPictureView(p.view), crop: p.crop, outWidth: W, outHeight: H }, { resolveLut: resolveFluximgLut, cache, cacheScope: asset.id, cancelled: () => !!options.signal?.aborted });
+    const s = await renderStill(reader, { view: tweenPictureView(p.view), crop: p.crop, outWidth: W, outHeight: H }, { resolveLut: resolveFluximgLut, cache, cacheScope: pass.assetId, cancelled: () => !!options.signal?.aborted });
     stats.renderMs += performance.now() - r0 - (stats.readMs - before); stats.pictures++;
     drawn.set(k, s.rgba);
     if (drawn.size > 6) drawn.delete(drawn.keys().next().value as string);
@@ -135,9 +173,9 @@ export async function bakeImageClip(root: string, asset: Asset, request: ImageCl
   };
 
   const { VIDEO_COLOR_FILTER, VIDEO_COLOR_TAGS } = colorConstants();
-  const tmp = path.join(dir, `.${key}.tmp-${randomUUID()}.mp4`);
+  const tmp = path.join(path.dirname(file), `.${path.basename(file, ".mp4")}.tmp-${randomUUID()}.mp4`);
   const child = spawn(encoder.path, ["-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-    "-f", "rawvideo", "-pix_fmt", "rgba", "-s", `${W}x${H}`, "-framerate", rate, "-i", "pipe:0",
+    "-f", "rawvideo", "-pix_fmt", "rgba", "-s", `${out.width}x${out.height}`, "-framerate", pass.rate, "-i", "pipe:0",
     "-an", "-vf", VIDEO_COLOR_FILTER, "-c:v", "libx264", "-preset", settings.preset, ...(settings.tune ? ["-tune", settings.tune] : []), "-crf", String(settings.crf),
     "-g", String(settings.gop), "-keyint_min", String(Math.min(settings.gop, 1)), "-sc_threshold", "0", "-bf", "0",
     ...VIDEO_COLOR_TAGS, "-threads", "2", "-movflags", "+faststart", "-f", "mp4", tmp], { stdio: ["pipe", "ignore", "pipe"], windowsHide: true });
@@ -159,16 +197,17 @@ export async function bakeImageClip(root: string, asset: Asset, request: ImageCl
     let last = "", pixels: Uint8ClampedArray | null = null, reported = 0;
     for (let i = 0; i < clip.frames.length; i++) {
       if (options.signal?.aborted) throw aborted();
-      const f = clip.frames[i];
+      const f = clip.frames[i], fk = pass.frameKey ? pass.frameKey(f, i) : f.key;
       // Never draw a frame twice: an unchanged picture is the same bytes again.
-      if (f.key !== last || !pixels) {
+      if (fk !== last || !pixels) {
         const L = frameLayers(f.frame);
         const one = async (a: TweenPicture, b: TweenPicture | null) => (b ? mixRgba(await draw(a), await draw(b), L.mix) : await draw(a));
         let rgba = await one(L.a, L.b);
         if (L.there) rgba = mixRgba(rgba, await one(L.there.a, L.there.b), L.weight);
         // The matte writes in place: never into a picture the cache may hand out again.
-        pixels = matteRgba(rgba === drawn.get(pixelKey(manifest, L.a.view, L.a.crop, W, H)) ? rgba.slice() : rgba, request.matte);
-        last = f.key;
+        pixels = matteRgba(rgba === drawn.get(pixelKey(manifest, L.a.view, L.a.crop, W, H)) ? rgba.slice() : rgba, pass.matte);
+        if (pass.finish) pixels = await pass.finish(f, i, pixels);
+        last = fk;
       }
       if (child.exitCode !== null) { await closed; throw new Error("the video encoder stopped before the last frame"); }
       await write(pixels);
@@ -182,7 +221,7 @@ export async function bakeImageClip(root: string, asset: Asset, request: ImageCl
     await fs.rename(tmp, file);
     stats.bytes = (await fs.stat(file)).size;
     stats.totalMs = performance.now() - t0;
-    return { ...meta, file, cached: false, stats };
+    return stats;
   } catch (error) {
     kill();
     await closed.catch(() => {});

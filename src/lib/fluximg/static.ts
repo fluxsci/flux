@@ -32,6 +32,9 @@ export interface FluximgStaticInput {
   resolveLut?: (name: string) => string[] | null;
   /** Layer id → that layer's table: needed by a layer styled by its columns (`styleBy`). A missing one: unstyled. */
   tables?: Record<string, FluximgTable | null | undefined>;
+  /** Only what is drawn over the pixels (layers, outlines, names, furniture): no background, no still or placeholder.
+   *  An image's movie file draws the pixels itself and lays this over each frame. */
+  overlayOnly?: boolean;
 }
 
 /** The table file of a label or vector layer, or null. */
@@ -97,11 +100,14 @@ export function fluximgStaticSvg(input: FluximgStaticInput): string {
   const { manifest, view, crop, box, stillHref, layerSvg, idPrefix } = input;
   const w = svgNum(box.width), h = svgNum(box.height);
   const out: string[] = [`<svg x="0" y="0" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" overflow="hidden">`];
-  if (view.background && view.background !== "transparent") {
-    out.push(`<rect id="${escapeXml(idPrefix + "background")}" x="0" y="0" width="${w}" height="${h}" fill="${escapeXml(view.background)}"/>`);
+  // An image's movie draws the pixels (and their background) itself and lays the rest over each frame.
+  if (!input.overlayOnly) {
+    if (view.background && view.background !== "transparent") {
+      out.push(`<rect id="${escapeXml(idPrefix + "background")}" x="0" y="0" width="${w}" height="${h}" fill="${escapeXml(view.background)}"/>`);
+    }
+    if (stillHref) out.push(`<image id="${escapeXml(idPrefix + "still")}" x="0" y="0" width="${w}" height="${h}" preserveAspectRatio="none" href="${escapeXml(stillHref)}"/>`);
+    else out.push(`<rect id="${escapeXml(idPrefix + "placeholder")}" x="0" y="0" width="${w}" height="${h}" fill="${PLACEHOLDER_FILL}"/>`);
   }
-  if (stillHref) out.push(`<image id="${escapeXml(idPrefix + "still")}" x="0" y="0" width="${w}" height="${h}" preserveAspectRatio="none" href="${escapeXml(stillHref)}"/>`);
-  else out.push(`<rect id="${escapeXml(idPrefix + "placeholder")}" x="0" y="0" width="${w}" height="${h}" fill="${PLACEHOLDER_FILL}"/>`);
 
   const byId = new Map(manifest.layers.map((l) => [l.id, l]));
   const legends: Record<string, ObjectLegend | null> = {};
