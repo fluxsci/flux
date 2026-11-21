@@ -6162,7 +6162,8 @@
       <CrystallizeOverlay viewport={$viewport} figureX={af.x} figureY={af.y} width={hostW} height={hostH} />
     {/if}
     <!-- The property menu's measure of the selected object: the one dimension its row has in hand. -->
-    {#if paneActive && af && $fluxFigMeasure}
+    <!-- (Figure only: on a slide an object can stand somewhere other than where its numbers say.) -->
+    {#if paneActive && af && $fluxFigMeasure && !presentation}
       <MeasureOverlay viewport={$viewport} figureX={af.x} figureY={af.y} elements={af.elements} />
     {/if}
   </svg>

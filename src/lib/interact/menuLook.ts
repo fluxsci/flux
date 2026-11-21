@@ -155,14 +155,15 @@ export function menuLines<F extends LookField>(looks: GroupLook<F>[]): number {
 }
 
 /** Sizes the menu is built from (px). */
-export const MENU = { row: 24, column: 264, gap: 4, pad: 4, chrome: 84 } as const;
+export const MENU = { row: 24, column: 264, gap: 4, pad: 4, chrome: 104, card: 12 } as const;
 /** The menu's width for a number of columns. */
 export const menuWidth = (cols: number): number => cols * MENU.column + (cols - 1) * MENU.gap + 2 * MENU.pad;
 
 /** Columns: one while the lines fit it, more when there are many lines or the window is short; never more than
  *  the window's width holds. The menu grows sideways instead of scrolling. */
 export function menuColumns(lines: number, groups: number, viewW: number, viewH: number): 1 | 2 | 3 {
-  const tall = lines * MENU.row + groups * 10;
+  // `chrome`: the head at its tallest (two lines), the note a part can add, the foot and the plate's padding.
+  const tall = lines * MENU.row + groups * MENU.card;
   const byCount = lines > 40 ? 3 : lines > 22 ? 2 : 1;
   const byHeight = Math.ceil(tall / Math.max(200, viewH - MENU.chrome - 16));
   const fit = viewW >= menuWidth(3) + 16 ? 3 : viewW >= menuWidth(2) + 16 ? 2 : 1;

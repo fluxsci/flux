@@ -173,6 +173,35 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 
 ### Figure and Slide
 
+- **The property menu (F), redrawn.** Same keys, fields, groups and wheel; a new look, and much
+  smaller (a rectangle's menu went from 452 × 710 to 272 × 441 pixels).
+  - **One line per property**, in a card per group on a dark plate. A number has no box until
+    the pointer is on it or it is in hand; it shows two decimals at rest and its exact value
+    while you edit it. Position and size share lines (x beside width, y beside height).
+  - **On/off properties are small keys on their group's heading** (lock aspect ratio, no fill,
+    no stroke, dashed stroke, arrow start and end, italic, underline, panel label, visible), lit when on.
+    Press one by its letter or click it; hover it for its name.
+  - **A number is drawn by what it sets**: opacity is a fader over the object's own colour,
+    rotation a dial, corner radius a corner, stroke width a sample of the line, other ranged
+    numbers a small track. Faders, tracks and the dial can be dragged, one undo step each
+    (**Esc** during a drag backs out).
+  - **The measure on the object.** In Figure, while a position, size, rotation or corner radius
+    row is in hand or under the pointer, that dimension is drawn on the selected object in blue.
+  - **One hint line at the foot** says what you can do with the row under the pointer or in
+    hand; the search key (**s**) is at its end. The colour picker keeps everything it had.
+- **The X-ray (R), redrawn.** Same tree, keys and actions.
+  - A dark plate with cards; a bright **X-RAY** marker leads the head, with the breadcrumb, and
+    the source path is the head's second line. The picked row glows softly from its rail, and
+    thin lines in a row's indent tie it to its parents. Rows are a little closer (22 px).
+  - The readout under the tree is two lines: where the row is, its name and value; then what it
+    is and its id.
+  - **Properties** (was **Show Properties**; **Enter** or **F**) is the one bright button;
+    **Animate** (was **Animate selected**; **m**, Slide mode) and **Axis view** (**v**) are quieter.
+  - The foot is one hint line; the small **?** button at its end shows every X-ray key in place.
+    The **?** key still opens the keyboard reference.
+  - Both open and step at or under their old cost (measured on production builds, old and new
+    alternating): the property menu's open-and-close costs about a tenth less main-thread time
+    and a wheel step about a third less.
 - **The Figure-Meta preview no longer shimmers.** On a display with a fractional scale (125%,
   150%) the fitted or zoomed-out preview flickered between two sizes every frame, which read as
   blur. It is now steady, and a fitted proof sits on whole device pixels, so its edges are sharp.

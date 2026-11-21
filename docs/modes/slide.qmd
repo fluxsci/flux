@@ -718,7 +718,7 @@ a reason. Select a plot and use **Axis view** in the Object inspector, or **x vi
 its **F** menu. Enter limits in data units; empty fields use the generated limits shown as
 placeholders. Choose **linear** or **log**, or **Reset** both axes. At **After step N** the
 edit becomes a Change on that step, with one undo per edit. Scrubbing previews the axis glide.
-X-ray's axis-row **v · Axis view…** focuses the matching Inspector row.
+X-ray's axis-row **v · Axis view** focuses the matching Inspector row.
 
 On axes that keep their own ticks, ticks exactly on a new limit fade to zero (the outer 4% rule). Non-series marks, such as a
 dashed reference line, stay put. For multi-panel plots the same view applies to each panel;
@@ -844,7 +844,7 @@ at the endpoint.
 
 For a scene with shape states, use the **Shape** sliders or **Frame** scrubber at the desired
 editing destination. To reveal a named mesh or furniture part independently, select it in
-**X-ray** and use **Animate selected**. Orbit, shape, colors and part visibility travel with
+**X-ray** and use **Animate** (**m**). Orbit, shape, colors and part visibility travel with
 the slide and use the same playback in Present and portable HTML.
 
 **Ghost** creates independent views that share the same mesh. While you pick a Become

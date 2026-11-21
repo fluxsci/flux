@@ -2787,12 +2787,47 @@ Persistence invariants (all machine-checked — do not weaken):
   view in exact-allowlisted inert HTML; reconnect
   document-bound observers and focus after pin/dock. Gates: `verify-figure-metadata.*`,
   `verify-caption-fit.mjs`, `verify-fig-namer.mjs`, `verify-m11-m14.mjs` and paper-gate.
-- **The 2026-09-15 editing surface (Figure + Slide): one style, one property model, one wheel.**
-  Chrome follows the surface contract pinned by `verify-xray-theme.mjs` / `verify-fmenu-surface.mjs`:
-  sans chrome (`--font-ui`), mono values and eyebrows, `--r-ui` 2px / `--r-panel` 3px radii,
-  hairline dividers, accent-tint selection with an inset rail (never solid accent fills), no
-  blur/gradients/glow, ≤90 ms opacity-only transitions, nothing animating at rest (reduced
-  motion via CSS media queries, never a boot-time flag). Left-hand chords match on `e.code`
+- **The property menu and the X-ray are INSTRUMENTS (owner's picks, 2026-11-20), and what they may cost.**
+  Both were redrawn in the look of the image board, chosen by the owner in click-to-try viewers
+  (`notes/icon_sampler/fmenu-concepts.html`, `xray-concepts.html`): a dark plate with a card per group,
+  one LINE per property, no boxes at rest, small paper keys for what you switch or run, one hint line for
+  what the hand can do now. Each keeps its own colour (the menu its blue, the X-ray its phosphor): "we
+  shouldn't make everything pink-themed". Behaviour did not change, and neither did the hooks the keyboard
+  and ~35 gates rely on (`.field[data-key]`, `.label` with the field's full label, `.hk`, `.nin`, `.toggle`,
+  `.colorbtn`, `.selbtn`, `.opts .opt`; `.row[data-rid]`, `.rlabel`, `.rprev`, `button.tw`, `button.eye`
+  with its ◉ ○ ◐ text, `.xdetail .dpath/.dval/.dmeta`, `.regen`, `.showprops`, `.animbtn`): RESTYLE AND
+  MOVE these, never rename them. `interact/menuLook.ts` (pure) decides the menu's layout (rows, x | width
+  and y | height pairs, on/off properties as keys on the group head, columns) and which instrument draws a
+  number; `interact/measure.ts` + `MeasureOverlay.svelte` draw the geometric row in hand on the object
+  (Figure only, one object). Gates: `verify-fmenu-look.ts`, `verify-fmenu-look-gui.mjs`,
+  `verify-fmenu-surface.mjs`, `verify-xray-theme.mjs`. A surface that opens all day is paid for at every
+  open, so each of these was measured (production bundles, old and new alternating; recipe in §8) and the
+  rules below are what the numbers said:
+  - **Tokens go on `:root` (`tokens.css`), never on the surface's own root.** Nine custom properties
+    declared on `.xray` cost +0.35 ms of style per open (a seventh of its style time): every element of
+    the surface pays for a locally declared property. Re-pointing semantic tokens is fine on a host that
+    exists only while a picker is open (the menu's `.color-mode`).
+  - **No SVG background images on rows.** Row marks as data-URI SVG backgrounds doubled the X-ray's paint
+    time and added a third to its style time; as a glyph font they still added a tenth to style; as inline
+    SVG they were eight elements a row. The owner: "icons are not really critical". The X-ray's eye and
+    twisty stay text glyphs; its row marks were left out.
+  - **Draw per-row decoration with ONE static rule.** The X-ray's skeleton lines are three background
+    layers every indented row shares (a cover over the row's content box, a rib, a repeating line in the
+    indent); nothing is computed per row and no element is spent. A per-row class from a constructed
+    stylesheet cost 5% on every arrow key in a 92-row tree. Because the cover hides `background-color`,
+    hover and selection are inset shadows without blur.
+  - **No `text-shadow` on anything that changes as the pointer or the keys move.** It grows ink overflow
+    and is laid out again each time; the picked row glows from its rail with an INSET shadow instead.
+  - **Count elements.** The Flux mark as 88 live circles was a third of the menu's elements at every
+    open: it is one image now (`shell/logoImage.ts`). An empty placeholder per leaf row, a wrapper round a
+    number, a wrapper round a preview: each was removed and each showed in the numbers.
+  - **The `?` key is the app's keyboard reference** (Shell): a surface cannot take it. The X-ray's legend
+    opens from the key at the end of its hint line.
+- **The 2026-09-15 editing surface (Figure + Slide): one property model, one wheel.**
+  What remains of that surface contract after the 2026-11-20 redesign above (which superseded its 2 px / 3 px
+  radii and its "no glow" for these two panels): accent-tint selection with an
+  inset rail (never solid accent fills), no blur and no filters, ≤90 ms opacity-only transitions, nothing
+  animating at rest (reduced motion via CSS media queries, never a boot-time flag). Left-hand chords match on `e.code`
   (macOS Option+letter yields `e.key` "®"/"©"): R X-ray (owner, 2026-10-27; Alt+R is now the rectangle tool, Shift+Alt+R
   the family X-ray), Alt+G the Plots rail (Figure and Slide), Alt+T arrange,
   Alt+M Figure-Meta (Figure and Paper); the align chords are `e.code` too. Settings is a tabbed dialog (General /
@@ -4666,6 +4701,25 @@ refused or dropped in another:
 8. Users: `docs/concepts/images.qmd` and `docs/FLUXIMG_TESTING.md`.
 9. Gates: `verify-fluximg-render` (resolve / patch / pixel key), `-static` or `-gl`, `-export`
    (the verb accepts it; still pixels), `-model` (schema round trip), `-inspector`.
+
+### Timing a surface old against new, on what ships (2026-11-20)
+
+The dev server cannot answer "is this slower?": Svelte's dev runtime adds `get_stack` / `get_error` to every
+reactive source, and `?fixture=demo` (the test hooks) exists only in dev. The recipe that worked:
+
+- A scratch Vite config that extends the repo's with `define: { "import.meta.env.DEV": "true" }` and its own
+  `build.outDir`: a PRODUCTION-compiled bundle (Svelte dev off, minified) that still mounts the fixture and
+  `window.__flux`. Build it from the work branch AND from an untouched checkout of the base revision, serve each
+  with `vite preview --outDir … --port …`, and point one probe at both.
+- The probe reads CDP `Performance.getMetrics` (ScriptDuration, LayoutDuration, RecalcStyleDuration, TaskDuration)
+  before and after N cycles of the interaction. Time-to-next-frame is NOT a cost: frames arrive on their own grid,
+  so a handler that got 1.6 ms cheaper read 1.6 ms "slower" by that measure.
+- ALTERNATE the two builds run by run and take medians; measure the base twice in the same run to see the noise
+  floor (it was ±0.25 ms, 3%, while another session ran browser tests on this machine). A difference inside that
+  floor is not a finding in either direction.
+- To find WHERE time goes, trace (`devtools.timeline`): `UpdateLayoutTree` carries `elementCount`, so µs per
+  element separates "more elements" from "costlier elements"; `Paint`, `RasterTask` and `Layout` are separate
+  events. Then remove one thing at a time and build a variant on a third port.
 
 ## 9. Known traps (each of these cost real time)
 
@@ -13686,3 +13740,24 @@ and `FX_ONLY=<word>` runs one section).
   first suspected (the strips' histograms) were a small part.
 - What "in hand" must NOT mean: after the owner drags a contrast handle, the wheel over the image has to keep
   stepping planes. Mouse work on an instrument therefore takes nothing in hand; only an explicit ask does.
+
+### 2026-11-20 — Property menu and X-ray redrawn as instruments (Claude Fable 5.2, `surface-refresh`)
+**Work:** After approving the image board the owner asked for the F-menu and the X-ray "in line with the newest
+design standards", look only, and chose each look in a click-to-try viewer before anything was built
+("F-menu pick: B Compact · geometry=pairs · on/off=keys · key caps=letter · words=serif · numbers=short · row=24 ·
+measure on object=on", colour picker kept whole; "X-ray pick: A Light box · glow=soft · keys=one · skeleton
+lines=on · part icons=on · row=22"). Built keeping every hook; an independent Opus review of old against new found
+four real regressions in the menu (a drag that could not be backed out of, an open choice whose value key left it
+open, on/off keys lost to Tab, a fader without a track on a colormap fill), all fixed and gated. Most of the time
+went on making the new surfaces cost no more than the old ones.
+**Learnings:** (promoted to §4 "The property menu and the X-ray are INSTRUMENTS" and §8 "Timing a surface old
+against new")
+- Settle a look in a viewer first: an HTML page with the real tokens and fonts, the exact scenario from the
+  owner's screenshot, live interactions, today's version at the same scale, every state side by side, and a
+  "your pick" line to paste back. One round, no rework of the look.
+- A viewer does not show cost. Two things the owner picked there (row icons, skeleton lines as drawn there)
+  were not free in the app; say so as soon as the numbers do, and offer the cheaper form. They answered within
+  minutes ("icons are not really critical").
+- A mockup's key may be taken: `?` was the X-ray legend's key in the viewer and is the app's keyboard reference.
+- When a patch replaces "from marker X to the end of the file", find X after a known anchor: `{#if $xrayOpen}`
+  also appeared in a comment in the script, and the first match cut the component in half.

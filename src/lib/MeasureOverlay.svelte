@@ -13,7 +13,8 @@
   $: projection = { zoom: viewport.zoom, x: viewport.panX + figureX * viewport.zoom, y: viewport.panY + figureY * viewport.zoom };
   // One object, and the object itself: several selected, or a plot's parts, have no single dimension to draw.
   $: only = $selection.size === 1 && !$partSelections.length ? (elements.find((e) => $selection.has(e.id)) ?? null) : null;
-  $: m = only && $fluxFigMeasure ? measureDrawing($fluxFigMeasure, only as unknown as Measured, projection) : null;
+  // A corner radius is the circle that rounds a RECTANGLE's corner; a path's fillets sit on its own vertices.
+  $: m = only && $fluxFigMeasure && !($fluxFigMeasure === "cornerRadius" && only.type !== "rect") ? measureDrawing($fluxFigMeasure, only as unknown as Measured, projection) : null;
   $: pillW = m ? Math.ceil(m.pill.text.length * 6.5) + 14 : 0;
 </script>
 

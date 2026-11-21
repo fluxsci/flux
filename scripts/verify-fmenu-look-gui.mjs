@@ -6,7 +6,7 @@
 //   · on/off properties are paper keys on their group's head, lit when on, still fields (same key, same label)
 //   · a number at rest shows two decimals; in hand it shows and steps its exact value
 //   · instruments draw what they set (fader, dial, corner, line sample) and follow the value; a fader, a track
-//     and the dial can be DRAGGED: one undo entry, nothing left in hand
+//     and the dial can be DRAGGED: one undo entry, nothing left in hand, and Escape backs out of the drag
 //   · one hint line says what the hand can do; search stands at its end
 //   · a geometric row in hand is measured on the object itself; nothing is drawn when the menu is closed
 //   · the colour picker keeps its collections, colormaps, dropper, hex and spectrum
@@ -175,6 +175,37 @@ try {
   await sleep(150);
   m = await rect();
   ok(m.opacity === 0.75 && m.past === 6, `a cancelled drag restores the value and adds no undo entry (${m.opacity}, past ${m.past})`);
+  // Escape during a drag backs out of it, as it does while dragging a name (independent review, 2026-11-20).
+  await page.mouse.move(dl.cx, dl.cy - 6);
+  await page.mouse.down();
+  await page.mouse.move(dl.cx - 30, dl.cy, { steps: 4 });
+  const turned = (await rect()).rotation;
+  await page.keyboard.press("Escape");
+  await sleep(120);
+  m = await rect();
+  const backed = await page.evaluate(() => ({ open: !!document.querySelector(".fluxFigMenu"), armed: !!document.querySelector(".fluxFigMenu .field.editing"), focus: document.activeElement === document.querySelector(".fluxFigMenu") }));
+  ok(turned === -90 && m.rotation === 90 && m.past === 6 && backed.open && !backed.armed && backed.focus, `Escape in the middle of a drag reverts it and leaves the menu open with its keys (was ${turned}°, now ${m.rotation}°, past ${m.past})`);
+  await page.mouse.up();
+  await sleep(100);
+  m = await rect();
+  ok(m.rotation === 90 && m.past === 6, "…and the release that follows changes nothing");
+  // No input keeps the keyboard during a drag: the keys must not step another field from this one's value.
+  await page.keyboard.press("x");
+  await waitFor(page, () => document.activeElement?.closest(".field")?.dataset.key === "x", null, { label: "x in hand before a drag" });
+  await page.mouse.move(fd.x + fd.w * 0.75, fd.cy);
+  await page.mouse.down();
+  await page.mouse.move(fd.x + fd.w * 0.5, fd.cy, { steps: 3 });
+  const midFocus = await page.evaluate(() => document.activeElement === document.querySelector(".fluxFigMenu"));
+  await page.mouse.up();
+  await sleep(120);
+  await page.keyboard.press("ArrowUp");
+  await sleep(80);
+  m = await rect();
+  ok(midFocus && m.opacity === 0.5 && m.x === 26.024712, `a drag takes the keyboard from the field that had it: an arrow key afterwards does not step that field from the fader's value (x ${m.x})`);
+  await page.evaluate(() => window.__flux.fig.undo());
+  await sleep(100);
+  m = await rect();
+  ok(m.opacity === 0.75 && m.past === 6, "…and that drag was one undo entry too");
   await shot(page, "fmenu-look-03-instruments");
 
   // --- 5. the hint line and search ----------------------------------------------------------------------
@@ -255,9 +286,33 @@ try {
   ok(/pick/.test(await foot()), `…and the hint line says how to pick (${await foot()})`);
   await page.keyboard.press("Escape");
   await sleep(100);
+  // The value key of an open choice confirms what is shown and closes the strip (independent review, 2026-11-20:
+  // it used to leave the strip open with nothing left to revert).
+  const textOf = () => page.evaluate(() => { const e = window.__flux.figures()[0].elements.find((x) => x.id === "lk-text"); return { align: e.align, past: window.__flux.fig.historyStats().past }; });
+  const t0 = await textOf();
+  await page.keyboard.press("3");
+  await sleep(120);
+  const centre = await page.evaluate(() => { const o = [...document.querySelectorAll(".fluxFigMenu .field.opts-open .opt")].find((x) => /Center/.test(x.textContent)); const r = o.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  await page.mouse.move(centre.x, centre.y);
+  await sleep(100);
+  const vb = await box(row("3") + " .selbtn");
+  await page.mouse.click(vb.cx, vb.cy);
+  await sleep(150);
+  const t1 = await textOf();
+  ok(t1.align === "center" && t1.past === t0.past + 1 && (await page.evaluate(() => !document.querySelector(".fluxFigMenu .field.opts-open") && !document.querySelector(".fluxFigMenu .field.editing"))), `a click on the value of an open choice confirms what is shown and closes it: one undo entry (${JSON.stringify(t1)})`);
+  await page.evaluate(() => window.__flux.fig.undo());
+  await sleep(100);
+  ok((await page.evaluate(() => [...document.querySelectorAll(".fluxFigMenu .field.tkey .toggle")].every((b) => b.tabIndex === 0))), "the on/off keys are reached by Tab, as their buttons always were");
   await close();
 
   // --- 9. the colour picker is whole, in the menu's look --------------------------------------------------
+  // A colormap fill has no one colour to fade: the fader keeps its track, in the menu's own ink (review, 2026-11-20).
+  await page.evaluate(() => { const F = window.__flux.fig; F.commit((p) => { const e = p.figures[0].elements.find((x) => x.id === "lk-rect"); e.fillMap = { map: "review", axis: "x", stops: ["#123456", "#abcdef"] }; }); });
+  await open(["lk-rect"]);
+  const mapped = await page.evaluate(() => { const f = document.querySelector('.fluxFigMenu .field[data-key="b"] .fader'); return { image: getComputedStyle(f).backgroundImage, chip: document.querySelector('.fluxFigMenu .field[data-key="c"] .dot').style.background }; });
+  ok(/^linear-gradient/.test(mapped.image) && /conic-gradient/.test(mapped.image) && /linear-gradient/.test(mapped.chip), `with a colormap fill the fader still has its track and the chip shows the map (${mapped.image.slice(0, 40)}…)`);
+  await close();
+  await page.evaluate(() => { const F = window.__flux.fig; F.commit((p) => { const e = p.figures[0].elements.find((x) => x.id === "lk-rect"); delete e.fillMap; }); });
   await open(["lk-rect"]);
   await page.keyboard.press("c");
   await waitFor(page, () => !!document.querySelector(".fluxFigMenu .cs .grid"), null, { label: "picker" });

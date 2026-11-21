@@ -455,10 +455,20 @@ search results gather under those headers. Search matches words
 anywhere in a row's place and value: *x tick* finds only the x axes' ticks, *y lab* the y tick
 labels, *sigma tick* that plot's ticks, *SWS* the tick label that reads it. A small dot marks a
 restyled part (hollow: something inside it), **◐** a partly hidden one, and a series shows its
-colour. The strip above the
-buttons describes the row under the pointer (else the picked one) in full: its whole path,
-its values or data readout, its kind, effective style, what is restyled or hidden and its part id.
+colour. The readout above the
+buttons describes the row under the pointer (else the picked one) in two lines: first its whole
+path, its name and its values or data readout; then its kind, effective style, what is restyled
+or hidden and its part id.
 Hovering a row outlines its parts on the canvas — on every plot, for a common part.
+
+The X-ray is a dark plate with cards. Its head carries a bright **X-RAY** marker and the
+breadcrumb of where you are, with the source path on the line under them. The picked row glows
+softly from the rail at its left.
+Thin lines in a row's indent tie it to its parents.
+Under the readout, **Properties** (**Enter** or **F**) is the one bright button; **Animate**
+(**m**, Slide mode only) and **Axis view** (**v**, on an axis row) are quieter. The foot is one
+hint line for what you can do now; the small **?** button at its end shows every X-ray key in
+place. The **?** key still opens the app's keyboard reference.
 
 A group's members are rows too: open *Tick labels* to see each tick label and its text (big
 groups show their first 60, then **+ N more**). **Ctrl+click** one tick label on the canvas and
@@ -549,7 +559,12 @@ sets exact gaps.
 Press **F** with anything selected for the **property menu** — the fastest way to edit, built
 for one hand on the keyboard and one on the mouse. It opens **beside the selection**, never on
 top of it (when nothing fits, it takes the side that covers the least), and lays its groups
-out in narrow columns — each row is a key and a name over its control — so nothing scrolls.
+out as cards on a dark plate, in columns when one is not enough, so nothing scrolls. Each
+property is one line: its key, its name and its value. A number has no box until the pointer
+is on it or it is in hand. Position and size share lines (**x** beside **width**, **y**
+beside **height**). On/off properties (lock aspect ratio, no fill, no stroke, dashed stroke,
+arrow start and end, italic, underline, panel label, visible) are small keys on their group's
+heading, lit when on; press one by its letter or click it, and hover it to see its name.
 Opening a larger picker repositions the menu when needed to keep the selection clear.
 Every hotkey is a **left-hand key** (`1`–`6`, `q w e r t`, `a d g`, `z x c v b`; `h` for a
 plot's **content scale** or a text's **letter spacing**, and `n` for **paragraph spacing**),
@@ -587,7 +602,8 @@ The map's colours are stored on the element itself, so the gradient travels into
 the menu chip and the Inspector swatch show the map and name it (`crameri.batlow · along y`),
 and picking any plain swatch returns the element to a solid colour. Plot *parts* take solid
 colours only. Settings → Figure chooses which palette and colormap collection a picker opens on. Hovering any numeric row and rolling the wheel edits it directly, so
-the menu works with the mouse alone as well; **s** searches the properties. It carries the
+the menu works with the mouse alone as well; **s** (or the search key at the end of
+the menu's foot) searches the properties. It carries the
 essentials (position, size with **aspect lock**, rotation, opacity) plus the deep cuts: dashed
 strokes with dash/gap control, **arrowheads** on lines *and* open paths (filled or V-line,
 sized, with round/flat/square caps), **corner radius** on rectangles *and* paths,
@@ -597,8 +613,17 @@ preset** for anything you want to reuse. The
 right rail carries the same properties (fill, stroke and text colours with their palette
 names, sizes, stroke widths, arrowheads), so the menu is a choice, not a requirement.
 
+In the menu a number is drawn by the property it sets: an opacity is a fader over the object's
+own colour, rotation a small dial, corner radius a corner, stroke width a sample of the line,
+and any other number with a range a small track. Faders, tracks and the dial can be dragged; a
+drag is one undo step, and **Esc** during it backs out. In Figure, while a position, size,
+rotation or corner radius row is in hand or under the pointer and a single object is selected,
+that dimension is drawn on the object itself in blue. The foot of the menu is one hint line that says what you can do with the row
+under the pointer or in hand, with the search key at its end.
+
 Numeric fields accept expressions such as `240/2` and display fractional values even when
-the normal wheel increment is a whole unit. Drag a field’s label to scrub, or click
+the normal wheel increment is a whole unit. In the property menu a number shows two decimals
+at rest and its exact value while you edit it. Drag a field’s label to scrub, or click
 its input and type. A scrub or a continuous text/property edit is one undo step; **Escape**
 cancels the current preview. Mixed selections show **Mixed** and how many objects a property
 can change. Locked or hidden objects, including members of a locked or hidden group, stay
@@ -677,7 +702,7 @@ row's displayed key when **v** is already assigned. Once a view is open there, t
 adjusts the focused limit wherever the pointer is (the canvas does not zoom); **Space** accepts
 the minimum and moves to the maximum, and **Space** again (or **Enter**) accepts it and returns to
 the menu. In X-ray, select an axis row and press
-**v** for **Axis view…** to focus that axis in the Inspector.
+**v** for **Axis view** to focus that axis in the Inspector.
 
 Lines, points, bars, heatmap cells, hexagons, contour bands and box or violin bodies re-project
 inside the existing plot frame; exports include the same view. A viewed axis is re-ticked: its

@@ -153,6 +153,38 @@
   --xr-glow:    color-mix(in oklab, var(--xr-phos) 45%, transparent);
   --xr-tint:    color-mix(in oklab, var(--xr-phos) 16%, transparent);
   --xr-tint-2:  color-mix(in oklab, var(--xr-phos) 8%, transparent);
+  /* The 2026-11-20 look: a plate with cards set into it, what is picked glowing softly, one key lit from behind.
+     These live HERE, on :root, and not on the panel: a custom property declared on a surface's own root is paid
+     for by every element of that surface at every open (measured on the X-ray: +0.35 ms of style per open, a
+     seventh of its style time, from nine local properties). */
+  --xr-plate:   #03070a;                                        /* the panel            */
+  --xr-card:    #07141b;                                        /* a card set into it   */
+  --xr-well:    #010406;                                        /* the search well      */
+  --xr-hot:     #f0fffc;                                        /* what is picked       */
+  --xr-box:     #e2f5f0;                                        /* a light-box key face */
+  --xr-ink:     #073a39;                                        /* the mark on that face */
+  --xr-rule:    rgba(90, 189, 172, 0.24);                       /* skeleton lines */
+  --xr-halo:    0 0 9px rgba(90, 189, 172, 0.5);                /* a box's soft glow (a shadow; --xr-glow above is a colour) */
+  --xr-halo-tx: 0 0 9px rgba(90, 189, 172, 0.6);                /* a word's soft glow   */
+
+  /* ---- Property menu (F) instrument (2026-11-20) ------------------------ */
+  /* The menu is an instrument like the image board: dark by nature in every theme, so it reads the raw ramp. One
+     plate, a card per group; what the hand works is the menu's blue, what it presses is paper. On :root for the
+     reason given above. */
+  --fm-plate:     #0b0b0a;
+  --fm-card:      #1a1918;
+  --fm-well:      #070707;
+  --fm-line:      rgba(255, 252, 240, 0.09);
+  --fm-line-2:    rgba(255, 252, 240, 0.16);
+  --fm-lift:      inset 0 1px 0 rgba(255, 252, 240, 0.05);
+  --fm-tx:        var(--flx-base-200);
+  --fm-tx-hi:     var(--flx-paper);
+  --fm-tx-dim:    var(--flx-base-500);
+  --fm-paper:     var(--flx-paper);
+  --fm-blue:      var(--flx-blue-400);
+  --fm-blue-hi:   var(--flx-blue-300);
+  --fm-blue-deep: var(--flx-blue-600);
+  --fm-tint:      color-mix(in oklab, var(--flx-blue-400) 17%, transparent);
 
   /* ---- Annotate mark ink ------------------------------------------------ */
   /* The magenta of a drawn mark (arrow / box / pen) and its numbered badge, on

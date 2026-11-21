@@ -512,10 +512,14 @@
       stepValue(f, e.key === "ArrowUp" ? 1 : -1, e.shiftKey ? 10 : e.altKey ? 0.1 : 1);
     }
   }
+  /** Keep the result the keyboard is on in view (a long list on a short window). */
+  function showResult() {
+    void tick().then(() => panelEl?.querySelector(".res.active")?.scrollIntoView({ block: "nearest" }));
+  }
   function onSearchKey(e: KeyboardEvent) {
     e.stopPropagation();
-    if (e.key === "ArrowDown") { e.preventDefault(); sIndex = Math.min(sResults.length - 1, sIndex + 1); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); sIndex = Math.max(0, sIndex - 1); }
+    if (e.key === "ArrowDown") { e.preventDefault(); sIndex = Math.min(sResults.length - 1, sIndex + 1); showResult(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); sIndex = Math.max(0, sIndex - 1); showResult(); }
     else if (e.key === "Enter") {
       e.preventDefault();
       const f = sResults[sIndex];
@@ -555,8 +559,11 @@
   };
   $: fillInk = paintOf(fillField);
   $: strokeInk = paintOf(strokeField);
-  const faderPaint = (f: Field, fill: string | null, stroke: string | null): string =>
-    (f.prop === "strokeOpacity" ? stroke : f.prop === "fillOpacity" ? fill : (fill ?? stroke)) ?? "var(--fm-tx)";
+  const faderPaint = (f: Field, fill: string | null, stroke: string | null): string => {
+    const ink = f.prop === "strokeOpacity" ? stroke : f.prop === "fillOpacity" ? fill : (fill ?? stroke);
+    // The fader fades ONE colour in; a colormap paint (a gradient) is not one, and the menu's own ink stands in.
+    return ink && !ink.includes("gradient") ? ink : "var(--fm-tx)";
+  };
   /** A corner as round as the value says (it stops growing where a picture this small stops telling). */
   const cornerPath = (v: number): string => {
     const r = +(Math.max(0, Math.min(1, v / 40)) * 11).toFixed(2);
@@ -583,6 +590,26 @@
       draft = fmtNum(v);
       applyField(p.f, v);
     };
+    // Ending a drag, by release or by backing out. Like dragging a name (scrub.ts): Escape, a lost capture, the
+    // window losing focus, or the row going away mid-drag all REVERT the edit and return the menu to its keys.
+    const finish = (cancel: boolean) => {
+      if (pointer === null) return;
+      const id = pointer;
+      pointer = null;
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("blur", onBlur);
+      if (cancel) session.cancel();
+      blurField(p.f);
+      try { node.releasePointerCapture(id); } catch { /* capture already lost */ }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      finish(true);
+    };
+    const onBlur = () => finish(true);
     const down = (ev: Event) => {
       const e = ev as PointerEvent;
       if (e.button !== 0 || pointer !== null || (p.kind !== "dial" && !fieldRange(p.f))) return;
@@ -591,27 +618,30 @@
       pointer = e.pointerId;
       try { node.setPointerCapture(e.pointerId); } catch { /* a synthetic pointer */ }
       enterField(p.f);
+      // No input keeps the keyboard during the drag: one left focused would step ITS field from this one's draft.
+      panelEl?.focus({ preventScroll: true });
+      window.addEventListener("keydown", onKey, true);
+      window.addEventListener("blur", onBlur);
       follow(e);
     };
     const move = (ev: Event) => { const e = ev as PointerEvent; if (e.pointerId === pointer) follow(e); };
-    const end = (cancel: boolean) => (ev: Event) => {
-      if ((ev as PointerEvent).pointerId !== pointer) return;
-      pointer = null;
-      if (cancel) session.cancel();
-      blurField(p.f);
-    };
-    const up = end(false), cancel = end(true);
+    const up = (ev: Event) => { if ((ev as PointerEvent).pointerId === pointer) finish(false); };
+    const cancel = (ev: Event) => { if ((ev as PointerEvent).pointerId === pointer) finish(true); };
+    const lost = () => finish(true); // after a release this is a no-op: the pointer is already let go
     node.addEventListener("pointerdown", down);
     node.addEventListener("pointermove", move);
     node.addEventListener("pointerup", up);
     node.addEventListener("pointercancel", cancel);
+    node.addEventListener("lostpointercapture", lost);
     return {
       update(next: { f: Field; kind: Instrument }) { p = next; },
       destroy() {
+        finish(true);
         node.removeEventListener("pointerdown", down);
         node.removeEventListener("pointermove", move);
         node.removeEventListener("pointerup", up);
         node.removeEventListener("pointercancel", cancel);
+        node.removeEventListener("lostpointercapture", lost);
       },
     };
   }
@@ -699,7 +729,7 @@
         {/if}
 
         {#if fields.some(f => f.hint)}<p class="part-mode-note">{fields.find(f => f.hint)?.hint}</p>{/if}
-        <div class="body" class:cols2={mode === "hotkey" || mode === "field" || mode === "option" ? cols === 2 : false} class:cols3={mode === "hotkey" || mode === "field" || mode === "option" ? cols === 3 : false}>
+        <div class="body" class:cols2={mode !== "color" && mode !== "wide" && cols === 2} class:cols3={mode !== "color" && mode !== "wide" && cols === 3}>
           {#if mode === "wide" && wideField?.colorScale}
             <div class="color-mode wide-mode card">
               <div class="cm-head"><span class="hk lit">{wideField.key}</span> {wideField.label}<button class="back" on:click={backToHotkey} title="Back to the properties (Esc)"><svg viewBox="0 0 16 16" aria-hidden="true">{@html MENU_GLYPHS.back}</svg> back <span class="hk">esc</span></button></div>
@@ -739,7 +769,7 @@
                           <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
                           <div class="field tkey" class:on data-key={f.key} data-tip={f.label} data-hk={f.key} on:click={() => activate(f)}>
                             <span class="hk">{f.key}</span>
-                            <button class="toggle" class:on type="button" tabindex="-1" aria-pressed={on} aria-label={f.label}>{#if g}<svg viewBox="0 0 16 16" aria-hidden="true">{@html MENU_GLYPHS[g]}</svg>{:else}<b class="tword">{toggleWord(f.label)}</b>{/if}<i>{on ? "on" : "off"}</i></button>
+                            <button class="toggle" class:on type="button" aria-pressed={on} aria-label={f.label}>{#if g}<svg viewBox="0 0 16 16" aria-hidden="true">{@html MENU_GLYPHS[g]}</svg>{:else}<b class="tword">{toggleWord(f.label)}</b>{/if}<i>{on ? "on" : "off"}</i></button>
                             <span class="label vh">{f.label}</span>
                           </div>
                         {/each}
@@ -779,7 +809,7 @@
                         {:else if f.kind === "select"}
                           {@const opts = f.options ?? []}
                           {@const cur = String(f.get())}
-                          <button class="selbtn" class:open={armed} on:click={() => activate(f)} title="Choose (wheel, w·a·s·d, 1–9)">{opts.find((o) => o.value === cur)?.label ?? (cur || "—")}<span class="chev" aria-hidden="true"></span></button>
+                          <button class="selbtn" class:open={armed} on:click={() => (armed ? confirmField() : activate(f))} title="Choose (wheel, w·a·s·d, 1–9)">{opts.find((o) => o.value === cur)?.label ?? (cur || "—")}<span class="chev" aria-hidden="true"></span></button>
                           {#if armed}
                             <span class="opts" role="listbox" aria-label={f.label}>
                               {#each opts as o, i (o.value)}
@@ -891,13 +921,10 @@
   .fbackdrop { position: fixed; inset: 0; background: transparent; z-index: 300; }
   .fwrap { position: fixed; inset: 0; z-index: 301; pointer-events: none; }
   /* The menu is an instrument, like the image board: dark by nature in every theme, so it reads the raw ramp. One
-     plate, a card per group. What the hand works is the menu's own blue; what it presses is paper. The pickers it
-     hosts (colour, colour scale, axis view) read the same ramp through the semantic tokens re-pointed here. */
+     plate, a card per group. What the hand works is the menu's own blue; what it presses is paper. Its tokens
+     (--fm-*) are on :root in tokens.css, deliberately not here: a custom property declared on the menu's own root
+     is paid for by every element of the menu at every open. */
   .fluxFigMenu {
-    --fm-plate: #0b0b0a; --fm-card: #1a1918; --fm-well: #070707; --fm-line: rgba(255, 252, 240, 0.09); --fm-line-2: rgba(255, 252, 240, 0.16); --fm-lift: inset 0 1px 0 rgba(255, 252, 240, 0.05);
-    --fm-tx: var(--flx-base-200); --fm-tx-hi: var(--flx-paper); --fm-tx-dim: var(--flx-base-500); --fm-paper: var(--flx-paper);
-    --fm-blue: var(--flx-blue-400); --fm-blue-hi: var(--flx-blue-300); --fm-blue-deep: var(--flx-blue-600); --fm-tint: color-mix(in oklab, var(--flx-blue-400) 17%, transparent);
-    --c-bg: var(--fm-well); --c-bg-raised: var(--fm-card); --c-surface: var(--fm-card); --c-surface-2: #262523; --c-line: var(--fm-line); --c-line-strong: var(--fm-line-2);
     pointer-events: auto;
     position: absolute;
     visibility: hidden;
@@ -972,7 +999,7 @@
   .gkeys { display: inline-flex; gap: 4px; }
 
   /* a row: its key, its name, its instrument */
-  .field { position: relative; grid-column: 1 / -1; display: grid; grid-template-columns: 17px minmax(0, 1fr) auto; align-items: center; column-gap: 7px; min-height: 24px; padding: 0 6px 0 7px; margin: 0 2px; border-radius: 5px; }
+  .field { position: relative; grid-column: 1 / -1; display: grid; grid-template-columns: 17px fit-content(66%) minmax(0, 1fr); align-items: center; column-gap: 7px; min-height: 24px; padding: 0 6px 0 7px; margin: 0 2px; border-radius: 5px; }
   .field.half { grid-column: auto; margin: 0 0 0 2px; padding-right: 5px; }
   .field.half.right { margin: 0 2px 0 0; }
   .field.wide { grid-template-columns: 17px auto minmax(0, 1fr); }
@@ -999,11 +1026,11 @@
   .tin:focus { background: var(--fm-well); box-shadow: inset 0 0 0 1px var(--fm-blue); }
 
   /* the instruments: each draws the property it sets */
-  .fader { position: relative; flex: none; width: 72px; height: 10px; border-radius: 5px; cursor: ew-resize; touch-action: none;
+  .fader { position: relative; flex: 0 1 72px; min-width: 36px; height: 10px; border-radius: 5px; cursor: ew-resize; touch-action: none;
     background: linear-gradient(90deg, transparent, var(--c)), repeating-conic-gradient(#fffcf0 0 25%, #cecdc3 0 50%) 0 0 / 10px 10px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 0 2px rgba(255, 252, 240, 0.07); }
   .fader .knob, .gtrack .knob { position: absolute; top: -3px; width: 5px; height: 16px; margin-left: -2.5px; border-radius: 2.5px; background: var(--fm-paper); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 1px 2px rgba(0, 0, 0, 0.6); }
   .field:hover .knob, .field.editing .knob { box-shadow: 0 0 0 1.5px var(--fm-blue), 0 1px 2px rgba(0, 0, 0, 0.6); }
-  .gtrack { position: relative; flex: none; width: 60px; height: 14px; cursor: ew-resize; touch-action: none; }
+  .gtrack { position: relative; flex: 0 1 60px; min-width: 28px; height: 14px; cursor: ew-resize; touch-action: none; }
   .gtrack::before { content: ""; position: absolute; left: 0; right: 0; top: 6px; height: 2px; border-radius: 1px; background: rgba(255, 252, 240, 0.14); }
   .gtrack .fill { position: absolute; left: 0; top: 6px; height: 2px; border-radius: 1px; background: var(--fm-tx-dim); }
   .gtrack .knob { top: 1px; width: 4px; height: 12px; margin-left: -2px; border-radius: 2px; }
@@ -1047,6 +1074,7 @@
   .field.tkey > .hk { border: 0; min-width: 0; height: auto; padding: 0 0 0 1px; background: none; color: inherit; font: 600 10px/1 var(--font-mono); transform: none; }
   /* The button says "on" / "off" to whoever reads it; the eye reads the lit key. */
   .toggle { display: inline-flex; align-items: center; min-width: 0; height: 14px; padding: 0; margin: 0; background: none; border: 0; color: inherit; cursor: inherit; font: inherit; }
+  .toggle:focus-visible { outline: 1.5px solid var(--fm-blue-hi); outline-offset: 4px; border-radius: 2px; }
   .toggle > i { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .tword { font-weight: 600; white-space: nowrap; }
 
@@ -1067,13 +1095,18 @@
   .under { grid-column: 1 / -1; padding: 2px 0 6px; min-width: 0; }
 
   /* the pickers the menu hosts */
+  /* The pickers the menu hosts (colour, colour scale, axis view) read the menu's ramp through the semantic tokens,
+     re-pointed on THEIR hosts only: these exist while a picker is open, never on the menu's ordinary path. */
+  .color-mode, .under { --c-bg: var(--fm-well); --c-bg-raised: var(--fm-card); --c-surface: var(--fm-card); --c-surface-2: #262523; --c-line: var(--fm-line); --c-line-strong: var(--fm-line-2); }
   .color-mode { padding: 4px 8px 8px; margin-bottom: 4px; }
   .cm-head { display: flex; align-items: center; gap: 8px; height: 24px; font-size: 12.5px; color: var(--fm-tx-hi); margin-bottom: 4px; }
   .cm-head .back { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 5px; background: none; border: 1px solid transparent; border-radius: 5px; color: var(--fm-tx-dim); font: 11px var(--font-ui); cursor: var(--cursor-cross-hover); }
   .cm-head .back svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
   .cm-head .back .hk { color: inherit; }
   .cm-head .back:hover { color: var(--fm-tx-hi); border-color: var(--fm-line-2); }
-  .results { padding: 3px 0 4px; margin-bottom: 4px; }
+  /* In columns the one card of results is cut at each column: every piece keeps its own edges. */
+  .results { padding: 3px 0 4px; margin-bottom: 4px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+  .res { break-inside: avoid; }
   .res { position: relative; display: grid; grid-template-columns: 17px 1fr auto; gap: 7px; align-items: center; height: 24px; padding: 0 8px 0 7px; margin: 0 2px; border-radius: 5px; cursor: var(--cursor-cross-hover); }
   .res.active { background: var(--fm-tint); color: var(--fm-tx-hi); }
   .res.active::before { content: ""; position: absolute; left: 0; top: 4px; bottom: 4px; width: 2px; border-radius: 1px; background: var(--fm-blue); }

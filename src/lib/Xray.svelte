@@ -239,6 +239,10 @@
   let search = "";
   let mode: "tree" | "search" = "tree";
   let animMenu = false;
+  /** The X-ray's whole legend of keys, over the hint line: the key at the line's end shows and hides it (it stays
+   *  as left while the X-ray is mounted). The `?` KEY is not taken here: it is the app's keyboard reference, which
+   *  lists these keys too. */
+  let showKeys = false;
   let panelEl: HTMLDivElement;
   // The row under the pointer (the detail strip shows it, else the primary row).
   let hoverRowId: string | null = null;
@@ -1083,7 +1087,8 @@
       on:pointerdown|stopPropagation
     >
       <div class="xcontent">
-        <div class="xhead">
+        <!-- The head: a lead marker (as on a radiograph), where you are, and under it the source it was read from. -->
+        <div class="xhead card">
           <span class="ttl">X-Ray</span>
           <span class="crumbs">
             {#each crumbs as c, i}
@@ -1093,19 +1098,19 @@
             {#if !crumbs.length}<span class="csub">no target</span>{/if}
           </span>
           {#if (rootPlot || (rootModel && !rootModel.source?.frozen)) && recipePath}
-            {#if regenBusy}<button class="regen" title="Cancel the running recipe (24 hour maximum)" on:click={() => fileBridge()?.cancelRecipe?.(regenJobId)}>Cancel run</button>{/if}
+            {#if regenBusy}<button class="regen stop" title="Cancel the running recipe (24 hour maximum)" on:click={() => fileBridge()?.cancelRecipe?.(regenJobId)}>Cancel run</button>{/if}
             <button class="regen" on:click={() => regenerate()} disabled={regenBusy} title={recipePath}>
               {regenBusy ? "Regenerating…" : regenMsg || "Regenerate"}
             </button>
           {/if}
           <button class="xbtn" on:click={close} aria-label="Close X-ray">×</button>
+          {#if srcLabel}
+            <div class="srcline" title={srcLabel}><bdi>{srcLabel}</bdi></div>
+          {/if}
         </div>
-        {#if srcLabel}
-          <div class="srcline" title={srcLabel}><bdi>{srcLabel}</bdi></div>
-        {/if}
 
         {#if !tree}
-          <div class="empty big">Select a plot (or several), a group or an object, then press <b class="hk">alt+R</b>.</div>
+          <div class="empty big card">Select a plot (or several), a group or an object, then press <b class="hk">R</b>.</div>
         {:else}
           <div class="search-row" class:active={mode === "search"}>
             <span class="hk">s</span>
@@ -1122,7 +1127,7 @@
           </div>
 
           <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="tree" on:mouseleave={() => hoverRow(null)}>
+          <div class="tree card" on:mouseleave={() => hoverRow(null)}>
             {#if rootPlot && recipePath}
               <ColorScaleControls elementId={rootPlot.id} />
             {/if}
@@ -1137,6 +1142,7 @@
                 {@const h = built.heads.get(r.node.id)}
                 <div class="shead">{#if locator && h?.plotId}<svg class="loc" viewBox={`0 0 ${locator.w} ${locator.h}`} aria-hidden="true">{#each locator.boxes as b (b.id)}<rect x={b.x} y={b.y} width={b.w} height={b.h} class:me={b.id === h.plotId} />{/each}</svg>{/if}<span class="hkey">{h?.label}</span>{#if h?.hint}<span class="hhint">{h.hint}</span>{/if}<span class="hcount">{h?.count}</span></div>
               {/if}
+              <!-- A row. Its skeleton lines are its own background, drawn in its indent by one static rule. -->
               <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
               <div
                 class="row"
@@ -1153,12 +1159,7 @@
                 on:dblclick={() => onRowDblClick(r.node)}
               >
                 {#if r.node.children.length && !q}
-                  <!-- svelte-ignore a11y_consider_explicit_label -->
-                  <button class="tw" on:click|stopPropagation={() => toggleExpand(r.node)}>
-                    {expanded.has(r.node.id) ? "▾" : "▸"}
-                  </button>
-                {:else}
-                  <span class="tw"></span>
+                  <button class="tw" aria-label="Open or close" aria-expanded={expanded.has(r.node.id)} on:click|stopPropagation={() => toggleExpand(r.node)}>{expanded.has(r.node.id) ? "▾" : "▸"}</button>
                 {/if}
                 <button
                   class="eye"
@@ -1176,7 +1177,7 @@
                   {#if r.node.keyParts?.ordinal}<span class="ord" title="The same plot placed more than once">#{r.node.keyParts.ordinal}</span>{/if}
                   {#if r.node.styled}<span class="sdot" title="Restyled"></span>{:else if r.node.styledBeneath && !(expanded.has(r.node.id) && !q)}<span class="sdot inside" title="Something inside is restyled"></span>{/if}
                 </span>
-                {#if r.node.preview}<span class="rprev" class:varies={r.node.preview === "varies"} title={r.node.preview === "varies" ? "Differs between the plots" : undefined}>{#if r.node.swatch}<span class="sw" style={`background-color:${r.node.swatch}`}></span>{/if}<span class="ptext">{#if q}{#each hl(r.node.preview, tokens) as g}{#if g.hit}<mark>{g.text}</mark>{:else}{g.text}{/if}{/each}{:else}{r.node.preview}{/if}</span></span>{:else if r.node.swatch}<span class="rprev"><span class="sw" style={`background-color:${r.node.swatch}`}></span></span>{/if}
+                {#if r.node.preview}<span class="rprev" class:varies={r.node.preview === "varies"} title={r.node.preview === "varies" ? "Differs between the plots" : undefined}>{#if r.node.swatch}<span class="sw" style={`background-color:${r.node.swatch}`}></span>{/if}{#if q}{#each hl(r.node.preview, tokens) as g}{#if g.hit}<mark>{g.text}</mark>{:else}{g.text}{/if}{/each}{:else}{r.node.preview}{/if}</span>{:else if r.node.swatch}<span class="rprev"><span class="sw" style={`background-color:${r.node.swatch}`}></span></span>{/if}
                 {#if r.node.kind === "group"}<span class="tag">grp</span>{/if}
                 {#if r.node.kind === "common"}<span class="tag">×{r.node.elementIds?.length ?? 0}</span>{/if}
                 {#if r.node.count && r.node.kind !== "common"}<span class="count">{r.node.count}</span>{/if}
@@ -1191,18 +1192,19 @@
             {/if}
           </div>
 
-          <div class="xdetail" class:none={!detail}>
+          <!-- The readout: what the row under the pointer (else the picked one) is, in two lines. -->
+          <div class="xdetail card" class:none={!detail}>
             {#if detail}
               <div class="dline dpath" title={[detail.path, detail.title].filter(Boolean).join(" › ")}>{#if detail.path}<span class="dctx">{detail.path} ›</span>{/if}<b>{detail.title}</b></div>
               <div class="dline dval" class:none={!detail.values} title={detail.values || undefined}>{detail.values || "no value of its own"}</div>
               <div class="dline dmeta">{#if detail.swatch}<span class="sw" style={`background-color:${detail.swatch}`}></span>{/if}<span class="dfacts">{detail.meta.join(" · ")}</span><span class="did" title={detail.id}>{detail.id}</span></div>
             {:else}
-              <div class="dline dhint">Hover a row for its full context.</div>
+              <div class="dline dhint">Move over a row for its full context.</div>
             {/if}
           </div>
 
           {#if animMenu}
-            <div class="animmenu" role="menu" aria-label="Animate selected">
+            <div class="animmenu card" role="menu" aria-label="Animate selected">
               <span class="am-ttl">{#if $xrayBecomeSource}{$xrayBecomeSource} becomes… · {/if}Animate {animateTargets().length} {animateTargets().length === 1 ? "target" : "targets"}</span>
               {#each animOptions as o (o.kind)}
                 <button class="am" role="menuitem" title={o.hint} on:click={() => animate(o.kind)}><span class="hk">{o.key}</span>{o.label}</button>
@@ -1210,32 +1212,66 @@
               <button class="am ghost" on:click={() => (animMenu = false)}><span class="hk">esc</span>cancel</button>
             </div>
           {/if}
+          <!-- What to do with what is picked: one bright key (properties), the others glass. -->
           <div class="actions">
-            {#if $xrayBecomeSource && canAnimate}<button class="animbtn" disabled={!(pickedRows.length || selRow)} on:click={() => animate("become-destination")} title={`${$xrayBecomeSource} becomes the picked rows`}>Become <span class="hk">b</span></button>{/if}
             <span class="pickinfo">{selectedIds.size > 1 ? `${selectedIds.size} picked` : ""}</span>
-            {#if axisFor(selRow)}<button class="showprops" on:click={() => showAxisView(selRow)}><b class="hk">v</b> Axis view…</button>{/if}
+            {#if $xrayBecomeSource && canAnimate}<button class="animbtn become" disabled={!(pickedRows.length || selRow)} on:click={() => animate("become-destination")} title={`${$xrayBecomeSource} becomes the picked rows`}><span class="hk">b</span>Become</button>{/if}
+            {#if axisFor(selRow)}<button class="showprops axis" on:click={() => showAxisView(selRow)}><span class="hk">v</span>Axis view</button>{/if}
             <button class="animbtn" disabled={!canAnimate || !(pickedRows.length || selRow)} title={canAnimate ? "Add an animation for every picked row (m)" : "Animate is available in Slide mode"} on:click={() => (animMenu = !animMenu)}>
-              Animate selected <span class="hk">m</span>
+              <span class="hk">m</span>Animate
             </button>
-            <button class="showprops" disabled={!(pickedRows.length || selRow) || (pickedRows.length ? pickedRows : selRow ? [selRow] : []).every((n) => rowBlocked(n, $editorSelectionExclusions))} on:click={showProperties}>
-              Show Properties <span class="hk">↵</span><span class="hk">f</span>
+            <button class="showprops lead" aria-label="Show Properties" title="Show Properties: the property menu for what is picked (Enter or f)" disabled={!(pickedRows.length || selRow) || (pickedRows.length ? pickedRows : selRow ? [selRow] : []).every((n) => rowBlocked(n, $editorSelectionExclusions))} on:click={showProperties}>
+              <span class="hk">↵</span>Properties
             </button>
           </div>
         {/if}
 
+        {#if showKeys && tree}
+          <div class="legend card">
+            <span><b class="hk">↑↓</b> walk</span>
+            <span><b class="hk">←</b> family</span>
+            <span><b class="hk">⇧/⌃ click</b> several</span>
+            <span><b class="hk">a</b> siblings</span>
+            <span><b class="hk">⇧a</b> every plot</span>
+            <span><b class="hk">x</b> hide</span>
+            <span><b class="hk">s</b> search</span>
+            {#if q}<span><b class="hk">alt+a</b> all results</span>{:else}<span><b class="hk">drag</b> sweep</span>{/if}
+            <span><b class="hk">dbl-click</b> re-root</span>
+            <span><b class="hk">⌫</b> back</span>
+            <span><b class="hk">⌃z</b> undo</span>
+            <span><b class="hk">↵</b> <b class="hk">f</b> properties</span>
+            <span><b class="hk">r</b> <b class="hk">esc</b> close</span>
+          </div>
+        {/if}
+        <!-- One line: what the hand can do now. The key at its end opens the whole legend. -->
         <div class="foot">
-          <span><b class="hk">↑↓</b> navigate</span>
-          <span><b class="hk">←</b> family</span>
-          <span><b class="hk">⇧/⌃ click</b> multi</span>
-          <span><b class="hk">a</b> siblings</span>
-          <span><b class="hk">⇧a</b> every plot</span>
-          <span><b class="hk">x</b> hide</span>
-          <span><b class="hk">s</b> search</span>
-          {#if q}<span><b class="hk">alt+a</b> all results</span>{:else}<span><b class="hk">drag</b> sweep</span>{/if}
-          <span><b class="hk">dbl-click</b> re-root</span>
-          <span><b class="hk">⌫</b> back</span>
-          <span><b class="hk">⌃z</b> undo</span>
-          <span><b class="hk">r</b> <b class="hk">esc</b> close</span>
+          <span class="hints">
+            {#if !tree}
+              <span><b class="hk">r</b> <b class="hk">esc</b> close</span>
+            {:else if animMenu}
+              <span>press an animation's key</span>
+              <span><b class="hk">esc</b> cancel</span>
+            {:else if mode === "search"}
+              <span><b class="hk">↵</b> to the rows</span>
+              <span><b class="hk">alt+a</b> pick every result</span>
+              <span><b class="hk">esc</b> clear</span>
+            {:else if $xrayBecomeSource && canAnimate}
+              <span><b class="hk">␣</b> <b class="hk">b</b> become the picked rows</span>
+              <span><b class="hk">esc</b> close</span>
+            {:else if selectedIds.size > 1}
+              <span><b class="hk">↵</b> properties for all</span>
+              <span><b class="hk">x</b> hide</span>
+              <span><b class="hk">a</b> siblings</span>
+              <span><b class="hk">esc</b> close</span>
+            {:else}
+              <span><b class="hk">↑↓</b> walk</span>
+              <span><b class="hk">←</b> family</span>
+              <span><b class="hk">a</b> siblings</span>
+              <span><b class="hk">x</b> hide</span>
+              <span><b class="hk">dbl</b> re-root</span>
+            {/if}
+          </span>
+          {#if tree}<button class="keys" class:on={showKeys} aria-label="Every X-ray key" aria-pressed={showKeys} title="Every X-ray key (the whole keyboard reference: ?)" on:click={() => { showKeys = !showKeys; panelEl?.focus({ preventScroll: true }); }}>?</button>{/if}
         </div>
       </div>
     </div>
@@ -1247,10 +1283,14 @@
   /* A palette being chosen gets the room to show two columns of maps (owner
      inbox 2026-09-30); the ResizeObserver re-clamps the panel on screen. */
   .xray:has(:global(.cmappick)) { width: min(640px, calc(100vw - 16px)); }
-  /* Radiograph, flat: a near-black tube field with phosphor accents and mono
-     type — always dark by nature (the --xr-* ramp, never the theme-scoped
-     --c-* ramp). No gradients, glow, scanlines or entrance theatrics: it is a
-     surface that opens beside the selection. */
+  /* THE LOOK (2026-11-20, the owner's pick from a click-to-try viewer: "A Light box · glow=soft · keys=one ·
+     skeleton lines=on · part icons=on · row=22"). A radiograph viewer: a near-black plate with cards set into
+     it, mono type and phosphor, always dark by nature (the --xr-* ramp, never the theme-scoped --c-* ramp). A
+     lead marker names it; what is picked glows softly; one key is lit from behind (properties, what you came
+     for) and the others are glass. Thin skeleton lines tie each row to its parent: backgrounds of the row itself,
+     painted in its indent by ONE static rule, so a row has no more elements than it had, no image, and nothing is
+     computed per row. Still: no blur, no backdrop filter,
+     no scanline layer, nothing animating at rest. (Its tokens are on :root in tokens.css, deliberately not here.) */
   .xbackdrop { position: fixed; inset: 0; background: transparent; z-index: 290; }
   /* Sits UNDER the property menu (300/301): Show Properties opens it on top. */
   .xwrap { position: fixed; inset: 0; z-index: 291; pointer-events: none; }
@@ -1258,63 +1298,106 @@
     pointer-events: auto;
     position: absolute;
     visibility: hidden;
+    box-sizing: border-box;
     width: min(460px, calc(100vw - 16px));
     max-height: min(74vh, calc(100vh - 16px));
     display: flex;
     flex-direction: column;
+    padding: 4px;
     color: var(--xr-tx);
     font-family: var(--font-mono);
     font-size: 12px;
-    background: var(--xr-bg-2);
+    background: var(--xr-plate);
     border: 1px solid var(--xr-line);
-    border-radius: var(--r-panel);
-    box-shadow: var(--elev-2);
+    border-radius: 12px;
+    box-shadow: 0 10px 26px -10px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.45);
     outline: none;
     overflow: hidden;
   }
   .xray.placed { visibility: visible; animation: xr-in 70ms var(--ease-standard) 1; }
   @media (prefers-reduced-motion: reduce) { .xray.placed { animation: none; } }
   @keyframes xr-in { from { opacity: 0; } to { opacity: 1; } }
-  .xcontent { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
-  /* Key caps (app.css); the X-ray's keys glow phosphor, as everything on its screen does. */
-  .hk { color: var(--xr-phos-hi); min-width: 17px; height: 16px; }
-  .xhead { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 6px 0 10px; border-bottom: 1px solid var(--xr-line); background: var(--xr-bg); min-width: 0; }
-  .ttl { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--xr-tx); flex: 0 0 auto; }
-  .crumbs { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; font-size: 11px; }
+  .xcontent { display: flex; flex-direction: column; gap: 4px; flex: 1 1 auto; min-height: 0; }
+  .card { box-sizing: border-box; border-radius: 8px; background: var(--xr-card); border: 1px solid var(--xr-line); box-shadow: inset 0 1px 0 color-mix(in oklab, var(--xr-tx) 4%, transparent); }
+  /* Key caps (app.css draws the box); the X-ray's keys are phosphor. */
+  .hk { color: var(--xr-phos-hi); min-width: 16px; height: 15px; flex: none; }
+
+  /* the head */
+  .xhead { display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; padding: 2px 5px 2px 8px; min-width: 0; min-height: 30px; }
+  /* The lead marker: dense, bright, letterspaced, like the lettering laid on a film. */
+  .ttl { height: 16px; padding: 0 5px 0 7px; border-radius: 3px; background: var(--xr-box); color: var(--xr-ink); font: 700 9px/16px var(--font-mono); letter-spacing: 0.16em; text-transform: uppercase; box-shadow: var(--xr-halo); }
+  .crumbs { flex: 1 1 0; display: flex; align-items: center; gap: 5px; height: 26px; min-width: 0; overflow: hidden; white-space: nowrap; font-size: 12px; }
   .crumb { background: none; border: none; padding: 0; font: inherit; color: var(--xr-tx-dim); cursor: var(--cursor-cross-hover); max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
   .crumb:hover { color: var(--xr-phos-hi); }
-  .crumb.cur { color: var(--xr-tx); cursor: var(--cursor-cross); }
+  .crumb.cur { color: var(--xr-hot); font-weight: 600; text-shadow: var(--xr-halo-tx); cursor: var(--cursor-cross); }
   .csep { color: var(--xr-tx-dim); flex: 0 0 auto; }
   .csub { color: var(--xr-tx-dim); }
-  .xbtn { width: 22px; height: 22px; padding: 0; background: none; border: 0; color: var(--xr-tx-dim); font-size: 16px; cursor: var(--cursor-cross-hover); border-radius: var(--r-ui); font-family: var(--font-ui); }
-  .xbtn:hover { color: var(--xr-tx); background: var(--xr-tint-2); }
+  .xbtn { width: 22px; height: 22px; padding: 0; background: none; border: 1px solid transparent; border-radius: 5px; color: var(--xr-tx-dim); font: 17px/1 var(--font-ui); cursor: var(--cursor-cross-hover); }
+  .xbtn:hover { color: var(--xr-ink); background: var(--xr-box); }
   /* the file path loses its START, never the file name */
-  .srcline { padding: 4px 10px; font-size: 10.5px; color: var(--xr-tx-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-bottom: 1px solid var(--xr-line); direction: rtl; text-align: left; }
-  .regen { flex: 0 0 auto; height: 22px; background: transparent; color: var(--xr-phos-hi); border: 1px solid var(--xr-line); border-radius: var(--r-ui); padding: 0 8px; font: inherit; font-size: 11px; cursor: var(--cursor-cross-hover); }
-  .regen:hover:not(:disabled) { border-color: var(--xr-phos); background: var(--xr-tint-2); }
-  .regen:disabled { opacity: 0.6; cursor: var(--cursor-cross); }
-  .search-row { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border-bottom: 1px solid var(--xr-line); }
-  .search-row.active { box-shadow: inset 0 -1px 0 var(--xr-phos); }
-  .search-in { flex: 1; background: none; border: none; outline: none; color: var(--xr-tx); font: 12px var(--font-mono); padding: 0; }
+  .srcline { flex: 0 0 100%; box-sizing: border-box; height: 16px; margin: -4px 0 3px; padding-left: 60px; font-size: 10px; line-height: 16px; color: var(--xr-tx-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+
+  /* keys: glass, and one lit from behind */
+  .regen, .showprops, .animbtn, .am { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; height: 22px; padding: 0 8px 0 6px; border-radius: 5px; background: color-mix(in oklab, var(--xr-phos) 13%, transparent); color: var(--xr-phos-hi);
+    border: 1px solid color-mix(in oklab, var(--xr-phos) 45%, transparent); box-shadow: 0 1.5px 2.5px rgba(0, 0, 0, 0.6); font: 600 10.5px/1 var(--font-mono); white-space: nowrap; cursor: var(--cursor-cross-hover);
+    transition: background-color 80ms linear, border-color 80ms linear, color 80ms linear; }
+  .regen:hover:not(:disabled), .showprops:hover:not(:disabled), .animbtn:hover:not(:disabled), .am:hover { background: color-mix(in oklab, var(--xr-phos) 26%, transparent); border-color: var(--xr-phos-hi); color: var(--xr-hot); }
+  .regen:active:not(:disabled), .showprops:active:not(:disabled), .animbtn:active:not(:disabled), .am:active { transform: translateY(1px); box-shadow: 0 0 1px rgba(0, 0, 0, 0.6); }
+  .regen:disabled, .showprops:disabled, .animbtn:disabled { opacity: 0.38; box-shadow: none; cursor: var(--cursor-cross); }
+  .showprops .hk, .animbtn .hk, .am .hk { min-width: 0; height: auto; padding: 0 1px; border: 0; background: none; color: inherit; font: 700 10.5px/1 var(--font-mono); }
+  /* The one bright key: a light box. */
+  .showprops.lead { padding-right: 9px; background-color: var(--xr-box); color: var(--xr-ink); border-color: color-mix(in oklab, var(--xr-phos-hi) 75%, transparent); box-shadow: 0 1.5px 2.5px rgba(0, 0, 0, 0.6), var(--xr-halo); }
+  .showprops.lead:hover:not(:disabled) { background-color: #fff; color: var(--xr-ink); border-color: var(--xr-phos-hi); }
+  .showprops.lead:disabled { box-shadow: none; }
+
+  /* search: a well */
+  .search-row { flex-shrink: 0; display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 9px 0 6px; border-radius: 8px; background: var(--xr-well); box-shadow: inset 0 0 0 1px var(--xr-line); }
+  .search-row.active { box-shadow: inset 0 0 0 1px var(--xr-phos-hi), var(--xr-halo); }
+  .search-in { flex: 1; min-width: 0; height: 22px; padding: 0; background: none; border: none; outline: none; color: var(--xr-hot); font: 12px var(--font-mono); }
   .search-in::placeholder { color: var(--xr-tx-dim); }
-  .tree { overflow-y: auto; padding: 4px 6px 6px; min-height: 0; flex: 1 1 auto; }
-  /* Only the tree yields height: the header, source line, search row, actions
-     and footer keep theirs however tall the colour-scale block grows. */
-  .xhead, .srcline, .search-row, .xdetail, .actions, .foot { flex-shrink: 0; }
-  .section { display: flex; align-items: baseline; gap: 8px; padding: 8px 6px 3px; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--xr-tx-dim); border-bottom: 1px solid var(--xr-line); margin-bottom: 2px; }
-  .scount { text-transform: none; letter-spacing: 0; }
-  .row { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 6px; scroll-margin-block: 4px; border-radius: var(--r-0); cursor: var(--cursor-cross-hover); font-size: 12px; user-select: none; }
-  .row:hover { background: var(--xr-tint-2); }
-  /* Selection = phosphor tint + inset rail — NOT a solid fill; the primary row of a multi-pick carries the rail. */
-  .row.sel { background: var(--xr-tint); color: var(--xr-tx); }
-  .row.sel.primary { box-shadow: inset 2px 0 0 var(--xr-phos); }
-  .tw { width: 14px; flex: 0 0 14px; background: none; border: none; color: var(--xr-tx-dim); cursor: var(--cursor-cross-hover); font-size: 9px; padding: 0; font-family: inherit; }
-  .row.sel .tw { color: var(--xr-phos-hi); }
-  /* Shown is the norm, so it is quiet; partly hidden / hidden / the picked rows stand out. */
-  .eye { width: 16px; flex: 0 0 16px; background: none; border: none; color: color-mix(in oklab, var(--xr-phos) 60%, transparent); cursor: var(--cursor-cross-hover); padding: 0; font-size: 12px; font-family: inherit; }
+  .sres { flex: 0 0 auto; font-size: 10.5px; color: var(--xr-tx-dim); font-variant-numeric: tabular-nums; }
+
+  /* the tree */
+  .tree { overflow-y: auto; scrollbar-width: thin; padding: 3px 0; min-height: 0; flex: 1 1 auto; }
+  /* Only the tree yields height: the head, search row, readout, actions and
+     foot keep theirs however tall the colour-scale block grows. */
+  .xhead, .xdetail, .actions, .foot, .legend, .animmenu { flex-shrink: 0; }
+  .section { display: flex; align-items: baseline; gap: 8px; padding: 8px 9px 3px; font-size: 9.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: var(--xr-tx-dim); }
+  .scount { text-transform: none; letter-spacing: 0; font-weight: 400; }
+  /* THE SKELETON, with no knowledge of the tree. A row's indent is its left padding (6 + 14 per level, inline), and
+     an ancestor's twisty stands in each 14 px of it. Three background layers, the same for every row:
+       1. a cover in the card's colour over the row's CONTENT box (everything right of the indent);
+       2. the rib: 8 px at mid-height, ending where the content begins;
+       3. one line every 14 px across the whole row: under layer 1 it shows only in the indent, which is one line
+          under each ancestor's twisty.
+     (Layer 3 stops 9 px short of the row's right edge, where the row's right padding is.) Because the
+     cover hides the row's own background colour, hover and selection are tints laid OVER the row (an inset shadow
+     without blur): still translucent, still never a solid fill. */
+  .row { display: flex; align-items: center; gap: 5px; height: 22px; padding-right: 9px; scroll-margin-block: 4px; cursor: var(--cursor-cross-hover); font-size: 12px; user-select: none;
+    background-image: linear-gradient(#07141b, #07141b), linear-gradient(rgba(90, 189, 172, 0.24), rgba(90, 189, 172, 0.24)), repeating-linear-gradient(90deg, transparent 0 12px, rgba(90, 189, 172, 0.24) 12px 13px, transparent 13px 14px);
+    background-clip: content-box, padding-box, padding-box; background-origin: content-box, content-box, padding-box; background-position: 0 0, -8px 50%, 0 0; background-size: 100% 100%, 8px 1px, calc(100% - 9px) 100%; background-repeat: no-repeat; }
+  /* A row with no indent (the root, a search result) has no parent to be tied to. */
+  .row[style*="left:6px"], .row[style*="left: 6px"] { background-image: none; }
+  .row:hover { box-shadow: inset 0 0 0 99px var(--xr-tint-2); }
+  /* Selection = phosphor tint + inset rail — NOT a solid fill; the primary row of a multi-pick carries the rail,
+     and what is picked glows softly in its name. */
+  .row.sel { box-shadow: inset 0 0 0 99px var(--xr-tint); }
+  /* The picked row glows from its rail: an INSET glow. (A glow on its name, a text-shadow, grows the row's ink
+     overflow and is laid out again at every row the arrow keys cross; an inset shadow costs no layout.) */
+  .row.sel.primary { box-shadow: inset 2px 0 0 var(--xr-phos-hi), inset 12px 0 10px -9px rgba(90, 189, 172, 0.6), inset 0 0 0 99px var(--xr-tint); }
+  .row.sel .rlabel { color: var(--xr-hot); }
+  /* open / closed. A row with nothing to open has no twisty: its eye stands where the twisty's eye would. */
+  .tw { width: 14px; flex: 0 0 14px; padding: 0; background: none; border: none; color: var(--xr-tx-dim); font-size: 9px; font-family: inherit; cursor: var(--cursor-cross-hover); }
+  .row > .eye:first-child { margin-left: 19px; }
+  .row.sel button.tw { color: var(--xr-phos-hi); }
+  /* Shown is the norm, so it is quiet; partly hidden / hidden / the picked rows stand out. The button still SAYS
+     its state: ◉ drawn, ○ hidden, ◐ partly hidden. */
+  .eye { width: 16px; height: 16px; flex: 0 0 16px; padding: 0; background: none; border: none; border-radius: 4px; color: color-mix(in oklab, var(--xr-phos) 60%, transparent); cursor: var(--cursor-cross-hover); font-size: 12px; font-family: inherit; }
   .row:hover .eye, .row.sel .eye { color: var(--xr-phos-hi); }
   .eye.off { color: var(--xr-tx-dim); }
   .eye.part-off { color: var(--xr-phos); }
+  .eye.ghost { opacity: 0.5; }
+  .eye:hover:not(:disabled) { background-color: color-mix(in oklab, var(--xr-phos) 26%, transparent); }
   .eye:disabled { opacity: 0.4; cursor: var(--cursor-cross); }
   /* Row anatomy: [path ›] LABEL [#n] · state dot · preview (right, dim) · count.
      The path shrinks first, then the preview; the label keeps its room. */
@@ -1335,56 +1418,66 @@
   .loc rect.me { fill: var(--xr-phos); stroke: var(--xr-phos-hi); }
   .ord { flex: 0 0 auto; font-size: 10.5px; color: var(--xr-phos); }
   /* restyled: a filled dot hugging the label; hollow = something inside is restyled */
-  .sdot { flex: 0 0 auto; width: 5px; height: 5px; border-radius: 50%; background: var(--xr-phos-hi); align-self: center; }
+  .sdot { flex: 0 0 auto; width: 5px; height: 5px; border-radius: 50%; background: var(--xr-phos-hi); align-self: center; box-shadow: var(--xr-halo); }
   .sdot.inside { background: none; box-shadow: inset 0 0 0 1px var(--xr-phos); }
-  .rprev { flex: 0 8 auto; max-width: 50%; min-width: 0; display: inline-flex; align-items: center; gap: 5px; overflow: hidden; white-space: nowrap; color: var(--xr-tx-dim); font-size: 11px; margin-left: auto; }
+  .rprev { flex: 0 8 auto; max-width: 50%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--xr-tx-dim); font-size: 11px; margin-left: auto; }
   .rprev :global(mark), .rpath :global(mark), .rlabel :global(mark) { background: none; color: var(--xr-phos-hi); font-weight: 600; }
-  .ptext { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rprev.varies { font-style: italic; }
   /* The ring is the swatch's own BORDER, inside its box: as a 1px box-shadow outside the box it was cut off wherever the swatch touched the
      edge of a clipping parent (.rprev hides its overflow to ellipsize the value, so every row's swatch lost its left edge). The colour is
      `background-color` clipped to the padding box: the same 9px chip inside the same ring, and a border snaps to whole device pixels. */
+  .rprev > .sw { display: inline-block; vertical-align: -1.5px; margin-right: 5px; }
   .sw { flex: 0 0 auto; box-sizing: border-box; width: 11px; height: 11px; border: 1px solid color-mix(in oklab, var(--xr-tx) 70%, transparent); border-radius: 3px; background-clip: padding-box; }
   /* A member reads by its VALUE ("SWS"); its index label steps back. */
   .row.member { font-size: 11.5px; }
   .row.member .rlabel { color: var(--xr-tx-dim); }
+  .row.member.sel .rlabel { color: var(--xr-hot); }
   .row.member .rprev { color: var(--xr-tx); }
-  .eye.ghost { opacity: 0.5; }
-  .xmore { display: block; width: 100%; height: 22px; text-align: left; background: none; border: none; color: var(--xr-phos); font: 11px var(--font-mono); cursor: var(--cursor-cross-hover); border-radius: var(--r-0); }
-  .xmore:hover { background: var(--xr-tint-2); color: var(--xr-phos-hi); }
+  .xmore { display: block; width: 100%; height: 22px; text-align: left; background-color: transparent; border: none; color: var(--xr-phos); font: 11px var(--font-mono); cursor: var(--cursor-cross-hover); }
+  .xmore:hover { background-color: var(--xr-tint-2); color: var(--xr-phos-hi); }
   .xmore-hint { color: var(--xr-tx-dim); margin-left: 6px; }
-  .sres { flex: 0 0 auto; font-size: 10.5px; color: var(--xr-tx-dim); font-variant-numeric: tabular-nums; }
   /* Search: a plot header over its hits (sticky while they scroll), dim shared prefix. */
-  .shead { position: sticky; top: -4px; z-index: 1; display: flex; align-items: baseline; gap: 6px; padding: 7px 6px 3px; background: var(--xr-bg-2); font-size: 10.5px; color: var(--xr-tx-dim); border-bottom: 1px solid var(--xr-line); margin-bottom: 2px; white-space: nowrap; overflow: hidden; }
+  .shead { position: sticky; top: -3px; z-index: 1; display: flex; align-items: baseline; gap: 6px; padding: 7px 9px 3px; background: var(--xr-card); font-size: 10.5px; color: var(--xr-tx-dim); border-bottom: 1px solid var(--xr-line); margin-bottom: 2px; white-space: nowrap; overflow: hidden; }
   .hkey { flex: 0 0 auto; color: var(--xr-tx); font-size: 11.5px; font-weight: 600; }
   .hhint { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .hcount { margin-left: auto; flex: 0 0 auto; font-variant-numeric: tabular-nums; }
-  /* The detail strip: fixed height, so the panel never jumps as rows are hovered. */
-  .xdetail { flex: 0 0 auto; display: flex; flex-direction: column; justify-content: center; gap: 2px; height: 58px; padding: 0 10px; border-top: 1px solid var(--xr-line); background: var(--xr-bg); font-size: 11px; }
-  .dline { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  .dpath b { color: var(--xr-tx); font-weight: 600; }
-  .dctx { color: var(--xr-tx-dim); margin-right: 5px; }
-  .dval { color: var(--xr-tx); }
-  .dval.none { color: var(--xr-tx-dim); font-style: italic; }
-  .dmeta { display: flex; align-items: center; gap: 6px; color: var(--xr-tx-dim); }
-  .dfacts { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .did { flex: 0 1 auto; min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: right; font-size: 10px; opacity: 0.8; }
-  .dhint { color: var(--xr-tx-dim); white-space: normal; }
-  .tag { font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--xr-phos); border: 1px solid var(--xr-line); border-radius: var(--r-ui); padding: 0 4px; }
+  .tag { font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--xr-phos); border: 1px solid var(--xr-line); border-radius: 3px; padding: 0 4px; }
   /* one trailing slot, so counts never read as part of a value and previews share a right edge */
   .count { flex: 0 0 auto; min-width: 3ch; margin-left: 6px; text-align: right; font-size: 10.5px; color: color-mix(in oklab, var(--xr-tx) 38%, transparent); font-variant-numeric: tabular-nums; }
-  .actions { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 8px; border-top: 1px solid var(--xr-line); }
+
+  /* The readout: two lines of fixed height, so the panel never jumps as rows are hovered. Line one is where it is,
+     its name and its value; line two what it is, and its id. */
+  .xdetail { display: flex; flex-wrap: wrap; align-content: center; column-gap: 8px; height: 44px; padding: 0 9px; font-size: 11px; line-height: 17px; }
+  .dline { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  /* Line one is plain text (where it is, its name, its value): the cheapest thing there is to lay out, and it is
+     laid out again at every row the pointer or the arrow keys cross. */
+  .dpath { flex: 0 1 auto; max-width: 300px; }
+  .dpath b { color: var(--xr-hot); font-weight: 600; }
+  .dctx { color: var(--xr-tx-dim); margin-right: 5px; }
+  .dval { flex: 1 1 0; color: var(--xr-tx); }
+  .dval.none { color: var(--xr-tx-dim); font-style: italic; }
+  .dmeta { flex: 0 0 100%; display: flex; align-items: center; gap: 6px; color: var(--xr-tx-dim); font-size: 10px; line-height: 15px; }
+  .dfacts { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .did { flex: 0 1 auto; min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: right; opacity: 0.75; }
+  .dhint { flex: 0 0 100%; color: var(--xr-tx-dim); white-space: normal; }
+
+  /* what to do with what is picked */
+  .actions { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 2px 0 9px; }
   .pickinfo { flex: 1; font-size: 10.5px; color: var(--xr-tx-dim); }
-  .showprops, .animbtn { display: inline-flex; align-items: center; gap: 6px; height: 24px; background: transparent; color: var(--xr-phos-hi); border: 1px solid var(--xr-line); border-radius: var(--r-ui); padding: 0 8px; font: inherit; font-size: 11px; cursor: var(--cursor-cross-hover); }
-  .showprops:hover:not(:disabled), .animbtn:hover:not(:disabled) { border-color: var(--xr-phos); background: var(--xr-tint-2); }
-  .showprops:disabled, .animbtn:disabled { opacity: 0.4; cursor: var(--cursor-cross); }
-  .animmenu { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; padding: 6px 8px; border-top: 1px solid var(--xr-line); background: var(--xr-bg); }
-  .am-ttl { flex: 0 0 100%; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--xr-tx-dim); padding-bottom: 2px; }
-  .am { display: inline-flex; align-items: center; gap: 6px; height: 24px; background: transparent; color: var(--xr-tx); border: 1px solid var(--xr-line); border-radius: var(--r-ui); padding: 0 8px 0 4px; font: inherit; font-size: 11px; cursor: var(--cursor-cross-hover); }
-  .am:hover { border-color: var(--xr-phos); background: var(--xr-tint-2); }
-  .am.ghost { color: var(--xr-tx-dim); }
-  .empty { color: var(--xr-tx-dim); padding: 12px 4px; }
+  .animmenu { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; padding: 6px 8px 7px; }
+  .am-ttl { flex: 0 0 100%; font-size: 9.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: var(--xr-tx-dim); padding-bottom: 1px; }
+  .am { color: var(--xr-tx); }
+  .am.ghost { color: var(--xr-tx-dim); background: transparent; box-shadow: none; }
+  .empty { color: var(--xr-tx-dim); padding: 12px 9px; }
   .empty.big { padding: 30px 16px; text-align: center; }
-  .foot { display: grid; grid-template-columns: repeat(4, max-content); column-gap: 14px; row-gap: 3px; align-items: center; min-height: 26px; padding: 5px 10px; border-top: 1px solid var(--xr-line); font-size: 10.5px; color: var(--xr-tx-dim); background: var(--xr-bg); }
-  .foot span { white-space: nowrap; }
+
+  /* the foot: one line of what the hand can do now, and a key for the whole legend */
+  .foot { display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 1px 0 8px; font-size: 10px; color: var(--xr-tx-dim); white-space: nowrap; }
+  .hints { flex: 1; min-width: 0; display: flex; align-items: center; gap: 11px; overflow: hidden; }
+  .hints span, .legend span { flex: none; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+  .foot .hk, .legend .hk { min-width: 14px; height: 13px; padding: 0 3px; font-size: 9px; line-height: 10px; }
+  .keys { flex: none; width: 22px; height: 20px; padding: 0; background: none; border: 1px solid transparent; border-radius: 5px; color: var(--xr-tx-dim); font: 700 10.5px/1 var(--font-mono); cursor: var(--cursor-cross-hover); }
+  .keys:hover { background: var(--xr-box); color: var(--xr-ink); }
+  .keys.on, .keys.on:hover { background: var(--xr-phos-hi); color: var(--xr-ink); }
+  .legend { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px 12px; padding: 8px 10px; font-size: 10px; color: var(--xr-tx-dim); }
 </style>
