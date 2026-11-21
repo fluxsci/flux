@@ -108,7 +108,8 @@ export interface FluximgSlideContext {
   fluximgLayerText?: (assetId: string, path: string) => string | undefined;
   /** Colour-map tables for the calibration bar and colour-by-number styles (absent: gray). */
   fluximgLut?: (name: string) => string[] | null;
-  /** A layer's object table (styled layers only: `styleBy`), when loaded; a miss loads it and draws the layer unstyled
-   *  until it lands (exactly as the element at rest does). */
+  /** A layer's object table (styled layers only: `styleBy`): undefined while it loads (a miss starts loading it; the
+   *  overlay holds the styled layer back until it lands, as the element at rest does), null when it cannot be read (the
+   *  layer then draws unstyled). */
   fluximgTable?: (assetId: string, path: string) => FluximgTable | null | undefined;
 }
