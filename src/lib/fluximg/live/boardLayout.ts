@@ -399,7 +399,7 @@ export function fitNeeds(n: BoardNeeds, f: BoardFit): BoardNeeds {
 }
 
 /** Never zoom an image out below this many px on its longer side to make room (past that, the board stands over its edges). */
-const FIT_MIN_PX = 160;
+const FIT_MIN_PX = 96;
 
 /**
  * The smallest change of the canvas view that lets the board stand clear round the image and its kept panels (see
