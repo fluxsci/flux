@@ -19,7 +19,7 @@ import { pixelKey, resolveView } from "../../fluximg/viewOps";
 // crop.ts, never still.ts: the exported deck's runtime loads this module, and still.ts pulls the reader and renderer.
 import { clampCrop, tieredStillSize } from "../../fluximg/crop";
 import { cropTransform, FURNITURE_FONT, FURNITURE_WEIGHT, imageStrokeWidth, layerMarkup, namePlacements, namesFontPx, objectIndex, preciseNum, sanitizeLayerSvg, svgNum, type LayerObject } from "../../fluximg/layers";
-import { furnitureSvg } from "../../fluximg/furniture";
+import { furnitureSvg, stampLines } from "../../fluximg/furniture";
 import { fluximgIdPrefix, insetRect, layerStyles, layerSvgPath, layerTablePath, PLACEHOLDER_FILL, stylesToDraw, unflipTransform, wantsTable } from "../../fluximg/static";
 import { columnKind, DEFAULT_STYLE_LUT, missingStyle, objectStyleTween, shownObjects, styleTweenAt, type ObjectLegend, type ObjectPaint, type ObjectStyle, type ObjectStyles, type ObjectStyleTween } from "../../fluximg/objectStyle";
 import { fluximgPartNode } from "../../fluximg/parts";
@@ -550,6 +550,14 @@ export interface SlideFluximgBinding {
    * Takes effect at the next `flush()`, which may be called outside the player's paint() for this binding alone.
    */
   setIndexOverride(override: { dim: string; index: number; clock?: FluximgMovieClock } | null): void;
+  /**
+   * What a running movie along `dim` needs from its clock while it runs (asked by the movie controller to plan its
+   * wake-ups, review C7): "frames" = this binding draws every plane (the live host); "overlay" = the surface plays the
+   * movie by itself (a baked clip) but the overlay names the plane (a stamp on `dim`), so it is redrawn at each plane;
+   * "none" = nothing to draw until the clock's state changes (a clip that plays natively with no stamp on `dim`, or a
+   * movie the surface cannot show at all: the image stays the step's still).
+   */
+  movieNeeds(dim: string): "frames" | "overlay" | "none";
   /** Decode ahead along `dim`: the next `count` positions in `direction` (+1 / -1) at `stride`, from the shown frame. */
   decodeAhead(dim: string, direction: 1 | -1, stride?: number, count?: number): void;
   /** The picture this binding shows now (its crop and `insetOf`), or null before its manifest is known. */
@@ -582,9 +590,19 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
   const wholeImage = !!ctx.fluximgPartImages?.has(element.id);
   const liveCanvas = (): HTMLCanvasElement => surface?.canvas ?? canvas;
   /** The frame shown: the Change's (or the resting state), with a running clip's position over it. */
+  /** Whether the surface can show the running movie: a baked-clip surface without the movie's clip cannot (an export
+   *  without the encoder), and then the image is the step's own picture, its overlay included (review C7). */
+  let movieOk: { o: object; a: TweenPicture; ok: boolean } | null = null;
+  const movieShowable = (f: ViewTweenFrame): boolean => {
+    const s = surface;
+    if (!override?.clock || !s?.clocked || !s.movie) return true;
+    if (movieOk && movieOk.o === override && movieOk.a === f.a) return movieOk.ok;
+    movieOk = { o: override, a: f.a, ok: s.movie(el.assetId, f.a, override.clock) };
+    return movieOk.ok;
+  };
   const shown = (manifest: FluximgManifest): ViewTweenFrame => {
     const f = frame ?? resting(manifest);
-    if (!override) return f;
+    if (!override || !movieShowable(f)) return f;
     if (overridden && overridden.from === f && overridden.dim === override.dim && overridden.index === override.index) return overridden.out;
     overridden = { from: f, dim: override.dim, index: override.index, out: withIndexLocal(f, override.dim, override.index) };
     return overridden.out;
@@ -674,6 +692,19 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
       allowLive = true;
     },
     setIndexOverride(next) { override = next; },
+    movieNeeds(dim) {
+      if (!surface?.clocked) return "frames";
+      const manifest = manifestOf(ctx, el.assetId);
+      if (!manifest) return "none";
+      const f = frame ?? resting(manifest);
+      if (!movieShowable(f)) return "none";
+      // The overlay names the plane only through a stamp line of `dim` (layers, names and the rest do not move with it).
+      const rv = f.overlay.view;
+      if (!rv.furniture.stamp) return "none";
+      const n = manifest.pixels.shape[manifest.pixels.dims.indexOf(dim)] ?? 0, here = rv.index[dim] ?? 0;
+      const other = { ...rv, index: { ...rv.index, [dim]: here + 1 < n ? here + 1 : Math.max(0, here - 1) } };
+      return stampLines(manifest, rv).join("\n") === stampLines(manifest, other).join("\n") ? "none" : "overlay";
+    },
     decodeAhead(dim, direction, stride = 1, count = 8) {
       const manifest = manifestOf(ctx, el.assetId), host = ctx.fluximg;
       if (!manifest || !host) return;

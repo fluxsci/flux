@@ -150,6 +150,22 @@ async function pageRun(D: PageData): Promise<unknown> {
       P.player.destroy(); P.host.dispose(); P.mount.remove();
     }
     out.across = across;
+    // C7 in the live host: a 10-plane-a-second movie at rest draws each plane from one timer at its boundary (no frame
+    // loop); a 50-plane-a-second one runs on animation frames (a boundary is never more than two frames away).
+    {
+      const cost: Record<string, unknown> = {};
+      for (const fps of [10, 50]) {
+        const C = newPlayer(movieDeck({ dim: "t", mode: "loop", fps }));
+        C.player.goTo(0, 0); await C.player.readyMedia(); await sleep(50); spy(C);
+        C.player.next(); await sleep(200);
+        const p0 = planeOf(C), r0 = rafs; let changes = 0, last = p0;
+        const t0 = performance.now();
+        while (performance.now() - t0 < 1000) { await sleep(10); const p = planeOf(C); if (p !== last) { changes++; last = p; } }
+        cost[fps] = { rafs: rafs - r0, changes };
+        C.player.destroy(); C.host.dispose(); C.mount.remove();
+      }
+      out.cost = cost;
+    }
 
     // Every navigation, on the loop movie.
     const P = newPlayer(movieDeck({ dim: "t", mode: "loop", fps: 10 }), { backAnimates: true });
@@ -236,6 +252,8 @@ try {
   if (r.across) {
     h.section("A1: a running movie runs on across later steps");
     for (const a of r.across) h.ok(a.ok >= a.of - 1, `${a.mode}: when step 2 begins the movie keeps its clock (${a.ok}/${a.of} samples on the clock since Start; shown/clock: ${a.seq})`);
+    h.ok(r.cost[10].rafs === 0 && r.cost[10].changes >= 9, `a 10-plane-a-second movie at rest: ${r.cost[10].changes} planes drawn in 1 s with ${r.cost[10].rafs} animation callbacks (one timer per plane)`);
+    h.ok(r.cost[50].rafs >= 40 && r.cost[50].changes >= 40, `a 50-plane-a-second movie runs on animation frames (${r.cost[50].rafs} callbacks, ${r.cost[50].changes} planes in 1 s)`);
     const n = r.nav;
     h.section("A1: every navigation does to a movie what it does to a video");
     h.ok(n.blank.held !== null && n.blank.held === n.blank.stillHeld, `blanking the screen holds the movie (plane ${n.blank.held} -> ${n.blank.stillHeld})`);

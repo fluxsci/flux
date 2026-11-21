@@ -285,6 +285,58 @@ try {
     }
   }
 
+  // Review C7: zero animation callbacks while nothing needs drawing. A clip the <video> loops natively needs none; an
+  // overlay that names the plane (a stamp) is redrawn only at plane boundaries; a stills-only export runs nothing.
+  {
+    h.section("a running movie at rest: callbacks and re-syncs (review C7)");
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const mdeck = await movieDeck(P);
+    const mel = mdeck.slides[0].elements.find((e: any) => e.playback) as any;
+    const noStamp = async () => P.slidesCore.mutateDeck(P.root, "talk", "fixture", (d: any) => { const e = d.slides[0].elements.find((x: any) => x.id === mel.id); e.view = { ...e.view, furniture: { scalebar: {} } }; });
+    const exportAs = async (name: string, withEncoder: boolean) => {
+      const saved = process.env.FLUX_VIDEO_ENCODER;
+      if (!withEncoder) process.env.FLUX_VIDEO_ENCODER = path.join(P.scratch, "no-such-encoder", "ffmpeg");
+      try { return await P.slidesCore.exportDeck(P.root, "talk", { refreshSources: false, out: path.join(P.scratch, `${name}.html`) }); }
+      finally { if (saved === undefined) delete process.env.FLUX_VIDEO_ENCODER; else process.env.FLUX_VIDEO_ENCODER = saved; }
+    };
+    const open = async (file: string) => { await page.goto(pathToFileURL(file).href); await page.waitForFunction("!!window.fluxDeck?.readyMedia"); await page.evaluate("window.fluxDeck.readyMedia()"); };
+    const video = () => page.evaluate(`(() => { const v = document.querySelector('[data-slide-fluximg-root="${mel.id}"] video[data-slide-fluximg-clip]'); return v ? { t: v.currentTime, paused: v.paused, shown: v.style.display === 'block' } : null; })()`);
+    const stamp = () => page.evaluate(`[...document.querySelectorAll('[data-slide-fluximg-root="${mel.id}"] [data-part="stamp"] text')].map((t) => t.textContent).join('|')`);
+    const callbacks = async (ms: number) => { await page.evaluate("window.__rafs = 0"); await wait(ms); return page.evaluate("window.__rafs") as Promise<number>; };
+    const start = async () => { await page.keyboard.press("ArrowRight"); await wait(400); };
+    if (encoder) {
+      // the fixture's movie shows a stamp of t: the overlay is redrawn at each plane (10 a second), never every frame
+      const stamped = await exportAs("movie-stamp", true);
+      await open(stamped.path); await start();
+      const rafs = await callbacks(2000), v = await video(), st = await page.evaluate("window.fluxDeck.state()") as any;
+      h.ok(v?.shown && !v.paused && st.mediaPlaying, "with a stamp: the clip plays natively while the slide rests");
+      h.ok(rafs <= 4, `with a stamp on t: ${rafs} animation callbacks over 2 s of a 10-plane-a-second movie (the stamp is redrawn by one timer per plane; a frame loop is 120)`);
+      await noStamp();
+      const plain = await exportAs("movie-plain", true);
+      await open(plain.path); await start();
+      const r2 = await callbacks(2000), v2 = await video();
+      h.ok(v2?.shown && !v2.paused, `without a stamp: the clip plays natively (t ${v2?.t.toFixed(2)} s)`);
+      h.eq(r2, 0, "without a stamp: zero animation callbacks over 2 s of a running movie (the <video> loops by itself)");
+      const s0 = await page.evaluate("window.fluxDeck.imageClips()") as any;
+      const seen: string[] = [];
+      for (let k = 0; k < 6; k++) { await wait(5000); const s = await page.evaluate("window.fluxDeck.imageClips()") as any; seen.push(`${(k + 1) * 5} s: ${(s.drift * 1000).toFixed(0)}`); }
+      const s1 = await page.evaluate("window.fluxDeck.imageClips()") as any, v3 = await video();
+      console.log(`  measured: drift of a natively looped movie clip from the slide's clock over 30 s (30 loops), running max in ms: ${seen.join(", ")}; re-syncs ${s1.resyncs - s0.resyncs}`);
+      h.ok(!v3?.paused && s1.resyncs - s0.resyncs <= 2, `over 30 s of a looped movie: ${s1.resyncs - s0.resyncs} re-syncs (a drift check every 2 s, past half a plane only; was ~2 a second)`);
+      h.ok(s1.drift < 0.05 + 0.01, `the clip never strays more than half a plane (+ one check's growth) from the slide's clock (max ${(s1.drift * 1000).toFixed(0)} ms)`);
+    } else blocked("C7 callbacks of a movie that plays its clip natively");
+    // A stills-only export (no encoder): the movie cannot be shown, so nothing runs and the image is the step's still.
+    await P.slidesCore.mutateDeck(P.root, "talk", "fixture", (d: any) => { const e = d.slides[0].elements.find((x: any) => x.id === mel.id); e.view = { ...e.view, furniture: { stamp: {}, scalebar: {} } }; });
+    const stills = await exportAs("movie-stills", false);
+    h.ok(stills.warnings.some((w: string) => /encoder/i.test(w)), "the stills-only export warns once that it has no encoder");
+    await open(stills.path);
+    const before = await stamp();
+    await start();
+    const r4 = await callbacks(2000), after = await stamp();
+    h.eq(r4, 0, "no encoder: zero animation callbacks over 2 s after a movie's Start");
+    h.ok(!!before && after === before, `no encoder: the image stays the step's still and its stamp the step's own plane (${before} -> ${after})`);
+  }
+
   h.section("console and CSP");
   h.eq(await page.evaluate("window.__csp ?? []").catch(() => []), [], "no CSP violation (no blocked resource)");
   h.eq(errors(page), [], "no console errors");
