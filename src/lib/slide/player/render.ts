@@ -42,11 +42,13 @@ import { themeCssVars } from "../theme";
 import type { Model3dHost } from "../../model3d/host";
 import type { Model3dAsset, Model3dElement, Scene3dManifest } from "../../model3d/types";
 import { fillModel3d } from "./model3d";
+import { fillFluximg } from "./fluximg";
+import type { FluximgSlideContext } from "../../fluximg/slideHost";
 import { devicePixelRatioOf, snapDelta, stageMountOf, gridOfMount, type StageGrid, type StageMount } from "./deviceGrid";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-export interface SlideRenderCtx {
+export interface SlideRenderCtx extends FluximgSlideContext {
   /** Pristine SVG/manifest lookup scoped to this rendering host. */
   plotRoot?: (assetId: string) => SVGSVGElement | undefined;
   plotManifest?: (assetId: string) => import("../../plot/types").FluxPlotManifest | undefined;
@@ -737,12 +739,13 @@ export function normalizeAttachedDash(w: Element, el: FigElement): void {
 /** The ONE content dispatch — a plot mounts live inline SVG, everything else
  *  the serialized static markup. renderSlide and the transform driver share
  *  this entry so there is never a second renderer. */
-// fluximg: stage 1 keeps it out of decks at every chokepoint (FLUXIMG_NOT_IN_SLIDES) and deckProject drops any that slip
-// in, so none reaches a slide. A figure EMBED that holds one renders through elementToSvg with no image context: the stand-in.
+// fluximg (stage 2): a still + a live surface the player's image controller draws + the vector overlay (player/fluximg.ts).
+// A figure EMBED that holds one still renders through elementToSvg with no image context: the stand-in.
 export function fillContent(w: HTMLElement, el: FigElement, ctx: SlideRenderCtx): void {
   if (el.type === "plot") fillPlot(w, el, ctx);
   else if (el.type === "video") fillVideo(w, el, ctx);
   else if (el.type === "model3d") fillModel3d(w, el, ctx);
+  else if (el.type === "fluximg") fillFluximg(w, el, ctx);
   else fillStatic(w, el, ctx);
 }
 

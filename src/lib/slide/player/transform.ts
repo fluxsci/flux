@@ -58,6 +58,7 @@ import { morphJoin, pairJoin } from "../../strokeStyle";
 import { barGrow, type BarGrow } from "../growOrigin";
 import { applyWrapperBox, applyWrapperBoxComposite, carriesFlightMark, layoutBoxOf, pureMove, rigidFlight, promoteMovingWrapper, settleWrapper, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, restGridShift, plotAssetOf, type SlideRenderCtx } from "./render";
 import { modelBindingOf, modelContentFrame, modelFieldEndpoints, setSlideModelFrame } from "./model3d";
+import { fluximgTween, setSlideFluximgFrame } from "./fluximg";
 import { devicePixelRatioOf } from "./deviceGrid";
 
 /** Stage px an invisible stroke inflates a band's ink bounds by (see `bandNode`): enough for a device pixel at any presentation scale >= 1/4. */
@@ -90,6 +91,10 @@ export interface TransformCtx extends SlideRenderCtx {
   stage?: { width: number; height: number };
   /** This is a Ghost's BIRTH flight (the copy leaves its source): its ink emerges with its separation from the source (ghost.ts, the Ghost law). */
   ghost?: boolean;
+  /** An image Change (mode "fluximg-live"): the track's `blend` param (crossfade neighbouring planes) and its curve (decode-ahead
+   *  samples the path the clock will take). */
+  fluximgBlend?: boolean;
+  fluximgEase?: (raw: number) => number;
 }
 
 /** The wrapper's local CSS frame in stage px for a frame of state `el`: where its
@@ -159,6 +164,8 @@ export function createTransform(
   const [pre, end] = source.type === "model3d" && destination.type === "model3d" ? modelFieldEndpoints(source, destination, ctx) : [source, destination];
   const gradSuffix = "-t" + ++transformSerial;
   const plan: ContentPlan = contentPlan(pre, end);
+  // An image Change: the tween of its view / crop is planned once (fluximg/viewTween.ts); seek only samples it.
+  const imageTween = plan.mode === "fluximg-live" && pre.type === "fluximg" && end.type === "fluximg" ? fluximgTween(pre, end, ctx) : undefined;
   // A video is stretched by its retained element. Re-serializing width/height
   // Changes would replace its decoder and restart playback every frame.
   if (pre.type === "video" && end.type === "video") plan.contentDirty = false;
@@ -749,6 +756,11 @@ export function createTransform(
     // Restore the owned content sample after its box has been applied, without a clone.
     if (ctx.arc && el === content) { content.x = contentX; content.y = contentY; }
 
+    if (imageTween && content.type === "fluximg") {
+      setSlideFluximgFrame(contentHost, content, imageTween.frame(u, raw), imageTween.motion(raw));
+      return;
+    }
+
     if (plan.mode === "model-live" && content.type === "model3d") {
       const sampled = pre.type === 'model3d' && end.type === 'model3d' ? modelContentFrame(pre, end, content, t, raw, ctx) : { element: content, extra: {} };
       setSlideModelFrame(contentHost, sampled.element, sampled.extra);
@@ -897,6 +909,8 @@ export function createTransform(
     warmWhenIdle(() => { if (wrap.isConnected) morphPlan.prepare?.(); });
     return { seek, targetRoot: ensureMorphLayers().B, glide: marks };
   }
+  // An image Change whose manifest is still loading: play waits for it (player.ts gates every spec's `ready`).
+  if (imageTween?.ready) return { seek, targetRoot: contentHost, glide: marks, ready: imageTween.ready } as MorphController & { ready: NonNullable<typeof imageTween.ready> };
   // The hand-off tick pool lives inside the plot's own SVG, so it goes with the slide, and a still (renderStaticAt disposes its controllers
   // after sampling the step) keeps the projected line, the re-ticked axis and the pool it sampled; dispose clears only the elastic tick tween.
   return { seek, targetRoot: layerB ?? contentHost, glide: marks, dispose: () => tickTween?.clear() };

@@ -18,6 +18,7 @@
   import { assetDisplaySize } from "../../../lib/ops";
   import { createAppModelPosters } from "../../../lib/model3d/appPosters";
   import { createAppInlineModels, type AppInlineModels } from "../../../lib/model3d/appInlineHost";
+  import { createAppFluximgHost, createAppFluximgStills, type AppFluximg } from "../../../lib/fluximg/appSlideHost";
   import { project } from "../../../lib/store";
   import { settings } from "../../../lib/settings";
   import type { Deck, DeckTheme } from "../../../lib/slide/types";
@@ -41,6 +42,7 @@
   let vh = $state(0);
   let player: Player | undefined;
   let models: AppInlineModels | undefined;
+  let images: AppFluximg | undefined;
   let nextPosters: AbortController | undefined;
   let st = $state<PlayerState>({ slide: 0, beat: 0, totalBeats: 1, totalSlides: 1, time: 0, duration: 0, playing: false, reversing: false, mediaPlaying: false, mediaPaused: false, issues: [] });
   let blank = $state<"" | "black" | "white">("");
@@ -78,7 +80,7 @@
   function playerOpts(): PlayerOpts {
     return {
       mode: "present",
-      ...models, pixelScale: () => scale,
+      ...models, ...images, pixelScale: () => scale,
       theme,
       assetUrl: (id) => getAssetData(id),
       assetSize: (id) => assetDisplaySize(get(project), id),
@@ -94,6 +96,7 @@
     if (!mount) return;
     player?.destroy();
     models?.dispose(); models = createAppInlineModels(deck);
+    images?.dispose(); images = createAppFluximgHost(deck);
     player = createPlayer(mount, deck, playerOpts());
     player.on("change", (s) => { st = s; renderNext(); });
     player.on("frame", (s) => { st = s; });
@@ -113,9 +116,9 @@
     host.style.cssText = `position:relative;width:${deck.stage.width}px;height:${deck.stage.height}px;background:${s.background ?? deck.background ?? theme.background};`;
     nextMount.appendChild(host);
     try {
-      const controller = nextPosters = new AbortController(), posters = createAppModelPosters(controller.signal);
-      const render = () => renderStaticAt(host, s, deck.stage, Math.max(0, s.beats.length - 1), { ...playerOpts(), ...posters.context });
-      render(); void posters.settle().then((posted) => { if (posted && !controller.signal.aborted && host.isConnected) render(); }).catch(() => {});
+      const controller = nextPosters = new AbortController(), posters = createAppModelPosters(controller.signal), stills = createAppFluximgStills(controller.signal);
+      const render = () => renderStaticAt(host, s, deck.stage, Math.max(0, s.beats.length - 1), { ...playerOpts(), ...posters.context, ...stills.context });
+      render(); void Promise.all([posters.settle(), stills.settle()]).then((posted) => { if (posted.some(Boolean) && !controller.signal.aborted && host.isConnected) render(); }).catch(() => {});
     } catch { /* a missing asset preview is non-fatal */ }
   }
 
@@ -132,7 +135,7 @@
     closed = true;
     document.removeEventListener("fullscreenchange", onFullscreenChange);
     presentContext.set(null);
-    player?.destroy(); models?.dispose(); nextPosters?.abort();
+    player?.destroy(); models?.dispose(); images?.dispose(); nextPosters?.abort();
     if (timer) clearInterval(timer);
     if (idleTimer) clearTimeout(idleTimer);
     void wakeLock?.release().catch(() => {});
