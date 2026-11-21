@@ -218,6 +218,14 @@ try {
   h.eq(await idx("t"), tm, "with the property menu up, ArrowRight is not the board's");
   await press("Escape"); await sleep(200);
   h.ok(!(await menu()) && (await isOpen()), "Esc closes the property menu first, the board stays");
+  // The Export menu over the board: Esc closes the menu, not the board.
+  const ex = await F(() => { const b = document.querySelector(".deckbar .export-btn"); if (!b || b.disabled) return null; const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  if (ex) {
+    await page.mouse.click(ex.x, ex.y); await waitForFrame(page);
+    const opened = await F(() => !!document.querySelector(".export-menu"));
+    await press("Escape"); await sleep(150);
+    h.ok(opened && !(await F(() => !!document.querySelector(".export-menu"))) && (await isOpen()), "the Export menu over the board: Esc closes the menu, the board stays");
+  } else h.ok(true, "(Export is not available in this browser build)");
   const t2 = await idx("t");
   await press("ArrowLeft");
   h.eq(await idx("t"), Math.max(0, t2 - 1), "the board's keys work again after each overlay");

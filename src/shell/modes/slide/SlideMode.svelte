@@ -1591,6 +1591,8 @@
   function onKey(e: KeyboardEvent) {
     if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (e.defaultPrevented || presentOpen) return; // the presenter overlay owns the keyboard
+    // The open Export menu closes on Esc wherever the focus is (it does not take the focus when it opens).
+    if (exportMenuOpen && e.key === "Escape") { e.preventDefault(); exportMenuOpen = false; return; }
     // The cascade popover owns the keyboard while open (its own window
     // listener registers later, so this handler must yield first).
     if (get(cascadeState)) return;
