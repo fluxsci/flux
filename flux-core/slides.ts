@@ -36,7 +36,9 @@ import { exportRecoveryIO, confinedRecoveryPath } from "./recovery";
 import { SCHEMAS } from "./schemas";
 import { preparePlot, buildPartIndex } from "../src/lib/plot/parse";
 import * as slideOps from "../src/lib/slide/ops";
-import { normalizeRef, setLabel, isWholeElementRef } from "../src/lib/slide/targets";
+import { normalizeRef, setLabel, isWholeElementRef, hasPartBinding, refMembers } from "../src/lib/slide/targets";
+import { fluximgPartIndex, type FluximgPartIndex } from "../src/lib/fluximg/parts";
+import { layerSvgPath } from "../src/lib/fluximg/static";
 import { withAuthoringTiming, rewritesText } from "../src/lib/slide/presetCatalog";
 import { alignTrackEdges, alignTargetMs, inheritTrack, type AlignEdge } from "../src/lib/slide/alignTracks";
 import type { TrackCascadeSpec } from "../src/lib/cascade";
@@ -56,7 +58,7 @@ import { gatherPayload } from "../src/lib/slide/payload";
 import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
 import type { ExportPayload } from "../src/lib/slide/export/runtime";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
-import type { FluximgManifest } from "../src/lib/fluximg/types";
+import type { FluximgManifest, FluximgTable } from "../src/lib/fluximg/types";
 import { walkableDims } from "../src/lib/fluximg/playback";
 import { compileSlide, trackDuration } from "../src/lib/slide/compile";
 import { transformPreState } from "../src/lib/slide/tween";
@@ -848,8 +850,26 @@ async function slideCompileOptions(root: string, deck: Deck, slideId: string, kn
       ...(typeof track.to.manifestPath === "string" ? { manifestPath: track.to.manifestPath } : {}),
     } });
   }
+  // An image's OBJECTS (W8): read only for an image that a track names objects of (its layer SVGs and tables, through the
+  // bundle's one place), so a deck without image-object tracks reads nothing more.
+  const imageParts = new Map<string, FluximgPartIndex>(), imageTables = new Map<string, FluximgTable | null>();
+  const partImages = new Set<string>();
+  for (const beat of slide.beats) for (const track of beat.tracks) if (hasPartBinding(track)) { const el = slide.elements.find(e => e.id === track.target); if (el?.type === "fluximg") partImages.add(el.assetId); }
+  for (const t of slide.beats.flatMap(b => b.tracks)) for (const m of t.to?.become?.ref ? refMembers(t.to.become.ref) : []) { const el = slide.elements.find(e => e.id === m.element); if (el?.type === "fluximg" && (m.parts?.length || m.selector)) partImages.add(el.assetId); }
+  for (const assetId of partImages) {
+    const manifest = imageManifests.get(assetId);
+    if (!manifest) continue;
+    const texts: Record<string, string> = {};
+    for (const layer of manifest.layers) {
+      const p = layerSvgPath(layer);
+      if (p) try { texts[layer.id] = await fs.readFile(safeJoin(root, `fig/assets/${assetId}.fluximg/${p}`), "utf8"); } catch { /* not loaded: its objects are an issue */ }
+      if (layer.kind !== "intensity" && layer.table) try { imageTables.set(`${assetId}|${layer.table}`, JSON.parse(await fs.readFile(safeJoin(root, `fig/assets/${assetId}.fluximg/${layer.table}`), "utf8")) as FluximgTable); } catch { imageTables.set(`${assetId}|${layer.table}`, null); }
+    }
+    imageParts.set(assetId, fluximgPartIndex(manifest, texts));
+  }
   return { animStyles: deck.animStyles, plotManifest: (id: string) => manifests.get(id), modelAsset: (id: string) => modelAssets.get(id), modelManifest: (id: string) => modelManifests[id],
-    fluximgManifest: (id: string) => imageManifests.get(id), fluximgIssue: (id: string) => imageIssues.get(id) };
+    fluximgManifest: (id: string) => imageManifests.get(id), fluximgIssue: (id: string) => imageIssues.get(id),
+    fluximgParts: (id: string) => imageParts.get(id), fluximgTable: (id: string, path: string) => imageTables.get(`${id}|${path}`) ?? null };
 }
 
 /** A saved deck's per-slide compile options for poster enumeration
