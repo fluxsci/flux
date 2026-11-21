@@ -538,11 +538,12 @@ h.section("the board: kept panels (split channels, insets), the give-way order, 
   };
 
   // Review B6, exactly as reproduced: the step card pushed the layers card out of the canvas with no height.
-  const b6: BoardNeeds = { host: { w: 1100, h: 430 }, image: { x: 230, y: 35, w: 640, h: 360 }, depth: false, rows: 0, console: { w: 230, h: 330 }, layers: { w: 210, h: 220 }, step: { w: 230, h: 86 } };
-  const l6 = boardLayout(b6);
-  h.ok(inSight(b6, l6), `B6: on a 1100 × 430 canvas with the step card, every instrument (layers and step card included) stands inside the canvas at a height it can be read at (${show({ console: l6.console, step: l6.step, layers: l6.layers })})`);
-  const b6b = { ...b6, host: { w: 1300, h: 380 }, image: { x: 330, y: 10, w: 640, h: 360 } };
-  h.ok(inSight(b6b, boardLayout(b6b)), "B6: …and on 1300 × 380");
+  // (The review's probe, me/layout.ts: depth and a time rail, console 230 × 330, layers 210 × 220, step card 230 × 86.)
+  for (const [host, image] of [[{ w: 1100, h: 430 }, { x: 230, y: 35, w: 640, h: 360 }], [{ w: 1300, h: 380 }, { x: 370, y: 32, w: 560, h: 315 }], [{ w: 1300, h: 600 }, { x: 200, y: 47, w: 900, h: 506 }]] as const) {
+    const b6: BoardNeeds = { host, image, depth: true, rows: 1, console: { w: 230, h: 330 }, layers: { w: 210, h: 220 }, step: { w: 230, h: 86 } };
+    const l6 = boardLayout(b6);
+    h.ok(inSight(b6, l6), `B6: on a ${host.w} × ${host.h} canvas with the step card, every instrument (layers and step card included) stands inside the canvas at a height it can be read at (${show({ console: l6.console, step: l6.step, layers: l6.layers })})`);
+  }
 
   // Split channels beside the image: the console stands past the panels (or at the free side), never on them.
   const host = { w: 1600, h: 900 }, C = { w: 252, h: 380 };
