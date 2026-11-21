@@ -493,6 +493,7 @@
       "verify-fluximg-export.ts",
       "verify-fluximg-live.ts",
       "verify-fluximg-view-tween.ts",
+      "verify-fluximg-object-style.ts",
       "verify-fmenu-look.ts"
     ],
     "net": [
@@ -692,6 +693,7 @@
       "verify-fluximg-place-gui.mjs",
       "verify-fluximg-export-gui.ts",
       "verify-fluximg-inspector.mjs",
+      "verify-fluximg-object-style-gui.mjs",
       "verify-fluximg-live-gui.mjs"
     ],
     "ui-extra": [
@@ -1677,8 +1679,10 @@
       "verify-fluximg-export.ts",
       "verify-fluximg-export-gui.ts",
       "verify-fluximg-inspector.mjs",
+      "verify-fluximg-object-style-gui.mjs",
       "verify-fluximg-live.ts",
       "verify-fluximg-view-tween.ts",
+      "verify-fluximg-object-style.ts",
       "verify-fluximg-live-gui.mjs"
     ],
     "fluximg-pure": [
@@ -1691,12 +1695,14 @@
       "verify-fluximg-import.ts",
       "verify-fluximg-export.ts",
       "verify-fluximg-live.ts",
-      "verify-fluximg-view-tween.ts"
+      "verify-fluximg-view-tween.ts",
+      "verify-fluximg-object-style.ts"
     ],
     "fluximg-ui": [
       "verify-fluximg-place-gui.mjs",
       "verify-fluximg-export-gui.ts",
       "verify-fluximg-inspector.mjs",
+      "verify-fluximg-object-style-gui.mjs",
       "verify-fluximg-live-gui.mjs"
     ]
   },
@@ -12806,6 +12812,17 @@
       "exclusive": true,
       "coverage": "behavior"
     },
+    "verify-fluximg-object-style-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 240000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
     "verify-fluximg-live.ts": {
       "runtime": "tsx",
       "prerequisites": [],
@@ -12816,6 +12833,15 @@
       "coverage": "behavior"
     },
     "verify-fluximg-view-tween.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-fluximg-object-style.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
