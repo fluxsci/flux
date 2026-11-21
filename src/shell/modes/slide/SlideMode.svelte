@@ -96,6 +96,7 @@
   import { modelOrbitBlocked } from "../../../lib/model3d/orbitSession";
   import { scene3dGeneration, scene3dManifests } from "../../../lib/model3d/store";
   import { fluximgManifests, fluximgIssues } from "../../../lib/fluximg/store";
+  import { fluximgLive } from "../../../lib/fluximg/live/session";
   import { getAssetData } from "../../../lib/assets";
   import { assetDisplaySize } from "../../../lib/ops";
   import { sendSlideToCanvas, listFigCanvases } from "../../../lib/project/convert";
@@ -1553,6 +1554,8 @@
     const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (e.target as HTMLElement)?.isContentEditable;
     // The Plots rail owns its unmodified keys (F5 still presents); chords go on to the keymap.
     if (plotsRailOwnsKey(e) && e.key !== "F5") return;
+    // An image's live board (open on a slide too, stage 2) owns the unmodified keys; its own window listener handles them.
+    if (get(fluximgLive) && !typing && !(e.metaKey || e.ctrlKey)) return;
     const inAnimation = !!(e.target as HTMLElement)?.closest?.('[data-command-scope="animation"]');
     if (inAnimation) {
       const mod=e.metaKey||e.ctrlKey;
