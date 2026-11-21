@@ -207,7 +207,10 @@ export async function placeImage(root: string, figureId: string, bundlePath: str
     if (onSlides.length) {
       contentId ??= await bundleContentId(files);
       const hit = onSlides.find((x) => x.element.source!.sha256 === contentId);
-      if (hit) reuse = await deckImageAsset(root, before, hit.element).catch(() => undefined);
+      // same content id = the same files, so the source's byte count is the asset's: the record is complete (a figure
+      // placement registers it in the index, which requires both)
+      const found = hit && await deckImageAsset(root, before, hit.element).catch(() => undefined);
+      if (found) reuse = { ...found, sha256: contentId, bytes: total };
     }
   }
 

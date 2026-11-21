@@ -220,6 +220,13 @@ try {
   const byAsset = await call("image_info", { target: placed.assetId });
   h.ok(byAsset.placements.length >= 2 && !byAsset.issue, "image-info by asset id finds a slide-only asset");
 
+  {
+    const { figureId } = await core.createFigure(root, { id: "fig-s", name: "S", width: 400, height: 300 });
+    const onFig = await call("place_image", { figureId, bundlePath: "plots/stack_u16.fluximg" });
+    const reg = (await loadFigModel(root)).project.assets.find((a) => a.id === onFig.assetId);
+    h.ok(onFig.reused && onFig.assetId === placed.assetId && reg?.bytes! > 0 && reg?.sha256 === placedEl.source?.sha256, "a figure placement of a bundle already on a slide reuses that asset, with a complete record in the figure index");
+  }
+
   // ----------------------------------------------------------------------------------------------------------------
   h.section("E. the tween across three steps");
   {
