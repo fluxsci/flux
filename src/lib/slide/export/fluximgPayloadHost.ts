@@ -27,6 +27,8 @@ import type { ExportPayload } from "./runtime";
 const DRIFT_S = 1.5 / 60;
 /** After a re-sync the decoder needs a moment: no second re-sync within this time. */
 const RESYNC_COOLDOWN_MS = 250;
+/** Frames further apart than this are not one running clock (a rAF cadence is 16.7 ms; a dropped frame or two pass). */
+const RUN_GAP_MS = 60;
 /** No frame from the player for this long: its clock stopped (paused, at rest mid-Change), so the video pauses. */
 const STALL_MS = 120;
 
@@ -153,7 +155,10 @@ export function payloadImageHost(payload: ExportPayload, options: { capture?: bo
       }
       const v = this.load(clip);
       const tau = (motion.raw * clip.durationMs) / 1000;
-      const forward = !options.capture && this.lastRaw >= 0 && motion.raw > this.lastRaw && now - this.lastDraw < STALL_MS;
+      // The clock RUNS (play, at rate ~1) when consecutive frames come at frame cadence and advance the Change by about the
+      // wall time between them; anything else is a seek: a scripted seek, a jump, a reversed or warped clock, a capture.
+      const dWall = now - this.lastDraw, dClip = (motion.raw - this.lastRaw) * clip.durationMs;
+      const forward = !options.capture && this.lastRaw >= 0 && dWall > 0 && dWall < RUN_GAP_MS && dClip > 0 && dClip / dWall > 0.5 && dClip / dWall < 2;
       this.lastRaw = motion.raw; this.lastDraw = now;
       if (forward) {
         // Native playback at rate 1, in step with the clock.
