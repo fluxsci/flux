@@ -12,7 +12,7 @@ import { editSession } from "../../interact/editSession";
 import { selectionTargets } from "../../interact/selectionTargets";
 import { setFluximgView } from "../../ops";
 import type { FluximgElement } from "../../types";
-import type { FluximgStyleBy, FluximgView } from "../view";
+import type { FluximgView } from "../view";
 import type { PlayMode } from "./rail";
 
 export interface FluximgLiveState {
@@ -47,10 +47,12 @@ export interface LiveHover { layerId: string; key: string; from: "image" | "list
 export const fluximgHover = writable<LiveHover | null>(null);
 
 /**
- * What a hovered styling key would do, shown on the live image before it is chosen: the layer drawn with this
- * `styleBy` instead of its own (null = unstyled). Nothing is written; leaving the key puts the image back.
+ * What a hovered (or walked) styling key would do, shown on the live image before it is chosen: ONE override, one
+ * part of one layer's styling set to `column` (null = off), applied over the model by the overlay each time it draws
+ * (`objectStyle.previewStyleBy`), so an undo under a preview shows the undone model. Nothing is written; leaving the
+ * key or the drawer puts the image back.
  */
-export const fluximgStylePreview = writable<{ layerId: string; styleBy: FluximgStyleBy | null } | null>(null);
+export const fluximgStylePreview = writable<{ layerId: string; part: "color" | "opacity"; column: string | null } | null>(null);
 
 /**
  * Where the pointer is over the live image, in level-0 image pixels; null elsewhere. Read on demand (not a store).

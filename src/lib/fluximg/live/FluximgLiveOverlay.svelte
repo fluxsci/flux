@@ -16,7 +16,7 @@
   import { project } from "../../store";
   import { yieldsToShellModal, isAnnotateChord } from "../../../shell/agent/annotationVisibility";
   import { fluximgBundle, fluximgLutsReady, fluximgManifests, fluximgService, needLuts, resolveLut } from "../store";
-  import { cachedObjectStyles } from "../objectStyle";
+  import { cachedObjectStyles, previewStyleBy } from "../objectStyle";
   import FluximgVectors from "../FluximgVectors.svelte";
   import { furnitureInset } from "../furniture";
   import { clampCrop, fullCrop } from "../still";
@@ -40,7 +40,7 @@
   const shownView = $derived.by(() => {
     const p = $fluximgStylePreview;
     if (!rv || !p) return rv;
-    return { ...rv, layers: rv.layers.map((l) => (l.id === p.layerId ? { ...l, styleBy: p.styleBy } : l)) };
+    return { ...rv, layers: rv.layers.map((l) => (l.id === p.layerId ? { ...l, styleBy: previewStyleBy(l.styleBy, p.part, p.column) } : l)) };
   });
   const crop = $derived(manifest ? clampCrop(manifest, element.crop) : null);
   const box = $derived({ width: element.width, height: element.height });
@@ -282,8 +282,9 @@
     for (const el of hot) el.classList.remove("fx-hot");
     hot = [];
     if (!h || !wrapper) return;
+    // By id (the overlay's prefix is unique on the page): a row of the key can name thousands of objects.
     for (const k of h.keys ?? [h.key]) {
-      const el = wrapper.querySelector(`[id="${CSS.escape(`${prefix}${h.layerId}/${k}`)}"]`);
+      const el = document.getElementById(`${prefix}${h.layerId}/${k}`);
       if (el) { el.classList.add("fx-hot"); hot.push(el); }
     }
   });

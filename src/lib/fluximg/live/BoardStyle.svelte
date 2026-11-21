@@ -10,20 +10,25 @@
    * numbers, the colour map is one of a row of swatches; by categories, the categories are listed with their colours
    * and resting on one lights its objects on the image.
    *
-   * Keys while it is open: digits pick a column (0 = none), arrows walk the keys (each previewed), Enter picks, Esc
-   * closes (`BoardLayers` routes them).
+   * Keys, only when the layers card holds the keyboard (`d`; never from a click): digits pick a column (0 = none),
+   * arrows walk the keys (each previewed), Enter picks, Esc closes (`BoardLayers` routes them). A pick by click closes it.
+   *
+   * Nothing moves under a pointer that has not moved: the drawer opening can grow the card under a still pointer, so a
+   * key is previewed (and can be picked by click) only once the pointer has moved since the drawer opened. A preview
+   * is ONE override (layer, part, column) over the model, derived by the overlay; leaving the drawer clears it.
    */
   import { fluximgLutsReady, resolveLut } from "../store";
   import { columnHistogram, columnKind, columnSummaries, DEFAULT_PALETTE, DEFAULT_STYLE_LUT, cachedObjectStyles, numericExtent, slotColor, styleTable, type ColumnSummary } from "../objectStyle";
+  import { middleEllipsis } from "../inspectorEdits";
   import type { FluximgLayer, FluximgTable } from "../types";
-  import type { FluximgStyleBy, ResolvedLayer } from "../view";
+  import type { ResolvedLayer } from "../view";
   import { formatNumber } from "../viewOps";
   import { histogramPath } from "./histogram";
   import PaperKey from "./PaperKey.svelte";
   import { colorBy, opacityBy, setStyleLut, setStyleRange, toggleStyleMissing, toggleStyleReverse } from "./actions";
   import { cancelLiveEdit, fluximgHover, fluximgStylePreview, settleLiveEdit } from "./session";
 
-  let { layer, lv, table, part, width = 226, choice = $bindable(-1), onpicked }: {
+  let { layer, lv, table, part, width = 226, choice = $bindable(-1), problem = "", onpicked }: {
     layer: FluximgLayer;
     lv: ResolvedLayer;
     table: FluximgTable | null;
@@ -31,39 +36,49 @@
     width?: number;
     /** The key the keyboard is on (-1: none yet): 0 = "none", then the columns in order. */
     choice?: number;
-    onpicked: () => void;
+    /** Why the stored styling cannot apply (a column the table lacks, a table that cannot be read), or "". */
+    problem?: string;
+    /** A choice was made: by a click (the drawer closes) or by a key. */
+    onpicked: (byClick: boolean) => void;
   } = $props();
 
   const uid = `fxs-${Math.random().toString(36).slice(2)}`;
-  const columns = $derived(columnSummaries(table).filter((c) => c.name !== "label" && (part === "color" ? c.kind !== "empty" : c.kind === "number")));
+  const columns = $derived(columnSummaries(table, layer.kind === "intensity" ? null : layer).filter((c) => (part === "color" ? c.kind !== "empty" : c.kind === "number")));
   const current = $derived(part === "color" ? lv.styleBy?.color?.column ?? null : lv.styleBy?.opacity?.column ?? null);
   /** The ink a fade is drawn in: the layer's own colour. */
   const ink = $derived(lv.color ?? (layer.kind !== "intensity" ? layer.color : null) ?? "#fffcf0");
   const lut = $derived(lv.styleBy?.color?.lut ?? DEFAULT_STYLE_LUT);
 
   // --- what a key would do ------------------------------------------------------------------------
-  /** The layer's styling with this part set to `column` (null: off), as the view would hold it. */
-  function candidate(column: string | null): FluximgStyleBy | null {
-    const now = lv.styleBy ?? {};
-    const keep = part === "color" ? now.color : now.opacity;
-    const next: FluximgStyleBy = { ...now, [part]: column ? (keep && keep.column === column ? keep : { column }) : null };
-    if (!next.color) delete next.color;
-    if (!next.opacity) delete next.opacity;
-    return next.color || next.opacity ? next : null;
+  // Has the pointer moved since the drawer opened? The first move seen is where it rests; one elsewhere is a move.
+  let rest: { x: number; y: number } | null = null;
+  let moved = $state(false);
+  $effect(() => {
+    const seen = (e: PointerEvent): void => {
+      if (!rest) { rest = { x: e.clientX, y: e.clientY }; return; }
+      if (e.clientX !== rest.x || e.clientY !== rest.y) { moved = true; window.removeEventListener("pointermove", seen, true); }
+    };
+    window.addEventListener("pointermove", seen, { capture: true, passive: true });
+    return () => window.removeEventListener("pointermove", seen, true);
+  });
+  /** Show a column's choice on the image (undefined: show the model again). */
+  function preview(column: string | null | undefined, byKey = false): void {
+    if (column === undefined) { fluximgStylePreview.set(null); return; }
+    if (!byKey && !moved) return;
+    fluximgStylePreview.set({ layerId: lv.id, part, column });
   }
-  function preview(column: string | null | undefined): void {
-    fluximgStylePreview.set(column === undefined ? null : { layerId: lv.id, styleBy: candidate(column) });
-  }
-  function pick(column: string | null): void {
+  function pick(column: string | null, byClick: boolean): void {
+    if (byClick && !moved) return; // the card grew under a still pointer: that key was never pointed at
     fluximgStylePreview.set(null);
     if (column !== current) { if (part === "color") colorBy(lv.id, column); else opacityBy(lv.id, column); }
-    onpicked();
+    onpicked(byClick);
   }
   /** The keys in keyboard order: "none" first. */
   export function keyAt(i: number): string | null | undefined { return i === 0 ? null : columns[i - 1]?.name; }
   export function count(): number { return columns.length + 1; }
-  export function previewAt(i: number): void { preview(keyAt(i)); }
-  export function pickAt(i: number): void { const c = keyAt(i); if (c !== undefined) pick(c); }
+  export function previewAt(i: number): void { preview(keyAt(i), true); }
+  export function pickAt(i: number): void { const c = keyAt(i); if (c !== undefined) pick(c, false); }
+  // Whatever way the drawer goes (closed, another part, another layer, the board closing), its preview goes with it.
   $effect(() => () => { fluximgStylePreview.set(null); });
 
   /** A key's little picture, as CSS: the first colours, the colour map, or the fade. */
@@ -172,17 +187,24 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="style" style={`--ink:${ink}`} data-fxb-style={`${part}:${lv.id}`} onpointerdown={(e) => e.stopPropagation()}>
-  <div class="cols" role="listbox" aria-label={part === "color" ? `Colour ${lv.name} by` : `Opacity of ${lv.name} by`}>
+  {#if problem}
+    <!-- The stored styling cannot apply: say so, and offer to clear it (or pick another column below). -->
+    <div class="problem" data-fxb-style-problem>
+      <span>{problem}</span>
+      <PaperKey quiet size={20} glyph="none" label="Clear it" id="style-clear" onpress={() => { fluximgStylePreview.set(null); if (part === "color") colorBy(lv.id, null); else opacityBy(lv.id, null); }} />
+    </div>
+  {/if}
+  <div class="cols scrolls" role="listbox" aria-label={part === "color" ? `Colour ${lv.name} by` : `Opacity of ${lv.name} by`}>
     <button class="ck none" class:on={current === null} class:kb={choice === 0} type="button" role="option" aria-selected={current === null} data-fxb-style-col=""
       data-tip={part === "color" ? "One colour for all" : "Every object as opaque as the layer"} data-hk="0"
-      onpointerenter={() => preview(null)} onpointerleave={() => preview(undefined)} onclick={() => pick(null)}>
+      onpointerenter={() => preview(null)} onpointermove={() => preview(null)} onpointerleave={() => preview(undefined)} onclick={() => pick(null, true)}>
       <span class="pic none"></span><span class="nm">none</span>
     </button>
     {#each columns as c, i (c.name)}
       <button class="ck" class:on={current === c.name} class:kb={choice === i + 1} type="button" role="option" aria-selected={current === c.name} data-fxb-style-col={c.name}
         data-tip={`${c.name} · ${words(c)}`} data-hk={i < 9 ? String(i + 1) : undefined}
-        onpointerenter={() => preview(c.name)} onpointerleave={() => preview(undefined)} onclick={() => pick(c.name)}>
-        <span class="pic" style={`background:${picture(c)}`}></span><span class="nm">{c.name}</span>
+        onpointerenter={() => preview(c.name)} onpointermove={() => preview(c.name)} onpointerleave={() => preview(undefined)} onclick={() => pick(c.name, true)}>
+        <span class="pic" style={`background:${picture(c)}`}></span><span class="nm">{middleEllipsis(c.name, 13)}</span>
       </button>
     {/each}
     {#if !columns.length}<span class="empty">{part === "opacity" ? "No column of numbers" : "No column to colour by"}</span>{/if}
@@ -248,7 +270,9 @@
 
 <style>
   .style { display: flex; flex-direction: column; gap: 7px; padding: 4px 9px 9px 10px; cursor: var(--cursor-cross); }
-  .cols { display: flex; flex-wrap: wrap; gap: 5px; }
+  /* Many columns: three rows of keys, then the rest scroll (the wheel scrolls a list). */
+  .cols { display: flex; flex-wrap: wrap; gap: 5px; max-height: 118px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(255, 252, 240, 0.18) transparent; }
+  .problem { display: flex; align-items: center; gap: 6px; justify-content: space-between; font: 10.5px/14px var(--font-ui); color: var(--c-warning, #d0a215); }
   /* A column as a paper key: what choosing it does, drawn small, over its name. */
   .ck { position: relative; display: flex; flex-direction: column; align-items: stretch; gap: 3px; min-width: 46px; max-width: 104px; height: 34px; box-sizing: border-box; padding: 5px 5px 3px; border-radius: 5px; border: 1px solid color-mix(in oklab, var(--c-layout-gap) 45%, transparent);
     background: var(--flx-paper); box-shadow: 0 1.5px 2.5px rgba(0, 0, 0, 0.5); cursor: var(--cursor-cross-hover); transition: background-color 80ms linear, border-color 80ms linear; }
@@ -290,5 +314,5 @@
   .miss { display: inline-flex; align-items: center; gap: 5px; font: 10.5px var(--font-ui); color: var(--fxb-tx-dim); }
   .miss i { width: 8px; height: 8px; border-radius: 2px; background: #878580; opacity: 0.6; }
   .miss.hidden i { background: transparent; box-shadow: inset 0 0 0 1px #878580; }
-  @media (prefers-reduced-motion: reduce) { .sw, .knob { transition: none; } .sw:hover { transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .sw, .knob, .ck { transition: none; } .sw:hover, .ck:active { transform: none; } }
 </style>

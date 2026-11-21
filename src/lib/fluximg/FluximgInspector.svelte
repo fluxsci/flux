@@ -31,7 +31,7 @@
   } from "./inspectorEdits";
   import { columnSummaries, DEFAULT_STYLE_LUT } from "./objectStyle";
   import { layerTablePath } from "./static";
-  import { fluximgTables, needTable, tableOf } from "./live/objectTables";
+  import { fluximgTableIssues, fluximgTables, needTable, tableKey, tableOf } from "./live/objectTables";
 
   let { element, readOnly = false }: { element: FluximgElement; readOnly?: boolean } = $props();
 
@@ -58,10 +58,22 @@
   const along = $derived(rv?.projection?.dim ?? (dims.includes(alongPick) ? alongPick : dims[0] ?? ""));
 
   const objectLayers = $derived(rv ? rv.layers.filter((l) => l.kind !== "intensity") : []);
-  // Layers that have a table can be styled by its columns: their tables are read (small JSON) so the pickers list them.
+  // Layers that have a table can be styled by its columns. The fields show for a layer that IS styled, or once asked
+  // for ("Style by a column"); only then is its table read and its columns summed up (once per table: the summaries
+  // are memoised on the table object, so a contrast drag or a plane step costs a lookup, and an unstyled image reads
+  // no table and computes nothing).
   const tablePaths = $derived(manifest ? Object.fromEntries(manifest.layers.map((l) => [l.id, layerTablePath(l)]).filter(([, p]) => !!p)) as Record<string, string> : {});
-  $effect(() => { if (asset) for (const p of Object.values(tablePaths)) needTable(asset, p); });
-  const columnsOf = (layerId: string) => (asset && tablePaths[layerId] ? columnSummaries(tableOf($fluximgTables, asset, tablePaths[layerId])) : []);
+  let styleOpen = $state<Record<string, boolean>>({});
+  const styleShown = (l: { id: string; styleBy: unknown }): boolean => !!tablePaths[l.id] && (!!l.styleBy || !!styleOpen[l.id]);
+  /** The ids of the layers whose style fields are shown: a string, so a view change that keeps them wakes nothing. */
+  const shownIds = $derived(rv ? rv.layers.filter(styleShown).map((l) => l.id).join("|") : "");
+  $effect(() => { if (asset && shownIds) for (const id of shownIds.split("|")) needTable(asset, tablePaths[id]); });
+  const columnsOf = (layerId: string) => {
+    const layer = manifest?.layers.find((x) => x.id === layerId);
+    return asset && tablePaths[layerId] && layer && layer.kind !== "intensity" ? columnSummaries(tableOf($fluximgTables, asset, tablePaths[layerId]), layer) : [];
+  };
+  /** Why a layer's table cannot be read, or "". */
+  const tableProblem = (layerId: string): string => (asset && tablePaths[layerId] ? $fluximgTableIssues[tableKey(asset, tablePaths[layerId])] ?? "" : "");
   const STYLE_MAPS = ["viridis", "cividis", "plasma", "magma", "crameri.batlow", "cmasher.ember"];
   const unit = $derived(info?.pixelSize?.unit ?? manifest?.axes?.x?.unit ?? "");
   const hasScale = $derived(!!manifest?.axes?.x?.unit && (manifest.axes.x.scale ?? 0) > 0);
@@ -324,23 +336,36 @@
                   on:commit={(e) => view(layerNumberPatch(m, l.id, "fillOpacity", Math.round(e.detail) / 100))} on:scrub={(e) => view(layerNumberPatch(m, l.id, "fillOpacity", Math.round(e.detail) / 100), true)} />
               {/if}
             </div>
-            {#if tablePaths[l.id]}
+            {#if tablePaths[l.id] && !styleShown(l)}
+              <button class="mini" data-fluximg-style-open={l.id} title="Colour or fade each object by a column of the layer's table" onclick={() => (styleOpen = { ...styleOpen, [l.id]: true })}>Style by a column</button>
+            {:else if tablePaths[l.id]}
               {@const cols = columnsOf(l.id)}
+              {@const loaded = !!asset && !!tableOf($fluximgTables, asset, tablePaths[l.id])}
               {@const sb = l.styleBy}
               {@const cc = cols.find((c) => c.name === sb?.color?.column)}
               {@const oc = cols.find((c) => c.name === sb?.opacity?.column)}
+              {@const goneC = loaded && !!sb?.color && !cols.some((c) => c.name === sb.color?.column && c.kind !== "empty")}
+              {@const goneO = loaded && !!sb?.opacity && !cols.some((c) => c.name === sb.opacity?.column && c.kind === "number")}
               <div class="pair" data-fluximg-style={l.id}>
                 <select aria-label={`Colour ${l.name} by`} title="Colour each object by a column of the layer's table" value={sb?.color?.column ?? ""} data-fluximg-style-color
                   onchange={(e) => view(styleColumnPatch(l.id, "color", selectValue(e) || null))}>
                   <option value="">One colour</option>
+                  {#if goneC}<option value={sb?.color?.column}>{sb?.color?.column} (not in the table)</option>{/if}
                   {#each cols.filter((c) => c.kind !== "empty") as c (c.name)}<option value={c.name}>Colour by {c.name}</option>{/each}
                 </select>
                 <select aria-label={`Opacity of ${l.name} by`} title="Each object's opacity from a column of numbers" value={sb?.opacity?.column ?? ""} data-fluximg-style-opacity
                   onchange={(e) => view(styleColumnPatch(l.id, "opacity", selectValue(e) || null))}>
                   <option value="">Even opacity</option>
+                  {#if goneO}<option value={sb?.opacity?.column}>{sb?.opacity?.column} (not usable)</option>{/if}
                   {#each cols.filter((c) => c.kind === "number") as c (c.name)}<option value={c.name}>Opacity by {c.name}</option>{/each}
                 </select>
               </div>
+              {#if tableProblem(l.id) && sb}
+                <p class="warn" data-fluximg-style-problem>The layer's table could not be read ({tableProblem(l.id)}): its objects are drawn without this styling.</p>
+              {:else if goneC || goneO}
+                <p class="warn" data-fluximg-style-problem>{goneC ? `Colour by "${sb?.color?.column}"` : `Opacity by "${sb?.opacity?.column}"`}{goneC && goneO ? ` and opacity by "${sb?.opacity?.column}"` : ""}: the table has no such usable column, so nothing is drawn by it.
+                  <button class="mini" data-fluximg-style-clear onclick={() => view({ layers: { [l.id]: { styleBy: { ...(goneC ? { color: null } : {}), ...(goneO ? { opacity: null } : {}) } as never } } })}>Clear</button></p>
+              {/if}
               {#if sb?.color && cc?.kind === "number" && cc.range && !(sb.color.palette && !sb.color.lut)}
                 {@const r = sb.color.range ?? cc.range}
                 <div class="three" data-fluximg-style-color-range>
