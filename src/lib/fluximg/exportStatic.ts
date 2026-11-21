@@ -25,6 +25,7 @@ import { clampCrop, stillSize } from "./still";
 import { fluximgIdPrefix, fluximgStaticSvg, insetsOf, layerSvgPath, layerTablePath, wantsTable } from "./static";
 import { colormapLut, ensureColormapLuts } from "../color/colormapLuts";
 import { escapeXml, sanitizeLayerSvg } from "./layers";
+import { cachedObjectStyles } from "./objectStyle";
 import { fluximgPlaceholderSvg } from "./placeholder";
 import { partDomId } from "../plot/parse";
 
@@ -240,6 +241,18 @@ export async function prepareFluximgContext(figures: readonly Figure[], assets: 
   check();
   // A calibration bar draws a colour map's own colours; without the tables it would be gray.
   if (wantLuts) await ensureColormapLuts().catch(() => {});
+  // Styling that cannot apply (a column the table no longer has, an empty one) draws the layer unstyled: say so.
+  for (const e of visibleFluximgElements(figures)) {
+    const asset = byId.get(e.assetId), manifest = asset ? manifests.get(asset.id) : undefined;
+    if (!asset || !manifest) continue;
+    const rv = resolveView(manifest, e.view);
+    for (const file of fluximgTableFiles(manifest, rv)) {
+      const table = tables.get(`${asset.id}|${file.path}`), layer = manifest.layers.find((l) => l.id === file.id), lv = rv.layers.find((l) => l.id === file.id);
+      if (!table || !layer || layer.kind === "intensity" || !lv) continue;
+      const issues = cachedObjectStyles(table, layer.key ?? null, lv.styleBy, (name) => colormapLut(name)?.lut ?? null).issues;
+      if (issues.length) issue(e, `Image "${label(e, asset)}" (${e.id}): layer "${lv.name}" is styled by its table, but ${issues.join("; ")}; drawn without that styling`);
+    }
+  }
   return {
     scale, namespace: options.namespace,
     assetOf: (id) => byId.get(id),

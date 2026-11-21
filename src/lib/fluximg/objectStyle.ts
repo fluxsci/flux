@@ -9,21 +9,26 @@
  *               at all is "empty"; anything else is CATEGORICAL.
  *   categories  the distinct non-null values in an order that does not depend on the rows: numbers ascending, then
  *               strings in natural order (digit runs by value, letters case-insensitively, then by code point),
- *               then false, true. Category i takes palette[i % palette.length]: past the palette's length the
- *               colours repeat (wrap-around). Adding or reordering rows therefore never recolours a category that
+ *               then false, true. A string that is a whole number ("-3", "1.25", "1e3") sorts by its value,
+ *               before other strings. Category i takes palette[i % palette.length]: the default palette has 24
+ *               colours (three lightnesses of fluxplot's eight hues); past the palette's length the colours repeat
+ *               (wrap-around) and the legend says so (`repeats`). Adding or reordering rows therefore never recolours a category that
  *               keeps its place among the values; a NEW value sorting before it shifts it, as in any sorted legend.
- *   numbers     x = (v − lo) / (hi − lo) over `range` (default the column's finite min..max), clamped; a degenerate
- *               range (hi ≤ lo) puts every value in the map's middle (x = 0.5). The colour is THE channel law:
+ *   numbers     x = (v − lo) / (hi − lo) over `range`, clamped. A given `range` with hi ≤ lo is ignored (the
+ *               extent is used); when the column's own extent is a single value, every value sits in the map's
+ *               middle (x = 0.5). The colour is THE channel law:
  *               `lut.channelTable` (256 slots, `reverse` = invert) at `lut.slotOf(x)`, so an object's colour is the
  *               colour a pixel of that value gets under the same map (and a plot's colour scale, `plot/colorscale`).
  *               Default map: viridis. A numeric column with an explicit `palette` (and no `lut`) is coloured as
  *               categories: integer codes such as cluster numbers.
- *   opacity     linear from `range` (default min..max) onto `to` (default [0.15, 1]), clamped to `to`; a degenerate
- *               range gives the middle of `to`. The column must be numeric.
+ *   opacity     linear from `range` (default min..max) onto `to` (default [0.15, 1]), clamped to `to`; a given range
+ *               with hi ≤ lo is ignored, a single-valued extent gives the middle of `to`. The column must be numeric.
  *   missing     an object whose value is null in a styling column, or that has no row: "dim" (default) draws it in
- *               neutral grey DIM_COLOR at DIM_OPACITY; "hide" leaves it out.
+ *               neutral grey DIM_COLOR at DIM_OPACITY; "hide" leaves it out (its name too: `shownObjects`).
+ *   rows        a row whose key is null names no object and is skipped; when two rows share a key, the FIRST
+ *               one is the object's (as `objectTables.objectCells` reads it).
  *
- * A styling column that does not exist (or an opacity column that is not numeric) is an ISSUE and that part of the
+ * A styling column that does not exist, has no values, or (opacity) is not numeric, or a table without rows, is an ISSUE and that part of the
  * styling is not applied; this never throws.
  */
 import type { FluximgTable } from "./types";
@@ -34,12 +39,20 @@ export type Cell = number | string | boolean | null;
 export type ColumnKind = "number" | "category" | "empty";
 
 /**
- * fluxplot's categorical cycle for dark backgrounds (`fluxplot.style.CYCLE_DARK`): the Flexoki 400 weights in the
+ * The categorical palette, 24 colours. First fluxplot's categorical cycle for dark backgrounds (`fluxplot.style.CYCLE_DARK`): the Flexoki 400 weights in the
  * order that keeps every adjacent pair apart for colour-deficient readers (blue, orange, purple, green, magenta,
- * yellow, cyan, red). An image is dark, so the dark cycle. `verify-fluximg-object-style` pins it against the shipped
+ * yellow, cyan, red). An image is dark, so the dark cycle comes first; values 9 to 24 take the same eight hues in the
+ * same order at the 200 then the 600 weight, so a hue's neighbours stay apart as in the cycle. `verify-fluximg-object-style` pins it against the shipped
  * Flexoki collection.
  */
-export const DEFAULT_PALETTE: readonly string[] = ["#4385be", "#da702c", "#8b7ec8", "#35ab49", "#ce5d97", "#d0a215", "#3aa99f", "#d14d41"];
+export const DEFAULT_PALETTE: readonly string[] = [
+  // CYCLE_DARK: the 400 weights.
+  "#4385be", "#da702c", "#8b7ec8", "#35ab49", "#ce5d97", "#d0a215", "#3aa99f", "#d14d41",
+  // The same hues, same order, at a second lightness: the 200 weights (lighter: still bright on a dark image).
+  "#92bfdb", "#f9ae77", "#c4b9e0", "#67d379", "#f4a4c2", "#eccb60", "#87d3c3", "#f89a8a",
+  // And a third: fluxplot's CYCLE_LIGHT, the 600 weights (darker).
+  "#205ea6", "#bc5215", "#5e409d", "#228833", "#a02f6f", "#ad8301", "#24837b", "#af3029",
+];
 /** The colour map a numeric column uses when none is named. */
 export const DEFAULT_STYLE_LUT = "viridis";
 /** Where a numeric opacity column maps by default: faint, never invisible, to opaque. */
@@ -98,12 +111,23 @@ export function naturalCompare(a: string, b: string): number {
   return codePointCompare(a, b);
 }
 const rank = (v: Exclude<Cell, null>): number => (typeof v === "number" ? 0 : typeof v === "string" ? 1 : 2);
+const NUMBER_TEXT = /^\s*[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?\s*$/;
+/** A string that is a whole number, as that number; else null. */
+const numberText = (s: string): number | null => (NUMBER_TEXT.test(s) && Number.isFinite(Number(s)) ? Number(s) : null);
 /** Numbers ascending, then strings (natural), then false, true. */
 export function compareCells(a: Exclude<Cell, null>, b: Exclude<Cell, null>): number {
   const ra = rank(a), rb = rank(b);
   if (ra !== rb) return ra - rb;
   if (ra === 0) return (a as number) < (b as number) ? -1 : (a as number) > (b as number) ? 1 : 0;
   if (ra === 2) return (a ? 1 : 0) - (b ? 1 : 0);
+  // Number-like strings ("-3", "1.25") by value, before other strings; equal values by their text.
+  const na = numberText(a as string), nb = numberText(b as string);
+  if (na !== null || nb !== null) {
+    if (na === null) return 1;
+    if (nb === null) return -1;
+    if (na !== nb) return na < nb ? -1 : 1;
+    return codePointCompare(a as string, b as string);
+  }
   return naturalCompare(a as string, b as string);
 }
 /** A value's identity as a category: 1 and "1" are different values. */
@@ -133,17 +157,40 @@ export function numericExtent(values: readonly unknown[]): [number, number] | nu
 
 /** What one column of a table holds: what an agent or the board can style by. */
 export interface ColumnSummary { name: string; kind: ColumnKind; distinct: number; range: [number, number] | null; missing: number }
-/** Every column but the key, with its kind, number of distinct values and (numbers) range. */
-export function columnSummaries(table: FluximgTable | null | undefined): ColumnSummary[] {
+/**
+ * The columns a layer's objects can be styled by: every column but the ones that NAME an object (the table's key,
+ * the layer's own key column, and a label layer's integer `label`). One rule for the board, the Inspector and agents.
+ */
+export function styleColumnNames(table: FluximgTable, layer?: { kind: string; key?: string | null } | null): string[] {
+  const skip = new Set<string>([table.key]);
+  if (layer?.key) skip.add(layer.key);
+  if (layer?.kind === "labels") skip.add("label");
+  return Object.keys(table.columns).filter((c) => !skip.has(c) && Array.isArray(table.columns[c]));
+}
+
+/** Counts of the expensive computations, for gates (they pin that a view change recomputes none of them). */
+export const styleWork = { summaries: 0, styles: 0 };
+
+const summaryMemo = new WeakMap<object, Map<string, ColumnSummary[]>>();
+/** Every column a layer can be styled by, with its kind, number of distinct values and (numbers) range. Computed
+ *  once per table OBJECT (and layer key): a view change hands the same table again and costs a map lookup. */
+export function columnSummaries(table: FluximgTable | null | undefined, layer?: { kind: string; key?: string | null } | null): ColumnSummary[] {
   if (!table || typeof table.columns !== "object" || !table.columns) return [];
+  const sig = `${layer?.kind ?? ""}|${layer?.key ?? ""}`;
+  let per = summaryMemo.get(table);
+  if (!per) { per = new Map(); summaryMemo.set(table, per); }
+  const hit = per.get(sig);
+  if (hit) return hit;
+  styleWork.summaries++;
   const out: ColumnSummary[] = [];
-  for (const [name, values] of Object.entries(table.columns)) {
-    if (name === table.key || !Array.isArray(values)) continue;
+  for (const name of styleColumnNames(table, layer)) {
+    const values = table.columns[name];
     const kind = columnKind(values);
     let missing = 0;
     for (const v of values) if (v === null || v === undefined) missing++;
     out.push({ name, kind, distinct: categoriesOf(values).length, range: kind === "number" ? numericExtent(values) : null, missing });
   }
+  per.set(sig, out);
   return out;
 }
 
@@ -186,7 +233,8 @@ export interface CategoryEntry { label: string; color: string; count: number; ke
 export interface ObjectLegend {
   /** What the colours mean, or null when the layer is not coloured by a column. */
   color:
-    | { kind: "category"; column: string; entries: CategoryEntry[] }
+    /** `repeats`: there are more categories than colours, so some share one (the key says so). */
+    | { kind: "category"; column: string; entries: CategoryEntry[]; repeats: boolean }
     | { kind: "number"; column: string; lut: string; reverse: boolean; range: [number, number]; stops: string[] }
     | null;
   /** What the opacities mean, or null. */
@@ -216,7 +264,11 @@ export function objectStyles(table: FluximgTable | null | undefined, layerKey: s
   const keyCol = table.columns[keyName];
   if (!Array.isArray(keyCol)) return { byKey: new Map(), legend: null, issues: [`the table has no key column "${keyName}"`] };
   const n = keyCol.length, issues: string[] = [];
-  const keys = keyCol.map((v) => String(v));
+  if (!n) return { byKey: new Map(), legend: null, issues: ["the table has no rows"] };
+  styleWork.styles++;
+  // A row names its object by its key; a null key names none, and of two rows with one key the first is the object's.
+  const seenKey = new Set<string>();
+  const keys = keyCol.map((v) => { if (v === null || v === undefined) return null; const k = String(v); if (seenKey.has(k)) return null; seenKey.add(k); return k; });
   const mode: "dim" | "hide" = styleBy.missing === "hide" ? "hide" : "dim";
 
   // Colour: one colour (or "missing") per row.
@@ -229,24 +281,25 @@ export function objectStyles(table: FluximgTable | null | undefined, layerKey: s
       const kind = columnKind(values);
       const palette = Array.isArray(c.palette) ? c.palette.filter(isColor).map((x) => x.toLowerCase()) : [];
       const categorical = kind === "category" || (kind === "number" && palette.length > 0 && !c.lut);
-      colorOf = new Array<string | null>(n).fill(null);
       if (kind === "empty") issues.push(`colour: column "${c.column}" has no values`);
       else if (categorical) {
+        colorOf = new Array<string | null>(n).fill(null);
         const pal = palette.length ? palette : DEFAULT_PALETTE.slice();
         const cats = categoriesOf(values);
         const index = new Map(cats.map((v, i) => [cellId(v), i]));
         const entries: CategoryEntry[] = cats.map((v, i) => ({ label: cellLabel(v), color: pal[i % pal.length], count: 0, keys: [] }));
         for (let r = 0; r < n; r++) {
           const v = values[r];
-          if (v === null || v === undefined || (typeof v === "number" && !Number.isFinite(v))) continue;
+          if (keys[r] === null || v === null || v === undefined || (typeof v === "number" && !Number.isFinite(v))) continue;
           const i = index.get(cellId(v as Exclude<Cell, null>));
           if (i === undefined) continue;
           colorOf[r] = entries[i].color;
           entries[i].count++;
-          entries[i].keys.push(keys[r]);
+          entries[i].keys.push(keys[r]!);
         }
-        colorLegend = { kind: "category", column: c.column, entries };
+        colorLegend = { kind: "category", column: c.column, entries, repeats: entries.length > pal.length };
       } else {
+        colorOf = new Array<string | null>(n).fill(null);
         const lut = typeof c.lut === "string" && c.lut ? c.lut : DEFAULT_STYLE_LUT;
         const reverse = c.reverse === true;
         const ext = numericExtent(values)!;
@@ -265,6 +318,7 @@ export function objectStyles(table: FluximgTable | null | undefined, layerKey: s
   if (o && typeof o.column === "string") {
     const values = table.columns[o.column];
     if (!Array.isArray(values)) issues.push(`opacity: no column "${o.column}" in the table (it has ${columnList(table)})`);
+    else if (columnKind(values) === "empty") issues.push(`opacity: column "${o.column}" has no values`);
     else if (columnKind(values) !== "number") issues.push(`opacity: column "${o.column}" is not numeric (opacity needs numbers)`);
     else {
       const ext = numericExtent(values)!;
@@ -285,16 +339,18 @@ export function objectStyles(table: FluximgTable | null | undefined, layerKey: s
   const byKey = new Map<string, ObjectStyle>();
   const missingKeys: string[] = [];
   for (let r = 0; r < n; r++) {
+    const key = keys[r];
+    if (key === null) continue;
     const col = colorOf ? colorOf[r] : undefined, op = opacityOf ? opacityOf[r] : undefined;
     if (col === null || op === null) {
-      missingKeys.push(keys[r]);
-      byKey.set(keys[r], mode === "hide" ? { hidden: true } : { color: DIM_COLOR, opacity: DIM_OPACITY });
+      missingKeys.push(key);
+      byKey.set(key, mode === "hide" ? { hidden: true } : { color: DIM_COLOR, opacity: DIM_OPACITY });
       continue;
     }
     const s: ObjectStyle = {};
     if (col !== undefined) s.color = col;
     if (op !== undefined) s.opacity = op;
-    byKey.set(keys[r], s);
+    byKey.set(key, s);
   }
   const legend: ObjectLegend = {
     color: colorLegend, opacity: opacityLegend,
@@ -306,6 +362,26 @@ export function objectStyles(table: FluximgTable | null | undefined, layerKey: s
 const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
 const round4 = (v: number): number => Math.round(v * 1e4) / 1e4;
 
+/** The objects whose names are drawn: hidden ones (`missing: "hide"`) have none. Without styles, all of them. */
+export function shownObjects<T extends { key: string }>(index: readonly T[], styles: ReadonlyMap<string, ObjectStyle> | null | undefined, unlisted: ObjectStyle | null | undefined): readonly T[] {
+  if (!styles) return index;
+  return index.filter((o) => !(styles.get(o.key) ?? unlisted)?.hidden);
+}
+
+/**
+ * What the board previews while a styling key is hovered or walked: the layer's CURRENT styling with one part set to
+ * `column` (null: off). Derived from the model each time it is drawn, so an undo under a preview shows the undone
+ * model with the same one override.
+ */
+export function previewStyleBy(now: FluximgStyleBy | null | undefined, part: "color" | "opacity", column: string | null): FluximgStyleBy | null {
+  const cur = now ?? {};
+  const keep = part === "color" ? cur.color : cur.opacity;
+  const next: FluximgStyleBy = { ...cur, [part]: column ? (keep && keep.column === column ? keep : { column }) : null };
+  if (!next.color) delete next.color;
+  if (!next.opacity) delete next.opacity;
+  return next.color || next.opacity ? next : null;
+}
+
 /** The style a shape gets when its key has no row in the table (it has no value in any column). */
 export function missingStyle(styleBy: FluximgStyleBy | null | undefined): ObjectStyle | null {
   if (!styleBy || (!styleBy.color && !styleBy.opacity)) return null;
@@ -315,10 +391,21 @@ export function missingStyle(styleBy: FluximgStyleBy | null | undefined): Object
 // --- a cache: one computation per (table, request, colour maps loaded) ----------------------------------------
 
 const memo = new WeakMap<object, Map<string, ObjectStyles>>();
+/** Bytes the cache may hold per table beyond the newest two results (what is on screen, and the one before). */
+export const STYLE_CACHE_BYTES = 8 * 1024 * 1024;
+/** A result's rough size: a map entry with its style object, and the legend's key lists. */
+const resultBytes = (r: ObjectStyles): number => r.byKey.size * 120 + (r.legend?.color?.kind === "category" ? r.legend.color.entries.reduce((n, e) => n + e.keys.length * 24, 0) : 0) + (r.legend?.missing?.keys.length ?? 0) * 24;
+/** How many results the cache holds for a table, and their rough bytes (for gates). */
+export function styleCacheStats(table: object): { entries: number; bytes: number } {
+  const per = memo.get(table);
+  return { entries: per?.size ?? 0, bytes: per ? [...per.values()].reduce((n, r) => n + resultBytes(r), 0) : 0 };
+}
 /**
  * `objectStyles`, remembered per table OBJECT and request: the editor's memoised layer markup, the live overlay, the
  * key and the board all ask for the same styles of the same table, and a plane step must not recompute them.
- * Whether the colour map is loaded is part of the request (before it is, a numeric column is gray).
+ * Whether the colour map is loaded is part of the request (before it is, a numeric column is gray). Bounded: the
+ * newest two results always stay; older ones only while the table's results fit STYLE_CACHE_BYTES (a range drag
+ * over a 20,000-object table makes a new result per step).
  */
 export function cachedObjectStyles(table: FluximgTable | null | undefined, layerKey: string | null | undefined, styleBy: FluximgStyleBy | null | undefined, resolveLut: (name: string) => string[] | null): ObjectStyles {
   if (!styleBy || (!styleBy.color && !styleBy.opacity)) return EMPTY;
@@ -331,17 +418,26 @@ export function cachedObjectStyles(table: FluximgTable | null | undefined, layer
   if (!hit) {
     hit = objectStyles(table, layerKey, styleBy, resolveLut);
     per.set(sig, hit);
-    if (per.size > 32) per.delete(per.keys().next().value as string);
-  }
+    let bytes = 0;
+    for (const r of per.values()) bytes += resultBytes(r);
+    while (per.size > 2 && (bytes > STYLE_CACHE_BYTES || per.size > 8)) {
+      const oldest = per.keys().next().value as string;
+      bytes -= resultBytes(per.get(oldest)!);
+      per.delete(oldest);
+    }
+  } else { per.delete(sig); per.set(sig, hit); } // most recently used last
   return hit;
 }
 
 /** "footprints coloured by dendrite", "… faded by distance": what a styled layer shows, in words. */
-export function describeStyleBy(layerName: string, styleBy: FluximgStyleBy | null | undefined): string {
+export function describeStyleBy(layerName: string, styleBy: FluximgStyleBy | null | undefined, issues: readonly string[] = []): string {
   if (!styleBy) return "";
   const parts: string[] = [];
-  if (styleBy.color?.column) parts.push(`coloured by ${styleBy.color.column}`);
-  if (styleBy.opacity?.column) parts.push(`opacity by ${styleBy.opacity.column}`);
-  if (!parts.length) return "";
-  return `${layerName} ${parts.join(", ")}${styleBy.missing === "hide" ? " (objects without a value hidden)" : ""}`;
+  const broken = (part: string): boolean => issues.some((x) => x.startsWith(`${part}:`) || !/^(colour|opacity):/.test(x));
+  if (styleBy.color?.column && !broken("colour")) parts.push(`coloured by ${styleBy.color.column}`);
+  if (styleBy.opacity?.column && !broken("opacity")) parts.push(`opacity by ${styleBy.opacity.column}`);
+  const words = parts.length ? `${layerName} ${parts.join(", ")}${styleBy.missing === "hide" ? " (objects without a value hidden)" : ""}` : "";
+  // Styling that cannot apply is said, never claimed: the image shows the layer without it.
+  const cannot = issues.length ? `${layerName}: styling not applied (${issues.join("; ")})` : "";
+  return [words, cannot].filter(Boolean).join("; ");
 }

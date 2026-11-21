@@ -10,8 +10,8 @@
   import { layerMarkup, namesMarkup, objectIndex } from "./layers";
   import { furnitureSvg } from "./furniture";
   import { insetsMarkup, layerStyles, layerSvgPath, layerTablePath, stylesToDraw, unflipTransform, wantsTable } from "./static";
-  import { missingStyle, type ObjectLegend } from "./objectStyle";
-  import { fluximgTables, needTable, tableOf } from "./live/objectTables";
+  import { missingStyle, shownObjects, type ObjectLegend } from "./objectStyle";
+  import { fluximgTableIssues, fluximgTables, needTable, tableKey, tableOf } from "./live/objectTables";
   import type { FluximgManifest, FluximgTable } from "./types";
   import type { PixelRect, ResolvedView } from "./view";
 
@@ -54,10 +54,19 @@
     for (const l of styled) out[l.lv.id] = tableOf(all, asset, layerTablePath(l.layer));
     return out;
   });
-  // A table's identity in a memo signature (the store hands out the same object until it is read again).
-  const tableIds = new WeakMap<object, number>();
-  let tableSerial = 0;
-  const tableId = (t: FluximgTable | null | undefined): number => { if (!t) return 0; let n = tableIds.get(t); if (!n) { n = ++tableSerial; tableIds.set(t, n); } return n; };
+  // An object's identity in a memo signature (the store hands out the same table, the cache the same styles).
+  const ids = new WeakMap<object, number>();
+  let serial = 0;
+  const tableId = (t: object | null | undefined): number => { if (!t) return 0; let n = ids.get(t); if (!n) { n = ++serial; ids.set(t, n); } return n; };
+  /**
+   * A styled layer waits for its table (and, coloured, for the colour maps) and keeps its last picture meanwhile:
+   * drawing it unstyled, then grey, then coloured would flash. A table that cannot be read stops the wait (unstyled).
+   */
+  const waiting = (lv: (typeof objectLayers)[number]["lv"], layer: (typeof objectLayers)[number]["layer"]): boolean => {
+    if (!lv.styleBy) return false;
+    if (tables[lv.id]) return !!lv.styleBy.color && !$fluximgLutsReady;
+    return !(tableKey(asset, layerTablePath(layer)) in $fluximgTableIssues);
+  };
   /** The styles of each styled layer (cached per table and request in `objectStyle`), and its legend for the key. */
   const styles = $derived.by(() => {
     if (!styled.length) return null;
@@ -91,6 +100,7 @@
       const text = texts[`${asset.id}|${path}`];
       if (text === undefined) return { id: lv.id, markup: "" };
       if (!lv.styleBy) return { id: lv.id, markup: memoized(`layer:${lv.id}`, `${geometry}|${JSON.stringify(lv)}|${text.length}`, () => layerMarkup(layer, text, lv, crop, box, prefix)) };
+      if (waiting(lv, layer)) return { id: lv.id, markup: memo.get(`layer:${lv.id}`)?.markup ?? "" };
       const st = styles?.[lv.id] ?? null, t = tables[lv.id];
       return { id: lv.id, markup: memoized(`layer:${lv.id}`, `${geometry}|${JSON.stringify(lv)}|${text.length}|t${tableId(t)}|${st ? 1 : 0}|${$fluximgLutsReady ? 1 : 0}`,
         () => layerMarkup(layer, text, lv, crop, box, prefix, st?.byKey, st ? missingStyle(lv.styleBy) : null)) };
@@ -106,8 +116,10 @@
       const text = texts[`${asset.id}|${path}`];
       if (text === undefined) continue;
       const color = lv.color ?? layer.color ?? "#ffffff";
-      out += memoized(`names:${lv.id}`, `${geometry}|${n.fontSize}|${color}|${text.length}|${flipX ? 1 : 0}${flipY ? 1 : 0}`,
-        () => namesMarkup(objectIndex(text), null, crop, box, { layerId: lv.id, fontSize: n.fontSize, color, flipX, flipY }, prefix));
+      // An object hidden by its styling (missing: "hide") has no name either.
+      const st = lv.styleBy?.missing === "hide" ? styles?.[lv.id] ?? null : null;
+      out += memoized(`names:${lv.id}`, `${geometry}|${n.fontSize}|${color}|${text.length}|${flipX ? 1 : 0}${flipY ? 1 : 0}|${tableId(st)}`,
+        () => namesMarkup(shownObjects(objectIndex(text), st?.byKey, st ? missingStyle(lv.styleBy) : null), null, crop, box, { layerId: lv.id, fontSize: n.fontSize, color, flipX, flipY }, prefix));
     }
     return out;
   });

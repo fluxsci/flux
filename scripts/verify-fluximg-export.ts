@@ -169,8 +169,9 @@ try {
   h.section("B2. styling objects by a column (styleBy): checked against the layer's table, drawn headless");
   {
     const cols = linfo.layers.find((l: { id: string }) => l.id === "footprints").columns;
-    h.eq(cols, [{ name: "label", kind: "number", distinct: 4, range: [1, 7] }, { name: "dendrite", kind: "category", distinct: 2, missing: 1 }, { name: "pixels", kind: "number", distinct: 4, range: [5, 32] }],
-      "image-info lists a table's columns: kind, distinct values, range (what styleBy can use)");
+    // The columns an object can be styled by: never those that name it (the key, a label layer's label number).
+    h.eq(cols, [{ name: "dendrite", kind: "category", distinct: 2, missing: 1 }, { name: "pixels", kind: "number", distinct: 4, range: [5, 32] }],
+      "image-info lists a table's columns: kind, distinct values, range (what styleBy can use; not the key or the label number)");
     h.ok(!linfo.layers.find((l: { id: string }) => l.id === "discs").columns && linfo.layers.find((l: { id: string }) => l.id === "prox_lines").columns?.length === 1, "a layer without a table lists none");
     const styled = await call("set_image_view", { id: layered.elementId, view: { layers: { footprints: { styleBy: { color: { column: "dendrite" }, opacity: { column: "pixels" } } } }, furniture: { key: {} } } });
     h.eq(styled.resolved.layers.find((l: { id: string }) => l.id === "footprints").styleBy, { color: { column: "dendrite" }, opacity: { column: "pixels" } }, "set-image-view accepts styleBy (answered resolved)");
@@ -187,7 +188,14 @@ try {
     h.ok(new RegExp(`<path id="${prefix}footprints/s1"[^>]*stroke="#4385be"[^>]*opacity="0.6222"`).test(m) && new RegExp(`<path id="${prefix}footprints/s7"[^>]*stroke="#878580"[^>]*opacity="0.35"`).test(m), "flux-core's markup carries each object's colour and opacity as attributes (s7, without a dendrite, dimmed)");
     h.ok(new RegExp(`id="${prefix}key"[^>]*data-part="key"`).test(m) && />dendrite</.test(m), "…and the key");
     h.eq(warnings, [], "no warnings");
-    await call("set_image_view", { id: layered.elementId, view: { layers: { footprints: { styleBy: null } }, furniture: { key: null } } });
+    // B4: a stored column the table no longer has (as after an update from source) is said, never claimed.
+    const v0 = (await element(layered.elementId)).el.view ?? {};
+    await rawView(layered.elementId, { ...v0, layers: { ...(v0.layers ?? {}), footprints: { styleBy: { color: { column: "gone" }, opacity: { column: "pixels" } } } } });
+    const gone = await call("set_image_view", { id: layered.elementId, view: { smooth: true } });
+    h.ok(gone.objects?.length === 1 && /opacity by pixels/.test(gone.objects[0]) && !/coloured by gone/.test(gone.objects[0]) && /styling not applied \(colour: no column "gone"/.test(gone.objects[0]), `the words say a missing column cannot apply (${gone.objects?.[0]})`);
+    const info2 = await call("image_info", { target: layered.elementId });
+    h.ok(/styling not applied/.test(info2.element.objects?.[0] ?? ""), "…image-info too");
+    await call("set_image_view", { id: layered.elementId, view: { smooth: null, layers: { footprints: { styleBy: null } }, furniture: { key: null } } });
     const { el: back } = await element(layered.elementId);
     h.ok(!back.view?.layers?.footprints?.styleBy && !back.view?.furniture?.key, "null takes it all off again");
   }

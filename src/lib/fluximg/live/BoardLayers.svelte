@@ -100,7 +100,7 @@
     const table = layer.kind !== "intensity" ? tableOf($fluximgTables, asset, layer.table) : null;
     const keyCol = table ? table.columns[table.key] : null;
     const rowOf = new Map<string, number>();
-    if (keyCol) keyCol.forEach((v, i) => rowOf.set(String(v), i));
+    if (keyCol) keyCol.forEach((v, i) => { if (v !== null && v !== undefined && !rowOf.has(String(v))) rowOf.set(String(v), i); }); // first row wins, a null key names nothing
     const names = table ? Object.keys(table.columns).filter((c) => c !== table.key && c !== "label") : [];
     return index.map((o) => {
       const r = rowOf.get(o.key);

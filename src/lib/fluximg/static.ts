@@ -9,7 +9,7 @@ import type { FluximgLayer, FluximgManifest, FluximgTable } from "./types";
 import type { PixelRect, ResolvedLayer, ResolvedView } from "./view";
 import { furnitureSvg } from "./furniture";
 import { escapeXml, layerMarkup, namesMarkup, objectIndex, svgNum } from "./layers";
-import { cachedObjectStyles, missingStyle, type ObjectLegend, type ObjectStyles } from "./objectStyle";
+import { cachedObjectStyles, missingStyle, shownObjects, type ObjectLegend, type ObjectStyles } from "./objectStyle";
 
 export interface FluximgStaticInput {
   manifest: FluximgManifest;
@@ -105,12 +105,13 @@ export function fluximgStaticSvg(input: FluximgStaticInput): string {
 
   const byId = new Map(manifest.layers.map((l) => [l.id, l]));
   const legends: Record<string, ObjectLegend | null> = {};
+  const stylesById: Record<string, ObjectStyles> = {};
   for (const lv of view.layers) {
     const layer = byId.get(lv.id), text = layerSvg[lv.id];
     if (!layer || text === undefined || layer.kind === "intensity") continue;
     // Styling that could not apply (a column the table lacks) leaves the layer as it was, never all "missing".
     const styled = stylesToDraw(layerStyles(layer, lv, input.tables?.[lv.id], input.resolveLut));
-    if (styled) legends[lv.id] = styled.legend;
+    if (styled) { legends[lv.id] = styled.legend; stylesById[lv.id] = styled; }
     out.push(layerMarkup(layer, text, lv, crop, box, idPrefix, styled?.byKey, styled ? missingStyle(lv.styleBy) : null));
   }
 
@@ -122,7 +123,9 @@ export function fluximgStaticSvg(input: FluximgStaticInput): string {
     for (const id of names.layers) {
       const layer = byId.get(id), lv = view.layers.find((l) => l.id === id), text = layerSvg[id];
       if (!layer || !lv || !lv.visible || text === undefined || layer.kind === "intensity") continue;
-      words.push(namesMarkup(objectIndex(text), null, crop, box, { layerId: id, fontSize: names.fontSize, color: lv.color ?? layer.color ?? "#ffffff", flipX: input.flipX, flipY: input.flipY }, idPrefix));
+      // An object hidden by its styling (missing: "hide") has no name either.
+      const st = stylesById[id];
+      words.push(namesMarkup(shownObjects(objectIndex(text), st?.byKey, st ? missingStyle(lv.styleBy) : null), null, crop, box, { layerId: id, fontSize: names.fontSize, color: lv.color ?? layer.color ?? "#ffffff", flipX: input.flipX, flipY: input.flipY }, idPrefix));
     }
   }
   words.push(furnitureSvg(manifest, view, crop, box, idPrefix, input.resolveLut, legends));

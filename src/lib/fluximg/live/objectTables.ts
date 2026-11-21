@@ -11,6 +11,10 @@ import type { FluximgTable } from "../types";
 export const fluximgTables = writable<Record<string, FluximgTable | null>>({});
 
 const keyOf = (asset: Pick<Asset, "id">, path: string): string => `${asset.id}|${path}`;
+/** The store key of a table (`<asset id>|<path>`), or "" without a path. */
+export const tableKey = (asset: Pick<Asset, "id">, path: string | null | undefined): string => (path ? keyOf(asset, path) : "");
+/** Tables that could not be read, by store key, with why: a styled layer then draws unstyled and says so. */
+export const fluximgTableIssues = writable<Record<string, string>>({});
 
 /** Ask for a table; the store fills in when it arrives. Asking again is free. */
 export function needTable(asset: Pick<Asset, "id" | "path">, path: string | null | undefined): void {
@@ -18,7 +22,10 @@ export function needTable(asset: Pick<Asset, "id" | "path">, path: string | null
   const key = keyOf(asset, path);
   if (key in get(fluximgTables)) return;
   fluximgTables.update((t) => ({ ...t, [key]: null }));
-  void fluximgService().table(fluximgBundle(asset), path).then((table) => fluximgTables.update((t) => ({ ...t, [key]: table })), () => {});
+  void fluximgService().table(fluximgBundle(asset), path).then(
+    (table) => fluximgTables.update((t) => ({ ...t, [key]: table })),
+    (error: unknown) => fluximgTableIssues.update((m) => ({ ...m, [key]: error instanceof Error ? error.message : String(error) })),
+  );
 }
 
 /** The table, if it has arrived. */
@@ -32,7 +39,8 @@ export function objectCells(table: FluximgTable | null, key: string): Array<[str
   if (!table) return [];
   const col = table.columns[table.key];
   if (!col) return [];
-  const r = col.findIndex((v) => String(v) === key);
+  // A null key names no object; of two rows with one key the first is the object's (as objectStyle reads it).
+  const r = col.findIndex((v) => v !== null && v !== undefined && String(v) === key);
   if (r < 0) return [];
   return Object.keys(table.columns).filter((c) => c !== table.key && c !== "label").map((c) => [c, cellText(table.columns[c][r])]);
 }
