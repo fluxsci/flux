@@ -449,6 +449,11 @@ export function createMemBridge(): FileBridge & {
       const b = files.get(abs);
       if (!b) return { error: "missing" };
       if (/\.webp$/i.test(abs)) return { error: "unsupported image format", unsupported: true };
+      // A TIFF: the picture the converter child draws (through the dev route), as the app's thumbnail child does.
+      if (/\.tiff?$/i.test(abs)) {
+        try { const t = await memTiff._thumb(b, baseOf(abs), mtimes.get(abs) ?? 0); return request.warm ? { warmed: true } : { bytes: t.png, width: t.width, height: t.height, naturalWidth: t.width, naturalHeight: t.height }; }
+        catch (e) { return { error: e instanceof Error ? e.message : String(e) }; }
+      }
       // A gate's stand-in for a file that crashes or hangs the app's worker (it is quarantined).
       if (abs.includes("__kills_worker__")) return { error: "the preview timed out", quarantined: true };
       try {

@@ -309,16 +309,16 @@ export async function importAssets() {
   const sameInsertion = () => get(project) === owner && get(activeFigureId) === figure && storeTenant() === tenant;
   try {
     const figureFilters = [
-      { name: "Images, 3D models and image bundles", extensions: ["png", "svg", "glb", "json"] },
+      { name: "Images, 3D models, TIFF stacks and image bundles", extensions: ["png", "svg", "glb", "tif", "tiff", "json"] },
       { name: "Image bundle (choose fluximg.json inside the .fluximg folder)", extensions: ["json"] },
     ];
     // a slide takes images and image bundles (fluximg stage 2); 3D models arrive there from the Plots rail
-    const slideFilters = [{ name: "Images and image bundles", extensions: ["png", "svg", "json"] }, figureFilters[1]];
+    const slideFilters = [{ name: "Images, TIFF stacks and image bundles", extensions: ["png", "svg", "tif", "tiff", "json"] }, figureFilters[1]];
     let paths = await window.fig.openFiles(storeTenant() === "figure" ? figureFilters : slideFilters);
     paths = paths?.map(pickedBundlePath) ?? paths;
     if (paths?.length) {
       if (!canPlace()) throw new Error("The insertion destination changed");
-      if (paths.some(isFluximgPath)) {
+      if (paths.some(p => isFluximgPath(p) || isTiffPath(p))) {
         // Only a Flux project takes an image bundle (fluximg/import.ts); refuse before anything is copied.
         const fluximg = await import("./fluximg/import");
         if (!canPlace()) throw new Error("The insertion destination changed");
@@ -352,6 +352,7 @@ export async function importAssets() {
 export async function readIncomingPlot(absPath: string): Promise<Incoming> {
   if (/\.glb$/i.test(absPath)) return (await import('./model3d/import')).readIncomingModel3d(absPath);
   if (isFluximgPath(pickedBundlePath(absPath))) return (await import("./fluximg/import")).readIncomingFluximg(pickedBundlePath(absPath));
+  if (isTiffPath(absPath)) throw new Error("A TIFF is converted before it is placed: drop it on the canvas, or place it from the Plots rail.");
   if (!/\.(png|svg)$/i.test(absPath)) throw new Error(/\.json$/i.test(absPath) ? "Choose the fluximg.json inside a .fluximg image bundle, or a PNG image, SVG plot or GLB model." : "Choose a PNG image, SVG plot or GLB model. Video clips can be inserted from the Slide gallery.");
   const sameDestination = importDestination();
   const bytes = new Uint8Array(await window.fig.readFile(absPath));
@@ -374,6 +375,15 @@ export interface PlaceAt { x: number; y: number; fx?: number; fy?: number }
 export async function importPlotsFromPaths(absPaths: string[], canPlace: () => boolean = () => true,
   read: (path: string) => Promise<Incoming> = readIncomingPlot, opts: { at?: PlaceAt } = {}) {
   if (!window.fig || !absPaths.length) return 0;
+  // TIFFs are converted first (fluximg/tiffImport.ts): their own flow, with its own progress, asking and placement
+  // (one undo step when they land). It runs on while the rest of the batch is placed now.
+  const tiffs = absPaths.filter(isTiffPath);
+  if (tiffs.length) {
+    const figId = get(activeFigureId);
+    if (figId) void startTiffImport(tiffs.map(path => ({ path })), figId, opts.at);
+    absPaths = absPaths.filter(p => !isTiffPath(p));
+    if (!absPaths.length) return 0;
+  }
   if (absPaths.some(path => isFluximgPath(pickedBundlePath(path)))) {
     // Stage 1 keeps image bundles out of Slides, and only a Flux project folder takes one: refuse before anything
     // is copied.
@@ -473,7 +483,28 @@ export async function archivePastedImage(file: File, name: string): Promise<void
 // is paired with a dropped `*.fluxplot.json` (+ `*.recipe.json`) of the same
 // base name → it imports as a semantic plot. (Drops are sandboxed Files with no
 // filesystem path, so we can only pair what was dropped together.)
-export async function importDroppedFiles(files: File[], figId: string) {
+/** A TIFF by its name (or, for a pasted file, its type). */
+export const isTiffPath = (p: string): boolean => /\.tiff?$/i.test(p);
+const isTiffFile = (f: File): boolean => isTiffPath(f.name || "") || /^image\/tiff$/i.test(f.type);
+/** Start converting TIFFs onto `figId`; failures become toasts (never a silent drop). */
+async function startTiffImport(sources: Array<{ path: string } | { file: File }>, figId: string, at?: { x: number; y: number }): Promise<number> {
+  try { return await (await import("./fluximg/tiffImport")).importTiffSources(sources, figId, at); }
+  catch (error) {
+    if (error instanceof Error && error.name === "AbortError") return 0;
+    pushToast("error", sources.length === 1 ? "The TIFF could not be imported" : "The TIFFs could not be imported", { detail: errMsg(error) });
+    return 0;
+  }
+}
+
+export async function importDroppedFiles(files: File[], figId: string, at?: { x: number; y: number }) {
+  // TIFFs are converted (their own flow: asked only when the file does not say how its pages are ordered); the rest
+  // of a mixed drop is imported now. Nothing is left out silently.
+  const tiffs = files.filter(isTiffFile);
+  if (tiffs.length) {
+    void startTiffImport(tiffs.map(file => ({ file })), figId, at);
+    files = files.filter(f => !isTiffFile(f));
+    if (!files.length) return;
+  }
   // A bundle FOLDER dropped from the file manager arrives as a File named `x.fluximg` (its path is the preload's).
   const bundles = files.filter(file => isFluximgPath(file.name || ""));
   if (bundles.length) {
@@ -516,9 +547,12 @@ export async function importDroppedFiles(files: File[], figId: string) {
   if (!accepted.length) {
     // A dropped JPEG/PDF/TIFF/… previously did NOTHING — say why (no silent failures).
     // (the same set on a slide: the filter above takes it there too, image bundles included since fluximg stage 2)
-    pushToast("info", "Only PNG/SVG/GLB files and .fluximg image bundles can be imported here");
+    pushToast("info", "Only PNG/SVG/GLB files, TIFF stacks and .fluximg image bundles can be imported here");
     return;
   }
+  // A mixed drop says what it left out (sidecars travel with their plot and are not left out).
+  const left = all.filter((f) => !accepted.includes(f) && !/\.(fluxplot|recipe|snip)\.json$/i.test(f.name || ""));
+  if (left.length) pushToast("info", `Not imported: ${left.map((f) => f.name).join(", ")}`, { detail: "Only PNG/SVG/GLB files, TIFF stacks and .fluximg image bundles can be imported here." });
   const incoming: Incoming[] = [];
   let placed = false;
   try {

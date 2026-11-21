@@ -193,6 +193,16 @@ export function createMemTiff(fs: MemFs) {
       if (typeof localStorage === "undefined") localRules = list; else localStorage.setItem("flux.tiffRules", JSON.stringify(list));
       return true;
     },
+    /** The Plots rail's picture of a TIFF in the fixture: the child's first channel of its top proposal. */
+    async _thumb(bytes: Uint8Array, name: string, mtime: number): Promise<{ png: Uint8Array; width: number; height: number }> {
+      const handle = await stage(bytes, name, mtime);
+      try {
+        const r = await call<{ preview: TiffPreviewPng | null; probe: { refusals: Array<{ message: string }> } }>("probe", { handle, max: 256 });
+        const c = r.preview?.channels[0];
+        if (!c) throw new Error(r.probe.refusals[0]?.message ?? "Preview unavailable");
+        return { png: b64(c.png), width: c.width, height: c.height };
+      } finally { void post("release", { handle }).catch(() => {}); }
+    },
     /** A project switch forgets this window's open TIFFs (Electron's cancelOwner). */
     _forgetTiffs() { tokens.clear(); for (const j of jobs.values()) { j.cancelled = true; j.abort.abort(); if (!j.started) j.release?.(); } },
   };

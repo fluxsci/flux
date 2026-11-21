@@ -39,6 +39,9 @@ export interface TiffPreview {
   fallback: boolean;
   /** How many channels the answer has (only the first `maxChannels` are pictured). */
   channelCount: number;
+  /** Float data whose smallest value is a round number that fills a good part of the plane (-1 written where nothing
+   *  was scanned, say): a value that probably means "no data". Null when nothing suggests one. NaN needs no answer. */
+  frequentMin: { value: number; share: number } | null;
 }
 
 export interface PreviewOptions {
@@ -75,16 +78,30 @@ export async function previewTiff(file: TiffFile, probe: TiffProbe, answer: Dims
   const names = fits ? answer.channels ?? [] : [];
   const rgb = use.samples === "rgb";
   const channels: PreviewChannel[] = [];
+  let frequentMin: TiffPreview["frequentMin"] = null;
   for (let c = 0; c < Math.min(C, maxChannels); c++) {
     throwIfAborted(opts.signal);
     const leading = base.slice();
     if (ci >= 0) leading[ci] = c;
     const plane = await src.plane(leading);
+    if (c === 0 && (src.dtype === "float32" || src.dtype === "float64") && !(fits && answer.nodata != null)) frequentMin = frequentMinimum(plane);
     const ch = names[c] ?? {};
     const color = rgb ? ["#ff0000", "#00ff00", "#0000ff"][c] ?? null : ch.color ?? colours[c] ?? null;
     channels.push(picture(plane, W, H, max, ch.name ?? (rgb ? ["red", "green", "blue"][c] : String(c + 1)), color));
   }
-  return { channels, plane: { width: W, height: H }, at: where, fallback: !fits, channelCount: C };
+  return { channels, plane: { width: W, height: H }, at: where, fallback: !fits, channelCount: C, frequentMin };
+}
+
+/** The plane's minimum when it is a whole number held by at least 2 % of the finite samples (a strided count). */
+function frequentMinimum(plane: ArrayLike<number>): TiffPreview["frequentMin"] {
+  const stride = Math.max(1, Math.floor(plane.length / 262144));
+  let min = Infinity, n = 0;
+  for (let i = 0; i < plane.length; i += stride) { const v = plane[i]; if (Number.isFinite(v)) { n++; if (v < min) min = v; } }
+  if (!n || !Number.isInteger(min)) return null;
+  let at = 0;
+  for (let i = 0; i < plane.length; i += stride) if (plane[i] === min) at++;
+  const share = at / n;
+  return share >= 0.02 && share < 1 ? { value: min, share: Number(share.toFixed(3)) } : null;
 }
 
 /** One plane → a small picture: box means of finite values (strided inside big blocks), the 1–99.8 % window, the colour. */

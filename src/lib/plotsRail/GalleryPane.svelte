@@ -44,7 +44,7 @@
     hitBridge = null,
     refreshKey = 0,
     onShowDissections,
-    accept = "svg,png,glb,fluximg",
+    accept = "svg,png,glb,fluximg,tif,tiff",
     place = null,
     onBrowseChange,
   }: {
@@ -635,8 +635,10 @@
     return counts.get(plotKeyFor(it.abs, root)) ?? 0;
   }
   const isVideo = (it: PlotItem) => /\.(mp4|mov)$/i.test(it.name);
-  const glyphFor = (it: PlotItem) => (it.fluximg ? "▦" : it.model3d ? "3D" : isVideo(it) ? "▶" : it.snip ? "✂" : it.semantic ? "◆" : "");
-  const glyphTitle = (it: PlotItem) => (it.fluximg ? "Image" : it.model3d ? "3D model" : isVideo(it) ? "Video clip" : it.snip ? "Paper snip" : it.semantic ? "Fluxplot — editable parts and data" : "");
+  const isTiff = (it: PlotItem) => /\.tiff?$/i.test(it.name);
+  // A TIFF is an image stack that is converted when it is placed (fluximg/tiffImport.ts): the stack mark with an arrow.
+  const glyphFor = (it: PlotItem) => (it.fluximg ? "▦" : isTiff(it) ? "▦→" : it.model3d ? "3D" : isVideo(it) ? "▶" : it.snip ? "✂" : it.semantic ? "◆" : "");
+  const glyphTitle = (it: PlotItem) => (it.fluximg ? "Image" : isTiff(it) ? "TIFF: converts on placing" : it.model3d ? "3D model" : isVideo(it) ? "Video clip" : it.snip ? "Paper snip" : it.semantic ? "Fluxplot — editable parts and data" : "");
   /** What an image bundle is, once its tile has read the manifest: "3 channels · 25 z · 2048 × 2048 · uint16". */
   const stackLine = (it: PlotItem) => (it.broken ? it.broken : fluximgRailFact($fluximgRailFacts, it.abs, it.stamp)?.line ?? "");
 
@@ -656,7 +658,7 @@
     return {
       kind: "plot", abs: it.abs, stamp: it.stamp, name: it.name, folder: it.dir ? `${lib}/${it.dir}` : lib,
       aspect: aspectOf(it), physMm: it.physMm ?? null, size: it.size, mtimeMs: it.mtimeMs,
-      kindLabel: it.fluximg ? `▦ image${stackLine(it) ? ` · ${stackLine(it)}` : ""}` : it.model3d ? "3D model" : isVideo(it) ? "▶ video clip" : it.snip ? "✂ paper snip" : it.semantic ? "◆ fluxplot" : /\.png$/i.test(it.name) ? "PNG image" : "SVG",
+      kindLabel: it.fluximg ? `▦ image${stackLine(it) ? ` · ${stackLine(it)}` : ""}` : isTiff(it) ? "▦ TIFF · converts on placing" : it.model3d ? "3D model" : isVideo(it) ? "▶ video clip" : it.snip ? "✂ paper snip" : it.semantic ? "◆ fluxplot" : /\.png$/i.test(it.name) ? "PNG image" : "SVG",
       placements, dissectKey: key, dissections: key ? counts.get(key) ?? 0 : 0,
       stats: it.stats ?? null, paper: it.paper ?? null, fresh,
       placeholder: cellOf(it.abs)?.querySelector<HTMLImageElement>(".page img")?.src ?? "",

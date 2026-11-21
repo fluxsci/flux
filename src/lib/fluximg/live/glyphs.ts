@@ -57,6 +57,17 @@ export const GLYPHS = {
   hideMissing: `<circle cx="8" cy="8" r="5" stroke-dasharray="1.6 1.6"/><path d="M3.4 12.6l9.2-9.2"/>`,
   none: `<circle cx="8" cy="8" r="5.2"/><path d="M4.4 11.6l7.2-7.2"/>`,
   search: `<circle cx="7" cy="7" r="4.2"/><path d="M10.2 10.2l3.6 3.6"/>`,
+  // TIFF asking surface (fluximg stage 2). Transpose: a picture mirrored across its diagonal.
+  transpose: `<path class="q" d="M2 2h12v12H2z"/><path d="M2.6 2.6l10.8 10.8"/><path class="f" d="M3.4 6.4v6.2h6.2z"/><path d="M6.4 3.4h6.2v6.2z"/>`,
+  // Flip left-right: a shape and its mirror across a dashed upright.
+  flipX: `<path class="q" d="M8 1.6v12.8" stroke-dasharray="1.4 1.4"/><path class="f" d="M6.4 4v8H2z"/><path d="M9.6 4v8H14z"/>`,
+  // Flip top-bottom: the same across a dashed level line.
+  flipY: `<path class="q" d="M1.6 8h12.8" stroke-dasharray="1.4 1.4"/><path class="f" d="M4 6.4h8L12 2z"/><path d="M4 9.6h8V14z"/>`,
+  // How values are stored: a drum (compact when quiet, lossless when lit).
+  storage: `<ellipse cx="8" cy="4.2" rx="5" ry="1.8"/><path d="M3 4.2v7.6c0 1 2.2 1.8 5 1.8s5-.8 5-1.8V4.2"/><path class="q" d="M3 8c0 1 2.2 1.8 5 1.8s5-.8 5-1.8"/>`,
+  // Remember for files like this one: a bookmark.
+  remember: `<path d="M4.6 2h6.8v12L8 11.4 4.6 14z"/>`,
+  add: `<path d="M8 3.2v9.6M3.2 8h9.6"/>`,
 } as const;
 
 export type GlyphName = keyof typeof GLYPHS;

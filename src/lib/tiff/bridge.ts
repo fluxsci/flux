@@ -19,6 +19,8 @@ export interface TiffPreviewPng {
   at: string;
   fallback: boolean;
   channelCount: number;
+  /** A round minimum that fills a good part of a float plane: probably "no data" (null: nothing suggests one). */
+  frequentMin: { value: number; share: number } | null;
   ms: number;
 }
 

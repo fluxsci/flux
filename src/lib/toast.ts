@@ -16,6 +16,16 @@ export interface ToastAction {
   run: () => void;
 }
 
+/** A long job's toast (TIFF conversion): more than one button, a bar, and in-place updates (`updateToast`). */
+export interface ToastExtras {
+  /** Buttons after `action` (Change, Cancel): each dismisses the toast when pressed, as `action` does. */
+  actions?: ToastAction[];
+  /** 0..1: a thin bar along the toast's foot. */
+  progress?: number;
+  /** A hook for gates and the job that owns the toast. */
+  tag?: string;
+}
+
 export interface Toast {
   id: number;
   level: ToastLevel;
@@ -24,6 +34,9 @@ export interface Toast {
   /** ms until auto-dismiss; 0 = sticky (manual dismiss only). */
   ttl: number;
   action?: ToastAction;
+  actions?: ToastAction[];
+  progress?: number;
+  tag?: string;
 }
 
 const MAX_VISIBLE = 5;
@@ -65,6 +78,38 @@ export function pushToast(
     // Cap the stack; drop the oldest non-error first so failures never vanish.
     while (next.length > MAX_VISIBLE) {
       const idx = next.findIndex((t) => t.level !== "error");
+      const drop = next.splice(idx === -1 ? 0 : idx, 1)[0];
+      clearTimer(drop.id);
+    }
+    return next;
+  });
+  if (ttl > 0) timers.set(id, setTimeout(() => dismissToast(id), ttl));
+  return id;
+}
+
+/**
+ * Change a toast in place (a long job's progress: at most a few times a second). Never re-sorts, never re-times:
+ * a toast that was dismissed stays dismissed (returns false).
+ */
+export function updateToast(id: number, patch: Partial<Pick<Toast, "msg" | "detail" | "level" | "action">> & ToastExtras & { ttl?: number }): boolean {
+  let found = false;
+  toasts.update((list) => list.map((t) => {
+    if (t.id !== id) return t;
+    found = true;
+    return { ...t, ...patch };
+  }));
+  if (found && patch.ttl !== undefined) { clearTimer(id); if (patch.ttl > 0) timers.set(id, setTimeout(() => dismissToast(id), patch.ttl)); }
+  return found;
+}
+
+/** A toast that is never merged with another of the same words (each long job owns its own). */
+export function pushJobToast(level: ToastLevel, msg: string, opts: { detail?: string; ttl?: number; action?: ToastAction } & ToastExtras = {}): number {
+  const ttl = opts.ttl ?? 0;
+  const id = ++seq;
+  toasts.update((list) => {
+    const next = [...list, { id, level, msg, detail: opts.detail, ttl, action: opts.action, actions: opts.actions, progress: opts.progress, tag: opts.tag }];
+    while (next.length > MAX_VISIBLE) {
+      const idx = next.findIndex((t) => t.level !== "error" && t.id !== id);
       const drop = next.splice(idx === -1 ? 0 : idx, 1)[0];
       clearTimer(drop.id);
     }

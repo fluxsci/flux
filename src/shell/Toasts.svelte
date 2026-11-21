@@ -16,6 +16,7 @@
         class:ok={t.level === "success"}
         class:wide={!!t.detail}
         role={t.level === "error" ? "alert" : "status"}
+        data-toast-tag={t.tag}
         transition:fade={{ duration: DUR.quick }}>
         <span class="t-mark" aria-hidden="true">
           {#if t.level === "success"}
@@ -38,6 +39,15 @@
               dismissToast(t.id);
             }}>{t.action.label}</button>
         {/if}
+        {#each t.actions ?? [] as a (a.label)}
+          <button
+            class="t-act"
+            onclick={() => {
+              a.run();
+              dismissToast(t.id);
+            }}>{a.label}</button>
+        {/each}
+        {#if t.progress !== undefined}<span class="t-bar" aria-hidden="true"><span style={`width:${Math.round(Math.max(0, Math.min(1, t.progress)) * 1000) / 10}%`}></span></span>{/if}
         {#if t.ttl === 0}
           <button class="t-x" title="Dismiss" aria-label="Dismiss" onclick={() => dismissToast(t.id)}>
             <svg viewBox="0 0 10 10" width="9" height="9" aria-hidden="true"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7" /></svg>
@@ -85,6 +95,25 @@
     color: var(--c-tx);
     font: var(--ts-sm) var(--font-ui);
     pointer-events: auto;
+  }
+  /* A long job's bar: a hairline along the foot, in the toast's tone. It moves only when the job reports. */
+  .toast:has(.t-bar) {
+    position: relative;
+  }
+  .t-bar {
+    position: absolute;
+    left: 9px;
+    right: 9px;
+    bottom: 3px;
+    height: 2px;
+    border-radius: 1px;
+    background: color-mix(in oklab, var(--tone) 16%, transparent);
+    overflow: hidden;
+  }
+  .t-bar > span {
+    display: block;
+    height: 100%;
+    background: var(--tone);
   }
   .toast.ok {
     --tone: var(--c-success);

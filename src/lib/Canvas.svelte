@@ -114,6 +114,8 @@
   import { fluximgStillRevision } from "./fluximg/store";
   import { fluximgLive, closeFluximgLive, openFluximgLive, fluximgLiveUnavailable } from "./fluximg/live/session";
   import FluximgLiveOverlay from "./fluximg/live/FluximgLiveOverlay.svelte";
+  import TiffAskSurface from "./fluximg/TiffAskSurface.svelte";
+  import { tiffAsk } from "./fluximg/tiffAsk";
   import ElementView from "./Element.svelte";
   import ElementSlot from "./ElementSlot.svelte";
   import type { HitBridgeHolder, CanvasHits } from "./interact/canvasHitBridge";
@@ -4608,11 +4610,14 @@
       pushToast("info", "Drop onto a figure to import");
       return;
     }
-    importDroppedFiles(files, fig.id).catch((err) =>
+    // The drop point (figure-local): a TIFF's asking surface stands there and the image lands there.
+    const w = clientToWorld(e.clientX, e.clientY);
+    importDroppedFiles(files, fig.id, { x: w.x - fig.x, y: w.y - fig.y }).catch((err) =>
       pushToast("error", "Import failed", { detail: errMsg(err) }),
     );
   }
 
+  $: tiffAskFig = $tiffAsk && paneActive ? $project.figures.find((f) => f.id === $tiffAsk!.figureId) ?? null : null;
   $: af = $project.figures.find((f) => f.id === $activeFigureId) ?? null;
   $: displayBox = ($arrangementPreview?.figureId === $activeFigureId ? $arrangementPreview.plan.bounds : null) ?? liveBox ?? overlayBox; // figure-local, active figure
 
@@ -6254,6 +6259,10 @@
     {#key fluximgLiveItem.el.id}
       <FluximgLiveOverlay element={fluximgLiveItem.el} beginPan={() => { spaceDown = true; }} left={$viewport.panX + (fluximgLiveItem.fig.x + fluximgLiveItem.el.x) * $viewport.zoom} top={$viewport.panY + (fluximgLiveItem.fig.y + fluximgLiveItem.el.y) * $viewport.zoom} zoom={$viewport.zoom} />
     {/key}
+  {/if}
+  {#if tiffAskFig && $tiffAsk}
+    <!-- A TIFF that does not say how its pages are ordered: asked where it will land (fluximg/tiffImport.ts). -->
+    <TiffAskSurface host={{ w: hostW, h: hostH }} x={$viewport.panX + (tiffAskFig.x + $tiffAsk.at.x) * $viewport.zoom} y={$viewport.panY + (tiffAskFig.y + $tiffAsk.at.y) * $viewport.zoom} />
   {/if}
   {#each modelOverlayItems as item (item.el.id)}
     {#if item.el.type === "model3d"}
