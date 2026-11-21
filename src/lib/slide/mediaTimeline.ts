@@ -25,6 +25,11 @@ export function mediaTarget(el: Element | undefined, fluximgManifest?: FluximgMa
   return !m || walkableDims(m).length > 0;
 }
 
+/** What a viewer's pause button calls a slide's playing media: "video" where the slide holds a video clip (as it always
+ *  has), "movie" where only images play (stage 2). Asked only while the button shows. */
+export const mediaNoun = (slide: Pick<Slide, "elements"> | undefined): "video" | "movie" =>
+  !slide || slide.elements.some(e => e.type === "video") || !slide.elements.some(e => e.type === "fluximg") ? "video" : "movie";
+
 export type VideoCommand = "videoStart" | "videoPause" | "videoStop";
 export interface VideoEvent { target: string; command: VideoCommand; at: number; order: number }
 export interface VideoSample { timeMs: number; running: boolean; started: boolean }

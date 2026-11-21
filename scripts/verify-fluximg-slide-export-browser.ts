@@ -225,6 +225,8 @@ try {
     await page.keyboard.press("ArrowRight"); await wait(350);
     const a = await mstate(); await wait(400); const b = await mstate();
     h.ok(a.v?.shown && !a.v.paused && a.v.loop && b.v?.shown && !b.v.paused && !b.playing && b.media, `Start plays the movie's clip natively and looped; it keeps running while the slide rests (t ${a.v?.t.toFixed(2)} -> ${b.v?.t.toFixed(2)} s)`);
+    // The pause button names what plays: an image movie is a "movie" (a slide with a video clip keeps "video").
+    h.eq(await page.evaluate("[...document.querySelectorAll('button')].filter(b => !b.hidden && /^(Pause|Resume) /.test(b.textContent)).map(b => b.textContent)"), ["Pause movie"], "the viewer's pause button reads \"Pause movie\" while only an image plays");
     await page.keyboard.press("b"); await wait(150);
     const blank = await mstate();
     await page.keyboard.press("b"); await wait(250);

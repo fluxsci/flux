@@ -17,6 +17,7 @@ import { createPlayer, renderStaticAt, type Player } from "../player/player";
 import { gridFit, devicePixelRatioOf } from "../player/deviceGrid";
 import { reducePresentKey, hudModel, panelModel, clockText, NEXT_W, type PresentState } from "../present/core";
 import { resolveTheme } from "../theme";
+import { mediaNoun } from "../mediaTimeline";
 import type { Deck } from "../types";
 import type { FluxPlotManifest } from "../../plot/types";
 import { registerGlyphFonts, bakedGlyphLoader } from "../player/glyphProvider";
@@ -139,7 +140,7 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
     // WS-3.3: view-model from present/core; this host string-templates it.
     const m = hudModel(player.state());
     const state = player.state(); mediaTransport.hidden = !state.mediaPlaying && !state.mediaPaused;
-    mediaTransport.textContent = state.mediaPlaying ? "Pause video" : "Resume video";
+    mediaTransport.textContent = `${state.mediaPlaying ? "Pause" : "Resume"} ${mediaTransport.hidden ? "video" : mediaNoun(deck.slides[state.slide])}`;
     let dots = "";
     for (const on of m.dots) dots += `<span style="width:7px;height:7px;border-radius:50%;display:inline-block;margin:0 2px;background:${on ? theme.accent : "rgba(255,255,255,.22)"}"></span>`;
     hud.innerHTML = `<span>${m.counter}</span><span>${dots}</span>`;

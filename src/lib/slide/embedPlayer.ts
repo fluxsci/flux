@@ -1,5 +1,6 @@
 import { prefersReducedMotion } from "../motion/motion";
 import { createPlayer, type Player } from "./player/player";
+import { mediaNoun } from "./mediaTimeline";
 import { embedPlayerOptions, namespaceEmbedDeck } from "./embedRender";
 import type { ExportPayload } from "./payload";
 import type { Model3dHost } from '../model3d/host';
@@ -31,7 +32,8 @@ export function mountSlideEmbed(host: HTMLElement, payload: ExportPayload, optio
   const back = button("‹", "Previous animation step", () => player.prev());
   const status = document.createElement("span"); status.setAttribute("aria-live", "polite"); bar.append(status);
   const next = button("›", "Next animation step", advance);
-  const media = button("Pause video", "Pause or resume video clips", () => { if (player.state().mediaPlaying) player.pause(); else player.resume(); });
+  const noun = mediaNoun(slide);
+  const media = button(`Pause ${noun}`, noun === "video" ? "Pause or resume video clips" : "Pause or resume the image movie", () => { if (player.state().mediaPlaying) player.pause(); else player.resume(); });
   const reset = button("↺", "Reset to step 0", () => player.goTo(0, 0));
   const motion = button("Animation", "Toggle animation", () => { reduced = !reduced; if (player.state().playing) player.goTo(0, player.state().beat); update(); });
   if (options.onOpen) button("↗", "Open in Slide", options.onOpen);
@@ -42,7 +44,7 @@ export function mountSlideEmbed(host: HTMLElement, payload: ExportPayload, optio
     back.disabled = reset.disabled = s.beat === 0;
     next.disabled = s.beat >= count && !s.playing;
     media.hidden = !s.mediaPlaying && !s.mediaPaused;
-    media.textContent = s.mediaPlaying ? "Pause video" : "Resume video";
+    media.textContent = `${s.mediaPlaying ? "Pause" : "Resume"} ${noun}`;
     motion.setAttribute("aria-pressed", String(!reduced));
     if (!s.playing) status.textContent = `Step ${s.beat} / ${count}`;
     for (const el of [back, next, reset, motion, status]) el.hidden = count === 0;
