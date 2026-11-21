@@ -24,7 +24,8 @@
   import { scene3dManifests } from "../../../../lib/model3d/store";
   import { buildModel3dTree } from "../../../../lib/model3d/tree";
   import { plotManifests, plotDom, plotGen } from "../../../../lib/plot/store";
-  import { fluximgPartsRevision } from "../../../../lib/fluximg/partStore";
+  import { appFluximgParts, appFluximgTable, fluximgPartsRevision } from "../../../../lib/fluximg/partStore";
+  import { staggerColumns } from "../../../../lib/fluximg/parts";
   import { handoffKeyPairs } from "../../../../lib/slide/handoffTargets";
   import type { Slide, Track, PresetName, Stagger, Deck, BecomeSpec } from "../../../../lib/slide/types";
   import { PRESET_COLOR, EDIT_PRESETS, chipLabel, refLabel, presetLabel, transformWay, WAY_LABEL } from "./shared";
@@ -84,7 +85,7 @@
   const deck: StyleContext = $derived($deckOverlay ?? {});
   const manifestAt = (target: string, beat: number) => {
     const el = transformPreState(slide, target, beat);
-    return el?.type === "model3d" ? $scene3dManifests[el.assetId] : el?.type === "plot" ? $plotManifests[el.assetId] : undefined;
+    return el?.type === "model3d" ? $scene3dManifests[el.assetId] : el?.type === "plot" ? $plotManifests[el.assetId] : el?.type === "fluximg" && $fluximgPartsRevision >= 0 ? appFluximgParts(el.assetId) : undefined;
   };
   const manifestFor = (target: string) => manifestAt(target, $activeBeat);
   const resolvedBeats = $derived(slide.beats.map((b, index) => resolveBeat(b, deck, target => manifestAt(target, index))));
@@ -298,9 +299,12 @@
   function staggerByValue(by: Stagger["by"] | undefined): string {
     if (!by) return "index";
     if (typeof by === "string") return by === "data" ? "value" : by;
+    // an image's objects ordered by a column of their table (W8)
+    if (curTargetEl?.type === "fluximg") return `col:${by.key}`;
     return by.key === "index" ? "data-index" : by.key;
   }
   function staggerByFrom(value: string): Stagger["by"] {
+    if (value.startsWith("col:")) return { key: value.slice(4) };
     return value === "value" ? { key: "value" } : value === "count" ? { key: "count" } : value === "data-index" ? { key: "index" } : value as "index" | "x" | "y" | "radial";
   }
   function staggerMode(total: boolean) {
@@ -503,6 +507,19 @@
     });
   }
   const curTargetEl = $derived(curTrack ? transformPreState(slide, curTrack.target, curBeatIndex) : null);
+  /** The table columns a stagger over an image's objects can order by: those of the layers the track names (W8). */
+  const imageColumns = $derived.by(() => {
+    if (curTargetEl?.type !== "fluximg" || !curTrack) return [] as string[];
+    void $fluximgPartsRevision;
+    const index = appFluximgParts(curTargetEl.assetId);
+    if (!index) return [];
+    const layers = new Set(targetPartIds(curTrack, index).map((id) => id.slice(0, id.indexOf("/"))));
+    const out = new Set<string>();
+    for (const l of index.layers) if (layers.has(l.id) && l.table) for (const c of staggerColumns(appFluximgTable(curTargetEl.assetId, l.table) ?? null, l)) out.add(c);
+    const cur = curTrack.stagger?.by;
+    if (cur && typeof cur === "object") out.add(cur.key);
+    return [...out];
+  });
   // --- an image's Change (stage 2): its aspects as chips, the walk's pace, blend and end plane ---------------------------
   const imageTarget = $derived(curTargetEl?.type === "fluximg" ? (curTargetEl as FluximgElement) : null);
   const imageManifest = $derived(imageTarget ? $fluximgManifests[imageTarget.assetId] : undefined);
@@ -996,10 +1013,16 @@
         <label class="f">by
           <select aria-label="Stagger order" value={staggerByValue(curTrack.stagger?.by)} onchange={(e) => patchStagger({ by: staggerByFrom(e.currentTarget.value) })}>
             <option value="index">order</option><option value="x">x →</option><option value="y">y ↑</option>
+            {#if curTargetEl?.type === "fluximg"}
+              <!-- an image's objects: by any column of their layer's table (numbers low → high, words in natural order, empty last) -->
+              {#each imageColumns as c (c)}<option value={`col:${c}`} title={`by the "${c}" column of the objects' table`}>{c}</option>{/each}
+              <option value="radial" title="distance from the centre of the objects: from start ripples out, from end collapses in">radial</option>
+            {:else}
             <option value="value" title="each part's data value (a hexagon's mean, a cell's value, a bar's height): low → high">value</option>
             <option value="count" title="observations per hexagon: few → many">count</option>
             <option value="data-index" title="the generator's own index (data-index)">data index</option>
-            {#if curTargetEl?.type === "plot" || curTrack.stagger?.by === "radial"}<option value="radial" title="distance from the centre of the plot's parts: from start ripples out, from end collapses in (the CLI sets another centre: --stagger-origin x,y)">radial</option>{/if}
+            {/if}
+            {#if curTargetEl?.type === "plot" || (curTargetEl?.type !== "fluximg" && curTrack.stagger?.by === "radial")}<option value="radial" title="distance from the centre of the plot's parts: from start ripples out, from end collapses in (the CLI sets another centre: --stagger-origin x,y)">radial</option>{/if}
           </select>
         </label>
         <label class="f">from

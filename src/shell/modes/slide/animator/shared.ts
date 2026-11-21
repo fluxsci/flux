@@ -66,7 +66,8 @@ export function refLabel(ref: TargetRef, slide: Slide | null, manifestFor: Manif
   const el = slide?.elements.find(e => e.id === ref.element);
   if (ref.group) return slide?.groups?.[ref.group]?.name || "Group";
   if (!el || !slide) return "missing";
-  const manifest = manifestFor(el.id);
+  // (an image's index is asked for only when the ref names its objects: asking may load its layer files)
+  const manifest = el.type === "fluximg" && !ref.parts?.length && !ref.selector ? undefined : manifestFor(el.id);
   const manifests = el.type === "plot" && manifest && !isScene3dManifest(manifest) && !isFluximgPartIndex(manifest) ? { [el.assetId]: manifest } : {};
   const tag = plotTags.get(el.id);
   const name = (tag ? `${tag} · ` : "") + elementLabel(slide as unknown as Figure, el as Element, manifests);

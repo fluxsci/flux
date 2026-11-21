@@ -11,7 +11,7 @@
 import type { Beat, Deck, Slide, Track } from "./types";
 import type { FluxPlotManifest } from "../plot/types";
 import type { Scene3dManifest } from "../model3d/types";
-import { targetPartIds } from "./targets";
+import { targetPartIds, hasPartBinding } from "./targets";
 import { staggerSpan } from "./stagger";
 import { trackDuration } from "./timing";
 
@@ -108,7 +108,7 @@ function beatResolver(beat: Beat, deck: StyleContext, manifestFor: ManifestFor, 
     stack.delete(index);
     const target = tracks[parent];
     const result = edge.issue ? { start, issue: edge.issue } : {
-      start: edge.start + (anchor.edge === "end" ? trackDuration(target) + staggerSpan(target, targetPartIds(target, manifestFor(target.target)).length) : 0) + (anchor.offsetMs ?? 0),
+      start: edge.start + (anchor.edge === "end" ? trackDuration(target) + staggerSpan(target, hasPartBinding(target) ? targetPartIds(target, manifestFor(target.target)).length : 0) : 0) + (anchor.offsetMs ?? 0),
     };
     done.set(index, result);
     return result;
