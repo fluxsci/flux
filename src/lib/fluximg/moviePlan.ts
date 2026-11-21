@@ -22,7 +22,7 @@
  */
 import type { FluximgManifest } from "./types";
 import type { FluximgPlayback } from "./element";
-import type { FluximgView, PixelRect } from "./view";
+import type { FluximgView, PixelRect, ResolvedView } from "./view";
 import { walkableDims } from "./playback";
 import { framePeriod } from "./live/rail";
 import { clampCrop } from "./crop";
@@ -159,13 +159,14 @@ export function movieSummary(s: MovieSettings): { frames: number; fps: number; d
   return { frames, fps: s.planeRate, durationMs: frames * s.periodMs };
 }
 
-/** "412 frames · 34 s at 12 fps · 1024 × 768": what a movie would be, in the board's words. */
+/** "412 frames · 34 s at 12 fps · 1024×768": what a movie would be, in the board's words (short: it is one line of the
+ *  board's readout). */
 export function movieFacts(s: MovieSettings): string {
   const { frames, fps, durationMs } = movieSummary(s);
   const secs = durationMs / 1000;
   const time = secs >= 100 ? `${Math.round(secs / 60)} min` : secs >= 10 ? `${Math.round(secs)} s` : `${Number(secs.toPrecision(2))} s`;
   const rate = fps >= 10 ? String(Math.round(fps * 10) / 10) : String(Number(fps.toPrecision(2)));
-  return `${frames.toLocaleString("en-US")} frame${frames === 1 ? "" : "s"} · ${time} at ${rate} fps · ${s.width} × ${s.height}`;
+  return `${frames.toLocaleString("en-US")} frame${frames === 1 ? "" : "s"} · ${time} at ${rate} fps · ${s.width}×${s.height}`;
 }
 
 /** The planned frames of a movie, its encoder rate (an exact rational) and its length. `state` is the element's
@@ -191,6 +192,14 @@ export function planMovieClip(m: FluximgManifest, state: TweenPicture, stored: {
   const p: ClipPlayback = { dim: s.dim, mode: s.mode === "bounce" ? "bounce" : "once", from: s.from, to: s.to, periodMs: s.periodMs, ...(s.mode === "bounce" ? { close: true } : {}) };
   const clip = planPlaybackClip(m, state, p, W, H);
   return { frames: clip.frames, fps: clip.fps, rate: playbackRate(s.periodMs), durationMs: clip.frames.length * s.periodMs, distinct: clip.distinct };
+}
+
+/** Whether anything is drawn over the pixels (furniture, layer names, vector or label layers): the legibility floor
+ *  of `resolveMovie` applies. */
+export function hasDecorationView(m: FluximgManifest, rv: ResolvedView): boolean {
+  const f = rv.furniture;
+  if (f.scalebar || f.stamp || f.channelLabels || f.colorbar || f.key || f.names) return true;
+  return rv.layers.some((l) => l.visible && l.opacity > 0 && l.kind !== "intensity" && m.layers.some((x) => x.id === l.id));
 }
 
 /** A file name from an image's name: letters, digits, dash, underscore and dot; never empty. */

@@ -54,6 +54,8 @@ export const LIVE_KEYS = {
   frame: "v", inset: "x", smooth: "n",
   // An annotation on or off; with Shift, to its next corner.
   scalebar: "b", stamp: "w", channelNames: "c", colorbar: "g",
+  // What Play plays, written as an MP4 (the rail in hand's dimension); pressed again while it is written, it stops.
+  movie: "m",
 } as const;
 /**
  * On a slide, at "Edit after step N", the "this step" card's keys are Shift on keys the board already has, so they

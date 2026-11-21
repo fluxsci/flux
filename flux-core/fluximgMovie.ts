@@ -29,7 +29,7 @@ import { furnitureSvg, stampLines } from "../src/lib/fluximg/furniture";
 import { fluximgLayerFiles, fluximgTableFiles } from "../src/lib/fluximg/exportStatic";
 import { sanitizeLayerSvg, svgNum } from "../src/lib/fluximg/layers";
 import { colormapLut, ensureColormapLuts } from "../src/lib/color/colormapLuts";
-import { MovieRequestError, movieFileName, planMovieClip, resolveMovie, type MovieOptions, type MovieSettings } from "../src/lib/fluximg/moviePlan";
+import { MovieRequestError, hasDecorationView, movieFileName, planMovieClip, resolveMovie, type MovieOptions, type MovieSettings } from "../src/lib/fluximg/moviePlan";
 import { effectiveHidden } from "../src/lib/groups";
 import { resolveTheme } from "../src/lib/slide/theme";
 import type { Deck, Slide } from "../src/lib/slide/types";
@@ -153,12 +153,8 @@ export async function exportImageMovie(root: string, elementId: string, request:
 
 function cancelled(): Error { const e = new Error("Movie export cancelled"); e.name = "AbortError"; return e; }
 
-/** Whether anything is drawn over the pixels (furniture, names, vector or label layers): the legibility floor applies. */
-export function hasDecoration(m: FluximgManifest, rv: ResolvedView): boolean {
-  const f = rv.furniture;
-  if (f.scalebar || f.stamp || f.channelLabels || f.colorbar || f.key || f.names) return true;
-  return rv.layers.some((l) => l.visible && l.opacity > 0 && l.kind !== "intensity" && m.layers.some((x) => x.id === l.id));
-}
+/** Whether anything is drawn over the pixels (the legibility floor applies). */
+export const hasDecoration = hasDecorationView;
 
 /** The image element a movie is made of, its asset, the elements beside it (blow-out outlines) and the matte. */
 export interface MovieElement { element: FluximgElement; asset: Asset; siblings: FluximgElement[]; matte: string; project: Project }

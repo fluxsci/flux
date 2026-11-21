@@ -82,7 +82,7 @@ try {
     h.ok(bb.p.frames.length === 37 && bb.p.frames[18].frame.a.view.index.t === 3 && bb.p.frames[36].frame.a.view.index.t === 0, "blend bounce: the walk back appended (37 frames, the turn at plane 3, ending at 0)");
     const cases = [d, plan({ mode: "bounce", from: 2, to: 6 }), sp, fp, bl, bb, plan({ blend: true, from: 3, to: 4 })];
     h.ok(cases.every((c) => c.sum.frames === c.p.frames.length && Math.abs(c.sum.durationMs - c.p.durationMs) < 1e-6 && Math.abs(c.sum.fps - c.p.fps) < 1e-9), "the board's summary (frames, rate, length) equals the plan in every case");
-    h.eq(MP.movieFacts(d.st), "24 frames · 2.4 s at 10 fps · 320 × 240", "the facts in the board's words");
+    h.eq(MP.movieFacts(d.st), "24 frames · 2.4 s at 10 fps · 320×240", "the facts in the board's words");
     // Defaults from the element's playback setting, and the rate when the axis has none.
     const pb = plan({}, src({ playback: { dim: "t", mode: "loop", from: 2, to: 8, fps: 5 } }));
     h.ok(pb.st.from === 2 && pb.st.to === 8 && pb.p.fps === 10, "the playback's range is the default; the data's own rate wins over the playback's fps");

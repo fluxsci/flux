@@ -68,6 +68,8 @@ export const GLYPHS = {
   // Remember for files like this one: a bookmark.
   remember: `<path d="M4.6 2h6.8v12L8 11.4 4.6 14z"/>`,
   add: `<path d="M8 3.2v9.6M3.2 8h9.6"/>`,
+  // Movie as MP4: a strip of film with its play mark (the movie, as a file).
+  movie: `<path d="M2.2 3.2h11.6v9.6H2.2z"/><path class="f q" d="M3.4 4.4h1.3v1.3H3.4zM3.4 7.35h1.3v1.3H3.4zM3.4 10.3h1.3v1.3H3.4zM11.3 4.4h1.3v1.3h-1.3zM11.3 7.35h1.3v1.3h-1.3zM11.3 10.3h1.3v1.3h-1.3z"/><path class="f" d="M6.6 5.6v4.8L10.2 8z"/>`,
 } as const;
 
 export type GlyphName = keyof typeof GLYPHS;

@@ -31,6 +31,7 @@
   import PaperKey from "./PaperKey.svelte";
   import BoardStep from "./BoardStep.svelte";
   import { cycleMovieMode, playThroughHere, playThroughPlan, stepCard, stepPaceDial, toggleStepBlend, toggleStepMovie } from "./step";
+  import { cancelImageMovie, imageMovieJob, movieFacts, movieOf, startImageMovie } from "./movie";
   import { deckOverlay, editDestination } from "../../slide/store";
   import {
     LIVE_KEYS, PROJECTION_MODES, autoContrast, autoPlan, backOut, channelInHand, cycleFurnitureCorner, defaultArmed, dimKeys, dimLength, holdRail, liveContext, makeInset,
@@ -70,6 +71,66 @@
   let ghost = $state.raw<{ dim: string; from: number; to: number } | null>(null);
   function onGhost(g: { dim: string; from: number; to: number } | null, which: "through" | "movie" | null): void { ghost = which === "through" ? playThroughPlan() : g; }
   $effect(() => { if (!atStep) ghost = null; });
+  // --- Movie as MP4 (stage 2, W10): the key beside each rail's Play. Hover previews (the walk on the rail, the facts in
+  // the readout); a press saves what is on screen and writes the file out of process; the key's ring is its progress.
+  let movieGhost = $state.raw<{ dim: string; from: number; to: number } | null>(null);
+  /** The readout line while the movie key speaks: its facts on hover, where the file went, or why it was not written. */
+  let movieLine = $state.raw<{ text: string; bad?: boolean; tip?: string } | null>(null);
+  let movieLineTimer: ReturnType<typeof setTimeout> | undefined;
+  const movieJob = $derived($imageMovieJob);
+  const myMovie = $derived(!!movieJob && !!ctx && movieJob.elementId === ctx.element.id);
+  function sayMovie(line: { text: string; bad?: boolean; tip?: string } | null, ms = 0): void {
+    clearTimeout(movieLineTimer);
+    movieLine = line;
+    if (line && ms) movieLineTimer = setTimeout(() => { movieLine = null; }, ms);
+  }
+  function movieEnter(dim: string): void {
+    if (!ctx || !live) return;
+    if (movieJob?.running) return;
+    const s = movieOf(ctx.manifest, ctx.element, dim, live.speed);
+    if (!s) return;
+    movieGhost = { dim, from: s.from, to: s.to - 1 };
+    sayMovie({ text: movieFacts(s) });
+  }
+  function movieLeave(): void { movieGhost = null; if (!movieJob?.running) sayMovie(null); }
+  function movieKey(dim: string): void {
+    if (!ctx || !live) return;
+    if (movieJob?.running) {
+      if (myMovie) void cancelImageMovie();
+      else sayMovie({ text: "Another image's movie is being written: one at a time", bad: true }, 4000);
+      return;
+    }
+    const s = movieOf(ctx.manifest, ctx.element, dim, live.speed);
+    if (!s) { sayMovie({ text: "This dimension cannot play as a movie", bad: true }, 4000); return; }
+    movieGhost = null;
+    sayMovie(null);
+    void startImageMovie(ctx.element, head?.name ?? "image", s);
+  }
+  // The job's end, in the readout (the way the other exports report where the file went).
+  let lastReported = "";
+  $effect(() => {
+    const job = movieJob;
+    if (!job || job.running || !job.result || lastReported === job.id) return;
+    lastReported = job.id;
+    const r = job.result;
+    // The file's name last (an ellipsis eats it first); the whole path on the line's label.
+    if (r.ok) sayMovie({ text: `Saved · ${r.frames.toLocaleString("en-US")} frames · ${(r.durationMs / 1000).toFixed(1)} s · ${r.path.split(/[\\/]/).pop()}`, tip: r.path }, 9000);
+    else if (r.cancelled) sayMovie({ text: "Movie stopped: nothing was written" }, 5000);
+    else sayMovie({ text: `The movie was not written: ${r.error ?? "unknown error"}`, bad: true }, 12000);
+  });
+  /** The readout while this image's movie is written: how far it is (the key's ring says the same). */
+  const writingLine = $derived.by((): { text: string; bad?: boolean; tip?: string } | null => {
+    if (!myMovie || !movieJob?.running) return null;
+    return { text: movieJob.cancelling ? "Stopping the movie" : movieJob.total ? `Writing the movie · ${movieJob.frame.toLocaleString("en-US")} of ${movieJob.total.toLocaleString("en-US")} frames` : "Writing the movie" };
+  });
+  const readoutLine = $derived(writingLine ?? movieLine);
+  /** What a rail's movie key shows. */
+  function movieState(dim: string): { writing: boolean; stopping: boolean; progress: number; label: string } {
+    const mine = myMovie && movieJob?.running && movieJob.dim === dim;
+    if (!mine) return { writing: false, stopping: false, progress: 0, label: "Movie as MP4" };
+    const j = movieJob!;
+    return { writing: true, stopping: j.cancelling, progress: j.progress, label: j.cancelling ? "Stopping the movie" : j.total ? `Writing the movie · ${j.frame.toLocaleString("en-US")} of ${j.total.toLocaleString("en-US")} frames · click to stop` : "Writing the movie · click to stop" };
+  }
   /** Where a rail's playhead stands: the board's preview plane while it plays on a slide, else the view's own. */
   const planeOf = (d: string): number => ($fluximgPreview?.dim === d ? $fluximgPreview.index : ctx?.view.index[d] ?? 0);
   const stepHk = $derived({ through: dims[0] && keys[dims[0]] ? `⇧${keys[dims[0]].toUpperCase()}` : "", blend: "⇧N", movie: "⇧Space" });
@@ -283,6 +344,12 @@
       return;
     }
     if (k === "Enter" && live.armed === "inset") { done(); insetKey(); return; }
+    if (k === LIVE_KEYS.movie && !e.shiftKey) {
+      const d = live.armed?.startsWith("pos:") ? live.armed.slice(4) : dims.find((x) => ctx.view.projection?.dim !== x);
+      done();
+      if (d && !e.repeat && ctx.view.projection?.dim !== d) { strike(`movie:${d}`); movieKey(d); }
+      return;
+    }
     done(); // the board owns unmodified keys: nothing leaks to canvas shortcuts (no stray Delete or nudge)
     if (e.repeat) return;
     for (const d of dims) if (keys[d] === k) {
@@ -487,6 +554,7 @@
           </div>
           <div class="l2" data-fxb-readout>
             {#if $fluximgLiveProblem}<span class="bad">{$fluximgLiveProblem}</span>
+            {:else if readoutLine}<span class="movieline" class:bad={readoutLine.bad} data-fxb-movieline data-tip={readoutLine.tip}>{readoutLine.text}</span>
             {:else if $fluximgReadout}<span class="where"><b>{$fluximgReadout.where[0]}</b><b>{$fluximgReadout.where[1]}</b></span>{#if $fluximgReadout.object}<span class="obj">{$fluximgReadout.object.key}</span>{/if}
             {:else}{#each head.facts as f (f)}<span class="fact">{f}</span>{/each}{/if}
           </div>
@@ -562,7 +630,8 @@
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="part" style={at(layout.depth)} onpointerdown={stop} ondblclick={stop}>
         <BoardRail dim={vDim} hotkey={keys[vDim] ?? ""} label={dimName(vDim)} vertical side={layout.depth.side} w={layout.depth.w} h={layout.depth.h} length={dimLength(ctx.manifest, vDim)} index={planeOf(vDim)}
-          trail={card?.walk?.dim === vDim ? card.walk : null} ghost={ghost?.dim === vDim ? ghost : null}
+          trail={card?.walk?.dim === vDim ? card.walk : null} ghost={ghost?.dim === vDim ? ghost : movieGhost?.dim === vDim ? movieGhost : null}
+          movie={ctx.view.projection?.dim === vDim ? null : movieState(vDim)} onmovie={() => movieKey(vDim)} onmovieenter={() => movieEnter(vDim)} onmovieleave={movieLeave}
           run={ctx.view.projection?.dim === vDim ? ctx.view.projection : null} mode={ctx.view.projection?.dim === vDim ? ctx.view.projection.mode : null} profiles={profilesOf(vDim)} axis={ctx.manifest.axes?.[vDim]}
           armed={live.armed === `pos:${vDim}` || live.armed === `run:${vDim}`} unit={ctx.manifest.axes?.[vDim]?.unit ?? ""} format={formatNumber}
           playing={live.playing?.dim === vDim} speed={live.speed} choosing={choosing === vDim} {modes} {choice}
@@ -576,7 +645,8 @@
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div class="part" style={at(box)} onpointerdown={stop} ondblclick={stop}>
           <BoardRail {dim} hotkey={keys[dim] ?? ""} label={dimName(dim)} w={box.w} h={box.h} length={dimLength(ctx.manifest, dim)} index={planeOf(dim)}
-            trail={card?.walk?.dim === dim ? card.walk : null} ghost={ghost?.dim === dim ? ghost : null}
+            trail={card?.walk?.dim === dim ? card.walk : null} ghost={ghost?.dim === dim ? ghost : movieGhost?.dim === dim ? movieGhost : null}
+            movie={ctx.view.projection?.dim === dim ? null : movieState(dim)} onmovie={() => movieKey(dim)} onmovieenter={() => movieEnter(dim)} onmovieleave={movieLeave}
             run={ctx.view.projection?.dim === dim ? ctx.view.projection : null} mode={ctx.view.projection?.dim === dim ? ctx.view.projection.mode : null} profiles={profilesOf(dim)} axis={ctx.manifest.axes?.[dim]}
             armed={live.armed === `pos:${dim}` || live.armed === `run:${dim}`} unit={ctx.manifest.axes?.[dim]?.unit ?? ""} format={formatNumber}
             playing={live.playing?.dim === dim} speed={live.speed} choosing={choosing === dim} {modes} {choice}
@@ -628,6 +698,9 @@
   .where b { font-weight: 500; }
   .obj { margin-left: 12px; color: var(--fxb-pink-hi); overflow: hidden; text-overflow: ellipsis; }
   .bad { color: var(--c-danger); white-space: normal; }
+  /* One line of the readout: a little smaller, from under the lamp, so a movie's facts fit the console's width. */
+  .movieline { margin-left: -15px; overflow: hidden; text-overflow: ellipsis; color: var(--fxb-tx-hi); font-size: 9px; letter-spacing: -0.1px; }
+  .movieline.bad { color: var(--c-danger); }
   .keypad { display: flex; align-items: center; gap: 9px; padding: 7px 8px 8px; }
   .grp { display: inline-flex; gap: 3px; }
   /* A key that makes new elements, on a slide's step: still there (its label says why it is off), dimmed. */

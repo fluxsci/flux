@@ -256,6 +256,14 @@ contextBridge.exposeInMainWorld("fig", {
     ipcRenderer.on("slides:videoProgress", handler);
     return () => ipcRenderer.removeListener("slides:videoProgress", handler);
   },
+  // An image's movie as a file (fluximg): the save dialog and the CLI run in main, like a slide video.
+  exportImageMovie: (request) => ipcRenderer.invoke("fluximg:exportMovie", request),
+  cancelImageMovie: (jobId) => ipcRenderer.invoke("fluximg:cancelMovie", jobId),
+  onImageMovieProgress: (cb) => {
+    const handler = (_event, value) => cb(value);
+    ipcRenderer.on("fluximg:movieProgress", handler);
+    return () => ipcRenderer.removeListener("fluximg:movieProgress", handler);
+  },
   // 2.3 Full-text search: scan every stored PDF's extracted text (items/*/fulltext.txt)
   // in the main process (spawns the bundled `flux search-text --json`, W13 pattern) so
   // the renderer never blocks on disk I/O. Returns the FulltextResult JSON | { error }.
