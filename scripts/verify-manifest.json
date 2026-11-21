@@ -492,6 +492,7 @@
       "verify-fluximg-import.ts",
       "verify-fluximg-export.ts",
       "verify-fluximg-live.ts",
+      "verify-fluximg-view-tween.ts",
       "verify-fmenu-look.ts"
     ],
     "net": [
@@ -1677,6 +1678,7 @@
       "verify-fluximg-export-gui.ts",
       "verify-fluximg-inspector.mjs",
       "verify-fluximg-live.ts",
+      "verify-fluximg-view-tween.ts",
       "verify-fluximg-live-gui.mjs"
     ],
     "fluximg-pure": [
@@ -1688,7 +1690,8 @@
       "verify-fluximg-gl.ts",
       "verify-fluximg-import.ts",
       "verify-fluximg-export.ts",
-      "verify-fluximg-live.ts"
+      "verify-fluximg-live.ts",
+      "verify-fluximg-view-tween.ts"
     ],
     "fluximg-ui": [
       "verify-fluximg-place-gui.mjs",
@@ -12804,6 +12807,15 @@
       "coverage": "behavior"
     },
     "verify-fluximg-live.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-fluximg-view-tween.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

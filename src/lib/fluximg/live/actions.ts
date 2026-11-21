@@ -16,7 +16,9 @@ import type { FluximgChannelView, FluximgFurnitureView, FluximgLayerView, Fluxim
 import { positionDims, resolveView } from "../viewOps";
 import { insetLayout, splitLayout, type SplitLayout } from "../panelLayout";
 import { autoWindow, histDomain, moveWindow, nextAutoStep, nextSampleStep, nudgeStep, sampleWindow, snapValue, sortedSample } from "./histogram";
-import { framePeriod, playStep, resizeRun, slideRun, stepIndex, type PlayMode } from "./rail";
+import { naturalRate, playStep, resizeRun, slideRun, stepIndex, type PlayMode } from "./rail";
+// naturalRate lives in the pure rail module (the slide tween needs it without the stores); kept exported here.
+export { naturalRate };
 import { project, selection } from "../../store";
 import { WHEEL_SETTLE_MS, cancelLiveEdit, closeFluximgLive, fluximgLive, liveElement, liveMutate, liveSampler, liveView, setLive, settleLiveEdit, liveArm } from "./session";
 
@@ -567,12 +569,6 @@ export function zoomInset(id: string, factor: number): void {
 // --- playback -----------------------------------------------------------------------------------
 
 let playTimer = 0, playClock = 0, playCarry = 0, playDirection: 1 | -1 = 1;
-
-/** Planes per second for a dimension: its real rate when it is time in seconds, else a steady 12. */
-export function naturalRate(m: FluximgManifest, dim: string): number {
-  const period = framePeriod(m.axes?.[dim]);
-  return period ? 1 / period : 12;
-}
 
 export function stopPlayback(): void {
   if (playTimer) cancelAnimationFrame(playTimer);
