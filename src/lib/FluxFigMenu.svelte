@@ -859,7 +859,7 @@
                               on:blur={() => blurField(f)}
                               on:input={(e) => { draft = e.currentTarget.value; const v = evalExpr(draft); if (v != null) applyField(f, v); }}
                               on:keydown={(e) => onFieldKey(e, f)}
-                          />{#if f.prop === "rotation" && activeKey !== f.key && !f.mixed}<span class="unit" aria-hidden="true">°</span>{/if}
+                          />{#if f.prop === "rotation"}<span class="unit" class:hidden={armed || f.mixed} aria-hidden="true">°</span>{/if}
                         {/if}
                       </span>
                     </div>
@@ -1014,13 +1014,15 @@
   .scrubbable { cursor: ew-resize; }
   .control { display: flex; align-items: center; justify-content: flex-end; gap: 7px; min-width: 0; }
 
-  /* a number: no box until the hand is on it */
-  .nin { field-sizing: content; min-width: 2ch; max-width: 11ch; height: 18px; padding: 0 4px; margin: 0; background: transparent; border: 0; border-radius: 4px; color: var(--fm-tx-hi);
+  /* A stable readout keeps the adjacent instrument still as a number gains or loses digits. */
+  .nin { width: 6ch; min-width: 0; height: 18px; padding: 0 4px; margin: 0; background: transparent; border: 0; border-radius: 4px; color: var(--fm-tx-hi);
     font: 12px/18px var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; outline: none; box-sizing: content-box; }
+  .nin:only-child { width: 11ch; }
   .nin::placeholder { color: var(--fm-tx-dim); font-style: italic; }
   .field:hover .nin { background: var(--fm-well); box-shadow: inset 0 0 0 1px rgba(255, 252, 240, 0.12); }
   .nin:focus, .field.editing .nin { background: var(--fm-well); box-shadow: inset 0 0 0 1px var(--fm-blue); }
   .unit { margin-left: -10px; padding-right: 3px; font: 12px/18px var(--font-mono); color: var(--fm-tx-hi); pointer-events: none; }
+  .unit.hidden { visibility: hidden; }
   .tin { width: 100%; height: 20px; padding: 0 6px; background: transparent; border: 0; border-radius: 4px; color: var(--fm-tx-hi); font: 12px var(--font-ui); outline: none; box-sizing: border-box; box-shadow: inset 0 0 0 1px var(--fm-line-2); }
   .field:hover .tin { background: var(--fm-well); }
   .tin:focus { background: var(--fm-well); box-shadow: inset 0 0 0 1px var(--fm-blue); }

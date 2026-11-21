@@ -102,6 +102,38 @@ try {
   m = await rect();
   ok(m.x === 26.024712 && m.past === 0, "Escape reverts it");
 
+  // Rolling over the value arms the row. As the digit count changes, the well and its adjacent preview stay put.
+  for (const [key, name, preview, deltaY] of [
+    ["d", "stroke width", ".weight", -100],
+    ["a", "opacity", ".fader", 100],
+    ["r", "rotation", ".dial", -100],
+  ]) {
+    const input = row(key) + " .nin";
+    const well = await box(input);
+    await page.mouse.move(well.cx, well.cy);
+    const geometry = () => page.$eval(row(key), (field, preview) => {
+      return [".nin", preview].flatMap(selector => {
+        const { left, right } = field.querySelector(selector).getBoundingClientRect();
+        return [left, right];
+      });
+    }, preview);
+    const initial = await geometry();
+    let movement = 0;
+    for (const fine of [false, true]) {
+      const previous = await page.$eval(input, el => el.value);
+      if (fine) await page.keyboard.down("Alt");
+      await page.mouse.wheel({ deltaY });
+      if (fine) await page.keyboard.up("Alt");
+      await waitFor(page, ({ input, previous }) => document.querySelector(input).value !== previous,
+        { input, previous }, { label: `wheel updates ${name}` });
+      const current = await geometry();
+      movement = Math.max(movement, ...current.map((edge, j) => Math.abs(edge - initial[j])));
+    }
+    ok(movement === 0, `${name} value box and preview hold their edges through wheel edits (max movement ${movement}px)`);
+    await page.keyboard.press("Escape");
+    await waitForGone(page, row(key) + ".editing");
+  }
+
   // --- 3. on/off properties: paper keys on the group head ------------------------------------------------
   const keys = await page.evaluate(() => [...document.querySelectorAll(".fluxFigMenu .field.tkey")].map((k) => ({ key: k.dataset.key, group: k.closest(".group").querySelector(".gname").textContent.trim(), inHead: !!k.closest(".gtitle"), label: k.querySelector(".label").textContent.trim(), state: k.querySelector(".toggle").textContent.trim(), pressed: k.querySelector(".toggle").getAttribute("aria-pressed"), mark: !!k.querySelector(".toggle svg"), cap: k.querySelector(".hk").textContent.trim(), bg: getComputedStyle(k).backgroundColor })));
   ok(keys.map((k) => `${k.key}:${k.group}`).join(" ") === "1:Geometry 2:Fill 3:Stroke 4:Stroke" && keys.every((k) => k.inHead), `lock, no fill, no stroke and dashed are keys on their group's head (${keys.map((k) => `${k.key}:${k.group}`).join(" ")})`);
