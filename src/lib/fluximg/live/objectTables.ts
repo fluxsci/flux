@@ -7,7 +7,7 @@ import type { Asset } from "../../types";
 import { fluximgBundle, fluximgService } from "../store";
 import type { FluximgTable } from "../types";
 
-/** `<asset id>|<table path>` → the table, or null while it loads (or when it cannot be read). */
+/** `<asset id>|<table path>` → the table, once it has been read (absent while it loads or when it cannot be read). */
 export const fluximgTables = writable<Record<string, FluximgTable | null>>({});
 
 const keyOf = (asset: Pick<Asset, "id">, path: string): string => `${asset.id}|${path}`;
@@ -16,15 +16,23 @@ export const tableKey = (asset: Pick<Asset, "id">, path: string | null | undefin
 /** Tables that could not be read, by store key, with why: a styled layer then draws unstyled and says so. */
 export const fluximgTableIssues = writable<Record<string, string>>({});
 
-/** Ask for a table; the store fills in when it arrives. Asking again is free. */
+/** Tables asked for and not yet arrived (or failed), by store key. */
+const tablesPending = new Set<string>();
+
+/**
+ * Ask for a table; the store fills in when it arrives. Asking again is free. Nothing is written to a store here: the ask
+ * may come from inside a derived computation (the Animation pane listing a layer's columns, a compile ordering objects by
+ * a column), where Svelte forbids a state change, so what is pending lives in a plain set and the stores change only when
+ * the file has been read.
+ */
 export function needTable(asset: Pick<Asset, "id" | "path">, path: string | null | undefined): void {
   if (!path) return;
   const key = keyOf(asset, path);
-  if (key in get(fluximgTables)) return;
-  fluximgTables.update((t) => ({ ...t, [key]: null }));
+  if (tablesPending.has(key) || key in get(fluximgTables) || key in get(fluximgTableIssues)) return;
+  tablesPending.add(key);
   void fluximgService().table(fluximgBundle(asset), path).then(
-    (table) => fluximgTables.update((t) => ({ ...t, [key]: table })),
-    (error: unknown) => fluximgTableIssues.update((m) => ({ ...m, [key]: error instanceof Error ? error.message : String(error) })),
+    (table) => { tablesPending.delete(key); fluximgTables.update((t) => ({ ...t, [key]: table })); },
+    (error: unknown) => { tablesPending.delete(key); fluximgTableIssues.update((m) => ({ ...m, [key]: error instanceof Error ? error.message : String(error) })); },
   );
 }
 

@@ -227,6 +227,30 @@ try {
   h.ok(flying > 0, `the step preview plays the flight (${flying} paths in the preview)`);
   await sleep(1500);
 
+  h.section("a part-bound track on an image nobody has asked about yet");
+  {
+    // A second copy of the bundle under its own asset, placed UNSTYLED: nothing has asked for its table. Selecting a
+    // track on its layer makes the Animation properties list the layer's columns: the ask comes from inside a derived
+    // computation, where a store write is a Svelte error (state_unsafe_mutation, seen in the real app). The table must
+    // arrive, the columns must be offered, and the console must stay clean (the last check of this gate).
+    const second = await F(async ({ files }) => {
+      const f = window.__flux, root = f.get(f.fig.embeddedProjectRoot) ?? f.get(f.fig.projectDir), sid = f.get(f.fig.activeFigureId);
+      window.__fluxSeedFluximg("plots/cells-b.fluximg", files);
+      const assetId = f.fluximg.place.fluximgAssetId("cells-b", "gui");
+      const result = await window.fig.importFluximg({ root, sourcePath: "plots/cells-b.fluximg", assetId });
+      const asset = f.fluximg.place.fluximgAsset(assetId, result, "plots/cells-b.fluximg");
+      let id;
+      f.fig.commit((p) => { id = f.ops.addFluximg(p, { figureId: sid, asset, x: 40, y: 250, width: 160 }); const el = p.figures.find((x) => x.id === sid).elements.find((e) => e.id === id); el.view = { ...(el.view ?? {}), layers: { footprints: { visible: true } } }; });
+      f.slide.commitDeckLive((d) => { d.slides.find((x) => x.id === sid).beats[1].tracks.push({ id: "lazy1", target: id, part: "layer:footprints", preset: "fade", start: 0, duration: 300, easing: "linear", stagger: { perMs: 60 } }); });
+      f.slide.activeBeat.set(1); f.slide.selTrackIds.set(["lazy1"]);
+      return { id };
+    }, { files: bundleFiles("mean_f64_layers") });
+    await F(() => { for (const b of document.querySelectorAll(".inspector-tabs button")) if (b.textContent.trim() === "Animation") b.click(); });
+    const offered = await waitFor(page, () => { const o = [...document.querySelectorAll("option")].filter((x) => x.value.startsWith("col:")).map((x) => x.value.slice(4)); return o.length ? o : null; }, null, { label: "the layer's columns offered", timeout: 8000 }).catch(() => null);
+    h.ok(!!offered && offered.includes("dendrite"), `the Animation properties offer the layer's columns once its table has arrived (${(offered ?? []).join(", ") || "none"})`);
+    h.ok(!!second.id && !errs.some((e) => /state_unsafe_mutation/.test(e)), "asking for a table from inside a derived computation changes no state (no Svelte error)");
+  }
+
   h.section("console");
   h.eq(errs.filter((e) => !/favicon/.test(e)), [], "no console errors");
 } catch (error) {
