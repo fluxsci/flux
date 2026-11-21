@@ -180,6 +180,7 @@
     {#if pixelWords}<p class="line" data-fluximg-pixel>{pixelWords}</p>{/if}
     {#if encodingWords}<p class="line">{encodingWords}</p>{/if}
     {#if element.source?.bundlePath}<p class="line path" title={element.source.bundlePath} data-fluximg-source>{middleEllipsis(element.source.bundlePath)}</p>{/if}
+    {#if element.source?.frozen && /\.tiff?$/i.test(element.source.bundlePath)}<p class="line" data-fluximg-converted>Converted from this TIFF, which is never changed.</p>{/if}
     {#if sourceState === "changed" || sourceState === "missing"}
       <p class="line srcrow" data-fluximg-source-state={sourceState}>
         <span>{sourceState === "changed" ? "The source bundle has changed since this was placed." : "The source bundle is no longer there; this copy is kept."}</span>

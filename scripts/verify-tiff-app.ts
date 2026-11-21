@@ -28,6 +28,8 @@ import { consultedRules, forgetRule, rememberRule, sanitizeRules } from "../src/
 import { createMemBridge } from "../src/lib/project/memBridge";
 import { buildTiffWorker } from "./build-tiff-worker.mjs";
 import { createTiffDevRoutes } from "./lib/tiffDevRoutes.mjs";
+import * as ops from "../src/lib/tiff/askOps";
+import { pathToFileURL } from "node:url";
 import type { DimsAnswer } from "../src/lib/tiff/types";
 
 const h = harness("verify-tiff-app");
@@ -290,6 +292,60 @@ try {
   h.eq(sanitizeRules(await call("rules", undefined)), list, "the machine's store (FluxConfig presets/tiff-answers.json) round-trips through tiff:rules / tiff:setRules");
   h.ok(rulesFile.includes(`${path.sep}presets${path.sep}`) && existsSync(rulesFile), "…in FluxConfig's presets folder");
   fam.shutdown();
+
+  h.section("the asking surface's edits (askOps), the no-data suggestion, the rail's picture, the CLI's rules");
+  {
+    const P = probeA;
+    let x: DimsAnswer = { dims: [{ name: "t", size: "rest" }, { name: "c", size: 2 }], time: { rate: 80 }, channels: [{ name: "a" }, { name: "b" }] };
+    h.eq(ops.resolvedSizes(P, x), [12, 2], "sizes resolve \"the rest\" from the page count");
+    x = ops.moveDim(P, x, 1, 0);
+    h.eq(x.dims.map((d) => d.name), ["c", "t"], "a page key drags to another place (slowest first)");
+    h.eq(ops.nextName(x, 0), "", "c cycles on to a free name (t is taken)");
+    h.eq(ops.nextName({ dims: [{ name: "t", size: "rest" }] }, 0), "z", "t cycles to z");
+    h.ok(ops.nameProblem(x, 0, "x") !== null && ops.nameProblem(x, 0, "Trial") !== null && ops.nameProblem(x, 0, "t") !== null && ops.nameProblem(x, 0, "trial") === null, "a free name must be lower-case, not x or y, not taken");
+    const r1 = ops.renameDim(P, x, 1, "z");
+    h.ok(!r1.time && !!r1.channels, "renaming t away drops the time settings (tidy), channels stay");
+    const r2 = ops.renameDim(P, x, 0, "trial");
+    h.eq(r2.channels, [{ name: "a" }], "with no c there is one channel: only the first channel's settings stay");
+    const sz = ops.setDimSize(P, { dims: [{ name: "t", size: "rest" }, { name: "c", size: 2 }] }, 1, "rest");
+    h.eq(sz.dims.map((d) => d.size), [12, "rest"], "making a key the rest fixes the old rest at its value: at most one rest");
+    h.eq(ops.addDim(P, { dims: [] }).dims, [{ name: "t", size: "rest" }], "the first added key is t, the rest");
+    h.eq(ops.addDim(P, { dims: [{ name: "t", size: 24 }] }).dims, [{ name: "t", size: "rest" }, { name: "z", size: 2 }], "a second key goes fastest; the slowest becomes the rest");
+    h.eq(ops.removeDim(P, { dims: [{ name: "t", size: "rest" }, { name: "c", size: 2 }] }, 0).dims, [{ name: "c", size: "rest" }], "removing the rest hands the rest on");
+    h.eq(ops.toggle(ops.toggle({ dims: [] }, "transpose"), "transpose"), { dims: [] }, "toggles go on and off without leftovers");
+    h.eq(ops.setTime({ dims: [{ name: "t", size: "rest" }], time: { rate: 80, t0: 2 } }, "interval", 0.0125).time, { interval: 0.0125, unit: "s", t0: 2 }, "rate to interval keeps t0");
+    h.eq(ops.setChannel(P, { dims: [{ name: "t", size: "rest" }, { name: "c", size: 2 }] }, 1, { name: "red", color: "#ff0000" }).channels, [{}, { name: "red", color: "#ff0000" }], "a channel chip names and colours its channel");
+    h.eq([ops.parseNumber("0.25"), ops.parseNumber(".5"), ops.parseNumber("1e-3"), ops.parseNumber("−1"), ops.parseNumber("x"), ops.parseNumber("")], [0.25, 0.5, 0.001, -1, null, null], "numbers typed in place");
+    h.eq(ops.nextColour(null), "#00ff00", "a chip's colour cycles from gray to green, …");
+    // A float stack with -1 written where nothing was scanned.
+    const nd = path.join(project, "data", "holes.tif");
+    await fs.writeFile(nd, writeTiff({ pages: Array.from({ length: 4 }, (_, p) => ({ width: 32, height: 24, dtype: "float32" as const, data: Float32Array.from({ length: 768 }, (_, i) => (i % 32 < 8 ? -1 : 10 + p + (i % 7))) })) }));
+    const cv = createTiffConverter({ workerFile, cwd: repo });
+    const ndp = await cv.request("probe", { path: nd }).promise;
+    h.ok(ndp.preview.frequentMin?.value === -1 && ndp.preview.frequentMin.share > 0.2, `a frequent round minimum on a float plane is offered as "no data" (${JSON.stringify(ndp.preview.frequentMin)})`);
+    const ndq = await cv.request("preview", { path: nd, answer: { dims: [{ name: "z", size: "rest" }], nodata: -1 } }).promise;
+    h.ok(ndq.frequentMin === null && ndq.channels[0].window[0] >= 10, "…and once answered it is no data: the window ignores it");
+    cv.close();
+    const thumbMod = await import(pathToFileURL(path.join(repo, "electron/generated/tiffThumb.bundle.mjs")).href);
+    const th = await thumbMod.tiffThumbPng(stack, 256);
+    const dec = decodePng(th.png);
+    h.ok(dec.width === 40 && dec.height === 30, `the rail's picture of a TIFF is a PNG of its middle plane (${dec.width} x ${dec.height})`);
+    const engine = await fs.readFile(path.join(repo, "electron/plotThumbEngine.mjs"), "utf8");
+    h.ok(/TIFF_RE\.test\(abs\)/.test(engine) && engine.includes("./generated/tiffThumb.bundle.mjs"), "the thumbnail engine draws TIFFs through that bundle");
+    const thumbsIpc = await fs.readFile(path.join(repo, "electron/ipc/plotThumbs.cjs"), "utf8");
+    const acceptRe = new RegExp(/const ACCEPT_RE = (\/.*\/);/.exec(thumbsIpc)![1].slice(1, -1));
+    h.ok(acceptRe.test("svg,png,glb,mp4,mov,fluximg,tif,tiff") && acceptRe.test("svg,png,glb,fluximg,tif,tiff"), "the rail's accept lists with TIFFs pass the main process's accept rule");
+    for (const f of ["src/lib/plotsRail/LeftRail.svelte", "src/lib/plotsRail/PlotsRail.svelte", "src/lib/plotsRail/GalleryPane.svelte"]) h.ok(/fluximg,tif,tiff/.test(await fs.readFile(path.join(repo, f), "utf8")), `${f} lists TIFFs`);
+    // The CLI reads the project's remembered rules the way the app does.
+    const { rememberedRules } = await import("../flux-core/tiffPlace");
+    const pjPath = path.join(project, "project.json");
+    const before = await fs.readFile(pjPath, "utf8");
+    await fs.writeFile(pjPath, JSON.stringify({ ...JSON.parse(before), tiffRules: list }));
+    const cliRules = await rememberedRules(project);
+    h.ok(cliRules.some((r) => r.fingerprint === rule.fingerprint), "the CLI's place-image reads the project's remembered rules (project.json tiffRules)");
+    h.ok(inferDims(probeB, { rules: cliRules })[0].from === "remembered", "…so a file of the family converts there without flags");
+    await fs.writeFile(pjPath, before);
+  }
 
   h.section("the in-memory bridge: the dev server's real route, the same refusals, the same content id");
   const routes = createTiffDevRoutes({ workerFile });

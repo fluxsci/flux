@@ -15,7 +15,10 @@ import { randomUUID } from "node:crypto";
 import { convertTiff, probeTiff } from "./tiffConvert";
 import { ValidationError, NotFoundError } from "./errors";
 import { answerProblems, describeAnswer } from "../src/lib/tiff/infer";
-import type { DimSpec, DimsAnswer, DimsProposal, TiffProbe } from "../src/lib/tiff/types";
+import type { AnswerRule, DimSpec, DimsAnswer, DimsProposal, TiffProbe } from "../src/lib/tiff/types";
+import { consultedRules, sanitizeRules } from "../src/lib/tiff/remember";
+import { getPreferences } from "./fluxlib";
+import * as fluxPaths from "../electron/fluxPaths.cjs";
 
 export const isTiffPath = (p: string): boolean => /\.tiff?$/i.test(p);
 
@@ -132,7 +135,7 @@ export async function convertForPlacement(root: string, tiffArg: string, flags: 
   const file = path.resolve(root, tiffArg);
   const st = await fsp.stat(file).catch(() => null);
   if (!st || !st.isFile()) throw new NotFoundError(`TIFF not found: ${tiffArg}`);
-  const { probe, proposals } = await probeTiff(file);
+  const { probe, proposals } = await probeTiff(file, { rules: await rememberedRules(root) });
   const answer = answerFor(file, probe, proposals, flags);
   const problems = answerProblems(probe, answer);
   if (problems.length) throw new ValidationError(`The answer does not fit ${path.basename(file)}:\n  ${problems.join("\n  ")}`);
@@ -152,12 +155,24 @@ export async function convertForPlacement(root: string, tiffArg: string, flags: 
   } catch (error) { await cleanup(); throw error; }
 }
 
+/**
+ * The answers remembered for "files like this one", read the way the app reads them (src/lib/tiff/remember.ts): the
+ * project's (project.json `tiffRules`) first, then the machine's (FluxConfig presets/tiff-answers.json). A remembered
+ * rule that fits makes the file `ready`, so the CLI converts it without flags, as the app would without asking.
+ */
+export async function rememberedRules(root: string): Promise<AnswerRule[]> {
+  const read = async (file: string): Promise<unknown> => { try { return JSON.parse(await fsp.readFile(file, "utf8")); } catch { return null; } };
+  const project = sanitizeRules((await read(path.join(root, "project.json")) as { tiffRules?: unknown } | null)?.tiffRules);
+  const machine = sanitizeRules(await read(fluxPaths.tiffAnswersPathSync(await getPreferences())));
+  return consultedRules(project, machine);
+}
+
 /** image-info on a TIFF path: the probe and the ranked proposals (nothing converted). */
 export async function tiffInfo(root: string, target: string) {
   const file = path.resolve(root, target);
   const st = await fsp.stat(file).catch(() => null);
   if (!st || !st.isFile()) throw new NotFoundError(`TIFF not found: ${target}`);
-  const { probe, proposals } = await probeTiff(file);
+  const { probe, proposals } = await probeTiff(file, { rules: await rememberedRules(root) });
   // Per-page values are for the converter; the answer here stays readable.
   const keys = probe.keys ? { pages: probe.keys.pages, keys: probe.keys.keys.map(({ values, ...k }) => ({ ...k, ...(values ? { sampled: values.slice(0, 8) } : {}) })) } : null;
   return {

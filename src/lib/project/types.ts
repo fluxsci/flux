@@ -114,6 +114,9 @@ export interface ProjectManifest {
    *  self-healing: unknown paths are ignored, undiscovered ones sort last, and a
    *  manifest without it lists documents in the historical default order. */
   documentOrder?: string[];
+  /** Answers remembered for TIFFs "like this one" (src/lib/tiff/remember.ts `RememberedRule`; written by the TIFF
+   *  asking surface, read by the app and the CLI's place-image). Optional. */
+  tiffRules?: unknown[];
   references: ReferencesRef;
   figures: FigureEntry[];
   // Custom figure families (rollup of fig/index.json `families`; built-ins
