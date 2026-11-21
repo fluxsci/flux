@@ -13930,3 +13930,28 @@ an image whose bundle is not in the project, by name. `set-track --stagger-by co
 - flux-core's deck save keeps a slide's key order as loaded; the app's fold writes `groups` after `elements`. A
   test that adds `groups` to a loaded slide must keep that order, or byte comparisons fail for the wrong reason.
 - `ColorField`'s hex input selects on focus; a triple-click deselects it again: press Ctrl+A before typing.
+
+### 2026-11-21 — Images on slides, fix package F1a: the player (Claude Opus 5.5, `s2/fix-player`)
+**Work:** A1: a movie runs on across later steps (`fluximgMedia.begin` folds the elapsed time before moving the
+origin); every navigation does to it what it does to a video clip: Back and a jump land it PAUSED at the pure clock's
+position of the target step (an animated rewind seeks it at once, `player.prev`, image slides only), Next resumes it,
+blank / hidden document hold it. C7: the movie controller wakes only at plane boundaries and only where the binding
+draws planes (live host) or the overlay names the plane (a stamp; `binding.movieNeeds`); a baked clip with no stamp,
+or a movie a stills-only export cannot show (`FluximgSurface.movie` false: the step's still stays, stamp included),
+wakes nothing. Boundaries > 2 frames away use ONE timer that draws at the boundary. The clip host compares the video
+with the clock's own time (not a frame's middle) from a 2 s timer, re-sync past half a plane (measured ~3 ms drift per
+loop seam). B4: the image controller reads the camera's zoom from the camera layer only while the slide RESTS
+(`images.flush(moving)`); under a zoom that magnifies the data the canvas holds exactly the crop's pixels and CSS
+magnifies them (`pixelated` unless smooth); stills asked at `crop.zoomedStillScale`. C8: while a Change moves, the
+canvas keeps the larger end's size (`FluximgMotion.boxes`). C10: ONE direct-context budget per document
+(`slideSurfaces.documentDirect`), eviction across hosts, recovery from `webglcontextlost` on a new canvas. C9: an
+unreadable bundle draws the editor element's stand-in; Slide mode's issue list names a missing asset record. Parts:
+pulse on an object by its own box; a fadeRise lift follows a crop Change of the same step (`fluximgShownCrop`); an
+OPEN outline whose points are collinear flies with fill none (`correspondence.shownFill`: a plot's spines without a
+fill attribute merged into a black "L" triangle).
+**Learnings:**
+- `images?.flush(expr)` does not evaluate `expr` when `images` is undefined: optional calls are free for decks
+  without images.
+- A string such as `[data-slide-fluximg-root=...]` in `player.ts` lands in every deck's runtime and fails
+  `verify-slide-runtime-images`: DOM lookups of image nodes belong in the kit (`player/fluximg.ts`).
+- Counting canvas "reallocations" by width/height setters counts two per resize: coalesce per task.
