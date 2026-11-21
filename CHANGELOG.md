@@ -97,6 +97,17 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   while it writes, its ring fills and the board stays live; press it again to stop. PDF and
   PowerPoint exports, which carry an image movie as a still, now say so and name the key. Agents
   use `export-image-movie`.
+- **Split channels keep their colour, and the board stays out of the way.** Split channels
+  (**S**) now makes each channel's panel in the colour it has in the merged image; **Shift+S**
+  makes them in gray, the key remembers your choice, and with panels present it flips them
+  between the two. After a split or an inset, the image's board no longer stands on the new
+  panels: its console, rails and cards arrange themselves round the image and its panels, and
+  the view makes room when it must. On a slide with the animator open the board fits the
+  shorter canvas instead of covering the picture.
+- **The board and Slide mode no longer take each other's keys.** With an image's board open,
+  F5, PageUp / PageDown, F2 and every Ctrl chord go to Slide mode; opening Present closes the
+  board; Space belongs to a playing slide preview. At a step, the board draws the image's
+  objects as the slide shows them there (those that have not appeared yet are hidden).
 - **TIFF files come in directly.** Drop a `.tif` on a figure or a slide, paste it, import it,
   or place it from the Plots rail; Flux converts it into an image bundle and places it. ImageJ,
   OME, tifffile and per-page metadata are read on their own, and such a file converts at once,

@@ -250,18 +250,26 @@ shows, dashed, where its two points would go. Each press moves to the next windo
 Inspector's Auto uses the percentiles the whole image carries instead, so it gives the same
 window on every plane.
 
-**Split channels** (**s**) makes one panel per channel, each alone in gray with its name. Rest
-the pointer on the key and the figure shows, dashed, where each panel would go: to the image's
-right, each the image's size, when the figure has room; otherwise the image and its channels
-share the image's own box as a grid, the image first (a figure clips what lies outside it, so
-panels past its edge could not be seen). Nothing else on the figure moves.
+**Split channels** (**s**) makes one panel per channel, each alone with its name, in the colour
+it has in the merged image. **Shift+S** makes them in gray instead, so intensities read on a
+neutral scale. The key remembers which you used last, and a lamp on it shows it. Rest the
+pointer on the key and the figure shows, dashed, where each panel would go and how it would
+look (hold Shift to see the other look): to the image's right, each the image's size, when the
+figure has room; otherwise the image and its channels share the image's own box as a grid, the
+image first (a figure clips what lies outside it, so panels past its edge could not be seen).
+Nothing else on the figure moves.
+
+Once the panels exist the key is lit, and pressing it flips them between colour and gray; it
+makes no new panels. A panel you have recoloured by hand keeps your colour. A coloured panel
+follows its channel: change the channel's colour on the merged image and the panel changes with
+it.
 
 ## The paper keys
 
 | Key | Paper key | What it does |
 |---|---|---|
 | **a** | Auto contrast | Every channel's window from the pixels in view (the channel in hand, when there is one) |
-| **s** | Split channels | One panel per channel |
+| **s** | Split channels | One panel per channel, in colour (**Shift+S**: in gray). With panels present: flips them between the two |
 | **v** | Frame | The frame in hand: wheel to zoom, drag to move. **Shift+V**: the whole image again |
 | **x** | Inset | Then drag a box on the image |
 | **b** | Scale bar | It needs a pixel size; without one, pressing it tells you so |
@@ -364,9 +372,16 @@ drag it where you want. A message says where it went.
 
 Panels made by **Split channels** or pulled out as an inset stay linked to the image they came
 from: move one to another plane, change its projection, or drag a channel's black or white
-point, and the others follow. What each panel shows stays its own (which channels, their
-colours, its frame, its annotations). The Inspector says how many panels a panel moves with,
-and **Unlink** sets it free.
+point, and the others follow. What each panel shows stays its own (which channels, its frame,
+its annotations, and its colours once you change them yourself). The Inspector says how many
+panels a panel moves with, and **Unlink** sets it free.
+
+The board keeps these panels in view. Split the channels or pull out an inset, and the console,
+the rails and the cards stand clear of the new panels as they do of the image: they move to the
+image's free side or under it, and when there is no room for both, the view moves just enough
+to make room. The same holds when you open the board later on an image that already has panels,
+or on one of the panels. On a slide with the animator open, where the canvas is short, the board
+rearranges before it covers anything, and covers the picture only as a last resort.
 
 # On a slide
 
