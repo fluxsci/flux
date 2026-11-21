@@ -17,7 +17,7 @@
   type Phase = "start" | "move" | "end" | "cancel";
   let {
     dim, hotkey, label, length, index, run = null, mode = null, profiles = [], axis = undefined, vertical = false, side = "left", w, h, armed = false,
-    unit = "", format = (v: number) => String(v), playing = false, speed = 1, choosing = false, modes = [], choice = 0,
+    unit = "", format = (v: number) => String(v), playing = false, speed = 1, choosing = false, modes = [], choice = 0, trail = null, ghost = null,
     onscrub, onrun, onarm, ontake, onplay = undefined, onspeed = undefined, onproject, onmode,
   }: {
     dim: string;
@@ -50,6 +50,10 @@
     modes?: ReadonlyArray<{ label: string; on: boolean }>;
     /** The chooser's cursor (keyboard). */
     choice?: number;
+    /** On a slide: the walk the step being edited makes along this rail (planes `from` → `to`), drawn as a quiet trail. */
+    trail?: { from: number; to: number } | null;
+    /** A walk a hovered key would write (Play through), drawn dashed with its end flag before anything is written. */
+    ghost?: { from: number; to: number } | null;
     onscrub: (index: number, phase: Phase) => void;
     onrun: (from: number, to: number, phase: Phase) => void;
     /** A gesture on the rail began: the wheel over the image follows this rail from now on. */
@@ -82,6 +86,9 @@
   const ticks = $derived(railTicks(axis, length, extent, format, vertical ? 30 : 58));
   /** What the scale's numbers are: the axis' unit, or nothing when they are plane numbers or names. */
   const scaleUnit = $derived(axis && !axis.labels && (typeof axis.scale === "number" || axis.coords) ? unit : "");
+  /** A walk on the rail: its span and which way it goes (the arrow at its end). */
+  const walkOf = (w: { from: number; to: number } | null) => (w && w.from !== w.to ? { a: railPos(w.from, length, extent), b: railPos(w.to, length, extent), to: w.to } : null);
+  const trailAt = $derived(walkOf(trail)), ghostAt = $derived(walkOf(ghost));
   const dots = $derived(run ? [] : profiles.map((p) => ({ color: p.color, level: profileLevel(p.values, index, across, vertical) })).filter((d): d is { color: string; level: number } => d.level !== null));
 
   /** A plane in the flag's words: its number, and where that is. */
@@ -211,6 +218,16 @@
       {#each shapes as s, i (i)}
         {#if s.d}<path class="trace" class:envelope={s.envelope} d={s.d} style={`--p:${s.color}`} />{/if}
       {/each}
+      {#each [trailAt, ghostAt] as wk, i (i)}
+        {#if wk}
+          {@const [x1, y1] = xy(wk.a, across / 2)}
+          {@const [x2, y2] = xy(wk.b, across / 2)}
+          {@const s = wk.b > wk.a ? 1 : -1}
+          {@const [hx1, hy1] = xy(wk.b - s * 5, across / 2 - 4)}
+          {@const [hx2, hy2] = xy(wk.b - s * 5, across / 2 + 4)}
+          <g class={i ? "walk ghost" : "walk trail"} data-fxb-walk={i ? "ghost" : "trail"}><line {x1} {y1} {x2} {y2} /><path d={`M${hx1} ${hy1}L${x2} ${y2}L${hx2} ${hy2}`} /></g>
+        {/if}
+      {/each}
       {#if hoverAt}
         {@const [x1, y1] = xy(hoverAt.pos, 0)}
         {@const [x2, y2] = xy(hoverAt.pos, across)}
@@ -243,6 +260,10 @@
     {/each}
     <!-- The scale's unit, said once, where the scale begins (depth) or ends (time). -->
     {#if scaleUnit}<span class="unit">{scaleUnit}</span>{/if}
+    {#if ghostAt && !hoverAt}
+      {@const g = words(ghostAt.to)}
+      <span class="flag ghostflag" class:atstart={!vertical && ghostAt.b < 40} class:atend={!vertical && ghostAt.b > extent - 40} data-fxb-ghostflag style={vertical ? `top:${Math.min(extent - 12, Math.max(12, ghostAt.b))}px` : `left:${ghostAt.b}px`}><b>{g.n}</b>{#if g.at}<i>{g.at}</i>{/if}</span>
+    {/if}
     {#if hoverAt && Math.abs(hoverAt.pos - flagAt) >= FLAG_REACH}
       <span class="flag ghostflag" class:atstart={!vertical && hoverAt.pos < 40} class:atend={!vertical && hoverAt.pos > extent - 40} data-fxb-railcursor style={vertical ? `top:${Math.min(extent - 12, Math.max(12, hoverAt.pos))}px` : `left:${hoverAt.pos}px`}><b>{hoverAt.n}</b>{#if hoverAt.at}<i>{hoverAt.at}</i>{/if}</span>
     {/if}
@@ -304,6 +325,10 @@
   .rail.armed .head { stroke: var(--fxb-pink-hi); stroke-width: 2; }
   .grip { fill: var(--fxb-paper); stroke: var(--fxb-pink); stroke-width: 1.5; pointer-events: none; }
   .hoverline { stroke: var(--fxb-paper); stroke-width: 1; opacity: 0.45; pointer-events: none; }
+  /* A step's walk along the rail: a quiet pink trail with its arrow; a key's preview of one: the same, dashed. */
+  .walk { fill: none; stroke: var(--fxb-pink); stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+  .walk.trail { stroke-width: 2; opacity: 0.45; }
+  .walk.ghost { stroke-width: 1.5; stroke-dasharray: 3 3; opacity: 0.95; }
   .rule { stroke: var(--fxb-paper); stroke-width: 1; opacity: 0.07; pointer-events: none; }
   /* A dot rides each channel's trace where the playhead crosses it. */
   .dot { fill: var(--p); stroke: var(--fxb-well); stroke-width: 1.25; pointer-events: none; }

@@ -897,6 +897,40 @@ Continuous MP4 export includes moving clip frames and mixes unmuted audio. The l
 clip finishes before the final hold; looping clips end with the export's configured timeline.
 Video clips belong to Slide mode; Figure canvases continue to support static content.
 
+# Images
+
+An image stack, movie or photograph saved with fluxplot (a `.fluximg` folder) goes on a slide the
+way it goes on a figure. Press **R** or double-click it to open its live board; see
+[Images](../concepts/images.qmd) for the board itself. Two ways make it move.
+
+**A Change.** In **Design** the board sets how the image rests. Choose **Edit after step N** and
+whatever you do on the board becomes that step's Change: scrub time to frame 40 and the step
+walks the frames there; drag a contrast handle and the window glides; zoom the frame and the
+slide zooms in; switch a layer off and it fades. Each gesture is one undo step. Planes step one
+by one; they are never blended unless you ask for it.
+
+A walk through planes is timed by the data: a time axis plays in real time, anything else at
+12 planes a second. The board's step card (beside its console, on a slide only) says what the
+step does and holds the keys for it:
+
+- **Play through** (▶|, or Shift plus a rail's key) walks the image from where it stands to the
+  far end of time (else depth). Hover it to see the walk on the rail first. The Animate panel has
+  the same button, with ▾ for another dimension or direction.
+- **Pace** (¼ ½ 1 2 4 ×) re-times the walk. Typing or dragging the duration yourself makes it
+  yours: the walk is not re-timed again.
+- **Blend planes** (Shift+N) crossfades each plane into the next as it walks.
+
+**Start, Pause and Stop movie.** These play the image along one dimension as a clip does: it runs
+on its own while the slide waits, across later steps, until a Pause or Stop. Start begins at the
+first plane of its range, Pause holds, Stop returns to the step's own plane. How it plays (loop,
+bounce or once, its speed, its range and dimension) is one setting of the image, shown with the
+command in the Animation properties; the step card's loop key cycles the mode. Shift+Space
+starts the movie at the current step.
+
+Space on the board plays a preview and writes nothing. Split channels and Inset make new panels,
+so on a slide they work in Design only. In the Animation properties a Change of an image lists
+what it does, one chip per thing ("t 0.0 s → 5.0 s", "zooms in"); ✕ puts back just that one.
+
 # Export
 
 **Export ▾** offers these formats, each written to the project's `exports/`:

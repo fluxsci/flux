@@ -49,7 +49,8 @@ export function nodeBundleWriter(dir: string): BundleWriteIO {
 
 type Zlib = typeof zlib & {
   zstdCompressSync?: (b: Uint8Array, o?: unknown) => Buffer;
-  zstdDecompressSync?: (b: Uint8Array) => Buffer;
+  zstdCompress?: (b: Uint8Array, o: unknown, cb: (error: Error | null, out: Buffer) => void) => void;
+  zstdDecompressSync?: (b: Uint8Array, o?: unknown) => Buffer;
 };
 
 let cached: Promise<ZstdCodec> | null = null;
@@ -64,16 +65,28 @@ export function nodeZstd(): Promise<ZstdCodec> {
           return new Uint8Array(out.buffer, out.byteOffset, out.byteLength);
         }
       : undefined;
+    // The same compressor on libuv's thread pool (UV_THREADPOOL_SIZE threads, 4 by default). `pledgedSrcSize`
+    // puts the content size in the frame header as the one-shot call does. The stream API still ends some frames
+    // differently (an incompressible 256 KiB chunk gets a separate empty last block: 3 bytes more), so its files
+    // are valid and deterministic but not always byte-identical to `compress`'s: the writer uses it only when a
+    // caller asks for concurrency (the TIFF converter), never for the pinned fixtures.
+    const compressAsync = z.zstdCompress
+      ? (src: Uint8Array, level: number): Promise<Uint8Array> => new Promise((resolve, reject) => {
+          z.zstdCompress!(src, { params: { [zlib.constants.ZSTD_c_compressionLevel]: level }, pledgedSrcSize: src.byteLength }, (error, out) => {
+            if (error) reject(error); else resolve(new Uint8Array(out.buffer, out.byteOffset, out.byteLength));
+          });
+        })
+      : undefined;
     if (z.zstdDecompressSync) {
       return {
-        compress,
+        compress, compressAsync,
         decompress(src) { const out = z.zstdDecompressSync!(src); return new Uint8Array(out.buffer, out.byteOffset, out.byteLength); },
       };
     }
     const { ZSTDDecoder } = await import("three/examples/jsm/libs/zstddec.module.js");
     const dec = new ZSTDDecoder();
     await dec.init();
-    return { compress, decompress: (src, outBytes) => dec.decode(src, outBytes) };
+    return { compress, compressAsync, decompress: (src, outBytes) => dec.decode(src, outBytes) };
   })();
   return cached;
 }

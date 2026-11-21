@@ -201,9 +201,9 @@ parameters, `target` or the current selection) as one Undo step. Posters, `--no-
 
 | Verb (CLI) | MCP tool | What it does |
 |---|---|---|
-| `place-image <figureId\|deckId/slideId> <bundle.fluximg> [--x n --y n --width n --name N --crop '<json>' --view '<json>']` | `place_image` | Copy a `.fluximg` folder into `fig/assets/` once (content already in the project is reused, `reused: true`) and add an image element to a figure or a slide (a bare slide id works too). Canvas px; height follows the image's (or crop's) aspect; without `--width`, one image pixel per canvas px, narrowed to the figure's width (on a slide: to fit the stage). A deck never copies the bundle: it refers to `fig/assets/<id>.fluximg` by id. |
-| `set-image-view <elementId> [--view '<json>'] [--crop '<json>' \| --reset-crop] [--slide deckId/slideId [--beat <beatId>]]` | `set_image_view` | Merge a sparse view patch into the element's stored view and/or set its crop. Pixels are never touched. An image on a slide needs `--slide`; without `--beat` the edit is its Design state, with `--beat` (a step after Design) it is that step's Change (`to.state.view` / `crop`), exactly as "Edit after step" in the app: the step glides the image there. |
-| `image-info <elementId\|assetId>` | `image_info` | Read-only, no rendering: dims with sizes, units and positions, dtype and storage, levels, channels with default windows, min/max and percentiles, layers with object counts and (with a table) their columns (`kind` number/category, `distinct`, `range`), regions, every placement; for an element also its box, crop, stored and resolved view, position in words and export size. |
+| `place-image <figureId\|deckId/slideId> <bundle.fluximg> [--x n --y n --width n --name N --crop '<json>' --view '<json>']` | `place_image` | Copy a `.fluximg` folder into `fig/assets/` once (content already in the project is reused, `reused: true`) and add an image element to a figure or a slide (a bare slide id works too). Canvas px; height follows the image's (or crop's) aspect; without `--width`, one image pixel per canvas px, narrowed to the figure's width (on a slide: to fit the stage). A deck never copies the bundle: it refers to `fig/assets/<id>.fluximg` by id. A `.tif`/`.tiff` path is converted to a bundle first (see TIFF below). |
+| `set-image-view <elementId> [--view '<json>'] [--crop '<json>' \| --reset-crop] [--slide deckId/slideId [--beat <beatId> [--speed <x>] [--blend true\|false]] [--playback '<json>']]` | `set_image_view` | Merge a sparse view patch into the element's stored view and/or set its crop. Pixels are never touched. An image on a slide needs `--slide`; without `--beat` the edit is its Design state, with `--beat` (a step after Design) it is that step's Change (`to.state.view` / `crop`), exactly as "Edit after step" in the app: the step glides the image there. A walk of planes is timed at the data's own pace (a time axis in real time, else 12 planes/s) times `--speed` (default 1, at most 16); `--blend true` crossfades its planes. A Change whose duration was set by hand keeps it. `--playback '{"dim":"t","mode":"loop\|bounce\|once","speed":1,"fps":10,"from":0,"to":40}'` (or `null`) sets how the image plays as a movie once `set-video-track` starts it (Design-level; `to` exclusive). |
+| `image-info <elementId\|assetId\|file.tif>` | `image_info` | Read-only, no rendering: dims with sizes, units and positions, dtype and storage, levels, channels with default windows, min/max and percentiles, layers with object counts and (with a table) their columns (`kind` number/category, `distinct`, `range`), regions, every placement; for an element also its box, crop, stored and resolved view, position in words and export size. |
 
 These three are outside the core MCP toolset: in core mode call them through `flux_verb`
 (`flux_verb {verb:"set_image_view", args:{id:"…", view:{…}}}`), with the MCP parameter names
@@ -258,7 +258,8 @@ all listed at once (an unknown key or layer id, a dimension it lacks, a plane ou
 `to` not after `from`, an unknown colour map, a channel list longer than its channels, an
 `insetOf` that is not another placement of the same image, a `styleBy` on a layer without a table
 or naming a column its table lacks, an opacity column that is not numeric); a crop outside the image;
-`set-image-view` with neither `--view` nor a crop; `--beat` without `--slide`, or on Design. **Warnings** (the edit is made): a scale bar
+`set-image-view` with nothing to change; `--beat` without `--slide`, or on Design; `--speed` / `--blend` without `--beat`, or on a step that
+does not change the image; `--playback` on a figure or with a dimension or range the image lacks. **Warnings** (the edit is made): a scale bar
 on an image without a pixel size (nothing is drawn), a stamp on an image without depth or time,
 a log window whose black point is not above 0 (drawn linear).
 
@@ -268,6 +269,19 @@ Every answer is JSON with `elementId`, `figureId`, `name`, `box`, `crop`, the st
 `copy` (`clone` or `copy`) and `image` (`"2 channels · 31 z · 1,024 × 1,024 · uint16"`). On a slide
 `figureId` is the slide id and the answer adds `deckId`, `slideId` (and with `--beat`, `beatId` and the written
 `trackIds`); a deck holding an image is saved as deck format 0.8.0.
+
+**TIFF.** `place-image <target> data/stack.tif` converts the TIFF into a bundle (in this process) and places
+it like any bundle. With metadata that settles the page order (OME-XML, an ImageJ hyperstack, JSON on every page whose
+keys partition the pages, a shaped description with axis names, or a single page) nothing more is needed. Otherwise it
+REFUSES, listing proposals best first with the flags that choose each; say how the pages are ordered:
+`--dims t,c=2` (dims over the pages, slowest first, fastest last; one size may be `rest`), `--transpose` (file stored
+column-major), `--flip-x`, `--flip-y`, `--pixel-size 0.25 [--unit µm]`, `--dt <s>` or `--rate <Hz>`, `--z-step <µm>`,
+`--nodata <value>` (float images: that value becomes no data), `--lossless`, `--channels a,b`, or a whole answer with
+`--answer '<json>'` (the `answer` of a proposal from `image-info`). `image-info file.tif` converts nothing: it reports
+the structure, `needsAnswer`, and the ranked `proposals` (summary, confidence, reasons, what is still unknown, flags).
+The answer adds `tiff` (`source`, `read` in words, the `answer` used, encoding `notes`). Refused outright, with the
+cause: JPEG / JPEG 2000 / LERC / WebP / JPEG XL / LZMA / CCITT compression, complex or 1-bit samples, palette / CMYK /
+YCbCr images, OME datasets spread over several files, planes over 1 GiB, truncated or damaged files.
 
 ```bash
 "{{FLUX_CLI}}" place-image fig2 plots/neuron_stack.fluximg --width 300 --name "Neuron stack" \
@@ -279,7 +293,12 @@ Every answer is JSON with `elementId`, `figureId`, `name`, `box`, `crop`, the st
 "{{FLUX_CLI}}" set-image-view <elementId> --view '{"projection":null,"channels":[{"range":null},null]}' --reset-crop
 "{{FLUX_CLI}}" render-figure fig2 --png --out /tmp/fig2.png
 "{{FLUX_CLI}}" place-image talk/s3 plots/neuron_stack.fluximg      # onto slide s3 of deck talk
+"{{FLUX_CLI}}" image-info data/movie.tif                           # how would its pages be read?
+"{{FLUX_CLI}}" place-image fig2 data/movie.tif --dims t,c=2 --transpose --pixel-size 0.25 --rate 80
 "{{FLUX_CLI}}" set-image-view <elementId> --slide talk/s3 --beat <beatId> --view '{"index":{"z":30}}'   # step walks the planes
+"{{FLUX_CLI}}" set-image-view <elementId> --slide talk/s3 --beat <beatId> --speed 2 --blend true          # twice the data's pace, blended
+"{{FLUX_CLI}}" set-image-view <elementId> --slide talk/s3 --playback '{"dim":"t","mode":"bounce"}'         # how its movie plays
+"{{FLUX_CLI}}" set-video-track talk s3 <beatId> <elementId> start                                        # the movie starts at that step
 ```
 
 ### Slides (Flux Slide — see `SLIDES.md`)
@@ -294,7 +313,7 @@ Every answer is JSON with `elementId`, `figureId`, `name`, `box`, `crop`, the st
 | `add-slide-model <deck> <s> <source.glb> [--x n --y n --width n --height n --name N --no-poster]` | `add_slide_model` | Import a project-owned GLB and sidecars; returns element/asset IDs and warnings. |
 | `add-turntable <deck> <s> <beat> <element> [--turns n --direction cw\|ccw --duration ms --start ms]` | `add_turntable` | Add a linear, unwrapped model orbit Change; defaults to one clockwise turn over 6000 ms. |
 | `add-video <deck> <s> plots/_videos/clip.mov` | `add_slide_video` | import MP4/MOV, preserving original; optional `--x`, `--y`, `--width`, `--height`, `--muted`, `--loop` |
-| `set-video-track <deck> <s> <beat> <el> start` | `set_video_track` | playback command (`start`, `pause`, `stop`), independent of appearance; `--start ms` offset, after Design |
+| `set-video-track <deck> <s> <beat> <el> start` | `set_video_track` | playback command (`start`, `pause`, `stop`), independent of appearance; `--start ms` offset, after Design. Also an image with a time or depth axis: it plays as a movie (`set-image-view --playback`); stop returns it to the step's own plane |
 | `set-video-settings <deck> <s> <el> --muted true --loop false` | `set_video_settings` | set clip audio/loop options |
 | `add-beat <deck> <s> [--label L]` · `set-animation <deck> <s> <beat> --target E [--preset P …]` | `add_beat` · `set_animation` | build timeline + appearance tracks (drawOn/writeOn/fades, trim windows) |
 | `set-plot-view <figureId\|deckId/slideId> <elementId> [--x-min N --x-max N --y-min N --y-max N --x-scale linear\|log --y-scale linear\|log --y2-min N --y2-max N --y2-scale linear\|log --reset] [--beat ID]` | `set_plot_view` | save a data-unit Axis view (lines, points, bars, cells and hexagons re-project; the viewed axis is re-ticked; `--y2-*` / `--x2-*` address a twin value axis); a deck beat writes a Change, reset restores generated axes |

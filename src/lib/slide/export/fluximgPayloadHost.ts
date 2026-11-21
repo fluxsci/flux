@@ -103,7 +103,9 @@ export function payloadImageHost(payload: ExportPayload, options: { capture?: bo
     private resyncAt = 0;
     private stall: ReturnType<typeof setTimeout> | undefined;
     private waiters: Array<() => void> = [];
-    constructor(private canvas: HTMLCanvasElement) { surfaces.add(this); }
+    constructor(readonly canvas: HTMLCanvasElement) { surfaces.add(this); }
+    /** No GL context to make: a clip surface is a <video> and the canvas stays empty. */
+    prepare(): void {}
 
     private ensureVideo(): HTMLVideoElement {
       if (this.video) return this.video;

@@ -25,6 +25,17 @@ export const GLYPHS = {
   colorbar: `<path d="M1.8 4.6h12.4v4.6H1.8z"/><path class="f" d="M8 4.6h6.2v4.6H8z"/><path d="M2 11.6v1.8M8 11.6v1.8M14 11.6v1.8"/>`,
   layers: `<path d="M8 2.2l6 3.1-6 3.1-6-3.1z"/><path d="M2 8.4l6 3.1 6-3.1M2 11.2l6 3.1 6-3.1" class="q"/>`,
   play: `<path class="f" d="M5.2 3.2v9.6l8-4.8z"/>`,
+  // Play through: a walk to the far end of the stack (a play mark against its end stop).
+  through: `<path class="f" d="M2.6 3.4v9.2l7.2-4.6z"/><path d="M12.6 3.2v9.6" stroke-width="2"/>`,
+  // Blend planes: two planes over each other, the one behind showing through.
+  blend: `<path class="q f" d="M2 4.4h8.2v8.2H2z"/><path d="M5.8 2h8.2v8.2H5.8z"/>`,
+  // The movie keys: start, pause, stop.
+  pause: `<path class="f" d="M4.4 3.6h2.7v8.8H4.4zM8.9 3.6h2.7v8.8H8.9z"/>`,
+  halt: `<path class="f" d="M4 4h8v8H4z"/>`,
+  // How a movie runs: round and round, back and forth, once.
+  loop: `<path d="M12.4 6.4a4.6 4.6 0 10.3 3.2"/><path d="M13.4 3.2v3.4H10"/>`,
+  bounce: `<path d="M2.4 6h10.2M10.4 3.6L12.8 6l-2.4 2.4"/><path d="M13.6 10.4H3.4M5.6 8L3.2 10.4l2.4 2.4"/>`,
+  once: `<path d="M2.4 8h9.6M9.4 5.2L12.2 8l-2.8 2.8"/><path d="M13.8 4.4v7.2" stroke-width="1.6"/>`,
   stop: `<path class="f" d="M4.4 3.6h2.7v8.8H4.4zM8.9 3.6h2.7v8.8H8.9z"/>`,
   // Planes laid onto one.
   project: `<path class="q" d="M3.2 3h9.6M3.2 5.8h9.6M3.2 8.6h9.6"/><path d="M2 12.6h12" stroke-width="2.2"/>`,

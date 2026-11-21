@@ -51,6 +51,7 @@ import { removeTracks, writeStepState } from "./ops";
 import { compileSlide, evaluateSlideState, type SlideFrame } from "./compile";
 import { plotManifests } from "../plot/store";
 import { scene3dManifests } from '../model3d/store';
+import { fluximgManifests } from "../fluximg/store";
 import { diffState } from "./tween";
 import { applyTextLayout } from "../text";
 import { deckToProject, projectIntoDeck, DECK_CANVAS_ID, slideDefaultBackground } from "./deckProject";
@@ -556,7 +557,8 @@ export function registerSlideEditAdapter(onUserEdit?:()=>void): () => void {
         // WP 3.2: a dependent's solved geometry is never captured (userDiff): dragging its driver at a step writes no track for it
         if (bi < 1 || unborn.has(el.id) || !userDiff(diffState(previous, el), el)) continue;
         compiled ??= compileSlide({ ...slide, elements: [...previousElements.values()].map(e => baselines.get(e.id) ?? e) }, o.stage, {animStyles: o.animStyles, plotManifest: id => get(plotManifests)[id], modelManifest: id => get(scene3dManifests)[id]});
-        writeStepState(o, sid!, slide.beats[bi].id, el, compiled.preState(el.id, bi) ?? base);
+        // an image's walk is timed by the pace rule inside the op; it needs the image's manifest (the same lookup the compiler takes)
+        writeStepState(o, sid!, slide.beats[bi].id, el, compiled.preState(el.id, bi) ?? base, el.type === "fluximg" ? { fluximgManifest: id => get(fluximgManifests)[id] } : {});
         changed = true;
       }
       // an attachment set (or freed) at a step holds from Design on: the Design state (the baselines) takes its solve now, so going back to

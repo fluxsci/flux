@@ -97,6 +97,7 @@
   import { modelOrbitBlocked } from "../../../lib/model3d/orbitSession";
   import { scene3dGeneration, scene3dManifests } from "../../../lib/model3d/store";
   import { fluximgManifests, fluximgIssues } from "../../../lib/fluximg/store";
+  import { fluximgLive } from "../../../lib/fluximg/live/session";
   import { getAssetData } from "../../../lib/assets";
   import { assetDisplaySize } from "../../../lib/ops";
   import { sendSlideToCanvas, listFigCanvases } from "../../../lib/project/convert";
@@ -1267,8 +1268,9 @@
     if (refused.length) pushToast("error", [...new Set(refused)].join("; "));
     else if (!made.length) pushToast("info", "Nothing to return: the selection already looks that way.");
   }
-  function animationAction(action:"appear"|"appear-from"|"change"|"ghost"|"become"|"emphasize"|"disappear"|"videoStart"|"videoPause"|"videoStop"|"turntable"|"focus"|"unfocus"|"restore-design"|"restore-previous") {
+  function animationAction(action:"appear"|"appear-from"|"change"|"ghost"|"become"|"emphasize"|"disappear"|"videoStart"|"videoPause"|"videoStop"|"turntable"|"playThrough"|"focus"|"unfocus"|"restore-design"|"restore-previous", walk?: { dim: string; end: "last" | "first" }) {
     stopPreview(); cancelBecome();
+    if(action==="playThrough"){addImageWalkAction(walk);return;}
     if(action==="restore-design"||action==="restore-previous")restoreAction(action==="restore-previous");
     else if(action==="focus"||action==="unfocus")focusAction(action==="unfocus");
     else if(action==="videoStart" || action==="videoPause" || action==="videoStop")addVideoAction(action);
@@ -1446,6 +1448,31 @@
     activeBeat.set(bi); selTrackIds.set(created); inspectorTab = "animation";
     if (retimedMs) pushToast("info", `Turntable joined this step's Change — timing set to ${+(retimedMs / 1000).toFixed(2)} s, soft start`);
   }
+  /** Play through (stage 2), the Turntable of images: at this step (at Design, the first step, made if missing), each selected
+   *  image walks from where it stands to the far end of a dimension at the data's own pace (`slideOps.addImageWalk`). */
+  function addImageWalkAction(walk?: { dim: string; end: "last" | "first" }) {
+    const sid = $activeFigureId, ids = new Set(selectionTargets());
+    if (!sid || !activeSlide || $partSelections.length) return;
+    let bi = Math.max(1, $activeBeat); const created: string[] = [], refused: string[] = [];
+    const manifestFor = (id: string) => get(fluximgManifests)[id];
+    commitDeckLive(deck => {
+      const slide = slideOps.slideById(deck, sid); if (!slide) return;
+      if (!slide.elements.some(e => e.type === "fluximg" && ids.has(e.id))) return;
+      if (slide.beats.length < 2) slideOps.addBeat(deck, sid, { label: "Step 1", advance: "click" });
+      bi = Math.min(bi, slide.beats.length - 1);
+      for (const element of slide.elements) if (element.type === "fluximg" && ids.has(element.id)) {
+        const m = manifestFor(element.assetId);
+        const n = walk && m ? m.pixels.shape[m.pixels.dims.indexOf(walk.dim)] : 0;
+        try {
+          const track = slideOps.addImageWalk(deck, { slideId: sid, beatId: slide.beats[bi].id, target: element.id, fluximgManifest: manifestFor,
+            ...(walk ? { dim: walk.dim, ...(n > 0 ? { to: walk.end === "first" ? 0 : n - 1 } : {}) } : {}) });
+          if (track?.id) created.push(track.id);
+        } catch (error) { refused.push(errMsg(error)); }
+      }
+    });
+    activeBeat.set(bi); selTrackIds.set(created); inspectorTab = "animation";
+    if (refused.length) pushToast("info", [...new Set(refused)].join("; "));
+  }
   function addVideoAction(preset: "videoStart" | "videoPause" | "videoStop") {
     const sid = $activeFigureId, selected = new Set(selectionTargets());
     if (!sid || !activeSlide) return;
@@ -1458,9 +1485,10 @@
       bi = Math.min(bi, slide.beats.length - 1);
       const beat = slide.beats[bi];
       for (const element of slide.elements) {
-        if (element.type !== "video" || !selected.has(element.id)) continue;
+        // a video, or an image that plays as a movie (stage 2: the same three commands)
+        if ((element.type !== "video" && element.type !== "fluximg") || !selected.has(element.id)) continue;
         const action = preset === "videoStart" ? "start" : preset === "videoPause" ? "pause" : "stop";
-        if (slideOps.setVideoTrack(deck, sid, beat.id, element.id, action)) {
+        if (slideOps.setVideoTrack(deck, sid, beat.id, element.id, action, { fluximgManifest: id => get(fluximgManifests)[id] })) {
           const track = beat.tracks.find(track => track.target === element.id && track.preset === preset);
           if (track?.id) created.push(track.id);
         }
@@ -1564,6 +1592,8 @@
     const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (e.target as HTMLElement)?.isContentEditable;
     // The Plots rail owns its unmodified keys (F5 still presents); chords go on to the keymap.
     if (plotsRailOwnsKey(e) && e.key !== "F5") return;
+    // An image's live board (open on a slide too, stage 2) owns the unmodified keys; its own window listener handles them.
+    if (get(fluximgLive) && !typing && !(e.metaKey || e.ctrlKey)) return;
     const inAnimation = !!(e.target as HTMLElement)?.closest?.('[data-command-scope="animation"]');
     if (inAnimation) {
       const mod=e.metaKey||e.ctrlKey;

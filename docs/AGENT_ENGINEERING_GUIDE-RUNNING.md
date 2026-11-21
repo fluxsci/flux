@@ -4146,8 +4146,12 @@ opens with a header that states its law. Read those before changing one. The par
   the element's visible part and the element's vectors on top; a press on the image draws an
   inset box (`inset` in hand), pulls contrast (a channel in hand), or moves the image under its
   frame (the frame in hand, or simply zoomed in). R (`keyboard.ts` `openSelectedFluximgLive`)
-  and double-click (`Canvas.svelte`) open it through `fluximgLiveUnavailable` (figures only,
-  unlocked and shown). The map takes its picture from the one still function
+  and double-click (`Canvas.svelte`) open it through `fluximgLiveUnavailable` (figures and slides,
+  unlocked and shown). **On a slide** (stage 2) its edits ride the slide's capture: Design sets the resting
+  view, "Edit after step N" writes that step's Change; the play key is a PREVIEW (`session.fluximgPreview`,
+  a session-only plane over the driver and the playhead: no `mutate`, no undo, no Change); Split and Inset
+  are Design-only; the "this step" card (`live/step.ts`, `BoardStep.svelte`, placed by `boardLayout` in the
+  console's column, never built off a slide) authors through `commitDeckLive` (one undo per press). The map takes its picture from the one still function
   (`fluximgService().still`, slot `live-navigator`, keyed by the resolved view, never by the
   crop) and waits while `fluximgLiveBusy`. `histogramPath` defaults to the `span` scale: the log
   of the count between the rarest occupied bin and the commonest. `railTicks` ticks an evenly
@@ -6420,8 +6424,9 @@ be a few words ("Manuscript Check."), detail after it. The gate reads the BUNDLE
   folder (`place.fluximgResolvedAsset`); a deck never owns one and both the fold and `commitDeckLive` keep
   image assets external by KIND; "Edit after step" writes through `slideOps.writeStepState`, the op
   `set-image-view --slide --beat` shares; exports still draw the stand-in with `FLUXIMG_NOT_IN_SLIDES`
-  until the export package lands); TIFF / microscope-file import
-  (stage 2: the TS reference writer exists for it); tiles read on demand for huge planes (the
+  until the export package lands); TIFF import IN THE APP (the headless core is built: `src/lib/tiff/`,
+  `flux-core/tiffConvert.ts`, `place-image` / `image-info` with a `.tif`; the drop/dialog route, the child
+  process and the asking surface are the stage-2 W9 package); tiles read on demand for huge planes (the
   live driver reads whole planes of a level, so a very large mosaic zoomed to its own pixels is
   read whole); block-summary projections in the live view (`project.buildBlocks` /
   `projectRange` exist and are gated, nothing calls them yet: a projection reads every plane of
@@ -13801,3 +13806,43 @@ against new")
   redesigned surface, in every view it can host, before looking further afield.
 - The X-ray's final cost was taken while another job held twelve cores: interleave the two builds, run each
   side twice, and read the spread between the two runs of ONE build as the noise before reading a difference.
+
+### 2026-11-21 — Direct TIFF import, the core (Claude Opus 5.5, `s2/tiff`, fluximg stage 2 W3)
+**Work:** A pure TypeScript TIFF reader (`src/lib/tiff/`: classic + BigTIFF both byte orders, batched IFD walk,
+LZW / PackBits / predictors 2 and 3, coalesced page reads, ImageJ / OME-XML / shaped JSON / per-page JSON readers,
+probe, ranked proposals, answer validation, remembered rules, the `PixelSource` adapter), writer progress / cancel /
+opt-in async compression / opt-in preview.png and automatic regions, `flux-core/tiffConvert.ts` (staging folder,
+validator, one rename, the app's content id), and `place-image` / `image-info` taking a `.tif` with no new verb.
+Gate `scripts/verify-tiff.ts` (pure; `VERIFY_TIFF_SLOW=1` adds a 1 GB child-process memory check).
+**Learnings:**
+- Node's async `zlib.zstdCompress` does not always give `zstdCompressSync`'s bytes, even with `pledgedSrcSize`
+  (an incompressible 256 KiB chunk gains a 3-byte empty last block). Both are valid and deterministic, but the
+  writer's async window is OPT-IN (`concurrency`), so the pinned fixtures and every older caller keep their bytes.
+  A window also delays the shard decision by its length: `verify-fluximg-format` pins "the first shard is written
+  after at most 9 planes" for the default.
+- Parallel compression pays only when compression dominates: 2x on lossless noisy float32 (205 → 419 MB/s), nothing
+  on compact (linear16) or compressible data, where the per-pixel JS (transpose, stats, encoding) is the cost.
+- Never let metadata-free files convert silently: inference ranks guesses `low` and `place-image` refuses with the
+  proposals and the flags that pick each; `ready` needs OME, ImageJ, per-page JSON that partitions the pages, shaped
+  JSON with axis names, a single plane, or a remembered rule.
+- A converted TIFF's element records the TIFF as `source`, `frozen: true` (the watcher must not try to import a TIFF
+  as a bundle), with the content id that slide-only dedupe reads.
+
+### 2026-11-21 — Image animation on slides: authoring and movies (Claude Opus 5.5, `s2/authoring`, fluximg stage 2 W5+W6)
+**Work:** The live board opens on slides (preview playback writes nothing; Split/Inset Design-only; the "this step"
+card with Play through, pace, Blend, Start/Pause/Stop movie and loop/bounce/once). THE PACE RULE lives in
+`slideOps.writeStepState` (both engines): a Change that walks planes is written linear, timed at the data's own
+rate / speed, `params.pace` = speed, while its timing is still the walk's own (just captured, already paced, or
+the plain authored Change timing); `setTrack` / `setTrackCurve` / the cascade / the nudge drop the pace (a hand
+re-time). `addImageWalk` is the Turntable of images. Media: the three video presets on an image with a walkable
+dimension, `FluximgElement.playback` (Design-level), `mediaTimeline.sampleImagePlayback` on the video clock's
+fold, `player/fluximgMedia.ts` joined to the video controller only for slides whose images take movie commands,
+driving W2's binding hook (`setIndexOverride` + `flush`). Gates: `verify-fluximg-slide-authoring` (pure, incl. a
+digest of decks WITHOUT images pinned to the pre-change base) and `verify-fluximg-slide-authoring-gui`.
+**Learnings:**
+- SlideMode's window `keydown` listener is registered before any board mounts, so it runs FIRST: the board's
+  `stopImmediatePropagation` cannot stop it. SlideMode now yields unmodified keys while `fluximgLive` is set.
+- A digest of compile output must fix every fresh id: `createDeck` mints slide, beat AND starter-element ids.
+- `describeViewChange` is pinned by deep equality: per-aspect data for `dropViewChange` travels in a private
+  parallel list (`describeAspects`), not as new fields on `ViewChange`.
+

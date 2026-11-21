@@ -34,6 +34,17 @@ export interface FluximgLiveState {
 export const fluximgLive = writable<FluximgLiveState | null>(null);
 
 /**
+ * On a slide, the board's play key is a PREVIEW (stage 2): this session-only plane overrides `index[dim]` for the
+ * live picture and the rail's playhead and writes nothing (no project edit, no undo step, no step Change). Dropped
+ * at stop, on Esc and when the board closes. In a figure it is never set: playback writes the view as it always has.
+ */
+export const fluximgPreview = writable<{ dim: string; index: number } | null>(null);
+/** The board is on a slide (the slide editor holds the store): what the board writes becomes Design or a step's Change. */
+export const liveOnSlide = (): boolean => storeTenant() === "slide";
+/** Set by the playback code: stops a running preview (an edit made while it runs starts from the view, not the preview). */
+export const previewHooks: { stop: (() => void) | null } = { stop: null };
+
+/**
  * True while a gesture is streaming changes (a scrub, a drag): the element at rest postpones its new still until
  * this clears, so the decode workers serve the live view first.
  */
@@ -132,6 +143,7 @@ export function cancelLiveEdit(): void {
 function run(key: string, settleAfter: number, apply: () => void): void {
   const live = get(fluximgLive);
   if (!live) return;
+  if (get(fluximgPreview)) previewHooks.stop?.();
   if (session && gesture !== key) settleLiveEdit();
   if (!session) {
     session = editSession({ handoff: "finish", terminalOnConflict: true, onSettle: () => { session = null; gesture = ""; fluximgLiveBusy.set(false); } });
@@ -166,9 +178,14 @@ export function liveElement(): FluximgElement | null {
   return found && found.element.type === "fluximg" ? found.element : null;
 }
 
-/** Why the live view cannot open on this element right now, or null when it can. */
+/**
+ * Why the live view cannot open on this element right now, or null when it can. In a figure and on a slide alike
+ * (stage 2): on a slide its edits go through the same `mutate`, so in Design they set the resting view and at
+ * "Edit after step N" the slide's capture turns them into that step's Change.
+ */
 export function fluximgLiveUnavailable(id: string): string | null {
-  if (storeTenant() !== "figure") return "Images are live in figures only";
+  const tenant = storeTenant();
+  if (tenant !== "figure" && tenant !== "slide") return "Images are live in figures and slides only";
   const found = findElement(get(project), id);
   if (!found || found.element.type !== "fluximg") return "Select an image first";
   if (!selectionTargets(found.figure, new Set([id]), { editable: true }).length) return "Unlock and show the image to open it";
@@ -194,6 +211,7 @@ export function closeFluximgLive(): void {
   fluximgReadout.set(null);
   fluximgTip.set(null);
   fluximgLiveProblem.set("");
+  fluximgPreview.set(null);
   fluximgLive.set(null);
 }
 

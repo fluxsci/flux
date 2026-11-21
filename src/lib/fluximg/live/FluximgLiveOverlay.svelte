@@ -28,7 +28,7 @@
   import { channelInHand, defaultArmed, dragContrast, makeInset, moveInset, panFrame, setFurnitureCorner, type FurnitureSpot } from "./actions";
   import { LiveDriver, type FrameInfo } from "./driver";
   import { fluximgTables, needTable, objectCells, tableOf } from "./objectTables";
-  import { cancelLiveEdit, fluximgFrame, fluximgHover, fluximgLive, fluximgLiveProblem, fluximgReadout, fluximgStylePreview, fluximgTip, liveArm, livePointer, liveSampler, setLive, settleLiveEdit } from "./session";
+  import { cancelLiveEdit, fluximgFrame, fluximgHover, fluximgLive, fluximgLiveProblem, fluximgPreview, fluximgReadout, fluximgStylePreview, fluximgTip, liveArm, livePointer, liveSampler, setLive, settleLiveEdit } from "./session";
 
   let { element, left, top, zoom, beginPan }: { element: FluximgElement; left: number; top: number; zoom: number; beginPan: () => void } = $props();
 
@@ -139,7 +139,9 @@
   let waiting: ReturnType<typeof setTimeout> | undefined;
   $effect(() => {
     if (!driver || !rv || !visCrop || out.w < 1 || out.h < 1) return;
-    driver.set({ view: rv, crop: visCrop, outWidth: out.w, outHeight: out.h });
+    // On a slide the play key previews: a session-only plane over the view's own (nothing is written).
+    const pv = $fluximgPreview, view = pv && rv.index[pv.dim] !== pv.index ? { ...rv, index: { ...rv.index, [pv.dim]: pv.index } } : rv;
+    driver.set({ view, crop: visCrop, outWidth: out.w, outHeight: out.h });
     clearTimeout(waiting);
     waiting = setTimeout(() => fluximgFrame.update((f) => ({ ...f, sharp: false, pending: Math.max(1, f.pending) })), 160);
   });

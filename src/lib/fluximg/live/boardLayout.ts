@@ -30,6 +30,8 @@ export interface BoardNeeds {
   console: { w: number; h: number };
   /** The layers card, when the image has layers: its width, and the height it would like. */
   layers: { w: number; h: number } | null;
+  /** The "this step" card (only on a slide): its width and measured height. It stands in the console's column, under it. */
+  step?: { w: number; h: number } | null;
 }
 
 export interface BoardLayout {
@@ -42,6 +44,8 @@ export interface BoardLayout {
   console: Box & { side: Side | "below" };
   /** `under`: it stands under the console, in the console's column. `h` is the room it has. */
   layers: (Box & { side: Side | "below"; under: boolean }) | null;
+  /** The "this step" card: directly under the console (beside it when the console stands under the image). Null off a slide. */
+  step: (Box & { side: Side | "below" }) | null;
   /** True when the canvas had no room and something stands over the image. */
   over: boolean;
 }
@@ -119,13 +123,15 @@ export function boardLayout(n: BoardNeeds): BoardLayout {
   const underY = (n.rows > 0 && rowsAt === "below" ? rowsY + rowsH : stage.y + stage.h) + gap;
 
   const cw = n.console.w, ch = n.console.h, lw = n.layers?.w ?? 0, lh = n.layers?.h ?? 0;
+  // The step card rides with the console (its column, or its row under the image): without one, nothing below changes.
+  const cardW = n.step?.w ?? 0, cardH = n.step ? n.step.h + gap : 0, cardX = n.step ? cardW + gap : 0;
   const widthOf = (item: Item): number => (item === "depth" ? depthW : item === "console" ? cw : lw);
   const need = (items: Item[]): number => items.reduce((s, i) => s + widthOf(i) + gap, 0);
   /** How far an arrangement falls short of fitting, in px (0 = it fits). */
   const shortfall = (a: Arrangement): number => {
     let s = Math.max(0, need(a.left) - freeLeft) + Math.max(0, need(a.right) - freeRight);
     if (a.stack) s += Math.max(0, ch + gap + Math.min(lh, layersMinH) - ah);
-    if (a.below) s += Math.max(0, underY + Math.max(ch, n.layers ? Math.min(lh, layersMinH) : 0) - ab) + Math.max(0, cw + (n.layers ? gap + lw : 0) - aw);
+    if (a.below) s += Math.max(0, underY + Math.max(ch, n.layers ? Math.min(lh, layersMinH) : 0) - ab) + Math.max(0, cw + cardX + (n.layers ? gap + lw : 0) - aw);
     return s;
   };
   const options = arrangements(n.depth, !!n.layers, stage.w >= BOARD.wide * stage.h);
@@ -153,21 +159,26 @@ export function boardLayout(n: BoardNeeds): BoardLayout {
     for (const item of chosen.left) { x -= widthOf(item); xs.set(item, { x, side: "left" }); x -= gap; }
   }
 
-  let consoleBox: BoardLayout["console"], layersBox: BoardLayout["layers"] = null;
+  let consoleBox: BoardLayout["console"], layersBox: BoardLayout["layers"] = null, stepBox: BoardLayout["step"] = null;
   if (chosen.below) {
     // Side by side under the image, from its left edge, kept inside the canvas.
-    const total = cw + (n.layers ? gap + lw : 0);
+    const total = cw + cardX + (n.layers ? gap + lw : 0);
     const x = clamp(stage.x, ax, ar - total), y = Math.min(underY, Math.max(ay, ab - Math.min(ch, ah)));
     consoleBox = { x, y, w: cw, h: Math.max(0, Math.min(ch, ab - y)), side: "below" };
-    if (n.layers) layersBox = { x: x + cw + gap, y, w: lw, h: Math.max(0, Math.min(lh, ab - y)), side: "below", under: false };
+    if (n.step) stepBox = { x: x + cw + gap, y, w: cardW, h: Math.max(0, Math.min(n.step.h, ab - y)), side: "below" };
+    if (n.layers) layersBox = { x: x + cw + cardX + gap, y, w: lw, h: Math.max(0, Math.min(lh, ab - y)), side: "below", under: false };
   } else {
     const at = xs.get("console")!;
     // A console with layers under it stands as one block: the layers card takes what is left below (it scrolls).
-    const block = chosen.stack ? Math.min(ah, ch + gap + lh) : Math.min(ch, ah);
+    // The step card stands between them; the console gives it room (the console scrolls inside).
+    const block = chosen.stack ? Math.min(ah, ch + cardH + gap + lh) : Math.min(ch + cardH, ah);
     const y = clamp(stage.y, ay, ab - block);
-    consoleBox = { x: at.x, y, w: cw, h: Math.min(ch, ah), side: at.side };
+    const consoleH = n.step ? Math.max(0, Math.min(ch, ah - cardH)) : Math.min(ch, ah);
+    consoleBox = { x: at.x, y, w: cw, h: consoleH, side: at.side };
+    // The edge nearest the image lines up with the console's.
+    if (n.step) stepBox = { x: at.side === "left" ? at.x + cw - cardW : at.x, y: y + consoleH + gap, w: cardW, h: n.step.h, side: at.side };
     if (n.layers && chosen.stack) {
-      const ly = y + Math.min(ch, ah) + gap;
+      const ly = y + consoleH + cardH + gap;
       // The edge nearest the image lines up with the console's.
       layersBox = { x: at.side === "left" ? at.x + cw - lw : at.x, y: ly, w: lw, h: Math.max(0, Math.min(lh, ab - ly)), side: at.side, under: true };
     } else if (n.layers) {
@@ -182,7 +193,7 @@ export function boardLayout(n: BoardNeeds): BoardLayout {
   const over = !fits || rowsAt === "over";
   if (over && rows.length) {
     let x0 = stage.x, x1 = stage.x + stage.w;
-    for (const b of [consoleBox, layersBox, depth]) {
+    for (const b of [consoleBox, layersBox, stepBox, depth]) {
       if (!b || b.side === "below") continue;
       const meets = rows.some((r) => r.y < b.y + b.h && r.y + r.h > b.y);
       if (!meets) continue;
@@ -192,5 +203,5 @@ export function boardLayout(n: BoardNeeds): BoardLayout {
     if (x1 - x0 >= 120) for (const r of rows) { r.x = x0; r.w = x1 - x0; }
   }
 
-  return { stage, depth, rows, rowsAt, console: consoleBox, layers: layersBox, over };
+  return { stage, depth, rows, rowsAt, console: consoleBox, layers: layersBox, step: stepBox, over };
 }
