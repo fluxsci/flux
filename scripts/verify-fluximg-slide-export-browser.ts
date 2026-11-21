@@ -337,6 +337,36 @@ try {
     h.ok(!!before && after === before, `no encoder: the image stays the step's still and its stamp the step's own plane (${before} -> ${after})`);
   }
 
+  // Review B4 in the exported deck: where a step's camera rests zoomed in on an image, the player asks for the still at
+  // the zoom's resolution (crop.zoomedStillScale, the rule the export wrote that step's still with) and shows it.
+  {
+    h.section("a camera step zoomed in on an image shows the zoomed still (review B4)");
+    const { imageStillScale } = await import("../src/lib/slide/imageExport");
+    await P.slidesCore.mutateDeck(P.root, "talk", "fixture", (d: any) => {
+      const s = d.slides[0], e = s.elements.find((x: any) => x.type === "fluximg" && x.id !== "blowout");
+      s.elements = s.elements.filter((x: any) => x.id !== "blowout");
+      // a 16x12 box over the 64x48 crop: 2x draws 32x24, the camera's 4x asks for the crop's own 64x48
+      Object.assign(e, { x: 300, y: 170, width: 16, height: 12, view: { index: { t: 3 } } }); delete e.crop; delete e.playback;
+      s.beats = [s.beats[0], { id: "zc", tracks: [{ id: "cam", target: "@camera", preset: "camera", start: 0, duration: 400, to: { x: 308, y: 176, zoom: 4 } }] }];
+    });
+    const zdeck = await P.slidesCore.loadDeck(P.root, "talk");
+    const zslide = zdeck.slides[0], zc = compileSlide(zslide, zdeck.stage, {});
+    const zel = zslide.elements.find((x: any) => x.type === "fluximg") as any;
+    const at = (step: number) => { const f = zc.sample(step); const e = f.elements.find((x: any) => x.id === zel.id) as any; return { e, scale: imageStillScale(manifest, e, f.camera, zdeck.stage) }; };
+    const z1 = at(1), z0 = at(0);
+    const out = await P.slidesCore.exportDeck(P.root, "talk", { refreshSources: false, out: path.join(P.scratch, "zoom.html") });
+    const payload = JSON.parse((await fs.readFile(out.path, "utf8")).split('id="flux-payload">')[1].split("</script>")[0].replace(/\\u003c/g, "<"));
+    const refOf = (x: { e: any; scale: number }) => imageStillRef(assetId, fluximgStillRequest(x.e, asset, manifest, x.scale).key);
+    h.ok(z1.scale === 4 && z0.scale === 2 && !!payload.assets[refOf(z1)] && !!payload.assets[refOf(z0)], `the export wrote step 0's still at 2x and the zoomed step's at ${z1.scale}x`);
+    await page.goto(pathToFileURL(out.path).href); await page.waitForFunction("!!window.fluxDeck?.readyMedia"); await page.evaluate("window.fluxDeck.readyMedia()");
+    const href = () => page.evaluate(`(() => { const s = document.querySelector('[data-slide-fluximg-root="${zel.id}"] [data-fluximg-still]'); return s && s.style.display !== 'none' ? s.querySelector('image')?.getAttribute('href') ?? '' : ''; })()`);
+    const h0 = await href();
+    await page.keyboard.press("ArrowRight"); await new Promise((r) => setTimeout(r, 800));
+    const h1 = await href();
+    h.ok(h0 === payload.assets[refOf(z0)], "before the camera step the image shows the 2x still");
+    h.ok(h1 === payload.assets[refOf(z1)] && h1 !== h0, "where the camera rests at zoom 4 it shows the still written for that zoom");
+  }
+
   h.section("console and CSP");
   h.eq(await page.evaluate("window.__csp ?? []").catch(() => []), [], "no CSP violation (no blocked resource)");
   h.eq(errors(page), [], "no console errors");
