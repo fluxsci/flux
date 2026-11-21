@@ -73,7 +73,7 @@ import { cueEnd } from "../video";
 import { isVideoCommand, type VideoEvent } from "../mediaTimeline";
 import { createVideoController } from "./media";
 import { createModel3dController, flushSlideModels } from "./model3d";
-import { createFluximgController, flushSlideFluximgs, fluximgPartIdOf, fluximgPartNode, fluximgPartNodes, fluximgPartsLookup, imageToBox, isFluximgPartIndex, partIndexFromTexts, createFluximgMovieController, joinMedia, slideMovieTargets } from "../imageSeam";
+import { createFluximgController, flushSlideFluximgs, fluximgShownCrop, fluximgPartIdOf, fluximgPartNode, fluximgPartNodes, fluximgPartsLookup, imageToBox, isFluximgPartIndex, partIndexFromTexts, createFluximgMovieController, joinMedia, slideMovieTargets } from "../imageSeam";
 import type { FluximgPartsLookup } from "../../fluximg/parts";
 import { imageStaggerCoordinates } from "../compile";
 import { imageObjectStageOutlines } from "../targetGeometry";
@@ -577,7 +577,26 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       const imagePart = imageIds.size > 0 && imageIds.has(track.target) && hasPartBinding(track);
       if (imagePart && nodeAnims.some((na) => na.keyframes.some((k) => typeof k.transform === "string" && k.transform.includes("px")))) {
         const el = transformPreState(slide, track.target, bi), index = el?.type === "fluximg" ? imagePartsLookup(opts)?.(el.assetId) : undefined;
-        if (el?.type === "fluximg" && index) { const scale = imageToBox(index.manifest, el.crop, el); for (const na of nodeAnims) na.keyframes = imageUnits(scale, na.keyframes); }
+        if (el?.type === "fluximg" && index) {
+          const scale = imageToBox(index.manifest, el.crop, el);
+          // A Change of this image's crop in the same step changes its pixel scale while the effect plays: the lift then
+          // follows the crop frame by frame (the stage px stay the authored ones), read from the crop the image shows.
+          const cropMoves = live && cue.tracks.some((o) => !o.track.disabled && o.track.target === track.target && o.track.preset === "transform" && !!o.track.to?.state && "crop" in o.track.to.state);
+          for (const na of nodeAnims) {
+            na.keyframes = imageUnits(scale, na.keyframes);
+            if (!cropMoves || na.sample) continue;
+            let root: HTMLElement | null | undefined;
+            const base = frameSampler({ keyframes: na.keyframes, ease: ct.ease, transient: na.transient } as Spec);
+            na.sample = (raw) => {
+              const frame = base(raw);
+              root ??= cameraLayer.querySelector<HTMLElement>(`[data-slide-fluximg-root="${CSS.escape(track.target)}"]`);
+              const crop = root ? fluximgShownCrop(root) : null;
+              if (!crop) return frame;
+              const now = imageToBox(index.manifest, crop, el);
+              return imageUnits([now[0] / scale[0], 0, 0, now[3] / scale[3]], [frame])[0];
+            };
+          }
+        }
       }
       const n = nodes.length;
       const from = track.stagger?.from ?? "start";
