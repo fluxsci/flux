@@ -52,6 +52,7 @@ flux render-figure fig1 --png --out /tmp/fig1.png    # render it to look at
 flux restyle fig1 control.line --stroke '#205EA6'    # restyle one part (survives regeneration)
 flux set-series-color fig1 control '#205EA6'         # one colour for a whole series + its legend swatch
 flux get-plot-data fig1 --series control --limit 50  # the plot's DATA: exact x/y, bins, stats, brackets
+flux export-image-movie img1 --out stack.mp4         # an image stack's movie as an MP4 (PowerPoint, Keynote)
 flux cite-doi 10.1038/nature12373                    # fetch a reference into the project
 flux check                                           # Manuscript Check: broken refs, figure order, TODOs…
 flux compile --to pdf                                # compile the manuscript via Quarto

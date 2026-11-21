@@ -90,6 +90,13 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   `delete-element` now takes an element off a slide, Update from source works on a slide, a
   slide preset holding an image is refused by name in a project that does not have the image, and
   `set-track --stagger-by column:<name>` orders an image's objects by a column.
+- **An image's movie as a file.** Beside each rail's Play key on the image's board, **Movie as
+  MP4** (Shift+R) writes what Play plays as an H.264 video for PowerPoint, Keynote, a browser or a
+  journal's supplement: the image as drawn, with its layers and annotations and the time stamp
+  advancing, at the data's own rate. Hover it to see the frames, length and size it would write;
+  while it writes, its ring fills and the board stays live; press it again to stop. PDF and
+  PowerPoint exports, which carry an image movie as a still, now say so and name the key. Agents
+  use `export-image-movie`.
 - **TIFF files come in directly.** Drop a `.tif` on a figure or a slide, paste it, import it,
   or place it from the Plots rail; Flux converts it into an image bundle and places it. ImageJ,
   OME, tifffile and per-page metadata are read on their own, and such a file converts at once,

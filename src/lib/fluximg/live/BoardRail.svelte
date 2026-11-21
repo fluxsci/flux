@@ -6,7 +6,8 @@
    * Its well is a plot of the stack itself (each shown channel's mean signal per plane), so you see where to go
    * before you go there. The pink line is the plane on screen, a dot rides each channel's trace on it, and a paper
    * flag beside it says where that is. Drag to scrub; Shift-drag draws a run (a projection), which then has grips.
-   * The round key plays, the dial under it is the speed, and the far key lays the planes onto one.
+   * The round key plays, the dial under it is the speed, and the far key lays the planes onto one. Beside it, "Movie
+   * as MP4" writes what Play plays as a file: its ring fills as the frames are written, and pressed again it stops.
    *
    * Presentational: it reports gestures and draws what it is given. The board owns the model.
    */
@@ -18,7 +19,7 @@
   let {
     dim, hotkey, label, length, index, run = null, mode = null, profiles = [], axis = undefined, vertical = false, side = "left", w, h, armed = false,
     unit = "", format = (v: number) => String(v), playing = false, speed = 1, choosing = false, modes = [], choice = 0, trail = null, ghost = null,
-    onscrub, onrun, onarm, ontake, onplay = undefined, onspeed = undefined, onproject, onmode,
+    movie = null, onscrub, onrun, onarm, ontake, onplay = undefined, onspeed = undefined, onproject, onmode, onmovie = undefined, onmovieenter = undefined, onmovieleave = undefined,
   }: {
     dim: string;
     /** The key that takes this rail in hand (shown as its name). */
@@ -66,6 +67,12 @@
     /** The projection key. */
     onproject: () => void;
     onmode: (i: number) => void;
+    /** The movie key's state: idle, or writing (`progress` 0..1 of the frames) / stopping. Null: no movie key. */
+    movie?: { writing: boolean; stopping: boolean; progress: number; label: string } | null;
+    onmovie?: (() => void) | undefined;
+    /** The pointer rests on the movie key (its preview: the walk on the rail, the facts in the readout) or left it. */
+    onmovieenter?: (() => void) | undefined;
+    onmovieleave?: (() => void) | undefined;
   } = $props();
 
   // --- geometry: the well inside the rail's box ---------------------------------------------------
@@ -274,7 +281,14 @@
     <span class="flag grab" class:atstart={!vertical && flagAt < 40} class:atend={!vertical && flagAt > extent - 40} data-fxb-flag onpointerdown={down} style={vertical ? `top:${Math.min(extent - 12, Math.max(12, flagAt))}px` : `left:${flagAt}px`}>{#if here.tag}<em>{here.tag}</em>{/if}<b>{here.n}</b>{#if here.at}<i>{here.at}</i>{/if}</span>
   </div>
 
-  <div class="ends z">
+  <div class="ends z" class:withmovie={!!movie}>
+    {#if movie && onmovie}
+      <!-- The movie key: its ring is the progress instrument while the file is written (no animation at rest). -->
+      <span class="moviewrap" class:writing={movie.writing} data-fxb-movie={dim} data-progress={movie.writing ? movie.progress.toFixed(3) : undefined}>
+        <svg class="ring" viewBox="0 0 30 30" aria-hidden="true"><circle class="base" cx="15" cy="15" r="13.5" />{#if movie.writing}<circle class="go" cx="15" cy="15" r="13.5" pathLength="100" stroke-dasharray={`${Math.round(movie.progress * 1000) / 10} 100`} />{/if}</svg>
+        <PaperKey round size={20} glyph="movie" label={movie.label} hotkey="⇧R" on={movie.writing} id={`movie:${dim}`} onpress={() => onmovie?.()} onenter={onmovieenter} onleave={onmovieleave} />
+      </span>
+    {/if}
     <PaperKey size={22} glyph="project" label={run ? `Projection: ${mode}` : "Projection · or Shift-drag a run on the rail"} hotkey="E" on={!!run} id={`project:${dim}`} onpress={onproject} />
   </div>
 
@@ -299,6 +313,13 @@
   .rail.vertical.left .ends.a { flex-direction: row-reverse; }
   .rail.vertical:not(.left) .ends.a { flex-direction: row; }
   .rail.vertical .ends.z { bottom: 6px; height: 24px; width: 36px; justify-content: center; }
+  /* With the movie key: over the projection key on a lying rail, beside it on a standing one. */
+  .rail:not(.vertical) .ends.z.withmovie { flex-direction: column; gap: 4px; height: 58px; }
+  .rail.vertical .ends.z.withmovie { width: 54px; height: 26px; bottom: 5px; gap: 4px; }
+  .rail.vertical:not(.left) .ends.z.withmovie { flex-direction: row-reverse; }
+  .moviewrap { position: relative; display: grid; place-items: center; width: 26px; height: 26px; flex: none; }
+  .moviewrap .ring { width: 26px; height: 26px; }
+  .moviewrap.writing .ring .go { opacity: 1; stroke-width: 2; }
   .rail.vertical.left .ends.z { right: 7px; }
   .rail.vertical:not(.left) .ends.z { left: 7px; }
   .playwrap { position: relative; display: grid; place-items: center; width: 30px; height: 30px; flex: none; }

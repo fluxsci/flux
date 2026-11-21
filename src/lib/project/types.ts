@@ -310,6 +310,10 @@ export interface FileBridge {
   exportSlideVideo?(request: { root: string; deckId: string; slideId: string; jobId: string; options: import("../slide/video").SlideVideoOptions }): Promise<import("../slide/video").SlideVideoResult>;
   cancelSlideVideo?(jobId: string): Promise<void>;
   onSlideVideoProgress?(cb: (value: import("../slide/video").SlideVideoProgress) => void): () => void;
+  /** An image's movie as an MP4 (fluximg): a save dialog, then the CLI out of process; progress by job id. */
+  exportImageMovie?(request: import("../fluximg/live/movie").ImageMovieRequest): Promise<import("../fluximg/live/movie").ImageMovieResult>;
+  cancelImageMovie?(jobId: string): Promise<void>;
+  onImageMovieProgress?(cb: (value: import("../fluximg/live/movie").ImageMovieProgress) => void): () => void;
   mkdir(p: string): Promise<void>;
   writeText(p: string, text: string, options?: { createOnly?: boolean }): Promise<void>;
   readText(p: string): Promise<string>;
