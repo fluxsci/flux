@@ -58,7 +58,7 @@ export class FluximgService {
   private texts = new Map<string, Promise<string>>();
   private planes = new Map<string, { promise: Promise<ServicePlane>; bytes: number }>();
   private planeBytesHeld = 0;
-  private stills = new Map<string, { promise: Promise<string>; bytes: number }>();
+  private stills = new Map<string, { promise: Promise<string>; bytes: number; href?: string }>();
   private stillBytesHeld = 0;
   private slots = new Map<string, number>();
   private readonly size: number;
@@ -218,11 +218,12 @@ export class FluximgService {
     const { id, promise: raw } = this.call<{ href: string }>({ t: "still", bundle: request.bundle, view: request.view ?? null, crop: request.crop ?? null, outWidth: request.outWidth, outHeight: request.outHeight });
     if (request.slot) this.slots.set(request.slot, id);
     const promise = raw.then((r) => r.href);
-    const entry = { promise, bytes: 0 };
+    const entry: { promise: Promise<string>; bytes: number; href?: string } = { promise, bytes: 0 };
     this.stills.set(key, entry);
     promise.then((href) => {
       if (request.slot && this.slots.get(request.slot) === id) this.slots.delete(request.slot);
       if (this.stills.get(key) !== entry) return;
+      entry.href = href;
       entry.bytes = href.length * 2; this.stillBytesHeld += entry.bytes;
       for (const [k, v] of this.stills) {
         if (this.stillBytesHeld <= this.stillBudget) break;
@@ -235,6 +236,9 @@ export class FluximgService {
 
   /** A still that is already drawn, without asking for one. */
   peekStill(key: string): Promise<string> | undefined { return this.stills.get(key)?.promise; }
+
+  /** A still that has already landed, synchronously (the slide player's stills at rest); undefined otherwise. */
+  stillHref(key: string): string | undefined { return this.stills.get(key)?.href; }
 
   /** Drop everything known about a bundle (its files changed or it left the project). */
   forget(bundle: string): void {

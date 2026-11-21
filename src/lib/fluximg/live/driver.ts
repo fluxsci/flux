@@ -9,14 +9,13 @@
  *
  * Browser-only (it owns a WebGL canvas). No Svelte: the overlay component owns one instance.
  */
-import { FluximgLiveRenderer, MAX_LIVE_CHANNELS, MAX_LIVE_LAYERS, type LiveChannel, type LiveFrame, type LiveLayer } from "../gl/liveRenderer";
-import { channelTable } from "../lut";
-import { pickLevel } from "../reader";
-import { layerKey, planeKey, projectionKey, type FluximgService, type ServicePlane } from "../service";
+import { FluximgLiveRenderer, type LiveFrame } from "../gl/liveRenderer";
+import type { FluximgService, ServicePlane } from "../service";
 import { valueAt } from "../stats";
 import type { FluximgManifest } from "../types";
 import type { PixelRect, ResolvedView } from "../view";
-import { planeRequests, type PlaneRequest } from "../viewOps";
+import { planeRequests } from "../viewOps";
+import { frameLevels, liveFrameOf, requestPlane, TableCache, wantedPlanes, type PlaneWant } from "./frames";
 
 export interface LiveTarget {
   view: ResolvedView;
@@ -38,7 +37,7 @@ export interface FrameInfo {
   serial: number;
 }
 
-interface Wanted { key: string; request: PlaneRequest | { layerId: string } }
+type Wanted = PlaneWant;
 
 export class LiveDriver {
   private renderer: FluximgLiveRenderer;
@@ -53,7 +52,7 @@ export class LiveDriver {
   private planes = new Map<string, ServicePlane>();
   private asked = new Set<string>();
   private touched = new Map<string, number>();
-  private tables = new Map<string, Uint8Array>();
+  private tables: TableCache;
   private raf = 0;
   private serial = 0;
   private generation = 0;
@@ -72,6 +71,7 @@ export class LiveDriver {
     private resolveLut: (name: string) => string[] | null,
   ) {
     this.renderer = new FluximgLiveRenderer(canvas);
+    this.tables = new TableCache(resolveLut);
     canvas.addEventListener("webglcontextrestored", this.restored);
   }
 
@@ -126,39 +126,21 @@ export class LiveDriver {
   invalidateTables(): void { this.tables.clear(); this.schedule(); }
 
   private levels(t: LiveTarget): { sharp: number; coarse: number } {
-    const levels = this.manifest.pixels.levels;
-    const sharp = pickLevel(levels, Math.min(t.crop.width / Math.max(1, t.outWidth), t.crop.height / Math.max(1, t.outHeight)));
-    let coarse = 0;
-    for (let i = 1; i < levels.length; i++) if (levels[i].downsample > levels[coarse].downsample) coarse = i;
-    return { sharp, coarse };
+    return frameLevels(this.manifest, t.crop, t.outWidth, t.outHeight);
   }
 
   private wanted(level: number, t: LiveTarget): Wanted[] {
-    const out: Wanted[] = [];
-    for (const r of planeRequests(this.manifest, t.view).slice(0, MAX_LIVE_CHANNELS)) {
-      out.push({ key: "dim" in r ? projectionKey(this.bundle, level, r.leading, r.dim, r.from, r.to, r.mode) : planeKey(this.bundle, level, r.leading), request: r });
-    }
-    const f = this.manifest.pixels.levels[level].downsample;
-    let n = 0;
-    for (const L of t.view.layers) {
-      if (L.kind !== "intensity" || !L.visible || !(L.opacity > 0) || n >= MAX_LIVE_LAYERS) continue;
-      out.push({ key: layerKey(this.bundle, L.id, f), request: { layerId: L.id } });
-      n++;
-    }
-    return out;
+    return wantedPlanes(this.manifest, this.bundle, t.view, level);
   }
 
   private ask(level: number, t: LiveTarget): void {
-    const f = this.manifest.pixels.levels[level].downsample;
     for (const w of this.wanted(level, t)) {
       this.touched.set(w.key, this.serial);
       if (this.planes.has(w.key) || this.asked.has(w.key)) continue;
       this.asked.add(w.key);
       const generation = this.generation;
       const r = w.request;
-      const promise = "layerId" in r ? this.service.layer(this.bundle, r.layerId, f)
-        : "dim" in r ? this.service.projection(this.bundle, level, r.leading, r.dim, r.from, r.to, r.mode, `live:${level}:${r.channel}`)
-        : this.service.plane(this.bundle, level, r.leading);
+      const promise = requestPlane(this.service, this.bundle, this.manifest, level, w, "dim" in r ? `live:${level}:${r.channel}` : undefined);
       promise.then(
         (plane) => {
           this.asked.delete(w.key);
@@ -219,13 +201,6 @@ export class LiveDriver {
     });
   }
 
-  private table(spec: { color: string | null; lut: string | null; invert: boolean }): Uint8Array {
-    const key = `${spec.color ?? ""}|${spec.lut ?? ""}|${spec.invert ? 1 : 0}`;
-    let t = this.tables.get(key);
-    if (!t) { t = channelTable(spec, this.resolveLut); this.tables.set(key, t); if (this.tables.size > 64) this.tables.delete(this.tables.keys().next().value as string); }
-    return t;
-  }
-
   private draw(): void {
     if (!this.target || this.disposed || this.renderer.lost) return;
     // Newest first: the first target with every plane in hand wins. An older target is drawn only if nothing newer
@@ -244,30 +219,7 @@ export class LiveDriver {
     }
     if (!t || !have) return; // keep the previous frame
     this.drawnTarget = number;
-    const f = this.manifest.pixels.levels[level].downsample;
-    const first = have.length ? this.planes.get(have[0].key)! : null;
-    const nd = this.manifest.pixels.levels[level].shape.length;
-    const width = first ? first.width : this.manifest.pixels.levels[level].shape[nd - 1];
-    const height = first ? first.height : this.manifest.pixels.levels[level].shape[nd - 2];
-    const channels: LiveChannel[] = [], layers: LiveLayer[] = [], channelIndices: number[] = [];
-    for (const w of have) {
-      const plane = this.planes.get(w.key)!;
-      if ("layerId" in w.request) {
-        const id = w.request.layerId;
-        const L = t.view.layers.find((l) => l.id === id), entry = this.manifest.layers.find((l) => l.id === id);
-        if (!L || !entry || entry.kind !== "intensity") continue;
-        layers.push({ plane, table: this.table({ color: L.color, lut: L.lut, invert: false }), range: L.range ?? entry.range, norm: "linear", gamma: 1, opacity: L.opacity, opacityFromValue: L.opacityFromValue });
-      } else {
-        const c = t.view.channels[w.request.channel];
-        channels.push({ plane, table: this.table(c), range: c.range, norm: c.norm, gamma: c.gamma });
-        channelIndices.push(w.request.channel);
-      }
-    }
-    const frame: LiveFrame = {
-      width, height, channels, layers, background: t.view.background, smooth: t.view.smooth,
-      crop: { x: t.crop.x / f, y: t.crop.y / f, width: t.crop.width / f, height: t.crop.height / f },
-      outWidth: t.outWidth, outHeight: t.outHeight,
-    };
+    const { frame, channels: channelIndices, f } = liveFrameOf(this.manifest, t.view, t.crop, level, have, (key) => this.planes.get(key)!, this.tables, t.outWidth, t.outHeight);
     const t0 = performance.now();
     this.renderer.draw(frame);
     this.last = { level, frame, f, channels: channelIndices };
