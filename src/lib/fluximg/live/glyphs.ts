@@ -36,6 +36,15 @@ export const GLYPHS = {
   invert: `<circle cx="8" cy="8" r="5.4"/><path class="f" d="M8 2.6a5.4 5.4 0 000 10.8z"/>`,
   reset: `<path d="M3.4 8.4a4.6 4.6 0 104.6-4.8H4.4"/><path d="M6.6 1.4L4.2 3.6l2.4 2.2"/>`,
   open: `<path d="M6 3.6l4.4 4.4L6 12.4"/>`,
+  // Objects coloured by a column: three outlines, each its own colour (one filled, one quiet, one bare).
+  colorBy: `<circle class="f" cx="4.4" cy="5" r="2.6"/><circle class="f q" cx="11.4" cy="5.6" r="2.6"/><circle cx="7.6" cy="11.4" r="2.6"/>`,
+  // Objects faded by a column: the same shape, fainter and fainter.
+  opacityBy: `<path class="f" d="M1.6 5.4h3.8v5.2H1.6z"/><path class="f q" d="M6.1 5.4h3.8v5.2H6.1z"/><path d="M10.6 5.4h3.8v5.2h-3.8z" stroke-dasharray="1.2 1.2"/>`,
+  // The key: swatches with their words.
+  key: `<path class="f" d="M2 2.6h3v3H2z"/><path class="f q" d="M2 6.5h3v3H2z"/><path d="M2.5 10.9h2v2h-2z"/><path d="M7 4.1h7M7 8h5M7 11.9h6"/>`,
+  // Objects without a value: left out.
+  hideMissing: `<circle cx="8" cy="8" r="5" stroke-dasharray="1.6 1.6"/><path d="M3.4 12.6l9.2-9.2"/>`,
+  none: `<circle cx="8" cy="8" r="5.2"/><path d="M4.4 11.6l7.2-7.2"/>`,
   search: `<circle cx="7" cy="7" r="4.2"/><path d="M10.2 10.2l3.6 3.6"/>`,
 } as const;
 

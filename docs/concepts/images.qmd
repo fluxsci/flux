@@ -242,6 +242,24 @@ or value. Long lists show the first 300 objects of a layer; filter to find the r
 Press **d** to give the card the keyboard; it is outlined pink while it has it, and **Escape**
 gives the keys back to the board. Working the card with the mouse never takes the keyboard.
 
+### Colour and opacity by a column
+
+A layer whose objects have a table can take its colours from it: "colour by dendrite",
+"opacity by distance". On the layer's row, the **colour by** key opens the table's columns as
+keys, each with a small picture of what it would do, and **none**. Rest on a key and the image
+shows it; press it to keep it (one undo step). A column of words gives each value its own
+colour, in Flux's colour-blind-safe order; a column of numbers goes through a colour map, and
+two pink handles on a strip of the column's values set where the map starts and ends (drag
+them, or roll the wheel over the strip). The **opacity by** key does the same with columns of
+numbers: the lowest value is faint, the highest opaque. Objects without a value are drawn grey
+and faint, or hidden. The values are listed with their colours; rest on one to light its
+objects. The card beside the pointer leads with the styling column.
+
+The **key** (its paper key sits beside the filter) is an annotation on the image that says what
+the colours mean: each value with its colour, or the colour map with its two end values. Like
+the scale bar, drag it to another corner, or roll the wheel over it to change its text size;
+rest on a value to light its objects. Exports and Paper draw the same colours and the same key.
+
 | Key | Action |
 |---|---|
 | **↑ / ↓** | Walk the list (**Shift**: move the layer up or down the stack) |
@@ -249,6 +267,7 @@ gives the keys back to the board. Working the card with the mouse never takes th
 | **x** | Show or hide the layer |
 | **e** | Its opacity in hand, for the wheel |
 | **c** | Its colours |
+| **b** / **t** | Colour by / opacity by a column (then **1 … 9** pick a column, **0** none, **← / →** preview) |
 | **q** | Object names on the image |
 | **a** | The filter |
 
@@ -296,8 +315,9 @@ With an image selected, the Inspector shows the same settings as numbers, whethe
 live view is open: **Image** (what it is, the pixel size, how it is stored, where it came from,
 and a **Live view** button), **Channels** (Blend or Single, each channel's colour or colour map,
 scale, black, white and gamma, with **Auto**), **Position** (the plane along each dimension, a
-projection and its run), **Layers**, **Annotations** (scale bar length, thickness, text size,
-corner and colour; the stamp, channel names, calibration bar and object names) and **View**
+projection and its run), **Layers** (with colour by and opacity by a column, the column's range
+and colour map), **Annotations** (scale bar length, thickness, text size, corner and colour; the
+stamp, channel names, calibration bar, key and object names) and **View**
 (true or smoothed pixels, background or transparent, and the region shown in image pixels).
 Setting a value back to its default removes it from the stored view.
 

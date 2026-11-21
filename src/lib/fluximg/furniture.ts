@@ -10,6 +10,7 @@
 import type { FluximgAxis, FluximgManifest } from "./types";
 import type { FurnitureCorner, PixelRect, ResolvedView } from "./view";
 import { escapeXml, FURNITURE_FONT, FURNITURE_WEIGHT, PT, svgNum } from "./layers";
+import type { ObjectLegend } from "./objectStyle";
 
 /** Cap height and descent of the figure font as fractions of the font size (Arial: 0.716, 0.212). */
 const CAP = 0.72;
@@ -130,11 +131,26 @@ export function scalebarGeometry(manifest: FluximgManifest, rv: ResolvedView, cr
   return { x, y, width, height, length, unit: ax.unit, text: `${lengthText(length)} ${ax.unit}` };
 }
 
+/** The layer the key describes: the one it names when that layer is shown and styled, else the topmost such layer. */
+export function keyLayer(rv: ResolvedView, legends: Readonly<Record<string, ObjectLegend | null | undefined>> | undefined): string | null {
+  const k = rv.furniture.key;
+  if (!k || !legends) return null;
+  const ok = (id: string): boolean => { const l = rv.layers.find((x) => x.id === id); return !!l && l.visible && l.opacity > 0 && !!legends[id] && !!(legends[id]!.color || legends[id]!.opacity); };
+  if (k.layer && ok(k.layer)) return k.layer;
+  for (let i = rv.layers.length - 1; i >= 0; i--) if (ok(rv.layers[i].id)) return rv.layers[i].id;
+  return null;
+}
+
+/** At most this many categories are listed in the key; the rest are counted ("+3 more"). */
+export const KEY_MAX_ROWS = 12;
+
 /**
  * Everything switched on in the resolved view's furniture, as one `<g>` ("" when nothing is). Items sharing a
- * corner stack away from it in a fixed order: scale bar, stamp, channel names.
+ * corner stack away from it in a fixed order: scale bar, stamp, channel names, calibration bar, key.
+ * `legends` (layer id → `objectStyle` legend) feed the key.
  */
-export function furnitureSvg(manifest: FluximgManifest, rv: ResolvedView, crop: PixelRect, box: Box, idPrefix: string, resolveLut?: (name: string) => string[] | null): string {
+export function furnitureSvg(manifest: FluximgManifest, rv: ResolvedView, crop: PixelRect, box: Box, idPrefix: string, resolveLut?: (name: string) => string[] | null,
+  legends?: Readonly<Record<string, ObjectLegend | null | undefined>>): string {
   if (!(box.width > 0 && box.height > 0)) return "";
   const f = rv.furniture, inset = furnitureInset(box);
   const used: Record<FurnitureCorner, number> = { "bottom-right": 0, "bottom-left": 0, "top-right": 0, "top-left": 0 };
@@ -207,7 +223,76 @@ export function furnitureSvg(manifest: FluximgManifest, rv: ResolvedView, crop: 
     }
   }
 
+  if (f.key) {
+    const id = keyLayer(rv, legends), legend = id ? legends![id]! : null;
+    if (id && legend) {
+      const k = keyMarkup(legend, id, f.key, box, inset, used[f.key.corner], idPrefix);
+      if (k.svg) { parts.push(k.svg); used[f.key.corner] += k.height + 0.4 * f.key.fontSize * PT; }
+    }
+  }
+
   return parts.length ? `<g id="${escapeXml(idPrefix + "furniture")}" data-part="furniture">${parts.join("")}</g>` : "";
+}
+
+/**
+ * The key to a layer styled by its table, stacked in its corner: the colour column's name, then either one row per
+ * category (a swatch and the value; at most KEY_MAX_ROWS, then "+N more") or the colour map as a bar with its two end
+ * values; then, when opacity follows a column, a fade bar with its end values; then "no value" when objects without
+ * one are dimmed. Swatches sit on the corner's side, words inward. Rows carry `data-legend-row` (the category's index,
+ * or "missing") so the live view can light the objects of a hovered row.
+ */
+function keyMarkup(legend: ObjectLegend, layerId: string, k: { corner: FurnitureCorner; fontSize: number; color: string }, box: Box, inset: number, used: number, idPrefix: string): { svg: string; height: number } {
+  const fs = k.fontSize * PT, lh = LINE * fs, sw = 0.8 * fs, gap = 0.4 * fs;
+  const left = isLeft(k.corner), anchor = left ? "start" : "end";
+  const edge = left ? inset : box.width - inset;
+  const swX = left ? edge : edge - sw, textX = left ? edge + sw + gap : edge - sw - gap;
+  const barW = Math.min(Math.max(40, 0.3 * box.width), Math.max(20, box.width - 2 * inset)), barH = Math.max(2, 0.55 * fs);
+  const barX = left ? edge : edge - barW;
+  // Lines are laid top-down from y = 0, then the whole key is moved into its corner.
+  const out: string[] = [];
+  let y = 0;
+  const text = (id: string, x: number, baseline: number, words: string, a = anchor, extra = ""): string =>
+    `<text id="${escapeXml(id)}"${extra} x="${svgNum(x)}" y="${svgNum(baseline)}" text-anchor="${a}"${textAttrs(fs, k.color)}>${escapeXml(words)}</text>`;
+  const title = (id: string, words: string): void => { out.push(text(`${idPrefix}key.${id}`, edge, y + CAP * fs, words, anchor, ` data-part="key.title"`)); y += lh; };
+  const bar = (id: string, stops: string, lo: string, hi: string): void => {
+    const gid = `${idPrefix}key.${id}.ramp`;
+    out.push(`<defs><linearGradient id="${escapeXml(gid)}" gradientUnits="userSpaceOnUse" x1="${svgNum(barX)}" y1="0" x2="${svgNum(barX + barW)}" y2="0">${stops}</linearGradient></defs>`);
+    out.push(`<rect id="${escapeXml(`${idPrefix}key.${id}`)}" data-part="key.bar" x="${svgNum(barX)}" y="${svgNum(y)}" width="${svgNum(barW)}" height="${svgNum(barH)}" fill="url(#${escapeXml(gid)})" stroke="${escapeXml(k.color)}" stroke-width="${svgNum(Math.max(0.3, 0.05 * fs))}"/>`);
+    const ty = y + barH + 0.25 * fs + CAP * fs;
+    out.push(text(`${idPrefix}key.${id}.min`, barX, ty, lo, "start"));
+    out.push(text(`${idPrefix}key.${id}.max`, barX + barW, ty, hi, "end"));
+    y += barH + 0.25 * fs + (CAP + DESCENT) * fs + 0.35 * fs;
+  };
+  const row = (id: string, color: string, opacity: number, words: string, index: string): void => {
+    const cy = y + (CAP * fs) / 2;
+    out.push(`<g id="${escapeXml(`${idPrefix}key.${id}`)}" data-part="key.entry" data-legend-layer="${escapeXml(layerId)}" data-legend-row="${escapeXml(index)}">` +
+      `<rect x="${svgNum(swX)}" y="${svgNum(cy - sw / 2)}" width="${svgNum(sw)}" height="${svgNum(sw)}" fill="${escapeXml(color)}"${opacity < 1 ? ` fill-opacity="${svgNum(opacity)}"` : ""}/>` +
+      text(`${idPrefix}key.${id}.label`, textX, y + CAP * fs, words) + `</g>`);
+    y += lh;
+  };
+
+  const c = legend.color;
+  if (c) {
+    title("title", c.column);
+    if (c.kind === "category") {
+      c.entries.slice(0, KEY_MAX_ROWS).forEach((e, i) => row(`row.${i}`, e.color, 1, e.label, String(i)));
+      if (c.entries.length > KEY_MAX_ROWS) { out.push(text(`${idPrefix}key.more`, textX, y + CAP * fs, `+${c.entries.length - KEY_MAX_ROWS} more`, anchor, ` data-part="key.more"`)); y += lh; }
+    } else {
+      bar("ramp", c.stops.map((col, i) => `<stop offset="${svgNum(i / (c.stops.length - 1))}" stop-color="${escapeXml(col)}"/>`).join(""), valueText(c.range[0]), valueText(c.range[1]));
+    }
+  }
+  const o = legend.opacity;
+  if (o) {
+    if (c) y += 0.2 * fs;
+    title("opacity.title", c ? `opacity: ${o.column}` : o.column);
+    bar("fade", `<stop offset="0" stop-color="${escapeXml(k.color)}" stop-opacity="${svgNum(o.to[0])}"/><stop offset="1" stop-color="${escapeXml(k.color)}" stop-opacity="${svgNum(o.to[1])}"/>`, valueText(o.range[0]), valueText(o.range[1]));
+  }
+  const m = legend.missing;
+  if (m && m.mode === "dim") row("missing", m.color, m.opacity, "no value", "missing");
+  if (!out.length) return { svg: "", height: 0 };
+  const height = Math.max(0, y - (lh - (CAP + DESCENT) * fs));
+  const top = isTop(k.corner) ? inset + used : box.height - inset - used - height;
+  return { svg: `<g id="${escapeXml(idPrefix + "key")}" data-part="key" data-legend-layer="${escapeXml(layerId)}" transform="translate(0 ${svgNum(top)})">${out.join("")}</g>`, height };
 }
 
 /** Up to 4 significant digits, no trailing zeros, U+2212 for minus: a bar's end value. */

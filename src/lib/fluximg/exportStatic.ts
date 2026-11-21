@@ -18,11 +18,11 @@ import type { Asset, Figure } from "../types";
 import type { PosterSurface } from "../model3d/poster";
 import { effectiveHidden } from "../groups";
 import type { FluximgElement } from "./element";
-import type { FluximgManifest } from "./types";
+import type { FluximgManifest, FluximgTable } from "./types";
 import type { FluximgView, PixelRect, ResolvedView } from "./view";
 import { pixelKey, resolveView } from "./viewOps";
 import { clampCrop, stillSize } from "./still";
-import { fluximgIdPrefix, fluximgStaticSvg, insetsOf, layerSvgPath } from "./static";
+import { fluximgIdPrefix, fluximgStaticSvg, insetsOf, layerSvgPath, layerTablePath, wantsTable } from "./static";
 import { colormapLut, ensureColormapLuts } from "../color/colormapLuts";
 import { escapeXml, sanitizeLayerSvg } from "./layers";
 import { fluximgPlaceholderSvg } from "./placeholder";
@@ -98,6 +98,18 @@ export function fluximgLayerFiles(manifest: FluximgManifest, rv: ResolvedView): 
   return out;
 }
 
+/** The tables an element's static markup reads: those of shown layers styled by a column (`styleBy`). */
+export function fluximgTableFiles(manifest: FluximgManifest, rv: ResolvedView): Array<{ id: string; path: string }> {
+  const byId = new Map(manifest.layers.map((l) => [l.id, l]));
+  const out: Array<{ id: string; path: string }> = [];
+  for (const lv of rv.layers) {
+    if (!wantsTable(lv)) continue;
+    const path = layerTablePath(byId.get(lv.id));
+    if (path) out.push({ id: lv.id, path });
+  }
+  return out;
+}
+
 /** Everything `fluximgElementMarkup` reads. Built by `prepareFluximgContext`; plain data apart from the lookups. */
 export interface FluximgSvgContext {
   /** Still pixels per canvas px of the output this context was prepared for. */
@@ -110,6 +122,8 @@ export interface FluximgSvgContext {
   stillOf(key: string): string | undefined;
   /** A layer file's SVG text (already checked by the sanitizer), by asset id and bundle path. */
   layerTextOf(assetId: string, path: string): string | undefined;
+  /** A layer's table by asset id and bundle path (only those a styled layer needs are read). */
+  tableOf?(assetId: string, path: string): FluximgTable | undefined;
   /** The blow-outs of an element in its figure (their frames are outlined on it). */
   insetsOf?(elementId: string): Array<{ id: string; crop: PixelRect }>;
   /** Colour-map tables for the calibration bar (loaded by the preparation when a shown bar needs one). */
@@ -122,6 +136,8 @@ export interface FluximgExportIO {
   /** The still of `request` as a `data:image/png;base64,` URL (the reference renderer's pixels, straight alpha). */
   still(asset: Asset, request: FluximgStillRequest): Promise<string>;
   text(asset: Asset, path: string): Promise<string>;
+  /** A layer's table (`layers/<id>.table.json`), parsed. Asked for only when a shown layer is styled by its columns. */
+  table(asset: Asset, path: string): Promise<FluximgTable>;
 }
 
 export interface PrepareFluximgOptions {
@@ -154,6 +170,8 @@ export async function prepareFluximgContext(figures: readonly Figure[], assets: 
   const manifests = new Map<string, FluximgManifest>();
   const stills = new Map<string, string>();
   const texts = new Map<string, string>();
+  const tables = new Map<string, FluximgTable>();
+  const pendingTables = new Map<string, Promise<FluximgTable>>();
   const pendingManifests = new Map<string, Promise<FluximgManifest>>();
   const pendingStills = new Map<string, Promise<string>>();
   const pendingTexts = new Map<string, Promise<string>>();
@@ -187,6 +205,8 @@ export async function prepareFluximgContext(figures: readonly Figure[], assets: 
     check();
     const rv = resolveView(manifest, e.view);
     if (rv.furniture.colorbar && rv.channels.some((c) => c.lut)) wantLuts = true;
+    // A layer coloured by a numeric column draws a colour map's own colours.
+    if (rv.layers.some((l) => wantsTable(l) && l.styleBy?.color)) wantLuts = true;
     const request = fluximgStillRequest(e, asset, manifest, scale, rv);
     const jobs: Array<Promise<void>> = [];
     if (!stills.has(request.key)) {
@@ -208,6 +228,13 @@ export async function prepareFluximgContext(figures: readonly Figure[], assets: 
       }
       jobs.push(p.then((text) => { texts.set(key, text); }).catch((error: unknown) => { check(); issue(e, `Image "${label(e, asset)}" (${e.id}): layer "${file.id}" could not be read (${reason(error)}); exported without it`); }));
     }
+    for (const file of fluximgTableFiles(manifest, rv)) {
+      const key = `${asset.id}|${file.path}`;
+      if (tables.has(key)) continue;
+      let p = pendingTables.get(key);
+      if (!p) { p = io.table(asset, file.path); pendingTables.set(key, p); }
+      jobs.push(p.then((t) => { tables.set(key, t); }).catch((error: unknown) => { check(); issue(e, `Image "${label(e, asset)}" (${e.id}): the table of layer "${file.id}" could not be read (${reason(error)}); its objects are drawn unstyled`); }));
+    }
     await Promise.all(jobs);
   }));
   check();
@@ -219,6 +246,7 @@ export async function prepareFluximgContext(figures: readonly Figure[], assets: 
     manifestOf: (id) => manifests.get(id),
     stillOf: (key) => stills.get(key),
     layerTextOf: (id, path) => texts.get(`${id}|${path}`),
+    tableOf: (id, path) => tables.get(`${id}|${path}`),
     insetsOf: (id) => insets.get(id) ?? [],
     resolveLut: (name) => colormapLut(name)?.lut ?? null,
   };
@@ -244,8 +272,13 @@ export function fluximgElementMarkup(e: FluximgElement, ctx?: FluximgSvgContext)
     const text = ctx.layerTextOf(asset.id, file.path);
     if (text !== undefined) layerSvg[file.id] = text;
   }
+  const tables: Record<string, FluximgTable> = {};
+  for (const file of fluximgTableFiles(manifest, rv)) {
+    const table = ctx.tableOf?.(asset.id, file.path);
+    if (table) tables[file.id] = table;
+  }
   const input = {
-    manifest, view: rv, crop: request.crop, box: { width: Math.max(0, e.width), height: Math.max(0, e.height) },
+    manifest, view: rv, crop: request.crop, tables, box: { width: Math.max(0, e.width), height: Math.max(0, e.height) },
     stillHref: ctx.stillOf(request.key) ?? null, layerSvg, idPrefix: fluximgExportIdPrefix(e.id, ctx.namespace),
     flipX: !!e.flipX, flipY: !!e.flipY,
     insets: ctx.insetsOf?.(e.id) ?? [], resolveLut: ctx.resolveLut,

@@ -27,8 +27,11 @@
   import {
     CORNERS, autoPatch, backgroundPatch, colorPatch, compositePatch, dimLength, furnitureFieldPatch, furnitureOnPatch, gammaPatch,
     indexPatch, integerData, layerNumberPatch, layerWindowPatch, middleEllipsis, namesLayerPatch, normPatch, projectionPatch, runPatch,
-    showChannelPatch, showLayerPatch, smoothPatch, windowPatch,
+    showChannelPatch, showLayerPatch, smoothPatch, styleColumnPatch, styleLutPatch, styleMissingPatch, styleOpacityToPatch, styleRangePatch, styleReversePatch, windowPatch,
   } from "./inspectorEdits";
+  import { columnSummaries, DEFAULT_STYLE_LUT } from "./objectStyle";
+  import { layerTablePath } from "./static";
+  import { fluximgTables, needTable, tableOf } from "./live/objectTables";
 
   let { element, readOnly = false }: { element: FluximgElement; readOnly?: boolean } = $props();
 
@@ -55,6 +58,11 @@
   const along = $derived(rv?.projection?.dim ?? (dims.includes(alongPick) ? alongPick : dims[0] ?? ""));
 
   const objectLayers = $derived(rv ? rv.layers.filter((l) => l.kind !== "intensity") : []);
+  // Layers that have a table can be styled by its columns: their tables are read (small JSON) so the pickers list them.
+  const tablePaths = $derived(manifest ? Object.fromEntries(manifest.layers.map((l) => [l.id, layerTablePath(l)]).filter(([, p]) => !!p)) as Record<string, string> : {});
+  $effect(() => { if (asset) for (const p of Object.values(tablePaths)) needTable(asset, p); });
+  const columnsOf = (layerId: string) => (asset && tablePaths[layerId] ? columnSummaries(tableOf($fluximgTables, asset, tablePaths[layerId])) : []);
+  const STYLE_MAPS = ["viridis", "cividis", "plasma", "magma", "crameri.batlow", "cmasher.ember"];
   const unit = $derived(info?.pixelSize?.unit ?? manifest?.axes?.x?.unit ?? "");
   const hasScale = $derived(!!manifest?.axes?.x?.unit && (manifest.axes.x.scale ?? 0) > 0);
   const crop = $derived(manifest ? clampCrop(manifest, element.crop) : null);
@@ -316,6 +324,57 @@
                   on:commit={(e) => view(layerNumberPatch(m, l.id, "fillOpacity", Math.round(e.detail) / 100))} on:scrub={(e) => view(layerNumberPatch(m, l.id, "fillOpacity", Math.round(e.detail) / 100), true)} />
               {/if}
             </div>
+            {#if tablePaths[l.id]}
+              {@const cols = columnsOf(l.id)}
+              {@const sb = l.styleBy}
+              {@const cc = cols.find((c) => c.name === sb?.color?.column)}
+              {@const oc = cols.find((c) => c.name === sb?.opacity?.column)}
+              <div class="pair" data-fluximg-style={l.id}>
+                <select aria-label={`Colour ${l.name} by`} title="Colour each object by a column of the layer's table" value={sb?.color?.column ?? ""} data-fluximg-style-color
+                  onchange={(e) => view(styleColumnPatch(l.id, "color", selectValue(e) || null))}>
+                  <option value="">One colour</option>
+                  {#each cols.filter((c) => c.kind !== "empty") as c (c.name)}<option value={c.name}>Colour by {c.name}</option>{/each}
+                </select>
+                <select aria-label={`Opacity of ${l.name} by`} title="Each object's opacity from a column of numbers" value={sb?.opacity?.column ?? ""} data-fluximg-style-opacity
+                  onchange={(e) => view(styleColumnPatch(l.id, "opacity", selectValue(e) || null))}>
+                  <option value="">Even opacity</option>
+                  {#each cols.filter((c) => c.kind === "number") as c (c.name)}<option value={c.name}>Opacity by {c.name}</option>{/each}
+                </select>
+              </div>
+              {#if sb?.color && cc?.kind === "number" && cc.range && !(sb.color.palette && !sb.color.lut)}
+                {@const r = sb.color.range ?? cc.range}
+                <div class="three" data-fluximg-style-color-range>
+                  <NumberField label="From" value={r[0]} step={layerStep(cc.range)} displayPrecision={places(layerStep(cc.range))} disabled={readOnly} title="The value at the colour map's start"
+                    on:commit={(e) => view(styleRangePatch(l.id, "color", cc.range!, r, 0, e.detail))} on:scrub={(e) => view(styleRangePatch(l.id, "color", cc.range!, r, 0, e.detail), true)} />
+                  <NumberField label="To" value={r[1]} step={layerStep(cc.range)} displayPrecision={places(layerStep(cc.range))} disabled={readOnly} title="The value at the colour map's end"
+                    on:commit={(e) => view(styleRangePatch(l.id, "color", cc.range!, r, 1, e.detail))} on:scrub={(e) => view(styleRangePatch(l.id, "color", cc.range!, r, 1, e.detail), true)} />
+                  <select aria-label="Colour map" value={sb.color.lut ?? DEFAULT_STYLE_LUT} data-fluximg-style-lut onchange={(e) => view(styleLutPatch(l.id, selectValue(e)))}>
+                    {#each STYLE_MAPS as name (name)}<option value={name}>{name}</option>{/each}
+                  </select>
+                </div>
+                <label class="chk sub"><input type="checkbox" checked={!!sb.color.reverse} data-fluximg-style-reverse onchange={(e) => view(styleReversePatch(l.id, checked(e)))} />Reverse the colour map</label>
+              {/if}
+              {#if sb?.opacity && oc?.range}
+                {@const r = sb.opacity.range ?? oc.range}
+                {@const to = sb.opacity.to ?? [0.15, 1]}
+                <div class="two" data-fluximg-style-opacity-range>
+                  <NumberField label="From" value={r[0]} step={layerStep(oc.range)} displayPrecision={places(layerStep(oc.range))} disabled={readOnly} title="The value that is faintest"
+                    on:commit={(e) => view(styleRangePatch(l.id, "opacity", oc.range!, r, 0, e.detail))} on:scrub={(e) => view(styleRangePatch(l.id, "opacity", oc.range!, r, 0, e.detail), true)} />
+                  <NumberField label="To" value={r[1]} step={layerStep(oc.range)} displayPrecision={places(layerStep(oc.range))} disabled={readOnly} title="The value that is most opaque"
+                    on:commit={(e) => view(styleRangePatch(l.id, "opacity", oc.range!, r, 1, e.detail))} on:scrub={(e) => view(styleRangePatch(l.id, "opacity", oc.range!, r, 1, e.detail), true)} />
+                </div>
+                <div class="two">
+                  <NumberField label="Faint %" value={Math.round(to[0] * 100)} step={5} min={0} max={100} disabled={readOnly}
+                    on:commit={(e) => view(styleOpacityToPatch(l.id, to, 0, Math.round(e.detail) / 100))} on:scrub={(e) => view(styleOpacityToPatch(l.id, to, 0, Math.round(e.detail) / 100), true)} />
+                  <NumberField label="Opaque %" value={Math.round(to[1] * 100)} step={5} min={0} max={100} disabled={readOnly}
+                    on:commit={(e) => view(styleOpacityToPatch(l.id, to, 1, Math.round(e.detail) / 100))} on:scrub={(e) => view(styleOpacityToPatch(l.id, to, 1, Math.round(e.detail) / 100), true)} />
+                </div>
+              {/if}
+              {#if sb}
+                <label class="chk sub" title="Objects with no value in a styling column: hidden, or drawn faint and grey"><input type="checkbox" checked={sb.missing === "hide"} data-fluximg-style-missing
+                  onchange={(e) => view(styleMissingPatch(l.id, checked(e) ? "hide" : "dim"))} />Hide objects without a value</label>
+              {/if}
+            {/if}
           </div>
         {/each}
       </fieldset>
@@ -390,6 +449,21 @@
           </div>
         {/if}
       </div>
+      {#if Object.keys(tablePaths).length}
+        <div class="block" data-fluximg-furniture="key">
+          <div class="head"><label class="chk" title="What the objects' colours mean: their categories, or the colour map with its two ends"><input type="checkbox" checked={!!f.key} data-fluximg-key onchange={(e) => view(furnitureOnPatch("key", checked(e)))} /><span class="name">Key</span></label>
+            {#if f.key}{@const ky = f.key}<div class="sizefield"><NumberField label="" value={ky.fontSize} step={0.5} min={1} disabled={readOnly} title="Key text size in points"
+              on:commit={(e) => view(furnitureFieldPatch(m, "key", "fontSize", e.detail))} on:scrub={(e) => view(furnitureFieldPatch(m, "key", "fontSize", e.detail), true)} /></div><span class="u">pt</span>{/if}</div>
+          {#if f.key}
+            <div class="pair">
+              <select aria-label="Key corner" title="Corner" value={f.key.corner} data-fluximg-key-corner onchange={(e) => view(furnitureFieldPatch(m, "key", "corner", selectValue(e)))}>
+                {#each CORNERS as [k, label] (k)}<option value={k}>{label}</option>{/each}
+              </select>
+              <ColorField label="Key colour" value={f.key.color} onchange={(hex) => view(furnitureFieldPatch(m, "key", "color", hex))} />
+            </div>
+          {/if}
+        </div>
+      {/if}
       {#if objectLayers.length}
         <div class="block" data-fluximg-furniture="names">
           <div class="head"><span class="name lbl">Object names</span>

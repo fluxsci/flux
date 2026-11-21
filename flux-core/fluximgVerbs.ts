@@ -9,10 +9,11 @@ const finite = () => z.number().finite();
 const crop = z.object({ x: finite(), y: finite(), width: finite().positive(), height: finite().positive() });
 const view = z.record(z.unknown());
 
-type Summary = { elementId: string; name: string | null; position: string[]; showing: string[]; warnings?: string[] };
+type Summary = { elementId: string; name: string | null; position: string[]; showing: string[]; objects?: string[]; warnings?: string[] };
 const words = (r: Summary): string => [
   r.position.length ? `at ${r.position.join(', ')}` : '',
   r.showing.length ? `showing ${r.showing.join('; ')}` : '',
+  r.objects?.length ? `objects: ${r.objects.join('; ')}` : '',
   ...(r.warnings ?? []).map(w => `⚠ ${w}`),
 ].filter(Boolean).join('\n');
 
@@ -33,7 +34,7 @@ export const FLUXIMG_VERBS: VerbDef[] = [
   },
   {
     name: 'set_image_view', cli: 'set-image-view', cliRoot: 'flags', scope: 'project',
-    summary: 'Change how a placed image is shown, never its pixels. view is a sparse patch merged into the stored one (null clears a setting): index {dim: plane}, projection {dim, mode: max|mean|min|sum|std, from, to (exclusive)} or null, channels [per channel: visible, color "#rrggbb" or lut name, range [black, white] in value units, norm linear|log|gamma, gamma, invert], composite blend|single + solo, background, smooth, layers {id: visible, opacity, color, strokeWidth, fillOpacity, range}, layerOrder, furniture {scalebar, stamp, channelLabels, names, colorbar: {} on, false off}. crop {x,y,width,height} in image pixels (or null / --reset-crop) keeps the content pinned on the canvas. Every key is checked against the image first; answers with the RESOLVED view and its position in words.',
+    summary: 'Change how a placed image is shown, never its pixels. view is a sparse patch merged into the stored one (null clears a setting): index {dim: plane}, projection {dim, mode: max|mean|min|sum|std, from, to (exclusive)} or null, channels [per channel: visible, color "#rrggbb" or lut name, range [black, white] in value units, norm linear|log|gamma, gamma, invert], composite blend|single + solo, background, smooth, layers {id: visible, opacity, color, strokeWidth, fillOpacity, range, styleBy {color {column, lut?, palette?, range?, reverse?}, opacity {column, range?, to?}, missing dim|hide}}, layerOrder, furniture {scalebar, stamp, channelLabels, names, colorbar, key: {} on, false off}. crop {x,y,width,height} in image pixels (or null / --reset-crop) keeps the content pinned on the canvas. Every key is checked against the image first; answers with the RESOLVED view and its position in words.',
     params: { id: z.string(), view: view.optional(), crop: crop.nullable().optional() },
     cliArgs: [{ kind: 'pos', at: 0, into: 'id', required: true }, { kind: 'flag', at: 'view', into: 'view', as: 'json' },
       { kind: 'flag', at: 'crop', into: 'crop', as: 'json' }, { kind: 'flag', at: 'reset-crop', into: 'crop', const: null }],
@@ -45,7 +46,7 @@ export const FLUXIMG_VERBS: VerbDef[] = [
   },
   {
     name: 'image_info', cli: 'image-info', cliRoot: 'flags', scope: 'project', readOnly: true,
-    summary: 'Describe an N-dimensional image, or how an element shows it, without rendering. Takes an image element id (adds that element\'s box, crop, stored and resolved view, position in words such as "z 12/21 · −50.5 µm", and export size) or a fluximg asset id, and reports dimensions with units and positions, dtype and encoding, levels, channels with default ranges, min/max and percentiles (to choose contrast), layers with object counts, regions, and every placement.',
+    summary: 'Describe an N-dimensional image, or how an element shows it, without rendering. Takes an image element id (adds that element\'s box, crop, stored and resolved view, position in words such as "z 12/21 · −50.5 µm", and export size) or a fluximg asset id, and reports dimensions with units and positions, dtype and encoding, levels, channels with default ranges, min/max and percentiles (to choose contrast), layers with object counts and table columns (kind, distinct values, range: what styleBy can use), regions, and every placement.',
     params: { target: z.string() },
     cliArgs: [{ kind: 'pos', at: 0, into: 'target', required: true }],
     handler: (ctx, a) => imageInfo(ctx.root, String(a.target)),

@@ -59,6 +59,13 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   steps the bar's length through round values or changes the text's size. Projections (max, mean, min,
   sum, std) are a band on the rail you can drag. Layers and their objects are a card, with
   two-way hover and a filter. Every gesture is one undo step.
+- **Colour objects by a column of their table, set their opacity by another.** A layer of
+  segmented objects can take its colours from its table: each value of a column of words its
+  own colour (in fluxplot's colour-blind-safe order), a column of numbers through a colour map
+  between two handles, and opacity from a column of numbers. Each column is a key on the layer's
+  row that shows what it would do on the image before you press it. Objects without a value are
+  drawn grey and faint, or hidden. A key on the image says what the colours mean, and exports,
+  Paper and `set-image-view` (`styleBy`) draw the same; `image-info` lists each table's columns.
 - **The Inspector shows the same settings as numbers**, with or without the live view open.
 - **Exports, Paper and headless renders** draw each image from its full-resolution pixels at
   the output's own resolution (300 dpi for SVG, PDF and Paper), with layers, names and the

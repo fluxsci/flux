@@ -12,7 +12,7 @@ import { editSession } from "../../interact/editSession";
 import { selectionTargets } from "../../interact/selectionTargets";
 import { setFluximgView } from "../../ops";
 import type { FluximgElement } from "../../types";
-import type { FluximgView } from "../view";
+import type { FluximgStyleBy, FluximgView } from "../view";
 import type { PlayMode } from "./rail";
 
 export interface FluximgLiveState {
@@ -39,9 +39,18 @@ export const fluximgLive = writable<FluximgLiveState | null>(null);
  */
 export const fluximgLiveBusy = writable(false);
 
-/** The object under the pointer or the hovered list row: both sides read and write it. */
-export interface LiveHover { layerId: string; key: string; from: "image" | "list" }
+/**
+ * The object under the pointer or the hovered list row: both sides read and write it. A row of the key (a category)
+ * lights every object it names: `keys`, with `key` the first of them.
+ */
+export interface LiveHover { layerId: string; key: string; from: "image" | "list" | "legend"; keys?: string[] }
 export const fluximgHover = writable<LiveHover | null>(null);
+
+/**
+ * What a hovered styling key would do, shown on the live image before it is chosen: the layer drawn with this
+ * `styleBy` instead of its own (null = unstyled). Nothing is written; leaving the key puts the image back.
+ */
+export const fluximgStylePreview = writable<{ layerId: string; styleBy: FluximgStyleBy | null } | null>(null);
 
 /**
  * Where the pointer is over the live image, in level-0 image pixels; null elsewhere. Read on demand (not a store).

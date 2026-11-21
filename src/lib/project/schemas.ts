@@ -275,9 +275,19 @@ const FLUXIMG_CHANNEL_VIEW = { type: "object", properties: {
   visible: { type: "boolean" }, color: HEX_OR_NULL, lut: NAME_OR_NULL, range: RANGE2,
   norm: { enum: ["linear", "log", "gamma"] }, gamma: { type: "number", exclusiveMinimum: 0, maximum: 100 }, invert: { type: "boolean" },
 } };
+const FLUXIMG_STYLE_BY = { anyOf: [{ type: "null" }, { type: "object", properties: {
+  color: { anyOf: [{ type: "null" }, { type: "object", properties: {
+    column: { type: "string" }, lut: NAME_OR_NULL, palette: { anyOf: [{ type: "null" }, { type: "array", items: { type: "string" } }] },
+    range: { anyOf: [{ type: "null" }, RANGE2] }, reverse: { type: "boolean" } } }] },
+  opacity: { anyOf: [{ type: "null" }, { type: "object", properties: {
+    column: { type: "string" }, range: { anyOf: [{ type: "null" }, RANGE2] },
+    to: { anyOf: [{ type: "null" }, { type: "array", minItems: 2, maxItems: 2, items: UNIT }] } } }] },
+  missing: { anyOf: [{ type: "null" }, { enum: ["dim", "hide"] }] },
+} }] };
 const FLUXIMG_LAYER_VIEW = { type: "object", properties: {
   visible: { type: "boolean" }, opacity: UNIT, color: HEX_OR_NULL, lut: NAME_OR_NULL,
   strokeWidth: { type: "number", minimum: 0, maximum: 1000 }, fillOpacity: UNIT, range: RANGE2,
+  styleBy: FLUXIMG_STYLE_BY,
 } };
 const FLUXIMG_VIEW = {
   type: "object",
@@ -302,6 +312,7 @@ const FLUXIMG_VIEW = {
       channelLabels: { anyOf: [{ const: false }, { type: "object", properties: { corner: CORNER, fontSize: FONT_SIZE } }] },
       names: { anyOf: [{ const: false }, { type: "object", properties: { layers: { type: "array", items: { type: "string" } }, fontSize: FONT_SIZE } }] },
       colorbar: { anyOf: [{ const: false }, { type: "object", properties: { corner: CORNER, color: { type: "string" }, fontSize: FONT_SIZE } }] },
+      key: { anyOf: [{ const: false }, { type: "object", properties: { layer: { type: "string" }, corner: CORNER, color: { type: "string" }, fontSize: FONT_SIZE } }] },
     } },
     insetOf: NON_EMPTY,
     link: NON_EMPTY,
