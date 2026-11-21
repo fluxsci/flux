@@ -312,7 +312,9 @@ export async function importAssets() {
       { name: "Images, 3D models and image bundles", extensions: ["png", "svg", "glb", "json"] },
       { name: "Image bundle (choose fluximg.json inside the .fluximg folder)", extensions: ["json"] },
     ];
-    let paths = await window.fig.openFiles(storeTenant() === "figure" ? figureFilters : [{ name: "Images", extensions: ["png", "svg"] }]);
+    // a slide takes images and image bundles (fluximg stage 2); 3D models arrive there from the Plots rail
+    const slideFilters = [{ name: "Images and image bundles", extensions: ["png", "svg", "json"] }, figureFilters[1]];
+    let paths = await window.fig.openFiles(storeTenant() === "figure" ? figureFilters : slideFilters);
     paths = paths?.map(pickedBundlePath) ?? paths;
     if (paths?.length) {
       if (!canPlace()) throw new Error("The insertion destination changed");
@@ -513,7 +515,8 @@ export async function importDroppedFiles(files: File[], figId: string) {
   );
   if (!accepted.length) {
     // A dropped JPEG/PDF/TIFF/… previously did NOTHING — say why (no silent failures).
-    pushToast("info", storeTenant() === "figure" ? "Only PNG/SVG/GLB files and .fluximg image bundles can be imported here" : "Only PNG/SVG can be imported here");
+    // (the same set on a slide: the filter above takes it there too, image bundles included since fluximg stage 2)
+    pushToast("info", "Only PNG/SVG/GLB files and .fluximg image bundles can be imported here");
     return;
   }
   const incoming: Incoming[] = [];

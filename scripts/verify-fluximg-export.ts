@@ -115,8 +115,11 @@ try {
 
   await core.createDeck(root, { id: "talk" });
   const deck = await core.addSlide(root, "talk");
-  await refuses("place_image", { figureId: deck.slideId, bundlePath: "plots/gray2d_u8.fluximg" }, /cannot be placed on slides/, "a slide is refused with the stage-1 message");
-  await refuses("place_image", { figureId: "nope", bundlePath: "plots/gray2d_u8.fluximg" }, /Figure not found: nope/, "an unknown figure is refused");
+  // fluximg stage 2 supersedes the stage-1 slide refusal pinned here: a slide takes the image (the deck refers to the bundle by id)
+  const onSlide = await call("place_image", { figureId: deck.slideId, bundlePath: "plots/gray2d_u8.fluximg" });
+  h.ok(onSlide.deckId === "talk" && onSlide.slideId === deck.slideId, `a slide (by its id) takes the image (${onSlide.elementId})`);
+  await refuses("place_image", { figureId: "talk", bundlePath: "plots/gray2d_u8.fluximg" }, /is a deck: name one of its slides/, "a deck id is refused: a slide must be named");
+  await refuses("place_image", { figureId: "nope", bundlePath: "plots/gray2d_u8.fluximg" }, /Figure or slide not found: nope/, "an unknown figure is refused");
   await refuses("place_image", { figureId, bundlePath: "plots/missing.fluximg" }, /Image bundle not found/, "a missing bundle is refused");
   await fs.mkdir(path.join(root, "plots/empty.fluximg"), { recursive: true });
   await refuses("place_image", { figureId, bundlePath: "plots/empty.fluximg" }, /is not a fluximg bundle/, "a folder without fluximg.json is refused");

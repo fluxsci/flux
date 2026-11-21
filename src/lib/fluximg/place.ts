@@ -55,6 +55,30 @@ export function fluximgAsset(assetId: string, result: Pick<FluximgImportResult, 
   };
 }
 
+/** Where an asset's bundle lives, relative to `fig/` (the way `Asset.path` is written): `assets/<assetId>.fluximg`. A bundle
+ *  always lives there, in figures and decks alike: a deck never owns one and refers to it by id. */
+export const fluximgAssetPath = (assetId: string): string => `assets/${assetId}${FLUXIMG_SUFFIX}`;
+
+/**
+ * The asset record of a bundle that a DECK places but `fig/index.json` does not list (an image imported onto a slide never
+ * writes the figure index): rebuilt from the bundle's own manifest at its one place, `fig/assets/<assetId>.fluximg`. The
+ * content id is the one the placing element recorded (`source.sha256`, the same bytes) when it has one; the byte count is
+ * unknown (only an import measures it). Both engines resolve a deck's images through this.
+ */
+export function fluximgResolvedAsset(assetId: string, manifest: FluximgManifest, sha256?: string): Asset {
+  const s = manifest.pixels.shape, nd = s.length;
+  return {
+    id: assetId,
+    name: fluximgDisplayName(manifest),
+    kind: "fluximg",
+    path: fluximgAssetPath(assetId),
+    naturalWidth: s[nd - 1],
+    naturalHeight: s[nd - 2],
+    ...(sha256 && /^[a-f0-9]{64}$/.test(sha256) ? { sha256 } : {}),
+    fluximg: fluximgInfo(manifest),
+  };
+}
+
 /** An asset id for a new import: readable, unique, and inside the file side's safe alphabet. */
 export function fluximgAssetId(name: string, unique: string): string {
   const stem = name.normalize("NFKD").replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "image";

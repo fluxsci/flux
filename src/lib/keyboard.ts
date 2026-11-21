@@ -77,7 +77,6 @@ import { openAlignArrange, closeAlignArrange, handleAlignArrangeKey, crystallize
 import { reattachClones } from "./slide/attach";
 import { copySelectedPlotPath } from "./figure/commands";
 import { figurePlacement } from "./figure/placement";
-import { FLUXIMG_NOT_IN_SLIDES, isFluximgElement } from "./fluximg/policy";
 import { fluximgLive, fluximgLiveUnavailable, openFluximgLive } from "./fluximg/live/session";
 
 let clipboard: Element[] = [];
@@ -448,10 +447,6 @@ function paste() {
   }
   if (clipboard.some(e => e.type === "model3d") && storeTenant() !== "figure") {
     pushToast("info", "3D models can currently be pasted into figures."); return;
-  }
-  // Stage 1: a fluximg never enters a deck (the one message every deck chokepoint uses).
-  if (clipboard.some(isFluximgElement) && storeTenant() !== "figure") {
-    pushToast("info", FLUXIMG_NOT_IN_SLIDES); return;
   }
   const videos = clipboard.filter(e => e.type === "video");
   if (videos.length && storeTenant() !== "slide") {

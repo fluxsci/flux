@@ -9,7 +9,8 @@
 //   4. GC keeps the directory while referenced and releases it on deletion like any other asset;
 //      a missing bundle is a non-blocking asset issue;
 //   5. ops: addFluximg defaults and fit-to-figure, setFluximgView merge laws, crop;
-//   6. a deck cannot receive the element.
+//   6. a deck receives the element (fluximg stage 2 supersedes the stage-1 refusal pinned here): Send to deck,
+//      add_slide_figure, addFluximg on a slide, the fold, the deck schema; the deck never owns the bundle.
 //   node --import tsx scripts/verify-fluximg-model.ts
 import "./lib/cssStub.mjs";
 import fsSync, { promises as fs } from "node:fs";
@@ -87,7 +88,6 @@ const { readProjectDependencies } = await import("../src/lib/project/dependencie
 const { SCHEMAS } = await import("../src/lib/project/schemas");
 const { validateModel, validateDeckFile } = await import("../src/lib/project/validate");
 const { isNewerSchema, CANVAS_SCHEMA_VERSION, FIG_INDEX_SCHEMA_VERSION } = await import("../src/lib/project/types");
-const { FLUXIMG_NOT_IN_SLIDES } = await import("../src/lib/fluximg/policy");
 const { fluximgPlaceholderSvg } = await import("../src/lib/fluximg/placeholder");
 const { deckToProject, projectIntoDeck } = await import("../src/lib/slide/deckProject");
 const slideOps = await import("../src/lib/slide/ops");
@@ -430,28 +430,28 @@ try {
     h.ok(fluximgPlaceholderSvg({ x: 0, y: 0, width: 100, height: 50, assetId: "a" }, null).includes(">Image<"), "without an asset it labels generically");
   }
 
-  h.section("6. a deck cannot receive the element");
+  h.section("6. a deck receives the element (stage 2), and never owns the bundle");
   {
-    const msg = FLUXIMG_NOT_IN_SLIDES;
     const deck = slideOps.createDeck({ id: "d", title: "D" });
     const figure = { elements: [{ type: "fluximg", id: "x", assetId: ASSET_ID, x: 0, y: 0, width: 10, height: 10, rotation: 0 } as FluximgElement] };
-    const before = JSON.stringify(deck);
-    let err = ""; try { slideOps.addFigureContentToSlide(deck, deck.slides[0].id, figure); } catch (e) { err = String((e as Error).message); }
-    h.ok(err === msg && JSON.stringify(deck) === before, "addFigureContentToSlide (Send to deck, add_slide_figure) refuses with the one message");
-    const projected = deckToProject(deck, []);
-    projected.assets.push(asset);
-    projected.figures[0].elements.push(structuredClone(figure.elements[0]));
-    let threw = ""; try { ops.addFluximg(projected, { figureId: projected.figures[0].id, asset }); } catch (e) { threw = String((e as Error).message); }
-    h.ok(threw === msg, "addFluximg on a deck slide refuses with the one message");
+    const ids = slideOps.addFigureContentToSlide(deck, deck.slides[0].id, figure);
+    const copied = deck.slides[0].elements.find((e) => e.id === ids[0]);
+    h.ok(ids.length === 1 && copied?.type === "fluximg" && copied.assetId === ASSET_ID && copied.id !== "x" && !deck.assets.length, "addFigureContentToSlide (Send to deck, add_slide_figure) copies the image by id with a fresh element id; the deck owns no asset");
+    const projected = deckToProject(deck, [asset]);
+    const id = ops.addFluximg(projected, { figureId: projected.figures[0].id, asset });
+    const placedEl = projected.figures[0].elements.find((e) => e.id === id)!;
+    h.ok(placedEl.type === "fluximg" && placedEl.width <= deck.stage.width && placedEl.height <= deck.stage.height, `addFluximg on a deck slide places the image inside the stage (${placedEl.width}×${placedEl.height})`);
     const back = projectIntoDeck(projected, deck);
-    h.ok(!back.slides[0].elements.some((e) => e.type === "fluximg") && !back.assets.some((a) => a.kind === "fluximg"), "the deck projection drops anything that slipped through (last line of defence)");
-    h.ok(validateDeckFile({ ...back, slides: [{ ...back.slides[0], elements: [figure.elements[0]] }] }).length > 0, "the deck schema refuses a fluximg element");
+    h.ok(back.slides[0].elements.filter((e) => e.type === "fluximg").length === 2 && !back.assets.some((a) => a.kind === "fluximg"), "the fold keeps every image element and never writes the bundle into deck.assets");
+    h.eq(validateDeckFile(JSON.parse(JSON.stringify({ ...back, schemaVersion: "0.8.0" }))), [], "the deck schema accepts a deck holding images (0.8.0)");
     const root = path.join(work, "deck");
     await fs.cp(rootA, root, { recursive: true });
     await core.saveDeck(root, slideOps.createDeck({ id: "talk", title: "Talk" }));
     const talk = await core.loadDeck(root, "talk");
-    const cli = await armedRun("flux-core add_slide_figure", () => core.addFigureToSlide(root, "talk", talk.slides[0].id, "figA").then(() => "", (e: Error) => String(e?.message ?? e)));
-    h.ok(cli.includes(msg), `flux-core add_slide_figure refuses with the one message (${cli.slice(0, 60)})`);
+    const cli = await armedRun("flux-core add_slide_figure", () => core.addFigureToSlide(root, "talk", talk.slides[0].id, "figA").then((r) => r.elementIds, (e: Error) => String(e?.message ?? e)));
+    const saved = JSON.parse(await orig.readFile(path.join(root, "slides/talk/deck.json"), "utf8"));
+    h.ok(Array.isArray(cli) && saved.schemaVersion === "0.8.0" && saved.slides[0].elements.some((e: { type: string }) => e.type === "fluximg") && !saved.assets.some((a: { kind: string }) => a.kind === "fluximg"),
+      `flux-core add_slide_figure copies the image (deck written as 0.8.0, no deck-owned bundle) without reading the bundle (${JSON.stringify(cli).slice(0, 60)})`);
   }
 } finally {
   armed = false;

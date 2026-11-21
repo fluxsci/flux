@@ -1,9 +1,10 @@
 /**
- * Getting an image bundle onto a figure: the `Incoming` protocol of io.ts (the GLB template, model3d/import.ts).
+ * Getting an image bundle onto a figure or a slide: the `Incoming` protocol of io.ts (the GLB template, model3d/import.ts).
  *
  * The file side copies the bundle into the immutable asset folder `fig/assets/<id>.fluximg/` and returns its content
  * id; nothing here reads or hashes a bundle. Rules:
- *  - a Slide deck refuses before anything is copied (stage 1, `FLUXIMG_NOT_IN_SLIDES`);
+ *  - a slide takes the image like a figure does, and its bundle goes to the same place: `fig/assets/` of the project,
+ *    never the deck's own assets (a deck refers to it by id; the slide bridge resolves it there on every load);
  *  - only a Flux project takes a bundle (its `fig/assets/`): an unsaved or legacy standalone figure is refused up
  *    front, before any dialog, save or copy (FLUXIMG_NEEDS_PROJECT);
  *  - the same content twice is ONE asset: a fresh copy whose content id the project already holds is discarded and
@@ -20,7 +21,6 @@ import { pushToast } from "../toast";
 import type { Asset } from "../types";
 import type { FluximgImportResult } from "./bridge";
 import { fluximgAsset, fluximgAssetId, fluximgDisplayName } from "./place";
-import { FLUXIMG_NOT_IN_SLIDES } from "./policy";
 import { trackFluximgImport } from "./importProgress";
 import { findFluximgAsset, fluximgRecipeBeside, fluximgSourceRecord, makeFluximgElement } from "./importCore";
 import { fluximgManifests } from "./store";
@@ -28,9 +28,11 @@ import type { FluximgManifest } from "./types";
 
 export const fluximgImportRoot = (): string | null => get(embeddedProjectRoot);
 
-/** Refuse a Slide deck: before any dialog, copy or save. */
+/** Where an image can go: a figure, or a slide of the open deck (stage 2). Anything else is refused before any dialog,
+ *  copy or save. */
 export function assertFluximgDestination(): void {
-  if (storeTenant() === "slide") throw new Error(FLUXIMG_NOT_IN_SLIDES);
+  const tenant = storeTenant();
+  if (tenant !== "figure" && tenant !== "slide") throw new Error("Images (fluximg) are placed on a figure or a slide.");
 }
 
 /** Why a figure outside a Flux project folder cannot take an image bundle. */
@@ -45,10 +47,10 @@ export const FLUXIMG_NEEDS_PROJECT = "Images (fluximg) are added inside a Flux p
  */
 export async function ensureFluximgImportRoot(): Promise<string> {
   assertFluximgDestination();
-  const owner = get(project), figure = get(activeFigureId);
+  const owner = get(project), figure = get(activeFigureId), tenant = storeTenant();
   const root = get(embeddedProjectRoot);
   if (!root) throw new Error(FLUXIMG_NEEDS_PROJECT);
-  if (get(embeddedProjectRoot) !== root || get(project) !== owner || get(activeFigureId) !== figure || storeTenant() !== "figure") throw new Error("The insertion destination changed");
+  if (get(embeddedProjectRoot) !== root || get(project) !== owner || get(activeFigureId) !== figure || storeTenant() !== tenant) throw new Error("The insertion destination changed");
   return root;
 }
 
@@ -63,11 +65,11 @@ let toldLiveView = false;
 async function incoming(source: string | File, targetFigure?: string): Promise<Incoming> {
   assertFluximgDestination();
   const root = await ensureFluximgImportRoot();
-  const owner = get(project), figureId = get(activeFigureId), targetId = targetFigure ?? figureId;
+  const owner = get(project), figureId = get(activeFigureId), targetId = targetFigure ?? figureId, tenant = storeTenant();
   const bridge = fileBridge();
   if (!bridge?.importFluximg || !bridge.discardFluximg) throw new Error("Images (fluximg) need the Flux desktop app.");
   const current = (): boolean => fluximgImportRoot() === root && get(project) === owner && get(activeFigureId) === figureId
-    && storeTenant() === "figure" && !!targetId && owner.figures.some((f) => f.id === targetId);
+    && storeTenant() === tenant && !!targetId && owner.figures.some((f) => f.id === targetId);
   const label = typeof source === "string" ? baseName(source) : source.name;
   const assetId = fluximgAssetId(label.replace(/\.fluximg$/i, ""), uniqueTail());
   const finishProgress = trackFluximgImport(label, current, [project, activeFigureId, embeddedProjectRoot, projectDir, storeTenantState]);

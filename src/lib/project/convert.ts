@@ -1,5 +1,4 @@
 import { elementSourceAssetIds } from "../model3d/refs";
-import { FLUXIMG_NOT_IN_SLIDES, isFluximgElement } from "../fluximg/policy";
 import { prepareModelCopy, publishModelCopy, type PreparedModelCopy } from "../model3d/copy";
 import { scene3dSidecarWrites } from "../model3d/persistence";
 import { collectModel3dSourceBindings } from "../model3d/sourceBinding";
@@ -90,8 +89,8 @@ async function figureAssets(fig: FileBridge, root: string, snapshot: FigureSnaps
       if (!await fig.exists(joinPath(root, "fig", storedAssetPath(asset.path)))) throw new Error(`Missing GLB asset ${id}`);
       continue;
     }
-    // A fluximg bundle is an immutable DIRECTORY that never crosses into a deck (stage 1) and is never read whole:
-    // existence only, so a project holding one can still convert its other figures.
+    // A fluximg bundle is an immutable DIRECTORY that stays in fig/assets (a deck refers to it by id) and is never read whole:
+    // existence only.
     if (asset.kind === "fluximg") {
       if (!await fig.exists(joinPath(root, "fig", storedAssetPath(asset.path)))) throw new Error(`Missing fluximg asset ${id}`);
       continue;
@@ -136,8 +135,8 @@ function sourceAssets(elements: Figure["elements"]) {
   const source = new Map<string, { asset: Asset; bytes: Uint8Array; manifest?: string; recipe?: string }>();
   for (const id of ids) {
     const asset = metadata.find(a => a.id === id), url = getAssetData(id);
-    if (asset?.kind === "glb") continue;
-    if (asset?.kind === "fluximg") throw new Error(FLUXIMG_NOT_IN_SLIDES);
+    // GLB bytes cross through verified native copies; an image bundle never crosses at all (it stays in fig/assets, by id).
+    if (asset?.kind === "glb" || asset?.kind === "fluximg") continue;
     if (!asset || !url) throw new Error(`Missing conversion asset: ${id}`);
     const man = manifests[id];
     source.set(id, { asset, bytes: dataUrlToBytes(url),
@@ -156,6 +155,19 @@ function sourceModels(elements: Figure["elements"]) {
     return structuredClone(asset);
   });
 }
+/** The image (fluximg) records the elements place: metadata only. A bundle never moves between documents: it stays in
+ *  fig/assets/<id>.fluximg and every document refers to it by id. */
+function sourceImages(elements: Figure["elements"]) {
+  const ids = new Set(elements.filter(e => e.type === "fluximg").map(e => e.assetId));
+  return [...ids].map(id => {
+    const asset = get(figProject).assets.find(a => a.id === id);
+    if (!asset || asset.kind !== "fluximg") throw new Error(`Missing conversion image metadata: ${id}`);
+    return structuredClone(asset);
+  });
+}
+async function assertImageBundles(fig: FileBridge, root: string, images: readonly Asset[]) {
+  for (const asset of images) if (!await fig.exists(joinPath(root, "fig", storedAssetPath(asset.path)))) throw new Error(`Missing fluximg asset ${asset.id}: its bundle fig/${asset.path} is gone`);
+}
 async function prepareModelSidecars(fig: FileBridge, root: string, writes: AssetWrite[], copy: PreparedModelCopy, prefix: string) {
   for (const [rel, text] of scene3dSidecarWrites(`${prefix}/assets`, copy.asset.id, copy.sidecars)) {
     if (text !== null) await prepareAbsentWrite(fig, root, writes, rel, new TextEncoder().encode(text));
@@ -166,10 +178,8 @@ async function prepareModelSidecars(fig: FileBridge, root: string, writes: Asset
  * remain by-id references; unsaved assets are copied into the destination deck. */
 export async function sendFigureToDeck(root: string, figure: Pick<Figure, "name" | "elements" | "groups"> & Partial<Pick<Figure, "width" | "height">>, deckId: string | null): Promise<{ deckId: string; slideId: string; title: string }> {
   const fig = fileBridge(); if (!fig) throw new Error("no file bridge");
-  // Stage 1: a fluximg never enters a deck (ARCHITECTURE decision 8). Refuse before any read or write.
-  if (figure.elements.some(isFluximgElement)) throw new Error(FLUXIMG_NOT_IN_SLIDES);
-  const captured = structuredClone(figure), source = sourceAssets(captured.elements), models = sourceModels(captured.elements), localOwner = captureOwner(root);
-  const sourceErrors = validateModel({ version: 2, name: "Conversion", canvases: [{ id: "source", name: "Source" }], figures: [{ ...captured, id: "source-figure", canvasId: "source", x: 0, y: 0, width: 1, height: 1 }], assets: [...source.values()].map(v => v.asset).concat(models), palette: [] });
+  const captured = structuredClone(figure), source = sourceAssets(captured.elements), models = sourceModels(captured.elements), images = sourceImages(captured.elements), localOwner = captureOwner(root);
+  const sourceErrors = validateModel({ version: 2, name: "Conversion", canvases: [{ id: "source", name: "Source" }], figures: [{ ...captured, id: "source-figure", canvasId: "source", x: 0, y: 0, width: 1, height: 1 }], assets: [...source.values()].map(v => v.asset).concat(models, images), palette: [] });
   if (sourceErrors.length) throw new Error(sourceErrors.join("; "));
   return withIpcLock("project", "project", async projectLease => withIpcLock("project", "slides", async slideLease => {
     const assertOwner = async () => { localOwner(); await projectLease.assertOwned?.(); await slideLease.assertOwned?.(); };
@@ -177,13 +187,15 @@ export async function sendFigureToDeck(root: string, figure: Pick<Figure, "name"
     await withIpcLock("project", "manifest", async manifestLease => recoverTextGeneration(io,async()=>{await assertOwner();await manifestLease.assertOwned?.()}), { root });
     const snapshot = requireCompleteFigureSnapshot(await readFigureSnapshot(figureSnapshotBridgeIO(root, fig)));
     const savedBytes = await figureAssets(fig, root, snapshot);
+    // the deck will resolve each image by id from its bundle: it must be there (an import publishes it before placing)
+    await assertImageBundles(fig, root, images);
     const deck = deckId ? await readDeck(root, deckId) : createDeckModel({ title: `${captured.name} deck`, withTitleSlide: false });
     if (!deck) throw new Error(`deck not found or invalid: ${deckId}`);
     // Deferred resolution is read-only: conversion must never rebase or warm
     // another resident editor's caches merely by inspecting its target.
     const resolved = await resolveDeckAssets(root, deck, () => false, true);
     const required = new Set(deck.slides.flatMap(s => [...s.elements.flatMap(elementSourceAssetIds), ...s.beats.flatMap(b => b.tracks.flatMap(t => t.to?.assetId ? [t.to.assetId] : []))]));
-    for (const id of required) if (!resolved.data[id] && !resolved.assets.some(a => a.id === id && a.kind === "glb")) throw new Error(`Missing conversion target asset: ${id}`);
+    for (const id of required) if (!resolved.data[id] && !resolved.assets.some(a => a.id === id && (a.kind === "glb" || a.kind === "fluximg"))) throw new Error(`Missing conversion target asset: ${id}`);
     // A GLB entry resolves as metadata even when its file is gone, so only the
     // diagnostics say whether the destination can hold what the result needs:
     // its current references plus the assets this conversion reuses. Entries
@@ -243,7 +255,7 @@ export async function sendFigureToDeck(root: string, figure: Pick<Figure, "name"
 export async function sendSlideToCanvas(root: string, slide: Slide, deck: Pick<Deck, "id" | "stage" | "background" | "theme" | "assets">, canvasId: string | null): Promise<{ figureId: string; name: string; canvasId: string }> {
   const fig = fileBridge(); if (!fig) throw new Error("no file bridge");
   if (slide.elements.some(e => e.type === "video")) throw new Error("Video clips belong to slides. Remove the clips before sending this slide to a Figure canvas.");
-  const sourceSlide = structuredClone(slide), sourceDeck = structuredClone(deck), source = sourceAssets(sourceSlide.elements), models = sourceModels(sourceSlide.elements), localOwner = captureOwner(root);
+  const sourceSlide = structuredClone(slide), sourceDeck = structuredClone(deck), source = sourceAssets(sourceSlide.elements), models = sourceModels(sourceSlide.elements), images = sourceImages(sourceSlide.elements), localOwner = captureOwner(root);
   return withIpcLock("project", "project", async projectLease => withIpcLock("project", "slides", async slideLease => {
     const assertOwner = async () => { localOwner(); await projectLease.assertOwned?.(); await slideLease.assertOwned?.(); };
     const io = generationIO(fig, root);
@@ -263,6 +275,15 @@ export async function sendSlideToCanvas(root: string, slide: Slide, deck: Pick<D
       const copy = await prepareModelCopy(fig, root, asset, root, `fig/assets/${asset.id}.glb`, { sourcePrefix: owned ? `slides/${sourceDeck.id}` : "", binding: bindings.get(asset.id) });
       modelCopies.push(copy); await prepareModelSidecars(fig, root, writes, copy, "fig");
       model.assets.push({ ...asset, path: `assets/${asset.id}.glb` });
+    }
+    // An image's bundle is already in fig/assets: the figure only needs its record in the index. A deck that placed it
+    // without the figure index rebuilt that record from the bundle and has no byte count: refused, with the way round.
+    await assertImageBundles(fig, root, images);
+    for (const asset of images) {
+      const prior = model.assets.find(a => a.id === asset.id);
+      if (prior) { if (prior.kind !== "fluximg") throw new Error(`Conversion image ${asset.id} is registered as ${prior.kind} in the Figure project`); continue; }
+      if (!asset.sha256 || !(asset.bytes && asset.bytes > 0)) throw new Error(`Image "${asset.name}" was placed on slides only, so this project has no figure record of it yet. Remove it from the slide before sending, and place the image on the figure from the Plots rail.`);
+      model.assets.push({ ...asset, path: `assets/${asset.id}.fluximg` });
     }
     for (const [id, value] of source) {
       const prior = model.assets.find(a => a.id === id);
