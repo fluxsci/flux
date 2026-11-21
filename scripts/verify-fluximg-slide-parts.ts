@@ -264,6 +264,23 @@ try {
     const hk = c.handoffs[0] ? handoffKeyPairs(c.resolvedSlide, c.handoffs[0].source, c.handoffs[0].destination, {}) : null;
     h.eq(hk && [hk.pairs, hk.source, hk.destination, hk.auto], [4, 4, 4, true], "handoffKeyPairs: 4 keys pair, auto would pair by key");
     h.eq(deckSchemaFor(deck), "0.8.0", "the deck is written as 0.8.0");
+    // stagger by a table column from the CLI: set-track --stagger-by column:<name> writes the deck's column shape
+    const st = VERBS.find((v) => v.name === "set_track")!, stSchema = z.object(st.params as Record<string, never>);
+    h.ok(stSchema.safeParse({ deckId: "d", slideId: "s", trackId: "t", staggerBy: "column:pixels" }).success && !stSchema.safeParse({ deckId: "d", slideId: "s", trackId: "t", staggerBy: "column:" }).success
+      && !stSchema.safeParse({ deckId: "d", slideId: "s", trackId: "t", staggerBy: "colour" }).success, "set_track accepts staggerBy column:<name> (and still refuses an empty column or an unknown order)");
+    const core = await import("../flux-core/index"), slidesCore = await import("../flux-core/slides");
+    const root = path.join(scratch, "proj");
+    await core.scaffold(root, { title: "parts" });
+    await core.createDeck(root, { id: "cols", title: "Cols" });
+    const sid = (await slidesCore.loadDeck(root, "cols")).slides[0].id;
+    await slidesCore.mutateDeck(root, "cols", "prep", (d) => {
+      const sl = d.slides[0];
+      sl.elements.push(el as never);
+      sl.beats.push({ id: "b1", tracks: [{ id: "tc", target: "img", part: "layer:footprints", preset: "fade", duration: 300, stagger: { perMs: 100 } }] } as never);
+    });
+    await st.handler({ root, transport: "mcp" } as never, stSchema.parse({ deckId: "cols", slideId: sid, trackId: "tc", staggerBy: "column:pixels" }) as never);
+    const written = (await slidesCore.loadDeck(root, "cols")).slides[0].beats[1].tracks[0];
+    h.eq(written.stagger?.by, { column: "pixels" }, "set-track --stagger-by column:pixels writes stagger.by = {column: \"pixels\"}");
   }
 
   h.section("N. static writers: a slide where footprints appear one by one");
