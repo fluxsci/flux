@@ -16,6 +16,7 @@ import zlib from "node:zlib";
 import { createHash, randomUUID } from "node:crypto";
 import { fluximgContentIdText } from "../electron/fluximgRules.js";
 import { nodeBundleReader, nodeZstd } from "./fluximgIo";
+import { encodePng } from "./fluximgPng";
 import { writeFluximg, type WriteOptions, type WriteProgress } from "../src/lib/fluximg/writer";
 import { validateFluximg } from "../src/lib/fluximg/validate";
 import type { FluximgManifest } from "../src/lib/fluximg/types";
@@ -100,6 +101,7 @@ export interface ConvertOptions {
   sourcePath?: string;
   /** Chunks compressed at once on the libuv pool (default 8; its threads are UV_THREADPOOL_SIZE, 4 unless set at start). */
   concurrency?: number;
+  /** Writer options (preview and automatic regions are on unless overridden). */
   writeOptions?: Omit<WriteOptions, "signal" | "onProgress" | "concurrency">;
 }
 
@@ -168,6 +170,9 @@ export async function convertTiff(tiffPath: string, answer: DimsAnswer, outDir: 
     const w = stagingWriter(staging);
     const codec = await nodeZstd();
     const report = await writeFluximg(w.io, codec, { ...input, source: pixels }, {
+      // A preview and automatic regions, as fluxplot's writer makes them (the rail shows the preview; unscanned
+      // areas become regions for "Split by region").
+      preview: { encodePng }, regions: "auto",
       ...(opts.writeOptions ?? {}), signal: opts.signal, concurrency: opts.concurrency ?? 8,
       onProgress: opts.onProgress ? (p) => opts.onProgress!({
         ...p, bytesRead: src.bytesRead, elapsedMs: Date.now() - t0,

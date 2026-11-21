@@ -18,7 +18,7 @@
 //   G. Conversion: the bundle passes the contract validator and decodes back to the input within the encoding's
 //      error (transpose, flips, de-interleave and no-data applied); axes, channels and coords from metadata;
 //      progress monotone and complete; cancel leaves no staging folder and no bundle; the same input converts to the
-//      same content id, which is the id the app's import computes.
+//      same content id, which is the id the app's import computes; automatic regions and preview.png.
 //   H. place-image / image-info with a TIFF through the CLI: ready metadata places with no flags; a file without
 //      metadata is refused with proposals and their flags, then placed with them; the element's source is the TIFF,
 //      frozen; the scratch folder is gone.
@@ -440,6 +440,18 @@ try {
     const ints = Array.from({ length: 4 }, (_, i) => values("int16", 50, 950 + i));
     ints[1][3] = -7;
     await roundTrip("int16 with a no-data value", writeTiff({ pages: ints.map((data) => pageSpec({ width: 10, height: 5, dtype: "int16", data })) }), { dims: [{ name: "z", size: 4 }], nodata: -7 }, ints, 10, 5, (m) => h.eq(m.pixels.nodata, -7, "an integer no-data value becomes the bundle's nodata"));
+  }
+
+  {
+    // Two scanned areas in an unscanned (NaN) field, wider than a preview: regions and preview.png as fluxplot makes them.
+    const PW = 600, PH = 40, pages = Array.from({ length: 4 }, (_, p) => { const a = new Float32Array(PW * PH); for (let y = 0; y < PH; y++) for (let x = 0; x < PW; x++) a[y * PW + x] = (x >= 20 && x < 120 && y >= 5 && y < 30) || (x >= 300 && x < 580 && y >= 10 && y < 38) ? 100 + ((x * 7 + y * 3 + p) % 50) : NaN; return a; });
+    const file = await save("areas.tif", writeTiff({ pages: pages.map((data) => pageSpec({ width: PW, height: PH, dtype: "float32", data })) }));
+    const out = path.join(scratch, "bundles", "areas.fluximg");
+    const r = await convertTiff(file, { dims: [{ name: "t", size: 4 }] }, out);
+    h.eq(r.manifest.regions, [{ id: "roi_1", name: "ROI 1", rect: { x: 20, y: 5, width: 100, height: 25 } }, { id: "roi_2", name: "ROI 2", rect: { x: 300, y: 10, width: 280, height: 28 } }], "automatic regions: one per scanned area");
+    const png = await fs.readFile(path.join(out, "preview.png"));
+    h.ok(png.subarray(1, 4).toString() === "PNG" && png.readUInt32BE(16) === 300 && png.readUInt32BE(20) === 20, `preview.png of the default view, at most 512 px (${png.readUInt32BE(16)} x ${png.readUInt32BE(20)})`);
+    h.ok((await validateFluximg(nodeBundleReader(out), zstd)).ok, "and the bundle still conforms");
   }
 
   // Progress, cancel, determinism, the app's content id.
