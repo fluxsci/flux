@@ -16,7 +16,7 @@ import { cueEnd } from "../video";
 import { mediaFold, playbackPlane, sampleImagePlayback, videoEvents, type VideoEvent } from "../mediaTimeline";
 import { familyOf } from "../family";
 import type { SlideRenderCtx } from "./render";
-import { fluximgBindingOf, setSlideFluximgMovie } from "./fluximg";
+import { fluximgBindingOf } from "./fluximg";
 
 /** What the player calls on its media (the video controller's shape). */
 export interface MediaController {
@@ -30,6 +30,9 @@ export interface MediaController {
   ready(): Promise<unknown>;
   destroy(): void;
 }
+
+/** How often (ms) a running movie asks for the planes ahead of it, and how many. */
+const AHEAD_EVERY_MS = 120, AHEAD_PLANES = 8;
 
 interface Movie { id: string; playback: ResolvedPlayback; running: boolean; started: boolean; position: number; origin: number; shown: number | null }
 
@@ -64,14 +67,24 @@ export function createFluximgMovieController(root: HTMLElement, slide: Slide, ct
     const node = root.querySelector<HTMLElement>(`[data-slide-fluximg-root="${CSS.escape(id)}"]`);
     return node ? fluximgBindingOf(node) : undefined;
   };
-  /** Put the plane the movie stands on (or the state's own plane once stopped) on its image, and draw it. */
+  /** Put the plane the movie stands on (or the state's own plane once stopped) on its image, and draw that image alone
+   *  (the binding's media hook: an index override composed with whatever frame it shows, flushed outside paint()). */
   function show(m: Movie, plane: number | null): void {
     if (m.shown === plane) return;
     m.shown = plane;
     const b = bindingOf(m.id);
     if (!b) return;
-    setSlideFluximgMovie(b, plane === null ? null : { dim: m.playback.dim, index: m.playback.from + plane });
+    b.setIndexOverride(plane === null ? null : { dim: m.playback.dim, index: m.playback.from + plane });
     b.flush();
+  }
+  /** Decode ahead the way the movie is going, at a low rate (never per frame). */
+  let aheadAt = -Infinity;
+  function ahead(m: Movie, now: number): void {
+    if (now - aheadAt < AHEAD_EVERY_MS) return;
+    aheadAt = now;
+    const pos = positionNow(m, now), p = m.playback;
+    const here = playbackPlane(pos, p.passMs, p.mode, p.planes).plane, next = playbackPlane(pos + p.periodMs, p.passMs, p.mode, p.planes).plane;
+    bindingOf(m.id)?.decodeAhead(p.dim, next < here ? -1 : 1, 1, AHEAD_PLANES);
   }
   const positionNow = (m: Movie, now: number): number => m.position + (m.running && !pauseReasons.size ? now - m.origin : 0);
   function frame(now: number): void {
@@ -83,6 +96,7 @@ export function createFluximgMovieController(root: HTMLElement, slide: Slide, ct
       const p = playbackPlane(positionNow(m, now), m.playback.passMs, m.playback.mode, m.playback.planes);
       if (p.done) { m.position = m.playback.passMs; m.running = false; onChange(); }
       show(m, p.plane);
+      if (m.running) ahead(m, now);
       any ||= m.running;
     }
     if (any && !pauseReasons.size) loop = requestAnimationFrame(frame);
@@ -168,7 +182,7 @@ export function createFluximgMovieController(root: HTMLElement, slide: Slide, ct
       destroyed = true;
       if (loop) cancelAnimationFrame(loop);
       loop = 0;
-      for (const m of movies.values()) { const b = bindingOf(m.id); if (b) setSlideFluximgMovie(b, null); }
+      for (const m of movies.values()) bindingOf(m.id)?.setIndexOverride(null);
       movies.clear();
     },
   };

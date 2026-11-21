@@ -17,8 +17,12 @@ export interface FluximgSlideHost {
    * the background (`onChange` fires when it lands). Never allocates GPU.
    */
   still(assetId: string, picture: TweenPicture, outWidth: number, outHeight: number): string | undefined;
-  /** A live surface over a canvas the binding owns. All surfaces of a host share ONE WebGL context. */
+  /** A live surface over a canvas the binding owns. Up to `maxLive` surfaces draw on their own WebGL context, straight
+   *  into their canvas; later ones share one offscreen renderer. A surface may REPLACE its canvas element (a canvas
+   *  keeps the first kind of context it had): read `surface.canvas`. */
   surface(canvas: HTMLCanvasElement): FluximgSurface;
+  /** How many surfaces may hold their own context at once. */
+  readonly maxLive?: number;
   /** Decode ahead: make these pictures drawable soon. Safe to call often; safe to ignore. */
   warm(assetId: string, pictures: readonly TweenPicture[], outWidth: number, outHeight: number): void;
   /** Resolves when every picture is drawable (its planes decoded and in hand). */
@@ -36,14 +40,19 @@ export interface FluximgSurface {
    * planes the frame did not ask for, never a blank).
    */
   draw(assetId: string, frame: ViewTweenFrame, outWidth: number, outHeight: number): boolean;
+  /** The canvas the surface draws on now (the binding's, or the one that replaced it in the same place). */
+  readonly canvas: HTMLCanvasElement;
+  /** Make the surface's own GL context now, ahead of its first frame (idle time); a no-op when no slot is free. */
+  prepare(): void;
   /** True once any frame has reached the canvas since the last `release`. */
   readonly shown: boolean;
   /** True when the last frame passed to `draw()` is exactly on the canvas (it may land after `draw` returned false). */
   readonly exact: boolean;
   /** Capture: resolves when the last frame passed to `draw()` is exactly on the canvas. */
   settled(): Promise<void>;
-  /** Give back GPU memory (offscreen or hidden): the canvas is emptied and the next draw renders afresh. */
-  release(): void;
+  /** Give back GPU memory (offscreen or hidden): its context is lost at once, the canvas is emptied, and the next draw
+   *  renders afresh. */
+  release(keepContext?: boolean): void;
   /** The binding is gone: release, and the host forgets this surface. */
   dispose(): void;
 }

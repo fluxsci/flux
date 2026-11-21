@@ -138,10 +138,18 @@ export function fluximgStaticSvg(input: FluximgStaticInput): string {
  * outside the parent's.
  */
 export function insetRectMarkup(childCrop: PixelRect, parentCrop: PixelRect, box: { width: number; height: number }, idPrefix: string, color = "#ffffff"): string {
-  if (!(parentCrop.width > 0 && parentCrop.height > 0)) return "";
+  const r = insetRect(childCrop, parentCrop, box);
+  if (!r) return "";
+  return `<rect id="${escapeXml(idPrefix + "inset")}" data-part="inset" x="${svgNum(r.x)}" y="${svgNum(r.y)}" width="${svgNum(r.width)}" height="${svgNum(r.height)}" fill="none" stroke="${escapeXml(color)}" stroke-width="1" stroke-dasharray="4 3"/>`;
+}
+
+/** Where a child's crop lies in its parent's box (box px), or null when it is wholly outside (the slide player moves
+ *  its inset rectangles by this as either crop tweens). */
+export function insetRect(childCrop: PixelRect, parentCrop: PixelRect, box: { width: number; height: number }): { x: number; y: number; width: number; height: number } | null {
+  if (!(parentCrop.width > 0 && parentCrop.height > 0)) return null;
   const sx = box.width / parentCrop.width, sy = box.height / parentCrop.height;
   const x0 = (childCrop.x - parentCrop.x) * sx, y0 = (childCrop.y - parentCrop.y) * sy;
   const x1 = x0 + childCrop.width * sx, y1 = y0 + childCrop.height * sy;
-  if (x1 < 0 || y1 < 0 || x0 > box.width || y0 > box.height) return "";
-  return `<rect id="${escapeXml(idPrefix + "inset")}" data-part="inset" x="${svgNum(x0)}" y="${svgNum(y0)}" width="${svgNum(x1 - x0)}" height="${svgNum(y1 - y0)}" fill="none" stroke="${escapeXml(color)}" stroke-width="1" stroke-dasharray="4 3"/>`;
+  if (x1 < 0 || y1 < 0 || x0 > box.width || y0 > box.height) return null;
+  return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
 }
