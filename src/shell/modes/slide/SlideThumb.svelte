@@ -17,6 +17,7 @@
   import { project } from "../../../lib/store";
   import { plotManifests, plotGen } from "../../../lib/plot/store";
   import { createAppModelPosters } from "../../../lib/model3d/appPosters";
+  import { createAppFluximgStills } from "../../../lib/fluximg/appSlideHost";
   import { scene3dGeneration } from "../../../lib/model3d/store";
   import { model3dDeckScope } from "../../../lib/model3d/editorScope";
   import { resolveTheme } from "../../../lib/slide/theme";
@@ -77,9 +78,9 @@
       memo.renders++;
       host.dataset.renders = String(memo.renders); // gate probe: bounded re-renders
       try {
-        const models = createAppModelPosters(controller.signal);
+        const models = createAppModelPosters(controller.signal), images = createAppFluximgStills(controller.signal);
         const render = () => host && renderStaticAt(host, cur, stage, Math.max(0, cur.beats.length - 1), {
-          ...models.context,
+          ...models.context, ...images.context,
           theme: resolveTheme(ov.theme),
           deckBackground: ov.background,
           animStyles: ov.animStyles,
@@ -90,7 +91,8 @@
           reducedMotion: true,
         });
         render();
-        void models.settle().then((posted) => { if (posted && !controller.signal.aborted && memo.sig === sig) render(); }).catch(() => { /* current placeholder remains honest on missing geometry/GPU */ }).finally(() => { finished = true; });
+        // Posters and image stills the render missed are drawn, then the thumbnail renders once more with them.
+        void Promise.all([models.settle(), images.settle()]).then((posted) => { if (posted.some(Boolean) && !controller.signal.aborted && memo.sig === sig) render(); }).catch(() => { /* current placeholder remains honest on missing geometry/GPU */ }).finally(() => { finished = true; });
       } catch {
         /* a mid-edit render miss is repaired by the next invalidation */
       }

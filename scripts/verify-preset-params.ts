@@ -69,7 +69,7 @@ h.section("2. the census: the engines (presets, player, compile, pptx, the tween
 const CALL = /presetParam(?:<[^>]*>)?\(\s*[^,()]+,\s*"(\w+)"\s*,\s*(?:"(\w+)"|(preset))\s*\)/g;
 const owners = (literal: string | undefined, variable: string | undefined): string[] => literal ? [literal] : variable ? ["drawOn", "drawOff"] : [];
 const strip = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
-for (const file of ["src/lib/slide/player/presets.ts", "src/lib/slide/player/player.ts", "src/lib/slide/compile.ts", "src/lib/slide/export/pptxBuilds.ts", "src/lib/slide/encircleGeometry.ts", "src/lib/slide/timing.ts", "src/lib/slide/tween.ts"]) {
+for (const file of ["src/lib/slide/player/presets.ts", "src/lib/slide/player/player.ts", "src/lib/slide/player/fluximg.ts", "src/lib/slide/compile.ts", "src/lib/slide/export/pptxBuilds.ts", "src/lib/slide/encircleGeometry.ts", "src/lib/slide/timing.ts", "src/lib/slide/tween.ts"]) {
   const src = strip(readFileSync(file, "utf8"));
   const direct = [...src.matchAll(/\bparams\??\.\w+/g)].map((m) => m[0]);
   h.eq(direct, [], `${file}: no direct params.<key> read`);
@@ -81,7 +81,7 @@ for (const file of ["src/lib/slide/player/presets.ts", "src/lib/slide/player/pla
   // every table key a compiler reads is read through the table: the keys the three files name == the table's keys (minus countUp's, read by countup.ts)
   const named = new Set<string>();
   // slide/ops.ts: the write-time readers (an image walk's `pace` and `blend`: stage 2, the pace rule)
-  for (const file of ["src/lib/slide/player/presets.ts", "src/lib/slide/player/player.ts", "src/lib/slide/compile.ts", "src/lib/slide/export/pptxBuilds.ts", "src/lib/slide/presetCatalog.ts", "src/lib/slide/encircleGeometry.ts", "src/lib/slide/timing.ts", "src/lib/slide/tween.ts", "src/lib/slide/ops.ts"]) {
+  for (const file of ["src/lib/slide/player/presets.ts", "src/lib/slide/player/player.ts", "src/lib/slide/player/fluximg.ts", "src/lib/slide/compile.ts", "src/lib/slide/export/pptxBuilds.ts", "src/lib/slide/presetCatalog.ts", "src/lib/slide/encircleGeometry.ts", "src/lib/slide/timing.ts", "src/lib/slide/tween.ts", "src/lib/slide/ops.ts"]) {
     for (const m of strip(readFileSync(file, "utf8")).matchAll(CALL)) for (const p of owners(m[2], m[3])) named.add(`${p}.${m[1]}`);
   }
   const declared = Object.entries(PRESET_PARAMS).filter(([p]) => p !== "countUp").flatMap(([p, row]) => Object.keys(row).map((k) => `${p}.${k}`));
