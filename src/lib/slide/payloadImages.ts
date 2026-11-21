@@ -238,12 +238,21 @@ export async function gatherImages(o: GatherImagesOptions): Promise<{ images?: R
       if (lut) (images[assetId].luts ??= {})[name] = [...lut];
     }
   }
-  // Sorted keys: both engines emit the same bytes whatever order their reads finished in.
-  for (const image of Object.values(images)) {
-    if (image.texts) image.texts = Object.fromEntries(Object.entries(image.texts).sort(([a], [b]) => a.localeCompare(b)));
-    if (image.tables) image.tables = Object.fromEntries(Object.entries(image.tables).sort(([a], [b]) => a.localeCompare(b)));
+  // One order for everything, whatever order the reads finished in (both engines emit the same bytes): the files of
+  // an image sorted by path, and the image's own fields in one fixed order (`texts` and `tables` are first assigned by
+  // whichever read lands first, so their order in the object was the order of arrival).
+  const ordered: typeof images = {};
+  for (const [assetId, image] of Object.entries(images)) {
+    const { manifest, texts, tables, luts, ...rest } = image;
+    ordered[assetId] = {
+      manifest,
+      ...(texts ? { texts: Object.fromEntries(Object.entries(texts).sort(([a], [b]) => a.localeCompare(b))) } : {}),
+      ...(tables ? { tables: Object.fromEntries(Object.entries(tables).sort(([a], [b]) => a.localeCompare(b))) } : {}),
+      ...(luts ? { luts } : {}),
+      ...rest,
+    };
   }
-  return { images, ...(Object.keys(clips).length ? { imageClips: clips } : {}) };
+  return { images: ordered, ...(Object.keys(clips).length ? { imageClips: clips } : {}) };
 }
 
 /** The images of a slide that take movie commands: the first step with a Start, and whether the movie runs at a step's

@@ -40,6 +40,12 @@ h.section("A. the payload's stills are in the order they were asked for");
   h.ok(first.asked >= 3, `the deck asks for several stills (${first.asked})`);
   h.eq(second.keys, first.keys, "stills finishing in opposite orders: the same order in the payload");
   h.ok(first.bytes === second.bytes, `the same gathered bytes (${sha(first.bytes)})`);
+  // Any finishing order, not only those two: an image's own fields (`texts`, `tables`) used to come out in the order
+  // their reads arrived, which only showed under load (the tier run in parallel). Seeded, so a failure reproduces.
+  let seed = 7; const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+  const odd: number[] = [];
+  for (let n = 0; n < 16; n++) { const delays = Array.from({ length: 64 }, () => Math.floor(rnd() * 30)); if ((await gather((i) => delays[i % 64])).bytes !== first.bytes) odd.push(n); }
+  h.eq(odd, [], "sixteen more finishing orders, drawn at random: the same bytes every time");
 }
 
 const encoder = await imageClipEncoder();
