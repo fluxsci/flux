@@ -203,7 +203,7 @@ parameters, `target` or the current selection) as one Undo step. Posters, `--no-
 |---|---|---|
 | `place-image <figureId> <bundle.fluximg> [--x n --y n --width n --name N --crop '<json>' --view '<json>']` | `place_image` | Copy a `.fluximg` folder into `fig/assets/` once (content already in the project is reused, `reused: true`) and add an image element. Canvas px; height follows the image's (or crop's) aspect; without `--width`, one image pixel per canvas px, narrowed to the figure's width. |
 | `set-image-view <elementId> [--view '<json>'] [--crop '<json>' \| --reset-crop]` | `set_image_view` | Merge a sparse view patch into the element's stored view and/or set its crop. Pixels are never touched. |
-| `image-info <elementId\|assetId>` | `image_info` | Read-only, no rendering: dims with sizes, units and positions, dtype and storage, levels, channels with default windows, min/max and percentiles, layers with object counts, regions, every placement; for an element also its box, crop, stored and resolved view, position in words and export size. |
+| `image-info <elementId\|assetId>` | `image_info` | Read-only, no rendering: dims with sizes, units and positions, dtype and storage, levels, channels with default windows, min/max and percentiles, layers with object counts and (with a table) their columns (`kind` number/category, `distinct`, `range`), regions, every placement; for an element also its box, crop, stored and resolved view, position in words and export size. |
 
 These three are outside the core MCP toolset: in core mode call them through `flux_verb`
 (`flux_verb {verb:"set_image_view", args:{id:"…", view:{…}}}`), with the MCP parameter names
@@ -235,10 +235,19 @@ These three are outside the core MCP toolset: in core mode call them through `fl
   interpolates magnified pixels.
 - `layers.<id>`: `visible`, `opacity` 0–1, `color`; shape and object layers also
   `strokeWidth` (screen px) and `fillOpacity`; image layers `lut` and `range` instead.
+- `layers.<id>.styleBy` (object layers with a table; `image-info` lists their columns): style each
+  object from its row. `color: {"column": "cell_type"}` gives each category the next colour of the
+  house palette (or `palette: ["#rrggbb", …]`; categories sorted by value, colours repeat past the
+  palette); a column of numbers goes through a colour map (`lut`, default `viridis`; `range`
+  `[lo, hi]`, default its min..max; `reverse`). `opacity: {"column": "distance"}` (numbers only)
+  maps `range` onto `to` (default `[0.15, 1]`). `missing: "hide"` leaves out objects without a
+  value (default `"dim"`: grey and faint). Fields merge; naming another column starts that part
+  afresh; `null` clears. Example: `{"layers":{"cells":{"styleBy":{"color":{"column":"dendrite"},"opacity":{"column":"pixels"}}}}}`.
 - `furniture`: `scalebar` (`length` in the x unit, `corner`, `color`, `label`, `thickness` and
   `fontSize` in pt), `stamp` (`dims`, `corner`, `color`, `fontSize`), `channelLabels`
   (`corner`, `fontSize`), `names` (`layers`, `fontSize`), `colorbar` (the intensity
-  calibration bar: `corner`, `color`, `fontSize`). `{}` turns one on with defaults,
+  calibration bar: `corner`, `color`, `fontSize`), `key` (what styled objects' colours mean:
+  `layer`, `corner`, `color`, `fontSize`; default the topmost styled layer, top right). `{}` turns one on with defaults,
   `false` or `null` turns it off. Corners: `bottom-right bottom-left top-right top-left`.
 - **`--crop`**: `{"x", "y", "width", "height"}` in full-resolution image pixels, inside the
   image. It keeps the content pinned on the canvas (the box changes, as cropping a picture does).
@@ -248,14 +257,15 @@ These three are outside the core MCP toolset: in core mode call them through `fl
 holding `fluximg.json`; a non-positive `--width`; any view key that does not fit THIS image,
 all listed at once (an unknown key or layer id, a dimension it lacks, a plane out of range,
 `to` not after `from`, an unknown colour map, a channel list longer than its channels, an
-`insetOf` that is not another placement of the same image); a crop outside the image;
+`insetOf` that is not another placement of the same image, a `styleBy` on a layer without a table
+or naming a column its table lacks, an opacity column that is not numeric); a crop outside the image;
 `set-image-view` with neither `--view` nor a crop. **Warnings** (the edit is made): a scale bar
 on an image without a pixel size (nothing is drawn), a stamp on an image without depth or time,
 a log window whose black point is not above 0 (drawn linear).
 
 Every answer is JSON with `elementId`, `figureId`, `name`, `box`, `crop`, the stored `view`, the
 `resolved` view, `position` and `showing` in words (`"z 13/31 · 1.2 µm"`, `"membrane: #ff00ff,
-100–4000"`), `exportPixels` (`dpi` 300) and `warnings`; `place-image` adds `assetId`, `reused`,
+100–4000"`), `objects` when a layer is styled (`"footprints coloured by dendrite"`), `exportPixels` (`dpi` 300) and `warnings`; `place-image` adds `assetId`, `reused`,
 `copy` (`clone` or `copy`) and `image` (`"2 channels · 31 z · 1,024 × 1,024 · uint16"`).
 
 ```bash

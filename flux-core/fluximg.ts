@@ -12,7 +12,9 @@ import { compareCodePoints, fluximgContentIdText, isFluximgJunkName } from "../e
 import * as ops from "../src/lib/ops";
 import type { Asset, CropRect, Figure, Project } from "../src/lib/types";
 import type { FluximgElement } from "../src/lib/fluximg/element";
-import type { FluximgManifest } from "../src/lib/fluximg/types";
+import type { FluximgManifest, FluximgTable } from "../src/lib/fluximg/types";
+import { columnSummaries, describeStyleBy } from "../src/lib/fluximg/objectStyle";
+import { layerTablePath } from "../src/lib/fluximg/static";
 import type { FluximgView, ResolvedView } from "../src/lib/fluximg/view";
 import { describeFluximg, fluximgAsset, fluximgAssetId, fluximgDisplayName, fluximgInfo } from "../src/lib/fluximg/place";
 import { describePosition, describeProjection, patchView, positionDims, resolveView } from "../src/lib/fluximg/viewOps";
@@ -37,9 +39,25 @@ async function knownLut(): Promise<(name: string) => boolean> {
   return (name) => colormapLut(name) !== null;
 }
 
+/**
+ * The tables of the layers a view patch styles by a column (only those: a table is read when it is needed), so the
+ * check can name a column the table does not have. A table that cannot be read is left out (the columns go unchecked).
+ */
+async function tablesForPatch(root: string, asset: Asset, manifest: FluximgManifest, view: unknown): Promise<Record<string, FluximgTable | null>> {
+  const layers = view && typeof view === "object" ? (view as { layers?: unknown }).layers : null;
+  if (!layers || typeof layers !== "object") return {};
+  const out: Record<string, FluximgTable | null> = {};
+  for (const [id, lv] of Object.entries(layers as Record<string, unknown>)) {
+    if (!lv || typeof lv !== "object" || (lv as { styleBy?: unknown }).styleBy == null) continue;
+    const path = layerTablePath(manifest.layers.find((l) => l.id === id));
+    if (path) out[id] = await (await fluximgReader(root, asset)).readTable(path).catch(() => null);
+  }
+  return out;
+}
+
 /** Refuse a view patch that does not fit this image, naming every problem at once. */
-async function checkedPatch(manifest: FluximgManifest, view: unknown): Promise<{ patch: FluximgView; warnings: string[] }> {
-  const check = checkViewPatch(manifest, view, { knownLut: await knownLut() });
+async function checkedPatch(manifest: FluximgManifest, view: unknown, tables: Record<string, FluximgTable | null> = {}): Promise<{ patch: FluximgView; warnings: string[] }> {
+  const check = checkViewPatch(manifest, view, { knownLut: await knownLut(), tables });
   if (check.problems.length) throw new ValidationError(`The view does not fit image "${manifest.name}":\n  ${check.problems.join("\n  ")}`);
   return { patch: view as FluximgView, warnings: check.warnings };
 }
@@ -96,13 +114,15 @@ function imageAsset(project: Project, assetId: string): Asset {
 }
 
 /** Plane, projection and channels in words: what an agent (or a person) sees in this element right now. */
-export function describeView(manifest: FluximgManifest, rv: ResolvedView): { position: string[]; channels: string[] } {
+export function describeView(manifest: FluximgManifest, rv: ResolvedView): { position: string[]; channels: string[]; objects: string[] } {
   const position: string[] = [];
   if (rv.projection) position.push(describeProjection(manifest, rv.projection));
   for (const d of positionDims(manifest)) if (!(rv.projection && rv.projection.dim === d)) position.push(describePosition(manifest, d, rv.index[d] ?? 0));
   const shown = rv.composite === "single" ? rv.channels.filter((c) => c.index === rv.solo) : rv.channels.filter((c) => c.visible);
   const channels = shown.map((c) => `${c.name}: ${c.color ?? c.lut}${c.invert ? " inverted" : ""}, ${c.range[0]}–${c.range[1]}${c.norm !== "linear" ? ` (${c.norm}${c.norm === "gamma" ? ` ${c.gamma}` : ""})` : ""}`);
-  return { position, channels };
+  // "footprints coloured by dendrite, opacity by distance": shown layers styled by their table.
+  const objects = rv.layers.filter((l) => l.visible && l.styleBy).map((l) => describeStyleBy(l.name, l.styleBy)).filter(Boolean);
+  return { position, channels, objects };
 }
 
 function elementSummary(figure: Figure, element: FluximgElement, manifest: FluximgManifest) {
@@ -112,7 +132,7 @@ function elementSummary(figure: Figure, element: FluximgElement, manifest: Fluxi
   return {
     elementId: element.id, figureId: figure.id, name: element.name ?? null,
     box: { x: element.x, y: element.y, width: element.width, height: element.height, rotation: element.rotation ?? 0, flipX: !!element.flipX, flipY: !!element.flipY },
-    crop, view: element.view ?? {}, resolved: rv, position: words.position, showing: words.channels,
+    crop, view: element.view ?? {}, resolved: rv, position: words.position, showing: words.channels, ...(words.objects.length ? { objects: words.objects } : {}),
     exportPixels: { width: still.outWidth, height: still.outHeight, dpi: 300 },
   };
 }
@@ -184,7 +204,7 @@ export async function placeImage(root: string, figureId: string, bundlePath: str
 
   try {
     const warnings: string[] = [];
-    const view = options.view === undefined ? undefined : await checkedPatch(manifest, options.view).then((r) => { warnings.push(...r.warnings); return r.patch; });
+    const view = options.view === undefined ? undefined : await checkedPatch(manifest, options.view, await tablesForPatch(root, asset, manifest, options.view)).then((r) => { warnings.push(...r.warnings); return r.patch; });
     const crop = options.crop === undefined || options.crop === null ? undefined : checkedCrop(manifest, options.crop);
     const recipe = source.replace(/\.fluximg[\\/]*$/i, "") + ".recipe.json";
     const hasRecipe = !!(await fs.stat(recipe).catch(() => null))?.isFile();
@@ -227,7 +247,7 @@ export async function setImageView(root: string, elementId: string, patch: unkno
     throw new ValidationError(`Image "${element.name ?? element.id}" cannot be edited: ${error instanceof Error ? error.message : String(error)}`);
   })).manifest;
   const warnings: string[] = [];
-  const view = patch === undefined ? undefined : await checkedPatch(manifest, patch).then((r) => { warnings.push(...r.warnings); return r.patch; });
+  const view = patch === undefined ? undefined : await checkedPatch(manifest, patch, await tablesForPatch(root, asset, manifest, patch)).then((r) => { warnings.push(...r.warnings); return r.patch; });
   const crop = options.crop === undefined ? undefined : options.crop === null ? null : checkedCrop(manifest, options.crop);
   const after = await mutateFigModel(root, "set_image_view", ({ project }) => {
     const { figure, element: el } = findImage(project, elementId);
@@ -259,7 +279,8 @@ export async function imageInfo(root: string, target: string) {
   const placements = project.figures.flatMap((f) => f.elements.filter((e) => e.type === "fluximg" && e.assetId === asset!.id).map((e) => ({ elementId: e.id, figureId: f.id, name: e.name ?? null })));
   const head = { assetId: asset.id, name: asset.name, path: `fig/${asset.path}`, contentId: asset.sha256 ?? null, bytes: asset.bytes ?? null, placements };
   let manifest: FluximgManifest;
-  try { manifest = (await fluximgReader(root, asset)).manifest; }
+  let reader: Awaited<ReturnType<typeof fluximgReader>>;
+  try { reader = await fluximgReader(root, asset); manifest = reader.manifest; }
   catch (error) {
     // The bundle is gone or broken: say so, with what the project still knows about it.
     return { ...head, issue: `The bundle cannot be read: ${error instanceof Error ? error.message : String(error)}`, digest: asset.fluximg ?? null, ...(asset.fluximg ? { summary: describeFluximg(asset.fluximg) } : {}) };
@@ -292,9 +313,15 @@ export async function imageInfo(root: string, target: string) {
       index: i, name: c.name, ...(c.color ? { color: c.color } : { lut: c.lut }), range: c.range,
       ...(c.stats ? { min: c.stats.min, max: c.stats.max, percentiles: c.stats.percentiles, count: c.stats.count } : {}),
     })),
-    layers: manifest.layers.map((l) => ({
-      id: l.id, kind: l.kind, name: l.name, visibleByDefault: l.visible ?? false,
-      ...(l.kind !== "intensity" ? { objects: typeof l.count === "number" ? l.count : null, ...(l.kind === "labels" || l.table ? { key: l.key ?? null } : {}) } : { range: l.range, opacity: l.opacity }),
+    // A layer with a table lists its columns: what its objects can be styled by (styleBy) and how.
+    layers: await Promise.all(manifest.layers.map(async (l) => {
+      const tablePath = layerTablePath(l);
+      const table = tablePath ? await reader.readTable(tablePath).catch(() => null) : null;
+      return {
+        id: l.id, kind: l.kind, name: l.name, visibleByDefault: l.visible ?? false,
+        ...(l.kind !== "intensity" ? { objects: typeof l.count === "number" ? l.count : null, ...(l.kind === "labels" || l.table ? { key: l.key ?? null } : {}) } : { range: l.range, opacity: l.opacity }),
+        ...(table ? { columns: columnSummaries(table).map((c) => ({ name: c.name, kind: c.kind, distinct: c.distinct, ...(c.range ? { range: c.range } : {}), ...(c.missing ? { missing: c.missing } : {}) })) } : {}),
+      };
     })),
     regions: manifest.regions.map((r) => ({ id: r.id, name: r.name, rect: r.rect })),
     ...(manifest.defaults ? { defaults: manifest.defaults } : {}),
