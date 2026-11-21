@@ -500,6 +500,7 @@
       "verify-fluximg-slide-authoring.ts",
       "verify-fluximg-slide-export.ts",
       "verify-tiff.ts",
+      "verify-tiff-app.ts",
       "verify-fmenu-look.ts"
     ],
     "net": [
@@ -703,6 +704,7 @@
       "verify-fluximg-slide-place-gui.mjs",
       "verify-fluximg-slide-player-gui.mjs",
       "verify-fluximg-slide-authoring-gui.mjs",
+      "verify-tiff-app-gui.mjs",
       "verify-fluximg-live-gui.mjs"
     ],
     "ui-extra": [
@@ -1694,6 +1696,7 @@
       "verify-fluximg-slide-place-gui.mjs",
       "verify-fluximg-slide-player-gui.mjs",
       "verify-fluximg-slide-authoring-gui.mjs",
+      "verify-tiff-app-gui.mjs",
       "verify-fluximg-live.ts",
       "verify-fluximg-view-tween.ts",
       "verify-fluximg-object-style.ts",
@@ -1701,6 +1704,7 @@
       "verify-fluximg-slide-authoring.ts",
       "verify-fluximg-slide-export.ts",
       "verify-tiff.ts",
+      "verify-tiff-app.ts",
       "verify-fluximg-live-gui.mjs"
     ],
     "fluximg-pure": [
@@ -1720,7 +1724,8 @@
       "verify-fluximg-slide-model.ts",
       "verify-fluximg-slide-authoring.ts",
       "verify-fluximg-slide-export.ts",
-      "verify-tiff.ts"
+      "verify-tiff.ts",
+      "verify-tiff-app.ts"
     ],
     "fluximg-ui": [
       "verify-fluximg-place-gui.mjs",
@@ -1730,6 +1735,7 @@
       "verify-fluximg-slide-place-gui.mjs",
       "verify-fluximg-slide-player-gui.mjs",
       "verify-fluximg-slide-authoring-gui.mjs",
+      "verify-tiff-app-gui.mjs",
       "verify-fluximg-live-gui.mjs"
     ]
   },
@@ -2770,7 +2776,7 @@
       ]
     },
     {
-      "glob": "{src/lib/tiff/**,flux-core/tiff*,scripts/lib/tiffFixtures.ts}",
+      "glob": "{src/lib/tiff/**,flux-core/tiff*,scripts/lib/tiffFixtures.ts,electron/tiff*.{cjs,mjs},electron/ipc/tiff.cjs,scripts/build-tiff-worker.mjs,scripts/lib/tiffDevRoutes.mjs,src/lib/project/memTiff.ts}",
       "run": [
         "group:fluximg-pure"
       ]
@@ -12911,6 +12917,17 @@
       "exclusive": true,
       "coverage": "behavior"
     },
+    "verify-tiff-app-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 240000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
     "verify-fluximg-live.ts": {
       "runtime": "tsx",
       "prerequisites": [],
@@ -12966,6 +12983,15 @@
       "coverage": "behavior"
     },
     "verify-tiff.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-tiff-app.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
