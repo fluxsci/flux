@@ -439,6 +439,48 @@ try {
     const norm = (d: Deck) => JSON.stringify(d.slides[0].beats.map((b) => b.tracks.map(({ id: _id, ...t }) => t))) + JSON.stringify(imgOf(d.slides[0].elements));
     h.eq(norm(app), norm(deck), "twin engines: the app's capture path and the headless verb write the same Changes and the same Design element");
   }
+
+  // ----------------------------------------------------------------------------------------------------------------
+  h.section("J. headless delete-element on a slide (C6)");
+  {
+    await core.createDeck(root, { id: "del", title: "Del" });
+    const sid = (await slidesCore.loadDeck(root, "del")).slides[0].id;
+    const b1 = (await slidesCore.addBeat(root, "del", sid, {})).beatId;
+    const a = await call("place_image", { figureId: `del/${sid}`, bundlePath: "plots/stack_u16.fluximg" });
+    const keep = await call("place_image", { figureId: `del/${sid}`, bundlePath: "plots/gray2d_u8.fluximg", x: 300 });
+    await call("set_image_view", { id: a.elementId, view: { index: { z: 5 } }, slide: `del/${sid}`, beatId: b1 });
+    // a group of the two and a Ghost birth from the kept image (its copies are born at step 1)
+    await slidesCore.mutateDeck(root, "del", "prep", (d) => {
+      const s = d.slides[0];
+      const beats = s.beats; delete (s as Partial<typeof s>).beats; // the app's key order: groups after the elements
+      s.groups = { g1: { name: "Pair" } } as never; s.beats = beats;
+      for (const e of s.elements) e.groupId = "g1";
+      slideOps.addGhostTransform(d, s.id, b1, keep.elementId, { count: 1 });
+    });
+    const before = await readDeck("del");
+    const ghostId = before.slides[0].beats[1].tracks.find((t) => t.ghostFrom)!.target;
+    const r = await call("delete_elements", { ids: [a.elementId, ghostId] });
+    const after = await readDeck("del");
+    h.eq(r.deleted, [a.elementId, ghostId], "delete-element finds elements on a slide and says what it deleted");
+    h.ok(!after.slides[0].elements.some((e) => e.id === a.elementId || e.id === ghostId), "the image and the Ghost copy are gone from the slide");
+    h.ok(!after.slides[0].beats.some((b) => b.tracks.some((t) => t.ghostFrom && t.target === ghostId)), "the Ghost copy's birth goes with it");
+    h.ok(after.slides[0].beats[1].tracks.some((t) => t.target === a.elementId && t.preset === "transform"), "the image's own Change stays, as in the editor (dangling tracks are never auto-pruned)");
+    // the app's engine: the figure store's Delete (ops.deleteElements over the projected slide) folded back, plus the adapter's birth rule
+    const app = structuredClone(before);
+    const proj = deckToProject(app, app.assets);
+    ops.deleteElements(proj, [a.elementId, ghostId]);
+    const folded = projectIntoDeck(proj, app);
+    const gone = new Set([a.elementId, ghostId]);
+    slideOps.removeTracks(folded, sid, slideOps.orphanedBirths(folded.slides[0], gone));
+    const clock = (t: string) => t.replace(/"modified": "[^"]*"/, '"modified": ""'); // each write point stamps its own clock
+    const appText = clock(await appSave(folded, await diskFiles("del")));
+    h.ok(appText === clock(await fs.readFile(deckFile("del"), "utf8")), "twin engines: the editor's Delete (folded and written by the app's write point) and the headless delete give the same deck bytes");
+    await refuses("delete_elements", { ids: ["no-such-element"] }, /No element "no-such-element" in any figure or slide/, "an id found nowhere is an error, never a false \"deleted\"");
+    const { figureId } = await core.createFigure(root, { id: "fig-del", name: "D", width: 200, height: 100 });
+    const onFig = await call("place_image", { figureId, bundlePath: "plots/gray2d_u8.fluximg" });
+    const r2 = await call("delete_elements", { ids: [onFig.elementId] });
+    h.eq(r2.deleted, [onFig.elementId], "a figure element is still deleted through the figure core");
+  }
 } finally {
   await fs.rm(scratch, { recursive: true, force: true });
 }

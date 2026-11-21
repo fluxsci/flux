@@ -943,13 +943,13 @@ export const VERBS: VerbDef[] = [
     cli: "delete-element",
     aliases: ["delete-elements"],
     cliRoot: "flags",
-    summary: "Delete elements by id (removes them from whatever figure they're in). Use to remove a wrong panel/label/shape.",
+    summary: "Delete elements by id (removes them from whatever figure or slide they're in). Use to remove a wrong panel/label/shape.",
     params: { ids: z.array(z.string()) },
     cliArgs: [{ kind: "rest", at: 0, into: "ids", required: true }],
     handler: (ctx, a) => core.deleteElements(ctx.root, sArr(a.ids)),
     render: {
-      human: (_r, a) => ({ err: `✓ deleted ${sArr(a.ids).length} element(s)` }),
-      mcp: (_r, a) => text(`deleted ${sArr(a.ids).length} element(s)`),
+      human: (r) => ({ err: `✓ deleted ${(r as { deleted: string[] }).deleted.length} element(s)` }),
+      mcp: (r) => text(`deleted ${(r as { deleted: string[] }).deleted.length} element(s)`),
     },
   },
   {

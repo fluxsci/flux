@@ -417,6 +417,27 @@ try {
   await sleep(200);
   const r2 = await F(() => window.__mvRaf); await sleep(500);
   h.eq((await F(() => window.__mvRaf)) - r2, 0, "stopped: no animation frame any more");
+
+  // ------------------------------------------------------------------------------------------------------------
+  h.section("Delete on a slide: the editor's key and the headless delete-element agree (C6)");
+  {
+    const slideOps = await import("../src/lib/slide/ops.ts");
+    await F((id) => { const f = window.__flux, sid = f.get(f.fig.activeFigureId);
+      f.slide.commitDeckLive((d) => { const s = d.slides.find((x) => x.id === sid); s.beats[1].tracks = [{ id: "w1", target: id, preset: "transform", duration: 800, to: { state: { view: { index: { t: 5 } } } } }]; s.beats[2].tracks = []; });
+      f.slide.setEditDestination({ kind: "design" }); f.slide.activeBeat.set(0); }, IMG);
+    await waitForFrame(page);
+    const snapshot = await F(() => structuredClone(window.__flux.slide.currentDeck()));
+    await F(() => document.activeElement?.blur?.());
+    await F((id) => window.__flux.fig.selectOnly(id), IMG);
+    const r = await box(`[data-editor-element-id="${IMG}"]`);
+    if (r) await page.mouse.move(r.cx, r.cy);
+    await press("Delete");
+    await waitFor(page, (id) => !window.__flux.slide.currentDeck().slides.some((s) => s.elements.some((e) => e.id === id)), IMG, { label: "the image deleted", timeout: 3000 });
+    const gui = await F(() => structuredClone(window.__flux.slide.currentDeck()));
+    const deleted = slideOps.deleteSlideElements(snapshot, [IMG]);
+    h.eq(deleted, [IMG], "deleteSlideElements (what delete-element runs) deletes the image from its slide");
+    h.eq(JSON.stringify(snapshot.slides), JSON.stringify(gui.slides), "twin engines: the editor's Delete and the headless op leave the same slides (the image's Change stays, as a dangling track)");
+  }
 } catch (e) {
   h.fail(`threw: ${e?.stack ?? e}`);
   await page.screenshot({ path: `${SHOTS}/authoring-gui-failure.png` }).catch(() => {});

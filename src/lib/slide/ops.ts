@@ -26,7 +26,7 @@ import type { Model3dElement } from "../model3d/types";
 import type { Asset, Element, Figure, Id, SemanticPlotElement } from "../types";
 import { newId } from "../ids";
 import { gcGroups } from "../groups";
-import { makePlotPanel, makeImagePanel, makeText, mergePartOverride, addFluximg, type Box, type TextOpts, type AddFluximgArgs } from "../ops";
+import { makePlotPanel, makeImagePanel, makeText, mergePartOverride, addFluximg, deleteElements as deleteFigureElements, type Box, type TextOpts, type AddFluximgArgs } from "../ops";
 import { FLEXOKI } from "../flexoki";
 import { DEFAULT_THEME_ID, resolveTheme } from "./theme";
 import { cloneContentWithFreshIds, placeContentOnStage, DECK_CANVAS_ID } from "./deckProject";
@@ -2100,6 +2100,29 @@ export function migrateDeck(deck: Deck): Deck {
     if (typeof style.track?.easing === "string" && !EASING_TOKENS.includes(style.track.easing)) delete style.track.easing;
   }
   return deck;
+}
+
+/** The Ghost births (`ghostFrom` tracks) of elements that are gone: a birth goes with the element it makes. ONE rule for the
+ *  editor's edit adapter (slide/store.ts) and the headless delete (`deleteSlideElements`). */
+export function orphanedBirths(slide: Slide, gone: ReadonlySet<Id>): Id[] {
+  return slide.beats.flatMap((b) => b.tracks.filter((t) => t.ghostFrom && t.id && gone.has(t.target)).map((t) => t.id!));
+}
+
+/** Delete elements from whatever slide holds them, exactly as the editor's Delete does on a slide: the figure core
+ *  (`ops.deleteElements`: the elements and their now-empty group defs) over the slide, and the Ghost births of what is
+ *  gone. Every other track bound to a deleted element stays, as in the editor (a dangling track is tolerated, surfaced by
+ *  the diagnostics and never auto-pruned: undo or a re-target can still use it). Returns the ids deleted, in `ids` order. */
+export function deleteSlideElements(deck: Deck, ids: readonly Id[]): Id[] {
+  const want = new Set(ids), deleted = new Set<Id>();
+  for (const s of deck.slides) {
+    const here = s.elements.filter((e) => want.has(e.id)).map((e) => e.id);
+    if (!here.length) continue;
+    deleteFigureElements({ figures: [s] } as unknown as Parameters<typeof deleteFigureElements>[0], here);
+    const births = orphanedBirths(s, new Set(here));
+    if (births.length) removeTracks(deck, s.id, births);
+    for (const id of here) deleted.add(id);
+  }
+  return ids.filter((id) => deleted.has(id));
 }
 
 /** THE deck-load chokepoint — every seam that reads a deck from disk (GUI
