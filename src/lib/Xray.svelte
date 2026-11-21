@@ -51,6 +51,8 @@
   import { plotSourceCandidates, toProjectRelativeSource } from "./plot/source";
   import type { SemanticPlotElement } from "./types";
   import { plotManifests, plotRecipes, plotDom, plotGen, requestPlotDom } from "./plot/store";
+  import { appFluximgParts, appFluximgTable, fluximgPartsRevision } from "./fluximg/partStore";
+  import { resolveLut } from "./fluximg/store";
   import { partReadout, readoutText } from "./plot/readout";
   import { readPartStyle } from "./plot/partStyle";
   import { kindForRole } from "./plot/tree";
@@ -76,7 +78,9 @@
   // Text previews read the plot's drawing only where the manifest has none (a
   // title); `$plotGen` bumps when a drawing (re)loads, so the rows re-read it.
   $: domOf = (void $plotGen, (assetId: string) => plotDom.get(assetId) ?? null);
-  $: tree = $xrayOpen ? buildXrayTree($project, root, $plotManifests, $scene3dManifests, domOf) : null;
+  // An image's layers and objects (W8): from the window's object index, recomputed as its layers and tables land.
+  const xrayImages = { parts: appFluximgParts, table: appFluximgTable, lut: resolveLut };
+  $: tree = $xrayOpen && $fluximgPartsRevision >= 0 ? buildXrayTree($project, root, $plotManifests, $scene3dManifests, domOf, xrayImages) : null;
   // A multi-plot root's SHARED parts (one row hides a part everywhere): flat for
   // search and selection, nested as the first plot nests them for display.
   $: common = $xrayOpen && root?.kind === "elements" ? commonPartRows(rootPlots($project, root), $plotManifests, $scene3dManifests, Object.fromEntries($project.assets.filter(a => a.model).map(a => [a.id, a.model!])), domOf) : [];
@@ -1162,7 +1166,7 @@
                     {expanded.has(r.node.id) ? "▾" : "▸"}
                   </button>
                 {/if}
-                <button
+                {#if r.node.noEye}<span class="eye noeye" aria-hidden="true"></span>{:else}<button
                   class="eye"
                   class:off={r.node.hidden}
                   class:part-off={(r.node.kind === "common" && !!r.node.hiddenCount && !r.node.hidden) || (!r.node.hidden && (!!r.node.hiddenParts || (r.node.kind === "element" && !!r.node.hiddenBeneath)))}
@@ -1170,7 +1174,7 @@
                   disabled={hideBlocked(r.node, $editorSelectionExclusions)}
                   title={hideBlocked(r.node, $editorSelectionExclusions) ? "Enable Show hidden to edit this target" : r.node.inheritedHidden ? "Hidden with its parent — show / hide this part itself (x)" : "Show / hide (x)"}
                   on:click|stopPropagation={() => toggleHidden(r.node)}>{eyeGlyph(r.node)}</button
-                >
+                >{/if}
                 <span class="rmain">
                   {#if locator && r.node.kind === "element" && r.node.elementId}<svg class="loc" viewBox={`0 0 ${locator.w} ${locator.h}`} aria-hidden="true">{#each locator.boxes as b (b.id)}<rect x={b.x} y={b.y} width={b.w} height={b.h} class:me={b.id === r.node.elementId} />{/each}</svg>{/if}
                   {#if q && r.node.path?.length}<span class="rpath">{#each hl(r.node.path.join(" › "), tokens) as g}{#if g.hit}<mark>{g.text}</mark>{:else}{g.text}{/if}{/each}<span class="psep">›</span></span>{/if}

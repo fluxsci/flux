@@ -32,6 +32,18 @@ import { buildPartTree, type XrayNode } from "../plot/tree";
 import { buildRenderTree, groupDefs, membersDeep, type RenderNode } from "../groups";
 import { distinctiveParts, manifestIndex, overrideState, partContext, plotHint, type OverrideState } from "./rowContext";
 import { labelForPart, inferRole, resolveTargets } from "../plot/tree";
+import type { FluximgPartIndex } from "../fluximg/parts";
+import type { FluximgTable } from "../fluximg/types";
+import { resolveView } from "../fluximg/viewOps";
+import { cachedObjectStyles, cellLabel, missingStyle } from "../fluximg/objectStyle";
+
+/** What the X-ray needs to list an image's layers and objects (stage 2, W8): its object index, its layers' tables (a
+ *  styled layer previews each object's value) and the colour maps. Absent: an image is a leaf row. */
+export interface XrayImages {
+  parts(assetId: string): FluximgPartIndex | undefined;
+  table?(assetId: string, path: string): FluximgTable | null | undefined;
+  lut?(name: string): string[] | null;
+}
 
 export const partRowId = (elementId: string, partId: string): string => `part:${partDomId(elementId, partId)}`;
 
@@ -97,6 +109,8 @@ export interface XRow {
   hiddenParts?: number;
   /** An ancestor is hidden (the row draws nothing, whatever its own eye says). */
   inheritedHidden?: boolean;
+  /** An image's OBJECT row (W8): it has no visibility of its own (no eye). */
+  noEye?: boolean;
   /** Element rows shown beside sibling plots: the label split into the prefix
    *  every sibling shares (drawn dim) and its distinctive key; `ordinal` tells
    *  identical labels apart (one plot placed twice). */
@@ -251,7 +265,44 @@ function memberRow(el: SemanticElement, id: string, pc: PlotCtx, inherited: bool
 }
 
 // --- element rows ------------------------------------------------------------
-function elementRow(fig: Figure, el: Element, manifests: Record<string, FluxPlotManifest>, models: Models = {}, info: ModelInfo = {}, doms?: PlotDomOf): XRow {
+/**
+ * An image's rows (W8): its label and vector layers (part `layer:<id>`, an eye: the layer's visibility in the view), and
+ * under each its objects (part `<layer>/<key>`, named by key, in the layer's order, no eye). A layer styled by its table
+ * previews each object's value: a swatch of its colour for a category, the number for a numeric column.
+ */
+function imageRows(el: Extract<Element, { type: "fluximg" }>, images: XrayImages): XRow[] {
+  const index = images.parts(el.assetId);
+  if (!index) return [];
+  const rv = resolveView(index.manifest, el.view);
+  return index.layers.map((layer) => {
+    const lv = rv.layers.find((l) => l.id === layer.id);
+    const row: XRow = { id: partRowId(el.id, `layer:${layer.id}`), kind: "part", label: layer.name, role: "layer", elementId: el.id, partId: `layer:${layer.id}`,
+      hidden: !lv?.visible, isGroup: layer.objects.length > 0, count: layer.objects.length || undefined, children: [] };
+    if (!layer.loaded) row.preview = "loading…";
+    const styleBy = lv?.styleBy, table = styleBy && layer.table ? images.table?.(el.assetId, layer.table) : undefined;
+    const styles = table && styleBy ? cachedObjectStyles(table, layer.key, styleBy, images.lut ?? (() => null)) : null;
+    const column = styleBy?.color?.column ?? styleBy?.opacity?.column;
+    const keyCol = table ? table.columns[layer.key && Array.isArray(table.columns[layer.key]) ? layer.key : table.key] : undefined;
+    const valueCol = column && table ? table.columns[column] : undefined;
+    const rowOf = new Map<string, number>();
+    if (keyCol && valueCol) keyCol.forEach((k, r) => { if (k !== null && k !== undefined && !rowOf.has(String(k))) rowOf.set(String(k), r); });
+    if (styles?.legend) row.styledBeneath = true;
+    row.children = layer.objects.map((o) => {
+      const child: XRow = { id: partRowId(el.id, o.partId), kind: "part", label: o.key, role: "object", elementId: el.id, partId: o.partId, isGroup: false, member: true, noEye: true, children: [], ...(row.hidden ? { hidden: true, inheritedHidden: true } : {}) };
+      if (styles?.legend && valueCol) {
+        const r = rowOf.get(o.key), v = r === undefined ? null : valueCol[r];
+        const st = styles.byKey.get(o.key) ?? missingStyle(styleBy);
+        if (st?.color) child.swatch = st.color;
+        // a category shows its colour (and its name), a number its value
+        child.preview = v === null || v === undefined ? "–" : typeof v === "number" || typeof v === "string" || typeof v === "boolean" ? cellLabel(v) : String(v);
+      }
+      return child;
+    });
+    return row;
+  });
+}
+
+function elementRow(fig: Figure, el: Element, manifests: Record<string, FluxPlotManifest>, models: Models = {}, info: ModelInfo = {}, doms?: PlotDomOf, images?: XrayImages): XRow {
   const row: XRow = {
     id: "el:" + el.id,
     kind: "element",
@@ -285,6 +336,7 @@ function elementRow(fig: Figure, el: Element, manifests: Record<string, FluxPlot
     const index = models[el.assetId] ? buildScene3dPartIndex(models[el.assetId]) : undefined;
     row.children = tree.children.map(c => partRow(el, c, models, index)); row.isGroup = row.children.length > 0;
   }
+  if (el.type === "fluximg" && images) { row.children = imageRows(el, images); row.isGroup = row.children.length > 0; }
   return row;
 }
 
@@ -468,6 +520,7 @@ export function buildXrayTree(
   manifests: Record<string, FluxPlotManifest>,
   models: Models = {},
   doms?: PlotDomOf,
+  images?: XrayImages,
 ): XRow | null {
   const info: ModelInfo = Object.fromEntries(p.assets.filter(a => a.model).map(a => [a.id, a.model!]));
   if (!target) return null;
@@ -475,14 +528,14 @@ export function buildXrayTree(
   if (!fig) return null;
   if (target.kind === "element") {
     const el = fig.elements.find((e) => e.id === target.elementId);
-    return el ? elementRow(fig, el, manifests, models, info, doms) : null;
+    return el ? elementRow(fig, el, manifests, models, info, doms, images) : null;
   }
   if (target.kind === "elements") {
     const els = target.elementIds
       .map((id) => fig.elements.find((e) => e.id === id))
       .filter((e): e is Element => !!e);
     if (!els.length) return null;
-    if (els.length === 1) return elementRow(fig, els[0], manifests, models, info, doms);
+    if (els.length === 1) return elementRow(fig, els[0], manifests, models, info, doms, images);
     // Top-z first, like every other multi-row listing.
     const ordered = [...els].sort((a, b) => fig.elements.indexOf(b) - fig.elements.indexOf(a));
     const set: XRow = {
@@ -493,7 +546,7 @@ export function buildXrayTree(
       hidden: els.every((el) => !!el.hidden),
       isGroup: true,
       count: els.length,
-      children: ordered.map((e) => elementRow(fig, e, manifests, models, info, doms)),
+      children: ordered.map((e) => elementRow(fig, e, manifests, models, info, doms, images)),
     };
     const prefix = markPlotKeys(set.children);
     if (prefix) set.preview = prefix + "…"; // the shared name, once — each plot row shows only its key
