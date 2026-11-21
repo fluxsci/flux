@@ -314,6 +314,14 @@ try {
       h.eq(r.hold.unstyledFrames, 0, "no frame ever showed the styled layer unstyled");
       // 6. rise in stage px under the crop's scale
       if (Math.abs(r.rise.lift - 12) >= 0.6) console.log(JSON.stringify(r.rise.debug));
+      for (const p of r.presets) h.ok(p.sameNode && Number.isFinite(p.mid.x), `preset ${p.preset}: plays on the object (mid opacity ${(+p.midState.opacity).toFixed(2)}, transform ${p.midState.transform}, clip ${p.midState.clip}, dash ${p.midState.dash})`);
+      const P = (name: string) => r.presets.find((p: any) => p.preset === name);
+      // (an entrance is compared with its end: before it the object is unborn and has no box to speak of)
+      for (const name of ["popIn", "scaleIn", "pulse", "scale", "rotate", "popOut", "scaleOut"]) { const ref = name === "popIn" || name === "scaleIn" ? P(name).end : P(name).rest; h.ok(Math.abs(P(name).mid.x - ref.x) < 0.6 && Math.abs(P(name).mid.y - ref.y) < 0.6, `${name} pivots about the object's own centre (mid centre ${P(name).mid.x.toFixed(1)},${P(name).mid.y.toFixed(1)} = ${ref.x.toFixed(1)},${ref.y.toFixed(1)})`); }
+      for (const name of ["fade", "fadeRise", "popIn", "scaleIn", "drawOn", "growBaseline", "writeOn", "highlight", "dim", "pulse", "encircle", "move", "scale", "rotate"]) h.ok(P(name).endOpacity > (name === "dim" ? 0.1 : 0.99), `${name}: the object is shown at its end (${(+P(name).endOpacity).toFixed(2)})`);
+      for (const name of ["fadeOut", "popOut", "scaleOut", "drawOff", "wipeOut"]) { const e = P(name); h.ok(e.endOpacity < 0.01 || e.end.w < 0.01 || e.endState.visibility === "hidden" || e.endState.display === "none" || /100%/.test(e.endState.clip) || /^0(px)?,/.test(e.endState.dash) || (parseFloat(e.endState.dash) > 0 && Math.abs(parseFloat(e.endState.offset)) >= parseFloat(e.endState.dash) - 0.01), `${name}: the object has left at its end (${JSON.stringify(e.endState)}, opacity ${(+e.endOpacity).toFixed(2)}, width ${e.end.w.toFixed(2)})`); }
+      h.ok(Math.abs(P("move").end.x - P("move").rest.x - 20) < 0.6, `move by 20 stage px moves the object 20 stage px (${(P("move").end.x - P("move").rest.x).toFixed(2)})`);
+      h.ok(/\d/.test(String(P("drawOn").midState.dash)) && P("drawOn").midState.dash !== "none", `drawOn draws along the outline (mid dash ${P("drawOn").midState.dash})`);
       h.ok(Math.abs(r.rise.lift - 12) < 0.6, `fadeRise lifts an image object by its authored stage px (${r.rise.lift.toFixed(2)} of 12)`);
     } finally { await browser.close(); server.close(); }
   }
@@ -407,6 +415,29 @@ async function w8Page(D: { manifest: any; byPath: Record<string, string>; tableB
   await at(0, 1, 400); const n0 = ids.map(node);
   for (const [beat, ms] of [[2, 300], [2, 1000], [3, 200], [1, 0], [0, 0]] as const) { await at(0, beat, ms); out.identity.push(ids.every((id: string, i: number) => node(id) === n0[i] && n0[i].isConnected)); }
   void before;
+  // 7. every appearance preset on one image object (discs/b): it plays, it pivots about the object, it rests clean
+  {
+    const PRESETS = ["fade", "fadeRise", "popIn", "scaleIn", "drawOn", "growBaseline", "writeOn", "fadeOut", "popOut", "scaleOut", "drawOff", "wipeOut", "highlight", "dim", "pulse", "encircle", "move", "scale", "rotate"];
+    const sweep = { schemaVersion: "0.8.0", id: "p", title: "p", created: "", modified: "", stage: deck.stage, theme: "flux-dark", defaults: { transition: "none" }, assets: [],
+      slides: PRESETS.map((preset, i) => ({ id: `p${i}`, elements: [el(V)], beats: [{ id: `q${i}`, tracks: [] }, { id: `r${i}`, tracks: [{ id: `t${i}`, target: "img", part: "discs/b", preset, start: 0, duration: 400, ...lin, ...(preset === "move" ? { to: { x: 20, y: 0 } } : {}) }] }] })) };
+    const mount3 = document.createElement("div"); document.body.append(mount3);
+    const host3 = FX.createFluximgSlideHost(source());
+    const P3 = FX.createPlayer(mount3, sweep, { ...opts, fluximg: host3 });
+    const o3 = mount3.getBoundingClientRect();
+    const at3 = async (si: number, beat: number, ms: number) => { P3.seek(si, beat, ms); await P3.captureMedia([], ms); };
+    const shapeOf = () => FX.fluximgPartNode(mount3.querySelector("[data-slide-fluximg-root]"), "discs/b") as SVGElement;
+    const c3 = (n: Element) => { const r = n.getBoundingClientRect(); return { x: r.left - o3.left + r.width / 2, y: r.top - o3.top + r.height / 2, w: r.width }; };
+    out.presets = [];
+    for (const [i, preset] of PRESETS.entries()) {
+      await at3(i, 0, 0); const rest = c3(shapeOf());
+      await at3(i, 1, 200); const n = shapeOf(), mid = c3(n), wrapper = n.parentElement!;
+      const midState = { opacity: opacityOf(n), transform: getComputedStyle(wrapper).transform, clip: getComputedStyle(wrapper).clipPath, dash: getComputedStyle(n).strokeDasharray };
+      await at3(i, 1, 400); const endN = shapeOf(), end = c3(endN);
+      const endState = { visibility: getComputedStyle(endN).visibility, clip: getComputedStyle(endN.parentElement!).clipPath, dash: getComputedStyle(endN).strokeDasharray, offset: getComputedStyle(endN).strokeDashoffset, display: getComputedStyle(endN).display };
+      out.presets.push({ preset, rest, mid, end, midState, endState, endOpacity: opacityOf(endN), sameNode: endN === n, errors: 0 });
+    }
+    P3.destroy(); host3.dispose();
+  }
   // 6. a styled layer waits for its table
   release = false;
   const mount2 = document.createElement("div"); document.body.append(mount2);
