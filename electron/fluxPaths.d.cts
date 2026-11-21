@@ -45,6 +45,7 @@ export const PLOT_LIBRARY_DIRNAME: string;
 
 /** The global plot library: derived <FluxConfig>/plot_library. */
 export function plotLibraryPathSync(prefs?: FluxPrefs): string;
+export function tiffAnswersPathSync(prefs?: FluxPrefs): string;
 
 /** Guidelines folder: <FluxConfig>/Guidelines. */
 export function guidelinesPathSync(prefs?: FluxPrefs): string;

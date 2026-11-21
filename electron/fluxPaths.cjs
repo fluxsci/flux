@@ -73,6 +73,11 @@ function resolveFluxConfigPathSync(prefs = readPrefsRawSync()) {
  *  UserContext = who the user is + their standing rules (user-owned; the old
  *  Guidelines folder migrates in). FluxContext = stock docs shipped with Flux
  *  (app-owned, re-synced on update). */
+/** Answers remembered for TIFFs "like this one" in every project: <FluxConfig>/presets/tiff-answers.json (a project's
+ *  own live in its project.json `tiffRules`; src/lib/tiff/remember.ts says what a rule is). */
+function tiffAnswersPathSync(prefs = readPrefsRawSync()) {
+  return path.join(resolveFluxConfigPathSync(prefs), "presets", "tiff-answers.json");
+}
 function contextPathSync(prefs = readPrefsRawSync()) {
   return path.join(resolveFluxConfigPathSync(prefs), "Context");
 }
@@ -985,6 +990,7 @@ module.exports = {
   resolveFluxLibPathSync,
   PLOT_LIBRARY_DIRNAME,
   plotLibraryPathSync,
+  tiffAnswersPathSync,
   contextPathSync,
   userContextPathSync,
   fluxContextPathSync,

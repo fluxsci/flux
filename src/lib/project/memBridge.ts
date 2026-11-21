@@ -20,6 +20,7 @@ import { DISSECT_REL, dissectionRootRelFor, classifyDissectionFile, dissectionNo
 import { probeImageSize, acceptsFluximg, fileAcceptExts, fluximgBundleOf, fluximgIndexEntry, FLUXIMG_MANIFEST_NAME, FLUXIMG_PREVIEW_NAME } from "../plotsRail/rules";
 import type { PlotIndexEntry } from "./types";
 import * as fxr from "../../../electron/fluximgRules.js";
+import { createMemTiff } from "./memTiff";
 import type { FluximgImportRequest, FluximgImportResult, FluximgReadRequest } from "../fluximg/bridge";
 
 const sha256 = async (bytes:Uint8Array) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new Uint8Array(bytes).buffer)),b=>b.toString(16).padStart(2,"0")).join("");
@@ -102,6 +103,8 @@ export function createMemBridge(): FileBridge & {
   /** Dev/test: write a bundle (bundle-relative path → bytes or base64) at a project-relative
    *  `plots/…/<name>.fluximg` or `fig/assets/<id>.fluximg`, replacing what was there. Returns its path. */
   _seedFluximg: (root: string, bundle: string, files: Record<string, string | Uint8Array>) => string;
+  /** Gates: where the dev server's TIFF route is (the page's own origin by default). */
+  _setTiffEndpoint: (url: string) => void;
 } {
   const reads: string[] = [];
   const runnerCalls: { method: string; options: unknown }[] = [];
@@ -257,6 +260,12 @@ export function createMemBridge(): FileBridge & {
     return { path: fxr.fluximgAssetPath(id), sha256: contentId, bytes: total, files: found.length, manifest, method: "copy" };
   }
 
+  // TIFF → image bundle: the twin of electron/ipc/tiff.cjs (memTiff.ts), converting through the dev server's route.
+  const memTiff = createMemTiff({
+    files, isDir: memIsDir, addDir, ensureParent, norm, resolve: memResolve, sha256, mtime: (p) => mtimes.get(norm(p)) ?? 0,
+    watched: () => ({ root: watchedRoot, generation: watchGeneration }),
+  });
+
   function ownedModel(request: Model3dImportOwnership) {
     const item = modelImports.get(request.receipt);
     if (!item || item.root !== norm(request.root) || request.target?.kind !== item.target.kind || (request.target.kind === 'slide' && item.target.kind === 'slide' && request.target.deckId !== item.target.deckId) || item.result.asset.id !== request.assetId) throw new Error('Unknown or already adopted model import receipt');
@@ -264,6 +273,7 @@ export function createMemBridge(): FileBridge & {
   }
 
   return {
+    ...memTiff,
     importFluximg: (request) => importMemFluximg(request),
     // A "dropped" bundle in the fixture is named by its project-relative path (there is no file manager here).
     importDroppedFluximg: (file, request) => importMemFluximg({ ...request, sourcePath: file.name }).then((result) => ({ ...result, sourcePath: file.name })),
@@ -439,6 +449,11 @@ export function createMemBridge(): FileBridge & {
       const b = files.get(abs);
       if (!b) return { error: "missing" };
       if (/\.webp$/i.test(abs)) return { error: "unsupported image format", unsupported: true };
+      // A TIFF: the picture the converter child draws (through the dev route), as the app's thumbnail child does.
+      if (/\.tiff?$/i.test(abs)) {
+        try { const t = await memTiff._thumb(b, baseOf(abs), mtimes.get(abs) ?? 0); return request.warm ? { warmed: true } : { bytes: t.png, width: t.width, height: t.height, naturalWidth: t.width, naturalHeight: t.height }; }
+        catch (e) { return { error: e instanceof Error ? e.message : String(e) }; }
+      }
       // A gate's stand-in for a file that crashes or hangs the app's worker (it is quarantined).
       if (abs.includes("__kills_worker__")) return { error: "the preview timed out", quarantined: true };
       try {
@@ -522,7 +537,7 @@ export function createMemBridge(): FileBridge & {
     async cancelFigureRaster() {},
     watchRoot(root) {
       const next = root === null ? null : norm(root);
-      if (next !== watchedRoot) { watchedRoot = next; watchGeneration++; }
+      if (next !== watchedRoot) { watchedRoot = next; watchGeneration++; memTiff._forgetTiffs(); }
       return true;
     },
     onFsChanged(cb) {

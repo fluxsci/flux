@@ -20,7 +20,7 @@ export interface FluximgImportResult {
   files: number;
   manifest: FluximgManifest;
   /** How the bytes got there. */
-  method: "clone" | "hardlink" | "copy";
+  method: "clone" | "hardlink" | "copy" | "convert";
 }
 
 /** Read part of one file of a bundle. The file side confines it to the named bundle. */

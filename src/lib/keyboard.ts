@@ -78,6 +78,7 @@ import { reattachClones } from "./slide/attach";
 import { copySelectedPlotPath } from "./figure/commands";
 import { figurePlacement } from "./figure/placement";
 import { fluximgLive, fluximgLiveUnavailable, openFluximgLive } from "./fluximg/live/session";
+import { tiffAsk } from "./fluximg/tiffAsk";
 
 let clipboard: Element[] = [];
 // Group defs snapshotted with the copy (chains of the copied elements), so a
@@ -494,6 +495,13 @@ export function handleEditorPaste(e: ClipboardEvent, figId: string | null) {
   const t = e.target as HTMLElement | null;
   if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
   if (get(nodeEditId)) return; // node-edit is modal — don't drop elements mid-edit
+  // A TIFF copied in the file manager: converted like a dropped one (its path comes from the File, as for a drop).
+  const tiffs = [...(e.clipboardData?.files ?? [])].filter((f) => /\.tiff?$/i.test(f.name) || /^image\/tiff$/i.test(f.type));
+  if (tiffs.length && figId && !(e.clipboardData?.getData("text/plain") ?? "").startsWith(FLUX_CLIP_MARKER)) {
+    e.preventDefault();
+    void importDroppedFiles(tiffs, figId).catch((error) => pushToast("error", "Could not paste the TIFF", { detail: String(error) }));
+    return;
+  }
   const item = [...(e.clipboardData?.items ?? [])].find((it) => /^image\/(png|svg)/.test(it.type));
   const action = decidePaste({
     text: e.clipboardData?.getData("text/plain") ?? "",
@@ -770,6 +778,8 @@ export function handleKey(e: KeyboardEvent) {
   // An image's live view owns the unmodified keys (its panel's rows, the arrows, Space, Delete). Chords stay
   // Flux-wide: undo and redo step through the live view's own gestures, and saving must keep working.
   if (get(fluximgLive) && !(e.ctrlKey || e.metaKey)) return;
+  // The TIFF asking surface on the canvas owns the unmodified keys while it is open (TiffAskSurface.svelte).
+  if (get(tiffAsk) && !(e.ctrlKey || e.metaKey)) return;
 
   // The Plots rail owns its own unmodified keys (tool letters type into its search, arrows move
   // between tiles); chords still reach this keymap — Ctrl+Z undoes a rail insert.

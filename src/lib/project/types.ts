@@ -114,6 +114,9 @@ export interface ProjectManifest {
    *  self-healing: unknown paths are ignored, undiscovered ones sort last, and a
    *  manifest without it lists documents in the historical default order. */
   documentOrder?: string[];
+  /** Answers remembered for TIFFs "like this one" (src/lib/tiff/remember.ts `RememberedRule`; written by the TIFF
+   *  asking surface, read by the app and the CLI's place-image). Optional. */
+  tiffRules?: unknown[];
   references: ReferencesRef;
   figures: FigureEntry[];
   // Custom figure families (rollup of fig/index.json `families`; built-ins
@@ -258,6 +261,18 @@ export interface FileBridge {
   /** Import a bundle FOLDER dropped from the file manager. The preload takes its path from the dropped File
    *  (webUtils), never from the page, and returns it beside the result (where the element says it came from). */
   importDroppedFluximg?(file: File, request: Omit<import('../fluximg/bridge').FluximgImportRequest, "sourcePath">): Promise<import('../fluximg/bridge').FluximgImportResult & { sourcePath: string }>;
+  /** TIFF → image bundle (src/lib/tiff/bridge.ts; Electron main's tiff:* family, the memory bridge's twin). */
+  probeTiff?(request: import('../tiff/bridge').TiffProbeRequest): Promise<import('../tiff/bridge').TiffProbeResult>;
+  /** A TIFF dropped from the file manager: the preload takes its path from the File (the drop is the read capability). */
+  probeDroppedTiff?(file: File, request: Omit<import('../tiff/bridge').TiffProbeRequest, "sourcePath">): Promise<import('../tiff/bridge').TiffProbeResult>;
+  previewTiff?(request: import('../tiff/bridge').TiffPreviewRequest): Promise<import('../tiff/bridge').TiffPreviewPng>;
+  convertTiff?(request: import('../tiff/bridge').TiffConvertRequest): Promise<import('../tiff/bridge').TiffConvertResult>;
+  cancelTiff?(jobId: string): Promise<boolean>;
+  releaseTiff?(token: string): Promise<void>;
+  onTiffProgress?(fn: (progress: import('../tiff/bridge').TiffProgress) => void): () => void;
+  /** Answers remembered for every project (<FluxConfig>/presets/tiff-answers.json; the fixture uses localStorage). */
+  readTiffRules?(): Promise<unknown[]>;
+  writeTiffRules?(rules: unknown[]): Promise<boolean>;
   /** System font bytes for a CSS font request (text ↔ shape letter outlines);
    *  null bytes when no readable font file backs it. */
   fontLookup?(request: { family: string; weight?: number; style?: string }): Promise<{ key: string; bytes: Uint8Array | null; format: string | null }>;

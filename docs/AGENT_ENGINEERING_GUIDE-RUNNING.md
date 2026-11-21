@@ -4189,7 +4189,31 @@ opens with a header that states its law. Read those before changing one. The par
   fsynced. A dialog cannot pick a folder on Linux or Windows, so Import offers the bundle's
   `fluximg.json`; an OS drop goes through `fluximg:importDropped`. "Importing image…" shows only
   after a second.
-- **Dev handles**: `window.__flux.fluximg.{store,live,actions,place}` and `window.__flux.ops`.
+- **TIFF import in the app** (stage 2 W9; user page `docs/concepts/images.qmd` "Bringing in a TIFF"). Drop, paste,
+  Import and the Plots rail send `.tif`/`.tiff` to `fluximg/tiffImport.ts` (`io.ts` splits them off; the rest of a
+  mixed drop imports at once, and what is left out is said). The work runs in a supervised child per window
+  (`electron/tiffConvert.cjs` → `electron/generated/tiffWorker.bundle.mjs`, built by `scripts/build-tiff-worker.mjs`
+  from the same hooks as the figure raster worker; `UV_THREADPOOL_SIZE=8` at spawn). IPC `tiff:*`
+  (`electron/ipc/tiff.cjs`): a probe returns a TOKEN, and previews and the conversion name the token, never a path;
+  a drop is its own read capability (`tiff:probeDropped`, preload only), a named path needs `fsReadGuard`; the child
+  writes into `fig/assets/.<id>.fluximg.tiff-<uuid>` and main publishes by ONE rename after re-checking root and
+  watch generation; a cancel, a crash, a closed window or a project switch removes the staging folder; one
+  conversion at a time per window; progress at most 10 Hz. A converted bundle goes through `import.ts`
+  `readMadeFluximg` (dedupe, install, one undo step), held only to project + tenant + target figure (a multi-second
+  job must survive the person editing meanwhile). Ask only when needed: `ready` converts at once (the toast says
+  what was understood, with Change and Cancel); otherwise `TiffAskSurface.svelte` (state `tiffAsk.ts`, every edit a
+  pure `tiff/askOps.ts` function, pictures from the child via `tiff/preview.ts`); a settled FLOAT file whose plane
+  is a third or so a negative round value (−1 fills) is asked that one question. Remembered answers:
+  `tiff/remember.ts`; project rules in `project.json` `tiffRules`, machine rules in
+  `<FluxConfig>/presets/tiff-answers.json` (main is a dumb store; `tiff:rules`/`tiff:setRules`); the CLI's
+  `place-image` reads both. The dev bridge converts FOR REAL through a dev-server route
+  (`scripts/lib/tiffDevRoutes.mjs`, mounted by `vite.config.ts`) to the same child; `project/memTiff.ts` is the
+  twin. Gates: `verify-tiff-app.ts` (pure) and `verify-tiff-app-gui.mjs` (ui).
+  TRAPS: SlideMode's and keyboard.ts's window key handlers run before a surface's own listener: they must yield
+  while `tiffAsk` is set (they do). A keyed `{#each}` that reorders during a drag moves the dragged node and ends
+  its pointer capture: listen on the window. Change/Cancel may be pressed before the job exists: the flow checks
+  its flags before and after the conversion.
+- **Dev handles**: `window.__flux.fluximg.{store,live,actions,place,source,tiff}` and `window.__flux.ops`.
   Gates go through these, never through their own `import()` of a stateful module (§9).
 
 ## 5. Hard rules — do not do these
@@ -13846,3 +13870,17 @@ digest of decks WITHOUT images pinned to the pre-change base) and `verify-fluxim
 - `describeViewChange` is pinned by deep equality: per-aspect data for `dropViewChange` travels in a private
   parallel list (`describeAspects`), not as new fields on `ViewChange`.
 
+### 2026-11-21 — TIFF import in the app (Claude Opus 5.5, `s2/tiff-app`, fluximg stage 2 W9)
+**Work:** the supervised conversion child and its `tiff:*` family, routing of drops / paste / Import / the Plots
+rail on figures and slides, the on-canvas asking surface, remembered answers (project and machine; the CLI reads
+them), the progress toast (phase, planes, bytes, time left, Change, Cancel), the dev bridge's real conversion
+route, docs. Gates `verify-tiff-app.ts`, `verify-tiff-app-gui.mjs`. Measured on the workstation, real app,
+headless: a 2.4 GB float movie converts in ~8 s while a canvas pan holds 16.7 ms frames (p95), child peak RSS
+0.3–0.45 GB.
+**Learnings:**
+- The rail's thumbnail child cannot load TypeScript: it imports a second self-contained bundle
+  (`tiffThumb.bundle.mjs`) through a static relative specifier, so `verify-asar-unpack-closure` follows it.
+- A CDP message of ~100 MB (a big file as base64 through `page.evaluate`) closes the target: write big test files
+  inside the page.
+- A converted bundle records its source's size and mtime in provenance: the dev route stamps the staged copy with
+  the bridge's mtime, or the content id would differ from Electron's.

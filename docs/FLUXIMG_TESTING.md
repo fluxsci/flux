@@ -214,3 +214,33 @@ and one large one (2048 × 2048 or more, tens of planes).
     on the z-stack): **refused, naming the problem; nothing written.**
 47. `flux place-image <figId> plots/stack_u16.fluximg`: **placed, `reused: true`** (same content
     already in the project).
+
+## TIFF import
+
+Make test TIFFs in a scratch folder (synthetic, no metadata; and an ImageJ one), for example with
+`scripts/lib/tiffFixtures.ts` (`writeTiff`), or save a stack from Fiji. Use a saved project.
+
+48. Drop an ImageJ hyperstack on a figure. **It converts at once**; the notice's first line says
+    what was understood ("t 2 × z 3 × c 2 (c fastest), 0.25 µm pixels, …") with **Change** and
+    **Cancel**; then "… placed". **Ctrl+Z** removes it in one step.
+49. Drop a TIFF without metadata (two channels interleaved). **A dark panel opens beside a pink
+    mark where the image will land**, with a picture per channel and the suggestions at the top.
+    Nothing behind it moves when you click on it; nothing on it moves at rest.
+50. Drag the **c** key before the **t** key: **the pictures change** (the pages are read in the
+    other order). Rest on the Flip key: **the pictures show the flip; nothing is written** until
+    you press it. Press **T**: **the pictures turn.**
+51. Click the pixel size, type `0.25`, Enter; click the rate, type `80`, Enter. Set **c** to 3:
+    **Convert goes off and says why** ("… cannot be split …"); set it back to 2.
+52. Press **M** (remember: this project), then **Enter**. **The image is placed** with the
+    transposed plane, two channels, 0.25 µm pixels and 80 Hz (Inspector, or `flux image-info`).
+53. Drop a second file of the same kind (another page count, a similar name). **No question**;
+    the notice says "(remembered)".
+54. Drop a large file of the kind and press **Change** in its notice: **the conversion stops and
+    the panel opens with the remembered answer**; **Esc** leaves nothing in `fig/assets/`.
+55. Drop a large file and press **Cancel** while it converts: **nothing is placed, nothing is
+    left in `fig/assets/`.** The canvas stays responsive while it converts (pan and zoom).
+56. Drop a JPEG-compressed TIFF: **refused with the cause and a way out.**
+57. Put a TIFF in `plots/`: **its tile has a picture and the ▦→ mark**; double-click places it
+    (converted, asking only if needed).
+58. Repeat 48 and 49 on a slide: **the same.**
+59. Keyboard only: drop a file that asks, then 1, T, Tab to the pixel size, type, Enter, Enter.

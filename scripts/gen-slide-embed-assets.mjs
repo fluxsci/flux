@@ -18,3 +18,5 @@ for (const [file, text] of [[`${root}/.generated/slide-embed-assets.json`, JSON.
 console.log(`Slide embed runtime: ${Math.round(runtime.length / 1024)} KB`);
 
 await (await import('./build-figure-raster-worker.mjs')).buildFigureRasterWorker();
+// The TIFF conversion child and the rail's TIFF picture (fluximg stage 2): same hooks, same rules.
+await (await import('./build-tiff-worker.mjs')).buildTiffWorker();

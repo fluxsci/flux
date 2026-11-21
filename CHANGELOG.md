@@ -83,7 +83,16 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   as a clip runs. Space previews without writing anything. The Animate panel and the Animation
   properties have the same controls; agents use `set-image-view --beat --speed --blend`,
   `--playback`, and `set-video-track` on an image.
-- Not yet: TIFF import, 3-D rendering of volumes.
+- **TIFF files come in directly.** Drop a `.tif` on a figure or a slide, paste it, import it,
+  or place it from the Plots rail; Flux converts it into an image bundle and places it. ImageJ,
+  OME, tifffile and per-page metadata are read on their own, and such a file converts at once,
+  with Change in the notice if the reading is wrong. A file that does not say how its pages are
+  ordered is never guessed: a panel opens on the canvas where the image will land, with a
+  picture per channel, the pages as keys to drag and rename, transpose and flips, and the pixel
+  size, rate and z step typed in place. Several files of one kind are asked about once, and an
+  answer can be remembered for the project or for every project. Large files show their
+  progress and can be cancelled; nothing is left behind. The TIFF itself is never changed.
+- Not yet: 3-D rendering of volumes.
 
 ### Flux AI
 

@@ -451,6 +451,8 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
       // The user's Documents-list order (project-relative paths; docOrder.ts).
       documentRoot: { type: "string" },
       documentOrder: { type: "array", items: { type: "string" } },
+      // Answers remembered for TIFFs "like this one" in this project (src/lib/tiff/remember.ts; the CLI reads them too).
+      tiffRules: { type: "array", items: { type: "object", required: ["rule", "fingerprint", "answer"], properties: { rule: { type: "number" }, fingerprint: { type: "string" }, answer: { type: "object" }, summary: { type: "string" }, saved: { type: "string" } } } },
       references: { type: "object", required: ["library"], properties: { library: { type: "string" } } },
       figures: {
         type: "array",

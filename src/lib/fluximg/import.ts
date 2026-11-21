@@ -25,6 +25,7 @@ import { trackFluximgImport } from "./importProgress";
 import { findFluximgAsset, fluximgRecipeBeside, fluximgSourceRecord, makeFluximgElement } from "./importCore";
 import { fluximgManifests } from "./store";
 import type { FluximgManifest } from "./types";
+import type { FluximgElement } from "./element";
 
 export const fluximgImportRoot = (): string | null => get(embeddedProjectRoot);
 
@@ -61,31 +62,51 @@ let sequence = 0;
 const uniqueTail = (): string => `${Date.now().toString(36)}${(++sequence).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const baseName = (p: string): string => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? p;
 
+/**
+ * A bundle that is MADE rather than copied (a converted TIFF, `tiffImport.ts`): the file side writes it at the asset
+ * id it is given and returns what a bundle import returns. A long job runs while the person keeps working, so its
+ * destination is held only to the project, the tenant and the target figure (an edit meanwhile does not cancel it,
+ * as it does a one-second bundle copy).
+ */
+export interface MadeBundle {
+  /** The source's name (the asset id's stem). */
+  label: string;
+  make(root: string, assetId: string): Promise<FluximgImportResult>;
+  /** What the placed element records as its source. */
+  source(root: string, sha256: string): NonNullable<FluximgElement["source"]>;
+}
+
 let toldLiveView = false;
-async function incoming(source: string | File, targetFigure?: string): Promise<Incoming> {
+async function incoming(source: string | File | MadeBundle, targetFigure?: string): Promise<Incoming> {
   assertFluximgDestination();
   const root = await ensureFluximgImportRoot();
+  const made = typeof source === "object" && "make" in source ? source : null;
   const owner = get(project), figureId = get(activeFigureId), targetId = targetFigure ?? figureId, tenant = storeTenant();
   const bridge = fileBridge();
-  if (!bridge?.importFluximg || !bridge.discardFluximg) throw new Error("Images (fluximg) need the Flux desktop app.");
-  const current = (): boolean => fluximgImportRoot() === root && get(project) === owner && get(activeFigureId) === figureId
-    && storeTenant() === tenant && !!targetId && owner.figures.some((f) => f.id === targetId);
-  const label = typeof source === "string" ? baseName(source) : source.name;
-  const assetId = fluximgAssetId(label.replace(/\.fluximg$/i, ""), uniqueTail());
-  const finishProgress = trackFluximgImport(label, current, [project, activeFigureId, embeddedProjectRoot, projectDir, storeTenantState]);
+  if (!bridge?.discardFluximg || (!made && !bridge.importFluximg)) throw new Error("Images (fluximg) need the Flux desktop app.");
+  const current = made
+    ? (): boolean => fluximgImportRoot() === root && storeTenant() === tenant && !!targetId && get(project).figures.some((f) => f.id === targetId)
+    : (): boolean => fluximgImportRoot() === root && get(project) === owner && get(activeFigureId) === figureId
+      && storeTenant() === tenant && !!targetId && owner.figures.some((f) => f.id === targetId);
+  const label = made ? made.label : typeof source === "string" ? baseName(source) : (source as File).name;
+  const assetId = fluximgAssetId(label.replace(/\.fluximg$/i, "").replace(/\.(ome\.)?tiff?$/i, ""), uniqueTail());
   let result: FluximgImportResult & { sourcePath?: string };
-  try {
-    if (typeof source === "string") result = await bridge.importFluximg({ root, sourcePath: source, assetId });
-    else if (bridge.importDroppedFluximg) result = await bridge.importDroppedFluximg(source, { root, assetId });
-    else throw new Error("Dropped image bundles need the Flux desktop app. Place it from the Plots rail instead.");
-  } finally { finishProgress(); }
+  if (made) result = await made.make(root, assetId);
+  else {
+    const finishProgress = trackFluximgImport(label, current, [project, activeFigureId, embeddedProjectRoot, projectDir, storeTenantState]);
+    try {
+      if (typeof source === "string") result = await bridge.importFluximg!({ root, sourcePath: source, assetId });
+      else if (bridge.importDroppedFluximg) result = await bridge.importDroppedFluximg(source as File, { root, assetId });
+      else throw new Error("Dropped image bundles need the Flux desktop app. Place it from the Plots rail instead.");
+    } finally { finishProgress(); }
+  }
 
-  const sourcePath = typeof source === "string" ? source : result.sourcePath || source.name;
+  const sourcePath = made ? "" : typeof source === "string" ? source : result.sourcePath || (source as File).name;
   let ownCopy = true, settled = false;
   const discardCopy = async (): Promise<void> => { if (!ownCopy) return; ownCopy = false; await bridge.discardFluximg!({ root, assetId }); };
   try {
     if (!current()) throw new Error("The insertion destination changed");
-    const figure = owner.figures.find((f) => f.id === targetId);
+    const figure = (made ? get(project) : owner).figures.find((f) => f.id === targetId);
     if (!figure) throw new Error("The insertion destination changed");
     // The same content already in the project, or in this batch: use that asset, drop the fresh copy.
     const existing = findFluximgAsset(get(project).assets, result.sha256);
@@ -96,18 +117,18 @@ async function incoming(source: string | File, targetFigure?: string): Promise<I
       asset = existing ?? shared!.asset;
       if (shared) shared.users++;
     } else {
-      asset = fluximgAsset(assetId, result, sourcePath);
+      asset = fluximgAsset(assetId, result, made ? made.label : sourcePath);
       pendingByContent.set(`${root}|${result.sha256}`, { asset, users: 1 });
     }
     const pendingKey = `${root}|${result.sha256}`;
     const release = (): void => { const p = pendingByContent.get(pendingKey); if (p && p.asset === asset && --p.users <= 0) pendingByContent.delete(pendingKey); };
     let recipe: string | null = null;
-    if (typeof source === "string") {
+    if (!made && typeof source === "string") {
       const beside = fluximgRecipeBeside(source);
       const abs = /^([A-Za-z]:)?[\\/]/.test(beside) ? beside : joinPath(root, beside);
       try { if (await bridge.exists(abs)) recipe = beside; } catch { /* an unreadable folder has no recipe we can use */ }
     }
-    const el = makeFluximgElement(figure, asset, fluximgSourceRecord(root, sourcePath, result.sha256, recipe));
+    const el = makeFluximgElement(figure, asset, made ? made.source(root, result.sha256) : fluximgSourceRecord(root, sourcePath, result.sha256, recipe));
     const manifest: FluximgManifest = result.manifest;
     return {
       asset,
@@ -139,6 +160,8 @@ async function incoming(source: string | File, targetFigure?: string): Promise<I
 export const readIncomingFluximg = (sourcePath: string, figureId?: string): Promise<Incoming> => incoming(sourcePath, figureId);
 /** An `Incoming` for a bundle folder dropped from the file manager (its path comes from the preload, never the page). */
 export const readDroppedFluximg = (file: File, figureId?: string): Promise<Incoming> => incoming(file, figureId);
+/** An `Incoming` for a bundle the file side makes (a converted TIFF): dedupe, install and discard as for any bundle. */
+export const readMadeFluximg = (made: MadeBundle, figureId?: string): Promise<Incoming> => incoming(made, figureId);
 
 /** A display name for toasts. */
 export const fluximgLabel = (manifest: FluximgManifest, sourcePath?: string): string => fluximgDisplayName(manifest, sourcePath);

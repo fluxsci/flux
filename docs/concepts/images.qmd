@@ -83,6 +83,58 @@ file dialog cannot pick a folder), or drag the `.fluximg` folder in from your fi
   they still fit; if something had to change (fewer planes, a channel gone), a notice says what.
   One **Ctrl+Z** brings back the previous version.
 
+# Bringing in a TIFF
+
+A `.tif` or `.tiff` file goes in the same ways as a bundle: drop it on a figure or a slide, paste
+a file copied in your file manager, choose it with **Import**, or place it from the Plots rail
+(TIFFs under `plots/` are listed with a picture and the mark **▦→**, "converts on placing").
+Flux converts it into an image bundle first, then places it like any other.
+
+- **What Flux reads on its own.** ImageJ hyperstacks, single-file OME-TIFF, tifffile's shape note
+  with axis names, and files whose pages carry their own data saying which channel, plane or time
+  each page is. From these Flux takes the order of the pages, the pixel size, the z step, the
+  frame interval and channel names and colours. Such a file converts at once. The notice that
+  follows it says what was understood, with **Change** beside it if that is wrong, and **Undo**
+  takes the placed image away again.
+- **What Flux asks.** Many TIFFs say nothing about their pages: a movie of 1,632 pages could be
+  1,632 frames or 816 frames of two channels. Flux never guesses there, because a wrong order
+  gives an image that looks plausible and is wrong. A small dark panel opens on the canvas,
+  beside the point where the image will land. It shows one picture per channel, redrawn as you
+  answer:
+  - the ranked suggestions at the top (choose one with its number);
+  - the **pages** as keys, slowest first and fastest last, such as **t 816 × c 2**: drag a key to
+    reorder, click its letter to rename it (t, z, c or a name of your own), click its size to
+    type another; one key is "the rest" (∗), whatever the page count leaves;
+  - **transpose** (**T**) and the two **flips** (**F**, **Shift+F**); resting on a key shows its
+    result before anything changes;
+  - the pixel size, the frame rate or interval and the z step, typed where they stand;
+  - a value that means "no data" when the plane suggests one (a −1 written where nothing was
+    measured, for example; NaN always means no data);
+  - compact or lossless storage (**S**) and **Remember** (**M**: this project, or every project).
+
+  **Convert** stays off, with the reason beside it, until the sizes multiply to the page count.
+  **Esc** or **×** leaves without converting anything.
+- **Files of one kind.** Drop several files that share a structure and Flux asks once; the others
+  follow the same answer, each one's own page count included. A remembered answer works the same
+  way the next time: the file converts at once, and the notice says "(remembered)". A project's
+  remembered answers are kept in its `project.json`; answers for every project live in your
+  FluxConfig folder (`presets/tiff-answers.json`). To forget one, open the panel again with
+  **Change** and press **forget**.
+- **Progress and Cancel.** A large file shows how far it is (reading, then storing; planes done,
+  bytes read, and time left once that is steady). **Cancel** stops it and leaves nothing behind.
+  You can keep working on the canvas meanwhile.
+- **What is refused, and why.** JPEG-, JPEG 2000- and LZMA-compressed TIFFs, complex numbers, an
+  OME dataset spread over several files, and damaged or truncated files. The notice names the
+  cause and a way out, usually: save it again uncompressed or with LZW (in Fiji: File > Save As >
+  Tiff).
+- **Your file is never changed.** Flux reads the TIFF and writes the converted bundle into the
+  project's `fig/assets/` folder; the placed image records the TIFF as where it came from. It
+  does not follow later changes to the TIFF: convert it again to bring in a new version.
+
+The command line does the same with `flux place-image <figure> <file.tif>`; when the file does not
+say how its pages are ordered it lists the suggestions with the flags that choose each (`--dims
+t,c=2 --transpose --pixel-size 0.25 --rate 80`), and it uses the project's remembered answers.
+
 # The live view
 
 Select an image and press **R**, or double-click it. The image stays where it is and becomes
@@ -349,8 +401,8 @@ show the same pixels.
 
 # Limits of this first version
 
-- Only `.fluximg` folders can be placed. TIFF and other microscope files cannot be dragged in
-  yet: save them with fluxplot first.
+- Besides `.fluximg` folders, only TIFFs can be brought in directly. Other microscope formats
+  (CZI, ND2, LIF and the like): save them with fluxplot first.
 - There is no 3-D rendering. Depth is a dimension to step through or project.
 - Images are placed from the project's `plots/` folder; the global plot library does not list
   them.

@@ -166,3 +166,43 @@ export function compareCodePoints(a, b) {
 export function fluximgContentIdText(entries) {
   return [...entries].sort((a, b) => compareCodePoints(a.path, b.path)).map((e) => `${e.path}\0${e.sha256}\n`).join("");
 }
+
+// --- TIFF import (fluximg stage 2) ------------------------------------------------------------------------------
+// The same file side converts a TIFF into a bundle (electron/ipc/tiff.cjs; the memory bridge's twin in
+// project/memBridge.ts). What a renderer may name, and the words for every refusal, live here so both say the same.
+
+/** A TIFF by its name. `.ome.tif` included. */
+export const TIFF_RE = /\.tiff?$/i;
+export const isTiffName = (name) => typeof name === "string" && TIFF_RE.test(name);
+/** Hidden staging folders a conversion leaves in fig/assets while it runs: `.<id>.fluximg.tiff-<uuid>`. */
+export const TIFF_STAGING_RE = /^\.[A-Za-z0-9_-][A-Za-z0-9_.-]{0,180}\.fluximg\.tiff-[0-9a-f-]{36}$/;
+/** Remembered rules sent with a probe, at most. */
+export const TIFF_MAX_RULES = 400;
+
+export const tiffErrors = {
+  sourcePath: () => "Choose a .tif or .tiff file to import",
+  notTiff: (p) => `${p} is not a TIFF: choose a .tif or .tiff file`,
+  sourceEscapes: () => "The TIFF is outside the project: a relative source path must stay inside it",
+  sourceSymlinkEscapes: () => "The TIFF is a link that points outside the project",
+  notFile: (p) => `${p} is not a file: choose a .tif or .tiff file`,
+  missing: (p) => `ENOENT: ${p} does not exist`,
+  token: () => "This TIFF is no longer open here: drop or choose it again",
+  answer: () => "Send the answer as an object with dims",
+  cancelled: () => "The TIFF conversion was cancelled",
+  stopped: (detail) => `The image converter stopped (${detail}); nothing was added. Try again`,
+  job: () => "Invalid conversion id",
+};
+
+/** A renderer-sent TIFF path, checked as a string (containment and the read capability are the engine's). Throws. */
+export function tiffSourcePath(p) {
+  if (typeof p !== "string" || !p || p.length > 32768 || p.includes("\0")) throw new Error(tiffErrors.sourcePath());
+  const base = p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
+  if (!isTiffName(base)) throw new Error(tiffErrors.notTiff(base));
+  return p;
+}
+
+/** A renderer-sent conversion or token id: short, plain. Throws. */
+export function tiffJobId(id) {
+  if (typeof id !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(id)) throw new Error(tiffErrors.job());
+  return id;
+}

@@ -468,6 +468,7 @@ function createWindow(initialRoot) {
   win.webContents.on("render-process-gone", () => {
     sceneRasterFamily.cancelOwner(wcId);
     figureRasterFamily.cancelOwner(wcId);
+    tiffFamily.cancelOwner(wcId);
   });
   win.on("focus", () => {
     lastFocusedWindow = win;
@@ -1231,6 +1232,7 @@ onQuit(() => globalLibraryWatcher.dispose());
 ipcMain.handle("watch:setRoot", async (e, root) => {
   sceneRasterFamily.cancelOwner(e.sender.id);
   figureRasterFamily.cancelOwner(e.sender.id);
+  if (rootFor(e) !== root) tiffFamily.cancelOwner(e.sender.id);
   if (rootFor(e) !== root) runnerFamily.cancelOwner(e.sender.id);
   const s = sessionFor(e);
   if (!s) return false;
@@ -1499,6 +1501,14 @@ const model3dCore = require("./ipc/model3d.cjs").createModel3dCore({ rootFor, ge
 model3dCore.registerHandlers(ipcMain);
 // fluximg bundles: same window/project/generation checks as model3d; pixels cross only in ranged reads.
 require("./ipc/fluximg.cjs").createFluximgCore({ rootFor, generationFor: (e) => sessionFor(e)?.watchGen, fsReadGuard: fileCore.fsReadGuard }).registerHandlers(ipcMain);
+// TIFF → image bundle in a supervised child per window (stage 2): the same window/project/generation checks, a drop
+// or the read capability for the source, staging published by one rename, cancelled with its window or project.
+const tiffFamily = require("./ipc/tiff.cjs").createTiffFamily({
+  app, appRoot: path.resolve(__dirname, ".."), rootFor, generationFor: (e) => sessionFor(e)?.watchGen, fsReadGuard: fileCore.fsReadGuard,
+  globalRulesFile: () => fluxPaths.tiffAnswersPathSync(readPrefs()),
+});
+tiffFamily.registerHandlers(ipcMain);
+onQuit(() => tiffFamily.shutdown());
 // Letter outlines for text ↔ shape Becomes: system font bytes for a CSS request.
 require("./ipc/fonts.cjs").createFontsFamily({ configDir: () => fluxPaths.userDataDir() }).registerHandlers(ipcMain);
 // Plots rail: plot listing, header probes, cached thumbnails (raster work in a Node child,

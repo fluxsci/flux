@@ -133,3 +133,5 @@ for (const entry of Object.keys(OUT_NAME)) {
 }
 
 await (await import('./build-figure-raster-worker.mjs')).buildFigureRasterWorker();
+// The TIFF conversion child and the rail's TIFF picture (fluximg stage 2): same hooks, same rules.
+await (await import('./build-tiff-worker.mjs')).buildTiffWorker();

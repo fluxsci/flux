@@ -30,6 +30,8 @@ import {
 } from "./plotThumbRules.mjs";
 
 const RASTER_RE = /\.(png|jpe?g|gif|webp)$/i;
+// TIFF stacks under plots/ are listed (they convert when placed); their picture comes from the TIFF reader.
+const TIFF_RE = /\.tiff?$/i;
 const MAX_RASTER_PIXELS = 100e6;
 const MAX_SVG_BYTES = 64 * 1024 * 1024;
 const HEAD_BYTES = 64 * 1024;
@@ -262,6 +264,16 @@ export function createThumbEngine(o) {
   // ------------------------------------------------------------------ render
   /** The SVG text to render for `abs` (rasters are wrapped in a one-<image> document). */
   async function sourceFor(abs, st) {
+    if (TIFF_RE.test(abs)) {
+      // A TIFF stack: the picture its import would show (the middle plane, channels added; one page read, never the
+      // file whole), drawn by the TIFF reader's own bundle (scripts/build-tiff-worker.mjs). A refused file says why.
+      const { tiffThumbPng } = await import("./generated/tiffThumb.bundle.mjs");
+      let t;
+      try { t = await tiffThumbPng(abs, 512); }
+      catch (error) { throw Object.assign(new Error(error?.message || "unreadable TIFF"), { unsupported: !!error?.unsupported }); }
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${t.width}" height="${t.height}" viewBox="0 0 ${t.width} ${t.height}"><image width="${t.width}" height="${t.height}" href="data:image/png;base64,${t.png.toString("base64")}"/></svg>`;
+      return { svg, raster: true, naturalWidth: t.width, naturalHeight: t.height, refs: [] };
+    }
     if (RASTER_RE.test(abs)) {
       // resvg-js 2.6 decodes PNG / JPEG / GIF but not WebP; a WebP tile takes the renderer's
       // fallback path (thumbClient), which Chromium decodes.

@@ -229,6 +229,8 @@ function elementById(id: string): FluximgElement | null {
 export async function fluximgSourceState(el: Pick<FluximgElement, "assetId" | "source">): Promise<FluximgSourceState> {
   const s = el.source;
   if (!s?.bundlePath || s.external) return "external";
+  // A converted TIFF records the TIFF, frozen: there is no bundle there to follow (Inspector says "converted from").
+  if (s.frozen && /\.tiff?$/i.test(s.bundlePath)) return "external";
   const root = rootNow(), fb = fileBridge();
   if (!root || !fb) return "missing";
   const bundlePath = norm(s.bundlePath);
