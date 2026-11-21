@@ -597,7 +597,9 @@
   .fx-grip:hover { box-shadow: 0 0 0 1px var(--c-guide); background: color-mix(in oklab, var(--c-guide) 12%, transparent); }
   .fx-grip.held { cursor: grabbing; box-shadow: 0 0 0 1.5px var(--c-guide); background: color-mix(in oklab, var(--c-guide) 20%, transparent); }
 
-  .fx-preview { position: absolute; z-index: 2; box-sizing: border-box; display: grid; place-items: center; pointer-events: none; border: 1.5px dashed var(--c-guide); background: color-mix(in oklab, var(--c-guide) 13%, transparent); border-radius: 2px; }
+  /* Above the board (z 3) while a key previews: a ghost the console stands on now is still seen (the console's place to
+     come is outlined beside it); it never takes the pointer, so the key under it stays hovered. */
+  .fx-preview { position: absolute; z-index: 4; box-sizing: border-box; display: grid; place-items: center; pointer-events: none; border: 1.5px dashed var(--c-guide); background: color-mix(in oklab, var(--c-guide) 13%, transparent); border-radius: 2px; }
   .fx-preview span { padding: 1px 8px; border-radius: 9px; background: var(--flx-paper); color: var(--flx-magenta-600); font: 600 10.5px var(--font-mono); white-space: nowrap; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); max-width: 90%; overflow: hidden; text-overflow: ellipsis; }
 
   /* The object under the pointer, named beside it. */
