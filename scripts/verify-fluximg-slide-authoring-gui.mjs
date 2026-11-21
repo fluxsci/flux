@@ -290,6 +290,29 @@ try {
   await waitFor(page, () => [...document.querySelectorAll(".lane-row .track-label small")].some((s) => s.textContent.includes("Start movie")), null, { label: "the movie lane's words", timeout: 3000 }).catch(() => null);
   h.ok(await F(() => [...document.querySelectorAll(".lane-row .track-label small")].some((s) => s.textContent.includes("Start movie"))), "its lane says Start movie");
   h.ok(await F(() => !!document.querySelector(".props select[aria-label='Movie mode']")), "the movie command's Properties show its mode, speed, range and dimension");
+
+  // ------------------------------------------------------------------------------------------------------------
+  h.section("the player: a started movie runs on its own while the slide rests, and costs nothing once stopped");
+  await F((id) => { const f = window.__flux, sid = f.get(f.fig.activeFigureId);
+    f.slide.commitDeckLive((d) => { const s = d.slides.find((x) => x.id === sid); s.beats[1].tracks = [{ id: "mv", target: id, preset: "videoStart", duration: 0, start: 0 }]; s.beats[2].tracks = [];
+      s.elements.find((e) => e.id === id).playback = { dim: "t", mode: "loop", fps: 8 }; });
+    f.slide.activeBeat.set(1); }, IMG);
+  await F(() => { const real = window.requestAnimationFrame.bind(window); window.__mvRaf = 0; window.requestAnimationFrame = (cb) => { window.__mvRaf++; return real(cb); }; });
+  await F(() => [...document.querySelectorAll(".transport button")].find((b) => b.textContent.includes("Play")).click());
+  await waitFor(page, () => !!document.querySelector(".preview-overlay [data-slide-fluximg-root]"), null, { timeout: 10000, label: "the preview mounts the image" });
+  // The step's cue is a zero-length command: the slide rests at once while the movie runs (the transport stays on Pause,
+  // as it does for a playing video clip).
+  await sleep(300);
+  const a0 = await F(() => window.__flux.fluximgSlide.stats.asked), r0 = await F(() => window.__mvRaf);
+  await sleep(1300);
+  const a1 = await F(() => window.__flux.fluximgSlide.stats.asked), r1 = await F(() => window.__mvRaf);
+  h.ok(a1 - a0 >= 6, `at rest the movie keeps drawing new planes (${a1 - a0} frames asked in 1.3 s at 8 planes a second)`);
+  h.ok(r1 - r0 > 0, "…on its own frame loop (media may run while the slide rests)");
+  await F(() => [...document.querySelectorAll(".transport button")].find((b) => b.textContent.includes("Stop")).click());
+  await waitFor(page, () => !document.querySelector(".preview-overlay [data-slide-fluximg-root]"), null, { timeout: 5000, label: "the preview closed" }).catch(() => null);
+  await sleep(200);
+  const r2 = await F(() => window.__mvRaf); await sleep(500);
+  h.eq((await F(() => window.__mvRaf)) - r2, 0, "stopped: no animation frame any more");
 } catch (e) {
   h.fail(`threw: ${e?.stack ?? e}`);
   await page.screenshot({ path: `${SHOTS}/authoring-gui-failure.png` }).catch(() => {});
