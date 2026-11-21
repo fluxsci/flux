@@ -9,8 +9,10 @@
   import { fluximgLayerText, fluximgLutsReady, needLayerText, needLuts, resolveLut } from "./store";
   import { layerMarkup, namesMarkup, objectIndex } from "./layers";
   import { furnitureSvg } from "./furniture";
-  import { insetsMarkup, layerSvgPath, unflipTransform } from "./static";
-  import type { FluximgManifest } from "./types";
+  import { insetsMarkup, layerStyles, layerSvgPath, layerTablePath, stylesToDraw, unflipTransform, wantsTable } from "./static";
+  import { missingStyle, type ObjectLegend } from "./objectStyle";
+  import { fluximgTables, needTable, tableOf } from "./live/objectTables";
+  import type { FluximgManifest, FluximgTable } from "./types";
   import type { PixelRect, ResolvedView } from "./view";
 
   let { asset, manifest, view, crop, box, prefix, flipX = false, flipY = false, insets = [] }: {
@@ -38,6 +40,38 @@
     return out;
   });
   $effect(() => { for (const l of objectLayers) needLayerText(asset, l.path); });
+  // A layer styled by its table needs the table (and, coloured by numbers, the colour maps). Nothing is asked for,
+  // and no table store is read, while no shown layer is styled: an unstyled image costs what it always did.
+  const styled = $derived(objectLayers.filter((l) => wantsTable(l.lv)));
+  $effect(() => {
+    for (const l of styled) needTable(asset, layerTablePath(l.layer));
+    if (styled.some((l) => l.lv.styleBy?.color)) void needLuts();
+  });
+  /** Layer id → its table, for the styled layers only. */
+  const tables = $derived.by((): Record<string, FluximgTable | null> => {
+    if (!styled.length) return {};
+    const all = $fluximgTables, out: Record<string, FluximgTable | null> = {};
+    for (const l of styled) out[l.lv.id] = tableOf(all, asset, layerTablePath(l.layer));
+    return out;
+  });
+  // A table's identity in a memo signature (the store hands out the same object until it is read again).
+  const tableIds = new WeakMap<object, number>();
+  let tableSerial = 0;
+  const tableId = (t: FluximgTable | null | undefined): number => { if (!t) return 0; let n = tableIds.get(t); if (!n) { n = ++tableSerial; tableIds.set(t, n); } return n; };
+  /** The styles of each styled layer (cached per table and request in `objectStyle`), and its legend for the key. */
+  const styles = $derived.by(() => {
+    if (!styled.length) return null;
+    void $fluximgLutsReady;
+    const out: Record<string, ReturnType<typeof layerStyles>> = {};
+    for (const l of styled) out[l.lv.id] = stylesToDraw(layerStyles(l.layer, l.lv, tables[l.lv.id], resolveLut));
+    return out;
+  });
+  const legends = $derived.by((): Record<string, ObjectLegend | null> | undefined => {
+    if (!styles) return undefined;
+    const out: Record<string, ObjectLegend | null> = {};
+    for (const [id, s] of Object.entries(styles)) out[id] = s?.legend ?? null;
+    return out;
+  });
 
   // Markup is rebuilt only when its own inputs change: stepping through planes must not re-place 20,000 outlines.
   const memo = new Map<string, { sig: string; markup: string }>();
@@ -56,7 +90,10 @@
     return objectLayers.map(({ lv, layer, path }) => {
       const text = texts[`${asset.id}|${path}`];
       if (text === undefined) return { id: lv.id, markup: "" };
-      return { id: lv.id, markup: memoized(`layer:${lv.id}`, `${geometry}|${JSON.stringify(lv)}|${text.length}`, () => layerMarkup(layer, text, lv, crop, box, prefix)) };
+      if (!lv.styleBy) return { id: lv.id, markup: memoized(`layer:${lv.id}`, `${geometry}|${JSON.stringify(lv)}|${text.length}`, () => layerMarkup(layer, text, lv, crop, box, prefix)) };
+      const st = styles?.[lv.id] ?? null, t = tables[lv.id];
+      return { id: lv.id, markup: memoized(`layer:${lv.id}`, `${geometry}|${JSON.stringify(lv)}|${text.length}|t${tableId(t)}|${st ? 1 : 0}|${$fluximgLutsReady ? 1 : 0}`,
+        () => layerMarkup(layer, text, lv, crop, box, prefix, st?.byKey, st ? missingStyle(lv.styleBy) : null)) };
     });
   });
   const names = $derived.by(() => {
@@ -76,7 +113,7 @@
   });
   // The calibration bar draws a colour map's own colours, so the tables must be loaded (lazily) when one is shown.
   $effect(() => { if (view.furniture.colorbar && view.channels.some((c) => c.lut)) void needLuts(); });
-  const furniture = $derived.by(() => { void $fluximgLutsReady; try { return furnitureSvg(manifest, view, crop, box, prefix, resolveLut); } catch { return ""; } });
+  const furniture = $derived.by(() => { void $fluximgLutsReady; try { return furnitureSvg(manifest, view, crop, box, prefix, resolveLut, view.furniture.key ? legends : undefined); } catch { return ""; } });
   // A mirrored element mirrors its pixels and shapes, never its words: text sits in a group that undoes the mirror.
   const unflip = $derived(unflipTransform(box, flipX, flipY) || undefined);
 </script>
