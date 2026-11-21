@@ -21,6 +21,7 @@ import { wantsTable } from "../fluximg/static";
 import { DEFAULT_STYLE_LUT } from "../fluximg/objectStyle";
 import { compileSlide, type CompileOptions } from "./compile";
 import { resolveTheme } from "./theme";
+import { fluximgAssetPath, fluximgResolvedAsset } from "../fluximg/place";
 import { imageStillRef, payloadImageAsset, slideImageChanges, trimImageManifest, IMAGE_NO_ENCODER_NOTE, type ExportImage } from "./imageExport";
 
 /** The image half of `SlidePayloadIO`. */
@@ -82,15 +83,19 @@ export async function gatherImages(o: GatherImagesOptions): Promise<{ images?: R
   const bundleFile = (asset: Asset, rel: string) => `${root.replace(/[/\\]$/, "")}/fig/${asset.path.replace(/^\/+/, "").replace(/\/+$/, "")}/${rel}`;
   const sources = new Map<string, Asset>(), manifests = new Map<string, FluximgManifest>(), images: Record<string, ExportImage> = {};
   for (const [assetId, els] of placed) {
-    const asset = o.figAssets.find((a) => a.id === assetId && a.kind === "fluximg");
-    if (!asset?.path) { warnings.push(`image "${label(els[0])}" (${assetId}) is not registered in fig/ — its element will show a placeholder`); continue; }
+    // By id, as both engines resolve a deck's images: the figure index's record when it lists the asset, else the
+    // bundle at its one place (fig/assets/<id>.fluximg), its record rebuilt from its manifest (place.fluximgResolvedAsset).
+    const registered = o.figAssets.find((a) => a.id === assetId && a.kind === "fluximg");
+    const asset: Asset = registered ?? { id: assetId, name: assetId, kind: "fluximg", path: fluximgAssetPath(assetId), naturalWidth: 0, naturalHeight: 0 };
+    if (!/^[A-Za-z0-9_][A-Za-z0-9_.-]*$/.test(assetId) || !asset.path) { warnings.push(`image "${label(els[0])}" (${assetId}) has no bundle — its element will show a placeholder`); continue; }
     try {
       const manifest = io.imageManifest ? await io.imageManifest(asset) : JSON.parse(await io.readText(bundleFile(asset, "fluximg.json"))) as FluximgManifest;
       if (manifest?.spec !== "fluximg/1" || !manifest.pixels?.shape) throw new Error("its manifest is not fluximg/1");
-      manifests.set(assetId, manifest); sources.set(assetId, asset);
+      manifests.set(assetId, manifest);
+      sources.set(assetId, registered ?? fluximgResolvedAsset(assetId, manifest, els.find((e) => e.source?.sha256)?.source?.sha256));
       images[assetId] = { manifest: trimImageManifest(manifest) };
     } catch (error) {
-      warnings.push(`image "${label(els[0])}" (${assetId}): its bundle ${asset.path} cannot be read (${reason(error)}) — its element will show a placeholder`);
+      warnings.push(`image "${label(els[0])}" (${assetId}): its bundle fig/${asset.path} is missing or unreadable (${reason(error)}) — its element will show a placeholder`);
     }
   }
   if (!manifests.size) return {};

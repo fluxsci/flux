@@ -49,6 +49,17 @@ export async function exportSlideVideo(root: string, deckId: string, slideId: st
         mediaFiles[asset.id] = file; mediaHasAudio[asset.id] = asset.hasAudio === true;
         return pathToFileURL(file).href;
       },
+      // Image clips reach the capture document as video files do: a scratch copy, allowlisted by the worker, decoded
+      // with one seek per captured frame (fluximgPayloadHost in capture mode).
+      imageClipUrl: async (source, clip) => {
+        check();
+        const file = path.join(scratch, `image-${clip.key}-${randomUUID()}.mp4`);
+        await fs.copyFile(source, file);
+        mediaFiles[`fluximg-clip:${clip.key}`] = file;
+        return pathToFileURL(file).href;
+      },
+      signal: controller.signal,
+      onImageClip: progress => input.onProgress?.({ phase: "preparing", frame: progress.frame, total: progress.total }),
     });
     if (payload.deck.slides.some(s => s.elements.some(e => e.type === "video" && !payload.videos?.[e.assetId])))
       throw new Error("A video clip is missing. Restore or reimport the clip before exporting.");

@@ -1,4 +1,5 @@
 import { slideModelPosterIO } from "../model3dPosterIO";
+import { slideImageStillIO } from "../imageStillIO";
 // Slide deck -> PDF (2026-09-24, owner request: "export slides in PDF format
 // besides HTML").
 //
@@ -15,6 +16,7 @@ import { slideModelPosterIO } from "../model3dPosterIO";
 // caller saves first, like the HTML export.
 import { readEmbedDeck, gatherSlidePayload, type SlidePayloadIO } from "../payload";
 import { renderSlidePosterSvg } from "../embedRender";
+import { payloadImagesMove, IMAGE_STILL_NOTE } from "../imageExport";
 
 export type DeckPdfPages = "final" | "steps";
 
@@ -51,7 +53,8 @@ export async function deckPdfDocument(
   plan: DeckPdfPages = "final",
 ): Promise<DeckPdfDocument> {
   // Static pages show a video's poster frame; never stream or inline the movie.
-  const staticIO: SlidePayloadIO = { ...slideModelPosterIO(root, io), videoUrl: async () => "", modelData: "omit" as const };
+  // Images: each step's still through the window's image service; a page never carries a movie.
+  const staticIO: SlidePayloadIO = slideImageStillIO(root, { ...slideModelPosterIO(root, io), videoUrl: async () => "", modelData: "omit" as const });
   const deck = await readEmbedDeck(root, deckId, staticIO);
   if (!deck.slides.length) throw new Error("This deck has no slides to export");
   const fonts = (await import("../../../../.generated/slide-embed-assets.json")).default.fonts as string;
@@ -61,6 +64,7 @@ export async function deckPdfDocument(
   for (const slide of deck.slides) {
     const result = await gatherSlidePayload(root, deck, slide.id, staticIO);
     if (result.payload.deck.assets.some(a => a.kind === "glb") && !warnings.includes("3D animation exported as a still")) warnings.push("3D animation exported as a still");
+    if (!warnings.includes(IMAGE_STILL_NOTE) && payloadImagesMove(result.payload)) warnings.push(IMAGE_STILL_NOTE);
     for (const warning of result.warnings) if (!warnings.includes(warning)) warnings.push(warning);
     for (const step of pdfStepsFor(slide.beats.length, plan)) {
       pages.push(`<div class="page">${renderSlidePosterSvg(result.payload, step)}</div>`);

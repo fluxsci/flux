@@ -255,7 +255,9 @@ export async function renderPackImages(root: string, facts: ConnectFacts, plan: 
  */
 export async function deckSheetSvg(root: string, deck: Deck, first: number, last: number): Promise<string> {
   await ensureDom();
-  const io = { readText: (p: string) => fs.readFile(p, "utf8"), readFile: (p: string) => fs.readFile(p), modelData: "omit" as const };
+  // Images on the sheet: each slide's step-0 still by the reference renderer in Node (loaded only for decks with one).
+  const images = deck.slides.some((s) => s.elements.some((e) => e.type === "fluximg")) ? (await import("../fluximgRender")).nodeSlideImageIO(root) : {};
+  const io = { readText: (p: string) => fs.readFile(p, "utf8"), readFile: (p: string) => fs.readFile(p), modelData: "omit" as const, ...images };
   const stage = deck.stage ?? { width: 1920, height: 1080 };
   const cellH = Math.round((SHEET_CELL * stage.height) / stage.width);
   const labelH = 34, gap = 16;

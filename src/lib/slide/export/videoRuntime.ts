@@ -1,4 +1,5 @@
 import { payloadModelHost, payloadModelContext } from "./model3dPayloadHost";
+import { imageRuntime } from "./imageRuntime";
 import { createPlayer } from "../player/player";
 import { holdFlightLayers } from "../player/render";
 import { slideZoomsCamera } from "../camera";
@@ -31,7 +32,9 @@ export async function boot(payload: ExportPayload, input: Partial<SlideVideoOpti
     await img.decode();
   }
   const modelHost = payloadModelHost(payload);
-  const playerOptions = { ...embedPlayerOptions(payload), ...payloadModelContext(payload), model3d: modelHost, pixelScale: scale, captureMode: true };
+  // Images: one decoder seek per captured frame into the baked clip of the Change (never native playback here).
+  const images = imageRuntime(), imageHost = images?.payloadImageHost(payload, { capture: true });
+  const playerOptions = { ...embedPlayerOptions(payload), ...payloadModelContext(payload), model3d: modelHost, ...(imageHost ? images!.payloadImageContext(payload, imageHost) : {}), pixelScale: scale, captureMode: true };
   document.body.style.background = deck.slides[0].background ?? deck.background ?? playerOptions.theme.background;
   // Frames are captured with arbitrary wall time between them: hold every
   // flight layer so a moving element is ONE raster moved across frames, not a
@@ -55,6 +58,6 @@ export async function boot(payload: ExportPayload, input: Partial<SlideVideoOpti
       await player.captureMedia(mediaEvents, index * 1000 / plan.fps);
     },
     rasterBakes: () => player.rasterBakes(),
-    destroy: () => { player.destroy(); modelHost?.dispose(); },
+    destroy: () => { player.destroy(); modelHost?.dispose(); imageHost?.dispose(); },
   };
 }

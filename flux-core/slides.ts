@@ -1545,14 +1545,11 @@ export async function gatherDeckPayload(
 /** The image half of the payload IO in Node: stills by the reference renderer, clips baked by the pinned encoder
  *  (none installed: stills and one warning, `ImageClipUnavailable`). Loaded only for decks that hold an image. */
 async function nodeImageIO(root: string, opts: { imageClipUrl?: (file: string, clip: { key: string }) => Promise<string>; signal?: AbortSignal; onImageClip?: (progress: { frame: number; total: number }) => void }): Promise<Partial<import("../src/lib/slide/payload").SlidePayloadIO>> {
-  const { fluximgReader, fluximgRenderSession, renderFluximgStillUrl } = await import("./fluximgRender");
+  const { fluximgRenderSession, nodeSlideImageIO } = await import("./fluximgRender");
   const session = fluximgRenderSession();
   let encoder: Promise<{ path: string; identity: string } | null> | undefined;
   return {
-    imageManifest: async asset => (await fluximgReader(root, asset, session)).manifest,
-    imageStill: async (asset, request) => renderFluximgStillUrl(await fluximgReader(root, asset, session), request),
-    imageText: async (asset, rel) => (await fluximgReader(root, asset, session)).readText(rel),
-    imageTable: async (asset, rel) => (await fluximgReader(root, asset, session)).readTable(rel),
+    ...nodeSlideImageIO(root, session),
     imageClip: async (asset, request, ease) => {
       const { bakeImageClip, imageClipEncoder } = await import("./fluximgClip");
       encoder ??= imageClipEncoder();

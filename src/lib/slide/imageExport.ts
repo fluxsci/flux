@@ -17,7 +17,8 @@ import type { FluximgManifest, FluximgTable } from "../fluximg/types";
 import type { FluximgSvgContext } from "../fluximg/exportStatic";
 import type { ImageClip } from "../fluximg/clipPlan";
 import type { ResolvedCurve } from "./curves";
-import type { CompiledSlide } from "./compile";
+import { compileSlide, type CompiledSlide } from "./compile";
+import { planViewTween } from "../fluximg/viewTween";
 import { isHandoff } from "./targets";
 import { presetParam } from "./presetCatalog";
 import { transformEndState, transformPreState } from "./tween";
@@ -117,4 +118,21 @@ export function payloadImageSvgContext(payload: PayloadImages): FluximgSvgContex
 export function lutOf(images: Record<string, ExportImage> | undefined, name: string): string[] | null {
   for (const image of Object.values(images ?? {})) { const lut = image.luts?.[name]; if (lut) return lut; }
   return null;
+}
+
+/** True when some image Change of the payload's slides moves pixels: a static document notes once that the movie was
+ *  exported as a still (`IMAGE_STILL_NOTE`). */
+export function payloadImagesMove(payload: PayloadImages & { deck: { slides: import("./types").Slide[]; stage: import("./types").StageSize; animStyles?: import("./types").Deck["animStyles"] } }): boolean {
+  const images = payload.images;
+  if (!images || !Object.keys(images).length) return false;
+  for (const slide of payload.deck.slides) {
+    if (!slide.elements.some((e) => e.type === "fluximg")) continue;
+    const compiled = compileSlide(slide, payload.deck.stage, { animStyles: payload.deck.animStyles });
+    for (const c of slideImageChanges(compiled)) {
+      const m = images[c.assetId]?.manifest;
+      if (!m) continue;
+      try { if (planViewTween(m, { view: c.pre.view, crop: c.pre.crop }, { view: c.end.view, crop: c.end.crop }, { blend: c.blend }).pixels) return true; } catch { /* a Change the plan refuses shows as stills anyway */ }
+    }
+  }
+  return false;
 }

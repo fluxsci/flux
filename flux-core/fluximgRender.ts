@@ -108,3 +108,14 @@ export async function resolveFluximgContext(root: string, figures: readonly Figu
     isCurrent: options.signal ? () => !options.signal!.aborted : undefined,
   });
 }
+
+/** The slide payload's image hooks in Node, stills only (posters, contact sheets): the reference renderer through one
+ *  render session's readers. Clips are `slides.ts`'s concern (they need the encoder). */
+export function nodeSlideImageIO(root: string, session: FluximgRenderSession = fluximgRenderSession()) {
+  return {
+    imageManifest: async (asset: Asset) => (await fluximgReader(root, asset, session)).manifest,
+    imageStill: async (asset: Asset, request: FluximgStillRequest) => renderFluximgStillUrl(await fluximgReader(root, asset, session), request),
+    imageText: async (asset: Asset, rel: string) => (await fluximgReader(root, asset, session)).readText(rel),
+    imageTable: async (asset: Asset, rel: string) => (await fluximgReader(root, asset, session)).readTable(rel),
+  };
+}
