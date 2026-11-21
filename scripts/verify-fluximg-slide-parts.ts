@@ -104,6 +104,13 @@ try {
 
   h.section("D. stagger by a table column");
   {
+    // The column has its own shape; the data keys are a closed list; anything else is plain order, never an exception
+    // (a deck written by hand, or by a newer build: the real app crashed on `by: "column"` before this was pinned).
+    const { staggerKey, staggerColumn } = await import("../src/lib/slide/staggerData");
+    h.eq([staggerKey({ column: "pixels" }), staggerColumn({ column: "pixels" }), staggerKey({ key: "value" }), staggerColumn({ key: "value" })], [null, "pixels", "value", null], "a column is a column, a data key a data key");
+    h.eq(["column", "nonsense", 7, null, { key: "weight" }, {}].map((by) => { try { return [staggerKey(by as never), staggerColumn(by as never)]; } catch (e) { return `threw: ${(e as Error).message}`; } }), [[null, null], [null, null], [null, null], [null, null], [null, null], [null, null]], "an unknown order is plain order for both readers, never an exception");
+  }
+  {
     const ids = fp.objects.map((o) => o.partId);
     h.eq(columnCoordinates(tables.footprints, "source_id", "pixels", ids), [2, 3, 1, 0], "numbers ascending (pixels 20, 32, 18, 5 → ranks 2, 3, 1, 0)");
     h.eq(columnCoordinates(tables.footprints, "source_id", "dendrite", ids), [0, 0, 1, null], "strings in natural order, null last");

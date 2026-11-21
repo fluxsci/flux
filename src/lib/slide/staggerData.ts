@@ -16,9 +16,10 @@ export function staggerKey(by: Stagger["by"] | undefined): StaggerKey | null {
   if (!by || by === "index" || by === "radial") return null;
   if (by === "x" || by === "y") return by;
   if (by === "data") return "value";
-  // A table column (image objects only, `staggerColumn`) is no plot key: plots keep their plain order.
-  if ("column" in by) return null;
-  return by.key === "index" ? "index" : by.key;
+  // A table column (image objects only, `staggerColumn`) is no plot key: plots keep their plain order. So does a value
+  // that is none of the above (a deck written by hand or by a newer build): plain order, never an exception.
+  if (typeof by !== "object" || "column" in by) return null;
+  return by.key === "index" ? "index" : by.key === "value" || by.key === "count" ? by.key : null;
 }
 
 /** The table column a `stagger.by` names for an image's objects (`{ column: <name> }`), or null. */
