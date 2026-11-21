@@ -247,13 +247,19 @@ gives the keys back to the board. Working the card with the mouse never takes th
 A layer whose objects have a table can take its colours from it: "colour by dendrite",
 "opacity by distance". On the layer's row, the **colour by** key opens the table's columns as
 keys, each with a small picture of what it would do, and **none**. Rest on a key and the image
-shows it; press it to keep it (one undo step). A column of words gives each value its own
-colour, in Flux's colour-blind-safe order; a column of numbers goes through a colour map, and
+shows it; click it to keep it (one undo step; the keys close). A column of words gives each of
+its first 24 values its own colour, in fluxplot's colour-blind-safe order of eight hues at three
+lightnesses; past 24 the colours repeat and the key says so. A column of numbers goes through a
+colour map, and
 two pink handles on a strip of the column's values set where the map starts and ends (drag
 them, or roll the wheel over the strip). The **opacity by** key does the same with columns of
 numbers: the lowest value is faint, the highest opaque. Objects without a value are drawn grey
 and faint, or hidden. The values are listed with their colours; rest on one to light its
-objects. The card beside the pointer leads with the styling column.
+objects. The card beside the pointer leads with the styling column. If the table no longer has
+the column a layer is styled by (after updating the image from its source, say), the layer is
+drawn without it, its row shows a warning in place of the colours, and the keys offer to clear
+it or pick another; the Inspector and exports say the same. The Inspector lists a layer's columns
+once you press **Style by a column** (or when the layer is already styled).
 
 The **key** (its paper key sits beside the filter) is an annotation on the image that says what
 the colours mean: each value with its colour, or the colour map with its two end values. Like
@@ -267,7 +273,7 @@ rest on a value to light its objects. Exports and Paper draw the same colours an
 | **x** | Show or hide the layer |
 | **e** | Its opacity in hand, for the wheel |
 | **c** | Its colours |
-| **b** / **t** | Colour by / opacity by a column (then **1 … 9** pick a column, **0** none, **← / →** preview) |
+| **b** / **t** | Colour by / opacity by a column (then **1 … 9** pick a column, **0** none, **← / →** preview). Opened with the mouse, these keys stay the board's |
 | **q** | Object names on the image |
 | **a** | The filter |
 
