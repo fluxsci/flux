@@ -92,6 +92,7 @@
   import { gridFit, devicePixelRatioOf } from "../../../lib/slide/player/deviceGrid";
   import { plotManifests, plotGen, plotDom } from "../../../lib/plot/store";
   import { createAppInlineModels, type AppInlineModels } from "../../../lib/model3d/appInlineHost";
+  import { createAppFluximgHost, type AppFluximg } from "../../../lib/fluximg/appSlideHost";
   import { modelPair, modelPairIssue } from "../../../lib/slide/model3dMorph";
   import { modelOrbitBlocked } from "../../../lib/model3d/orbitSession";
   import { scene3dGeneration, scene3dManifests } from "../../../lib/model3d/store";
@@ -779,6 +780,7 @@
   let pvH = $state(0);
   let player: Player | undefined;
   let previewModels: AppInlineModels | undefined;
+  let previewImages: AppFluximg | undefined;
   let pvStage = $state(slideOps.DEFAULT_STAGE);
   const pvScale = $derived(pvW > 0 && pvH > 0 ? Math.min(pvW / pvStage.width, pvH / pvStage.height) : 1);
   /** The scale the inspected frame is actually placed at (the editor's view, below); the fit until it is placed. */
@@ -787,7 +789,7 @@
   function playerOpts(d: Deck) {
     return {
       theme: resolveTheme(d.theme),
-      ...previewModels, pixelScale: () => pvPlacedScale || pvScale,
+      ...previewModels, ...previewImages, pixelScale: () => pvPlacedScale || pvScale,
       assetUrl: (id: string) => getAssetData(id),
       assetSize: (id: string) => assetDisplaySize(get(project), id),
       plotGen: get(plotGen),
@@ -806,6 +808,12 @@
   let previewSlideIndex = 0;
   let previewAssetGenerations = $state<Record<string, number>>({});
   let previewModelGeneration = $state(0);
+  /** The identity of every image bundle the previewed slide shows: a changed bundle stops the preview (as a plot regenerating does). */
+  let previewImageBundles = $state("");
+  const imageBundles = (slide: { elements: { type: string; assetId?: string }[] } | undefined) => {
+    const ids = new Set((slide?.elements ?? []).filter(e => e.type === "fluximg").map(e => e.assetId!));
+    return ids.size ? JSON.stringify($project.assets.filter(a => ids.has(a.id)).map(a => [a.id, a.sha256 ?? "", a.path])) : "";
+  };
   let unsubscribeFrame: (() => void) | undefined;
   async function ensurePreview(): Promise<Player | undefined> {
     if (player) return player;
@@ -819,11 +827,13 @@
     for(const beat of slide.beats)for(const track of beat.tracks)if(track.to?.assetId)dependencies.add(track.to.assetId);
     previewAssetGenerations=Object.fromEntries([...dependencies].map(id=>[id,generations[id]??0]));
     previewModelGeneration=get(scene3dGeneration);
+    previewImageBundles=imageBundles(slide);
     pvStage=deck.stage;previewing=true;
     await tick();
     if(generation!==previewGeneration||!previewHost||!previewMount)return;
     try {
       previewModels = createAppInlineModels(deck);
+      previewImages = createAppFluximgHost(deck);
       player=createPlayer(previewMount,deck,playerOpts(deck));
       unsubscribeFrame=player.on("frame",()=>{
         if(!player)return;
@@ -850,12 +860,13 @@
   function resumePreview(){if(!player)return;const state=player.state();if(state.time>=state.duration && !state.mediaPaused){void startPreview(previewStartBeat,previewRange);return;}player.resume();previewPlaying=player.state().playing || player.state().mediaPlaying;}
   function stopPreview() {
     previewGeneration++;unsubscribeFrame?.();unsubscribeFrame=undefined;
-    player?.destroy();player=undefined;previewModels?.dispose();previewModels=undefined;previewing=false;previewPlaying=false;previewTime=0;
+    player?.destroy();player=undefined;previewModels?.dispose();previewModels=undefined;previewImages?.dispose();previewImages=undefined;previewing=false;previewPlaying=false;previewTime=0;
     previewAssetGenerations={};
   }
   $effect(()=>{
     const generations=$plotGen, modelGeneration=$scene3dGeneration;
     if(previewing&&(modelGeneration!==previewModelGeneration || Object.entries(previewAssetGenerations).some(([id,atStart])=>(generations[id]??0)!==atStart)))stopPreview();
+    else if(previewing&&previewImageBundles&&imageBundles(currentDeck()?.slides[previewSlideIndex])!==previewImageBundles)stopPreview();
   });
   function toggleLoop(){previewLoop=!previewLoop;if(previewPlaying)void startPreview(previewRange==="slide"?0:$activeBeat,previewRange);}
   $effect(()=>{if(!active&&previewing)stopPreview();});

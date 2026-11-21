@@ -531,6 +531,12 @@ export class FluximgLiveRenderer {
 
   get bytes(): number { return this.residentBytes; }
 
+  /** Give back every plane texture (programs and tables stay): nothing on screen needs them any more. */
+  clear(): void { for (const key of [...this.textures.keys()]) this.drop(key); }
+
+  /** Planes resident on the GPU (gates count them). */
+  get textureCount(): number { return this.textures.size; }
+
   private setLutRow(row: number, table: Uint8Array): void {
     if (this.lutRows[row] === table) return;
     const gl = this.gl;

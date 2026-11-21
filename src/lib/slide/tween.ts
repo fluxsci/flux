@@ -452,7 +452,7 @@ export function lerpDash(a: number[] | undefined, b: number[] | undefined, t: nu
 
 // --- the content plan (what the driver renders) -------------------------------
 
-export type ContentMode = "tween" | "crossfade" | "morph" | "model-live" | "textMorph";
+export type ContentMode = "tween" | "crossfade" | "morph" | "model-live" | "fluximg-live" | "textMorph";
 
 export interface ContentPlan {
   /** How the CONTENT layer animates ("tween": one re-rendered layer;
@@ -500,7 +500,9 @@ export function contentPlan(pre: Element, end: Element): ContentPlan {
   if (outlineMorphable(pre, end)) mode = "morph";
   else if (pre.type !== end.type) mode = "crossfade";
   else if (pre.type === "model3d" && end.type === "model3d") mode = "model-live";
-  return { mode, ...(textTween ? { textTween } : {}), contentDirty: mode === "model-live" ? false : contentDirty, geometryDirty };
+  // an image's view / crop: the player samples viewTween and renders once per frame (never the static re-serialisation)
+  else if (pre.type === "fluximg" && end.type === "fluximg") mode = "fluximg-live";
+  return { mode, ...(textTween ? { textTween } : {}), contentDirty: mode === "model-live" || mode === "fluximg-live" ? false : contentDirty, geometryDirty };
 }
 
 // --- lerpElement --------------------------------------------------------------

@@ -70,6 +70,7 @@ import { cueEnd } from "../video";
 import { isVideoCommand, type VideoEvent } from "../mediaTimeline";
 import { createVideoController } from "./media";
 import { createModel3dController, flushSlideModels } from "./model3d";
+import { createFluximgController, flushSlideFluximgs } from "./fluximg";
 
 // --- target resolution -------------------------------------------------------
 /** A node's spatial coordinate for stagger ordering: the data-space value the
@@ -403,6 +404,10 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           videoPlayback: opts.videoPlayback,
           model3d: opts.model3d, modelAsset: opts.modelAsset, modelManifest: opts.modelManifest,
           modelPoster: opts.modelPoster, pixelScale: opts.pixelScale,
+          ...(preEl.type === "fluximg" ? {
+            fluximg: opts.fluximg, fluximgManifest: opts.fluximgManifest, fluximgStill: opts.fluximgStill, fluximgLayerText: opts.fluximgLayerText, fluximgLut: opts.fluximgLut,
+            fluximgBlend: presetParam<boolean>(track, "blend") === true, fluximgEase: ct.ease.fn,
+          } : {}),
           plotRoot: opts.plotRoot, plotManifest: opts.plotManifest, contentHost: contentRoots.get(track.target),
           ghostPartFactors: opts.ghostPartFactors, durationMs: ct.duration, glyphs: glyphProvider,
           textLook: resolveTextLook(track.params), stage, ghost: track.ghostFrom != null, boxes,
@@ -411,7 +416,8 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
         // A text ↔ shape retype flies letter outlines: play waits for their fonts.
         const retypeText = preEl.type !== endEl.type ? [preEl, endEl].find((el): el is TextElement => el.type === "text") : undefined;
         let fontsReady = !retypeText;
-        const ready = retypeText ? { isReady: () => fontsReady, ready: () => glyphProvider.ready(retypeText).finally(() => { fontsReady = true; }) } : undefined;
+        // An image Change whose manifest is still loading waits for it too (player/fluximg.ts fluximgTween).
+        const ready = retypeText ? { isReady: () => fontsReady, ready: () => glyphProvider.ready(retypeText).finally(() => { fontsReady = true; }) } : (driver as { ready?: Spec["ready"] }).ready;
         specs.push({
           node: wrap, beatIndex: bi, keyframes: [], enter: false, key, trackId: track.id, owner: track,
           delay: ct.start, duration: ct.duration,
@@ -1082,6 +1088,8 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   let specs: Spec[] = [], issues: AnimationIssue[] = [], durations: number[] = [];
   let media: ReturnType<typeof createVideoController> | undefined;
   let models: ReturnType<typeof createModel3dController> | undefined;
+  /** Only on a slide that holds images, with a live host: a deck without images never creates one. */
+  let images: ReturnType<typeof createFluximgController> | undefined;
   let modelAppearance: CompiledSlide | undefined;
   let auto: ReturnType<typeof setTimeout> | undefined;
   let range: PlayRange | null = null;
@@ -1124,6 +1132,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     disposeSlideAnims(specs);
     media?.destroy(); media = undefined;
     models?.destroy(); models = undefined;
+    images?.destroy(); images = undefined;
     modelAppearance = undefined;
     si = index;
     const slide = deck.slides[si];
@@ -1142,6 +1151,10 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
       if (!issues.some(issue => issue.target === target && issue.reason === reason)) issues = [...issues, { target, reason }];
       emit('change');
     });
+    if (ctx.fluximg && compiled.resolvedSlide.elements.some(el => el.type === "fluximg")) images = createFluximgController(cameraLayer, compiled, ctx, (target, reason) => {
+      if (!issues.some(issue => issue.target === target && issue.reason === reason)) issues = [...issues, { target, reason }];
+      emit("change");
+    });
     durations = Array.from({ length: beats() }, (_, beat) => Math.max(0, compiled.cues[beat]?.duration ?? 0, ...specs.filter((s) => s.beatIndex === beat).map((s) => s.delay + s.duration)));
     media = createVideoController(cameraLayer, compiled.resolvedSlide, durations, !!opts.manualSteps, () => emit("change"), (target, reason) => {
       if (!issues.some(issue => issue.target === target && issue.reason === reason)) issues = [...issues, { target, reason }];
@@ -1152,6 +1165,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     applyAt(runSpecs ?? specs, bi, time, native);
     // Mesh parts sample the same run as the re-based DOM specs (selectRun).
     models?.flush(modelAppearance?.sample(bi, time, runFrom).partStates);
+    images?.flush();
     if (playing && clockMode !== "rewinding") media?.tick(time);
     if (playing && time < duration) {
       keeper.flying();
@@ -1231,9 +1245,9 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     const session = generation;
     // Parsing/upload is completed before starting the authored clock. A later
     // navigation/cancel owns a new generation and cannot start this old cue.
-    if (models && !models.isReady() || specs.some(spec => spec.handoff && !spec.handoff.isReady() || spec.ready && !spec.ready.isReady())) {
+    if (models && !models.isReady() || images && !images.isReady(from, to) || specs.some(spec => spec.handoff && !spec.handoff.isReady() || spec.ready && !spec.ready.isReady())) {
       const resumeReady = () => { if (session === generation) begin(from, to, instant); };
-      void Promise.all([models?.ready(), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : []), ...specs.flatMap(spec => spec.ready ? [spec.ready.ready()] : [])]).then(resumeReady, resumeReady);
+      void Promise.all([models?.ready(), images?.ready(from, to), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : []), ...specs.flatMap(spec => spec.ready ? [spec.ready.ready()] : [])]).then(resumeReady, resumeReady);
       return;
     }
     bi = Math.max(0, Math.min(beats() - 1, to));
@@ -1331,7 +1345,9 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     // where the eye is: the running frame, a paused frame mid-run, else the run's end
     const fromTime = Math.min(runMs, playing || (time > 0 && time < duration) ? time : runMs);
     const live = deck.slides[si].elements.some((e) => e.type === "video" || e.type === "model3d");
-    const notReady = !!models && !models.isReady() || specs.some((sp) => sp.handoff && !sp.handoff.isReady() || sp.ready && !sp.ready.isReady());
+    // Images do not turn Back into a jump: every frame of an image Change is a pure function of the clock (viewTween), the
+    // decode-ahead follows the clock's direction, and a frame whose planes are late shows the newest complete one.
+    const notReady = !!models && !models.isReady() || !!images && !images.isReady(start, bi) || specs.some((sp) => sp.handoff && !sp.handoff.isReady() || sp.ready && !sp.ready.isReady());
     if (!(config.animate ?? opts.backAnimates ?? false) || burst || reduced || range || live || notReady || !(fromTime > 0)) { seek(si, target, Infinity); return; }
     cancelClock();
     const session = generation;
@@ -1380,7 +1396,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     media?.pause(paused, "host");
   }
   function on(event: Ev, listener: (s: PlayerState) => void): () => void { listeners[event].add(listener); return () => listeners[event].delete(listener); }
-  function destroy(): void { keeper.dispose(); cancelClock(); media?.destroy(); media = undefined; models?.destroy(); models = undefined; disposeSlideAnims(specs); if (runSpecs) disposeSlideAnims(runSpecs, false); mount.replaceChildren(); document.removeEventListener("visibilitychange", visibility); unsubscribeFonts(); for (const set of Object.values(listeners)) set.clear(); }
+  function destroy(): void { keeper.dispose(); cancelClock(); media?.destroy(); media = undefined; models?.destroy(); models = undefined; images?.destroy(); images = undefined; disposeSlideAnims(specs); if (runSpecs) disposeSlideAnims(runSpecs, false); mount.replaceChildren(); document.removeEventListener("visibilitychange", visibility); unsubscribeFonts(); for (const set of Object.values(listeners)) set.clear(); }
   const visibility = () => media?.pause(document.hidden, "document");
   document.addEventListener("visibilitychange", visibility);
   // A letter font that lands while a scrub is parked mid-flight repaints that
@@ -1388,13 +1404,13 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   let fontsSeen = -1;
   const unsubscribeFonts = glyphFontsRevision.subscribe((rev) => { if (fontsSeen >= 0 && !playing && si >= 0 && specs.length) paint(); fontsSeen = rev; });
   if (deck.slides.length) goTo(0, 0);
-  return { goTo, seek, refresh: () => { stageGridChanged(); paint(); }, settleRaster: () => keeper.settle(), rasterBakes: () => keeper.count(), beatDurations: () => [...durations], readyMedia: () => Promise.all([media?.ready(), models?.ready(), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : []), ...specs.flatMap(spec => spec.ready ? [spec.ready.ready()] : [])]), captureMedia: async (events, ms) => { await Promise.all([media?.capture(events, ms), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : []), ...specs.flatMap(spec => spec.ready ? [spec.ready.ready()] : [])]); await models?.settled(); }, play, pause, resume, stop, next: nextCue, prev, nextSlide, prevSlide, state, setMediaPaused, on, destroy };
+  return { goTo, seek, refresh: () => { stageGridChanged(); paint(); }, settleRaster: () => keeper.settle(), rasterBakes: () => keeper.count(), beatDurations: () => [...durations], readyMedia: () => Promise.all([media?.ready(), models?.ready(), images?.ready(), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : []), ...specs.flatMap(spec => spec.ready ? [spec.ready.ready()] : [])]), captureMedia: async (events, ms) => { await Promise.all([media?.capture(events, ms), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : []), ...specs.flatMap(spec => spec.ready ? [spec.ready.ready()] : [])]); await models?.settled(); await images?.settled(); }, play, pause, resume, stop, next: nextCue, prev, nextSlide, prevSlide, state, setMediaPaused, on, destroy };
 }
 
 /** The same evaluated endpoint as live playback; camera included. */
 export function renderStaticAt(host: HTMLElement, slide: Slide, stage: StageSize, beat: number, opts: PlayerOpts): RenderedSlide {
   // Static thumbnails and next-slide views never allocate a GPU host or decoder.
-  opts = { ...opts, model3d: undefined, videoPlayback: false, haloBackground: slide.background ?? opts.deckBackground ?? opts.theme.background };
+  opts = { ...opts, model3d: undefined, fluximg: undefined, videoPlayback: false, haloBackground: slide.background ?? opts.deckBackground ?? opts.theme.background };
   // The host's transform belongs to its fit/thumbnail scale. Camera motion
   // gets a separate layer exactly as it does in createPlayer.
   host.replaceChildren();
@@ -1409,6 +1425,8 @@ export function renderStaticAt(host: HTMLElement, slide: Slide, stage: StageSize
   applyStatic(specs, beat);
   // Stills carry the step's mesh-part appearance too (bindings + poster keys).
   flushSlideModels(camera, compiled.resolvedSlide.elements.some(el => el.type === "model3d") ? compiled.sample(beat).partStates : undefined);
+  // Images show the cached still of the step's sampled picture (their Change drivers set it in applyStatic).
+  if (compiled.resolvedSlide.elements.some(el => el.type === "fluximg")) flushSlideFluximgs(camera);
   // Dispose owns restoration of live controllers. Bake the sampled visibility
   // into a still before releasing those leases, just as keyframe styles remain.
   const visibility = (specs.some(spec => spec.handoff) ? Array.from(camera.querySelectorAll<HTMLElement | SVGElement>("[style]")) : [])

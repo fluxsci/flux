@@ -428,20 +428,31 @@ export interface NamesOptions {
  */
 export function namesMarkup(index: readonly LayerObject[], table: FluximgTable | null | undefined, crop: PixelRect, box: { width: number; height: number }, opts: NamesOptions, idPrefix: string): string {
   void table;
-  if (!(crop.width > 0 && crop.height > 0)) return "";
+  const placed = namePlacements(index, crop, box, opts);
+  if (!placed) return "";
+  const texts = placed.map((n) => `<text id="${escapeXml(`${idPrefix}name.${opts.layerId}/${n.key}`)}" data-key="${escapeXml(n.key)}" x="${svgNum(n.x)}" y="${svgNum(n.y)}" text-anchor="${n.anchor}">${escapeXml(n.key)}</text>`);
+  return `<g id="${escapeXml(`${idPrefix}names.${opts.layerId}`)}" data-part="names" fill="${escapeXml(opts.color)}" font-family="${FURNITURE_FONT}" font-weight="${FURNITURE_WEIGHT}" font-size="${svgNum(namesFontPx(opts.fontSize))}">${texts.join("")}</g>`;
+}
+
+/** The names' font size in canvas px for a size in points. */
+export const namesFontPx = (fontSize: number): number => fontSize * PT;
+
+/** Where each name of `namesMarkup` goes (box px, before rounding), or null when none are drawn. The slide player
+ *  moves its name nodes by these when a Change zooms, instead of rebuilding them. */
+export function namePlacements(index: readonly LayerObject[], crop: PixelRect, box: { width: number; height: number }, opts: Pick<NamesOptions, "fontSize" | "flipX" | "flipY">): Array<{ key: string; x: number; y: number; anchor: "start" | "end" }> | null {
+  if (!(crop.width > 0 && crop.height > 0)) return null;
   const inView = index.filter((o) => o.cx >= crop.x && o.cx < crop.x + crop.width && o.cy >= crop.y && o.cy < crop.y + crop.height);
-  if (!inView.length || inView.length > MAX_NAMES) return "";
+  if (!inView.length || inView.length > MAX_NAMES) return null;
   const { sx, sy, tx, ty } = cropTransform(crop, box);
-  const fs = opts.fontSize * PT, gap = Math.max(1, fs * 0.25), edge = 1;
-  const texts = inView.map((o) => {
+  const fs = namesFontPx(opts.fontSize), gap = Math.max(1, fs * 0.25), edge = 1;
+  return inView.map((o) => {
     // The object's box on screen; a mirrored element shows it mirrored about the box centre.
     const l0 = o.x * sx + tx, r0 = (o.x + o.width) * sx + tx, t0 = o.y * sy + ty, b0 = (o.y + o.height) * sy + ty;
     const right = opts.flipX ? box.width - l0 : r0, top = opts.flipY ? box.height - b0 : t0;
     let x = Math.min(box.width - edge, Math.max(edge, right + gap));
-    let anchor = "start";
+    let anchor: "start" | "end" = "start";
     if (x + 0.55 * fs * o.key.length > box.width - edge) { anchor = "end"; x = box.width - edge; }
     const y = Math.min(box.height - edge - 0.21 * fs, Math.max(edge + 0.72 * fs, top - gap));
-    return `<text id="${escapeXml(`${idPrefix}name.${opts.layerId}/${o.key}`)}" data-key="${escapeXml(o.key)}" x="${svgNum(x)}" y="${svgNum(y)}" text-anchor="${anchor}">${escapeXml(o.key)}</text>`;
+    return { key: o.key, x, y, anchor };
   });
-  return `<g id="${escapeXml(`${idPrefix}names.${opts.layerId}`)}" data-part="names" fill="${escapeXml(opts.color)}" font-family="${FURNITURE_FONT}" font-weight="${FURNITURE_WEIGHT}" font-size="${svgNum(fs)}">${texts.join("")}</g>`;
 }
