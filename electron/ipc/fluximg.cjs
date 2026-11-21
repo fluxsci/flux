@@ -43,6 +43,11 @@ function createFluximgCore({ rootFor, generationFor = rootFor, fsReadGuard }) {
         ? bytes.buffer
         : bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length);
     });
+    ipcMain.handle("fluximg:measure", async (e, request) => {
+      const { root, checkCurrent } = bind(e, request);
+      // Reads only the window's own project (fig/assets/<assetId>.fluximg): no renderer-named path.
+      return fluximgFiles.measureBundle({ root, assetId: request.assetId, checkCurrent });
+    });
     ipcMain.handle("fluximg:discard", async (e, request) => {
       const { root, checkCurrent } = bind(e, request);
       await fluximgFiles.discardBundle({ root, assetId: request.assetId, checkCurrent });

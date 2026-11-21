@@ -92,10 +92,10 @@ try {
 
   h.section("constants and wiring");
   h.eq(rules.FLUXIMG_READ_LIMIT, FLUXIMG_READ_LIMIT, "the file side's read limit is bridge.ts's FLUXIMG_READ_LIMIT (32 MiB)");
-  for (const [channel, scope] of [["fluximg:import", "write"], ["fluximg:read", "read"], ["fluximg:discard", "write"]])
+  for (const [channel, scope] of [["fluximg:import", "write"], ["fluximg:read", "read"], ["fluximg:discard", "write"], ["fluximg:measure", "read"]])
     h.ok(CHANNELS.some((c: { channel: string; kind: string; scope: string }) => c.channel === channel && c.kind === "invoke" && c.scope === scope), `${channel} is declared invoke/${scope} in the IPC contract`);
   const preload = await fs.readFile(new URL("../electron/preload.cjs", import.meta.url), "utf8");
-  for (const name of ["importFluximg", "readFluximg", "discardFluximg"]) h.ok(new RegExp(`\\b${name}: \\(request\\) => ipcRenderer\\.invoke\\("fluximg:`).test(preload), `preload exposes window.fig.${name}`);
+  for (const name of ["importFluximg", "readFluximg", "discardFluximg", "measureFluximg"]) h.ok(new RegExp(`\\b${name}: \\(request\\) => ipcRenderer\\.invoke\\("fluximg:`).test(preload), `preload exposes window.fig.${name}`);
 
   h.section("import: copies, content id, manifest");
   const a = await files.importBundle({ root: project, sourcePath: bundle("stack_u16"), assetId: "fx_a" });
@@ -251,6 +251,23 @@ try {
     if (f.expectEncoding === "exact") h.ok(sameValues(got, Float64Array.from(f.data as ArrayLike<number>)), `${n}: …which are the values the writer was given`);
   }
 
+  h.section("measureBundle: what an import would record, read in place");
+  {
+    const before = await tree(path.join(assets, "fx_a.fluximg"));
+    const m = await files.measureBundle({ root: project, assetId: "fx_a" });
+    h.eq({ sha256: m.sha256, bytes: m.bytes, files: m.files, path: m.path }, { sha256: a.sha256, bytes: a.bytes, files: a.files, path: a.path }, "the content id, byte count and file count are the import's own");
+    h.eq(await tree(path.join(assets, "fx_a.fluximg")), before, "…and nothing was written");
+    h.eq((await files.measureBundle({ root: project, assetId: "fx_b" })).sha256, b.sha256, "a copied (not cloned) asset measures the same way");
+    await fs.writeFile(path.join(assets, "fx_a.fluximg", ".DS_Store"), "litter");
+    h.eq((await files.measureBundle({ root: project, assetId: "fx_a" })).sha256, a.sha256, "OS litter beside the files is not part of the content id (the import's rule)");
+    await fs.rm(path.join(assets, "fx_a.fluximg", ".DS_Store"));
+    await rejects(files.measureBundle({ root: project, assetId: "fx_none" }), /^Error: ENOENT:|ENOENT:/, "a missing asset says so (ENOENT)");
+    for (const bad of ["../fx_a", "fx_a/..", "", "a\\b"]) await rejects(files.measureBundle({ root: project, assetId: bad }), /Invalid image asset id/, `measure refuses asset id ${JSON.stringify(bad)}`);
+    await rejects(files.measureBundle({ root: project, assetId: "fx_a", limits: { maxBytes: 8 } }), /too large|larger than|limit/i, "the import's size limit holds here too");
+    let calls = 0;
+    await rejects(files.measureBundle({ root: project, assetId: "fx_a", checkCurrent: () => { if (++calls > 2) throw new Error("The project changed while working on the image"); } }), /project changed/, "a project switch mid-measure stops it");
+  }
+
   h.section("discardBundle");
   await fs.writeFile(path.join(assets, "fx_b.fluximg.json"), "neighbour");
   await files.discardBundle({ root: project, assetId: "fx_b" });
@@ -284,7 +301,8 @@ try {
   const fileCore = createFileCore({ app: { getPath: (kind: string) => path.join(scratch, `app-${kind}`) }, dialog: {}, shell: {}, roots: () => [project], windowFor: () => null });
   createFluximgCore({ rootFor: () => currentRoot, generationFor: () => generation, fsReadGuard: fileCore.fsReadGuard }).registerHandlers({ handle: (n: string, fn: (...args: any[]) => any) => handlers.set(n, fn) });
   // fluximg:importDropped (verify-fluximg-import covers it): an OS drop of a bundle folder, path from the preload.
-  h.eq([...handlers.keys()].sort(), ["fluximg:discard", "fluximg:import", "fluximg:importDropped", "fluximg:read"], "the family registers exactly its four channels");
+  // fluximg:measure (stage 2): the record of a bundle already in fig/assets, for an image placed on slides only.
+  h.eq([...handlers.keys()].sort(), ["fluximg:discard", "fluximg:import", "fluximg:importDropped", "fluximg:measure", "fluximg:read"], "the family registers exactly its five channels");
   const call = (n: string, payload: unknown) => Promise.resolve().then(() => handlers.get(`fluximg:${n}`)!({ sender }, payload));
   const read = await call("read", { root: project, bundle: B, path: "fluximg.json", offset: 2, length: 9 });
   h.ok(read instanceof ArrayBuffer && read.byteLength === 9 && Buffer.from(read).equals(manifestBytes.subarray(2, 11)), "fluximg:read returns an ArrayBuffer sized exactly to the bytes read");
@@ -302,6 +320,11 @@ try {
     files.readRange = async (req: any) => { const r = await realRead(req); if (++n === 1) generation++; return r; };
     await rejects(call("read", { root: project, bundle: B, path: "fluximg.json", offset: 0, length: 1 }), /project changed/, "bytes read while the project was reopened are not returned");
     files.readRange = realRead;
+  }
+  {
+    const viaIpc = await call("measure", { root: project, assetId: "fx_ipc", limits: { maxBytes: 1 } });
+    h.ok(viaIpc.sha256 === ipcImport.sha256 && viaIpc.bytes === ipcImport.bytes, "fluximg:measure returns the import's content id and byte count (renderer-sent limits are ignored)");
+    await rejects(call("measure", { root: outside, assetId: "fx_ipc" }), /project changed/, "measure is bound to the window's project");
   }
   await call("discard", { root: project, assetId: "fx_ipc2" });
   h.ok(!(await assetEntries()).includes("fx_ipc2.fluximg"), "fluximg:discard removes the asset");

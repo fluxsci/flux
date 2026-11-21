@@ -165,6 +165,23 @@ function sourceImages(elements: Figure["elements"]) {
     return structuredClone(asset);
   });
 }
+/**
+ * The complete record of each image whose record is not (an image placed on slides only: its record was rebuilt from
+ * the bundle, with the content id its element recorded at most and no byte count). The bundle is measured where it is;
+ * a content id that differs from the one the slide's element recorded means the files changed since they were placed,
+ * and the figure is not given a record of something else.
+ */
+async function measureSlideOnlyImages(fig: FileBridge, root: string, images: readonly Asset[]): Promise<Map<string, Asset>> {
+  const out = new Map<string, Asset>();
+  for (const asset of images) {
+    if (asset.sha256 && asset.bytes && asset.bytes > 0) continue;
+    if (!fig.measureFluximg) continue;
+    const m = await fig.measureFluximg({ root, assetId: asset.id });
+    if (asset.sha256 && asset.sha256 !== m.sha256) throw new Error(`Image "${asset.name}" is no longer the bundle that was placed (fig/${asset.path} changed on disk). Place the image again, then send the slide.`);
+    out.set(asset.id, { ...asset, sha256: m.sha256, bytes: m.bytes });
+  }
+  return out;
+}
 async function assertImageBundles(fig: FileBridge, root: string, images: readonly Asset[]) {
   for (const asset of images) if (!await fig.exists(joinPath(root, "fig", storedAssetPath(asset.path)))) throw new Error(`Missing fluximg asset ${asset.id}: its bundle fig/${asset.path} is gone`);
 }
@@ -256,6 +273,7 @@ export async function sendSlideToCanvas(root: string, slide: Slide, deck: Pick<D
   const fig = fileBridge(); if (!fig) throw new Error("no file bridge");
   if (slide.elements.some(e => e.type === "video")) throw new Error("Video clips belong to slides. Remove the clips before sending this slide to a Figure canvas.");
   const sourceSlide = structuredClone(slide), sourceDeck = structuredClone(deck), source = sourceAssets(sourceSlide.elements), models = sourceModels(sourceSlide.elements), images = sourceImages(sourceSlide.elements), localOwner = captureOwner(root);
+  const measured = await measureSlideOnlyImages(fig, root, images);
   return withIpcLock("project", "project", async projectLease => withIpcLock("project", "slides", async slideLease => {
     const assertOwner = async () => { localOwner(); await projectLease.assertOwned?.(); await slideLease.assertOwned?.(); };
     const io = generationIO(fig, root);
@@ -277,13 +295,15 @@ export async function sendSlideToCanvas(root: string, slide: Slide, deck: Pick<D
       model.assets.push({ ...asset, path: `assets/${asset.id}.glb` });
     }
     // An image's bundle is already in fig/assets: the figure only needs its record in the index. A deck that placed it
-    // without the figure index rebuilt that record from the bundle and has no byte count: refused, with the way round.
+    // without the figure index rebuilt that record from the bundle and has no byte count: `measured` holds what the
+    // bundle itself says (taken before the locks: hashing a large stack takes seconds).
     await assertImageBundles(fig, root, images);
     for (const asset of images) {
       const prior = model.assets.find(a => a.id === asset.id);
       if (prior) { if (prior.kind !== "fluximg") throw new Error(`Conversion image ${asset.id} is registered as ${prior.kind} in the Figure project`); continue; }
-      if (!asset.sha256 || !(asset.bytes && asset.bytes > 0)) throw new Error(`Image "${asset.name}" was placed on slides only, so this project has no figure record of it yet. Remove it from the slide before sending, and place the image on the figure from the Plots rail.`);
-      model.assets.push({ ...asset, path: `assets/${asset.id}.fluximg` });
+      const record = measured.get(asset.id) ?? asset;
+      if (!record.sha256 || !(record.bytes && record.bytes > 0)) throw new Error(`Image "${asset.name}" was placed on slides only, and this build cannot measure its bundle to give the figure a record of it. Place the image on the figure from the Plots rail.`);
+      model.assets.push({ ...record, path: `assets/${asset.id}.fluximg` });
     }
     for (const [id, value] of source) {
       const prior = model.assets.find(a => a.id === id);

@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld("fig", {
   importFluximg: (request) => ipcRenderer.invoke("fluximg:import", request),
   readFluximg: (request) => ipcRenderer.invoke("fluximg:read", request),
   discardFluximg: (request) => ipcRenderer.invoke("fluximg:discard", request),
+  measureFluximg: (request) => ipcRenderer.invoke("fluximg:measure", request),
   importDroppedFluximg: (file, request) => {
     // A bundle FOLDER dropped from the file manager. As for importDroppedModel3d, the path comes from the dropped
     // File itself (a page-constructed File has none), never from a caller; it is returned with the result so the
