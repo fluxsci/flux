@@ -367,13 +367,24 @@ export interface SetImageViewOptions {
   slide?: string;
   /** With `slide`: the build step whose END state is edited (its Change); absent = the Design state. */
   beatId?: string;
+  /** With `beatId`: the pace of the step's walk of planes, a multiple of the data's own rate (the pace rule). */
+  speed?: number;
+  /** With `beatId`: the step's walk crossfades neighbouring planes (true) or steps them (false). */
+  blend?: boolean;
+  /** On a slide: how the image plays as a movie (Design-level, plan D7): a patch of {dim, mode, speed, fps, from, to}; null clears. */
+  playback?: unknown;
 }
 
 /** Patch an image element's view (sparse: null clears a setting back to its default) and optionally its crop, on a
  *  figure, on a slide's Design, or at the end of one of a slide's build steps (that step's Change). */
 export async function setImageView(root: string, elementId: string, patch: unknown, options: SetImageViewOptions = {}) {
-  if (patch === undefined && options.crop === undefined) throw new ValidationError("Nothing to change: pass a view patch and/or a crop");
+  const timing = options.speed !== undefined || options.blend !== undefined;
+  if (patch === undefined && options.crop === undefined && !timing && options.playback === undefined) throw new ValidationError("Nothing to change: pass a view patch, a crop, --speed, --blend or --playback");
   if (options.beatId !== undefined && options.slide === undefined) throw new ValidationError("--beat needs the slide that holds the image (--slide deckId/slideId)");
+  if (timing && options.beatId === undefined) throw new ValidationError("--speed and --blend time a step's Change: pass --slide and --beat");
+  if (options.speed !== undefined && !(typeof options.speed === "number" && Number.isFinite(options.speed) && options.speed > 0 && options.speed <= 16)) throw new ValidationError("--speed is a multiple of the data's own rate, above 0 and at most 16");
+  if (options.blend !== undefined && typeof options.blend !== "boolean") throw new ValidationError("--blend is true or false");
+  if (options.playback !== undefined && options.slide === undefined) throw new ValidationError("--playback is for an image on a slide (--slide deckId/slideId)");
   const { project: before } = await loadFigModel(root);
   const warnings: string[] = [];
   const prepare = async (element: FluximgElement, asset: Asset) => {
@@ -400,28 +411,50 @@ export async function setImageView(root: string, elementId: string, patch: unkno
   };
   const { element } = imageOn(await loadDeck(root, where.deckId));
   const { manifest, view, crop } = await prepare(element, await deckImageAsset(root, before, element));
+  const manifestFor = (id: string): FluximgManifest | undefined => (id === element.assetId ? manifest : undefined);
   const result = await mutateDeck(root, where.deckId, "set_image_view", async (deck) => {
     const { slide } = imageOn(deck);
-    if (options.beatId === undefined) return { ...applyImageEdit({ figures: [slideFigure(deck, slide)], assets: [] } as unknown as Project, elementId, manifest, view, crop) };
+    // How it plays as a movie is Design-level (plan D7): it lands on the Design element even with --beat, as the app's capture does.
+    if (options.playback !== undefined) {
+      try { slideOps.setImagePlayback(deck, slide.id, elementId, options.playback as Parameters<typeof slideOps.setImagePlayback>[3], { fluximgManifest: manifestFor }); }
+      catch (error) { throw new ValidationError(`The playback does not fit image "${manifest.name}": ${error instanceof Error ? error.message : String(error)}`); }
+    }
+    const edits = view !== undefined || crop !== undefined;
+    if (options.beatId === undefined) {
+      if (!edits) { const now = imageOn(deck).element; return { figure: slideFigure(deck, slide), element: structuredClone(now) }; }
+      return { ...applyImageEdit({ figures: [slideFigure(deck, slide)], assets: [] } as unknown as Project, elementId, manifest, view, crop) };
+    }
     const bi = slide.beats.findIndex((b) => b.id === options.beatId);
     if (bi < 1) throw new ValidationError("Choose an existing build step after Design (--beat).");
     // "Edit after step N", exactly as the app captures it: edit the step's END state, then every element of the slide that
-    // changed (a linked panel follows) becomes this step's Change through the one pure op (slideOps.writeStepState).
+    // changed (a linked panel follows) becomes this step's Change through the one pure op (slideOps.writeStepState, which
+    // also times a walk of planes: the pace rule).
     const compiled = await compileDeckSlide(root, deck, slide.id);
     const ends = structuredClone(compiled.sample(bi).elements), before = new Map(ends.map((e) => [e.id, JSON.stringify(e)]));
     const scratch = { figures: [{ ...slideFigure(deck, slide), elements: ends }], assets: [] } as unknown as Project;
-    const edited = applyImageEdit(scratch, elementId, manifest, view, crop);
+    const edited = edits ? applyImageEdit(scratch, elementId, manifest, view, crop) : { figure: scratch.figures[0], element: structuredClone(ends.find((e) => e.id === elementId) as FluximgElement) };
     const trackIds: string[] = [];
     for (const end of ends) {
       if (before.get(end.id) === JSON.stringify(end)) continue;
       const pre = compiled.preState(end.id, bi) ?? slide.elements.find((e) => e.id === end.id);
-      const track = pre && slideOps.writeStepState(deck, slide.id, slide.beats[bi].id, end, pre);
+      const track = pre && slideOps.writeStepState(deck, slide.id, slide.beats[bi].id, end, pre, { fluximgManifest: manifestFor, ...(end.id === elementId && options.speed !== undefined ? { speed: options.speed } : {}) });
       if (track?.id) trackIds.push(track.id);
+    }
+    if (timing) {
+      // --speed / --blend on the image's Change at this step (made just now, or already there).
+      const track = slide.beats[bi].tracks.find((t) => t.preset === "transform" && t.target === elementId && !t.part && !t.parts && !t.selector);
+      if (!track) throw new ValidationError("This step does not change the image: give a view (a plane to walk to) as well, or use a step that does");
+      const pre = compiled.preState(elementId, bi) ?? slide.elements.find((e) => e.id === elementId);
+      const end = edits ? ends.find((e) => e.id === elementId) : pre && { ...pre, ...(track.to?.state ?? {}) };
+      if (options.speed !== undefined && pre && end) slideOps.retimeImageWalk(track, pre, end as typeof pre, { fluximgManifest: manifestFor, speed: options.speed, force: true });
+      if (options.blend !== undefined) { const p = { ...(track.params ?? {}) }; if (options.blend) p.blend = true; else delete p.blend; if (Object.keys(p).length) track.params = p; else delete track.params; }
+      if (track.id && !trackIds.includes(track.id)) trackIds.push(track.id);
     }
     return { ...edited, trackIds };
   });
   return { ...elementSummary(result.figure, result.element, manifest), deckId: where.deckId, slideId: where.slideId,
-    ...(options.beatId !== undefined ? { beatId: options.beatId, trackIds: (result as { trackIds?: string[] }).trackIds ?? [] } : {}), warnings };
+    ...(options.beatId !== undefined ? { beatId: options.beatId, trackIds: (result as { trackIds?: string[] }).trackIds ?? [] } : {}),
+    ...(options.playback !== undefined ? { playback: (result.element as FluximgElement).playback ?? null } : {}), warnings };
 }
 
 // --- image-info ----------------------------------------------------------------------------------------------------

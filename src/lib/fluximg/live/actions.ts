@@ -15,14 +15,16 @@ import { niceLength, roundNeighbour } from "../furniture";
 import { clampCrop, fullCrop } from "../still";
 import type { FluximgManifest } from "../types";
 import type { FluximgChannelView, FluximgFurnitureView, FluximgLayerView, FluximgProjectionMode, FluximgStyleBy, FluximgView, PixelRect, ResolvedView } from "../view";
-import { positionDims, resolveView } from "../viewOps";
+import { resolveView } from "../viewOps";
 import { insetLayout, splitLayout, type SplitLayout } from "../panelLayout";
 import { autoWindow, histDomain, moveWindow, nextAutoStep, nextSampleStep, nudgeStep, sampleWindow, snapValue, sortedSample } from "./histogram";
 import { naturalRate, playStep, resizeRun, slideRun, stepIndex, type PlayMode } from "./rail";
 // naturalRate lives in the pure rail module (the slide tween needs it without the stores); kept exported here.
 export { naturalRate };
 import { project, selection } from "../../store";
-import { WHEEL_SETTLE_MS, cancelLiveEdit, closeFluximgLive, fluximgLive, liveElement, liveMutate, liveSampler, liveView, setLive, settleLiveEdit, liveArm } from "./session";
+import { WHEEL_SETTLE_MS, cancelLiveEdit, closeFluximgLive, fluximgLive, fluximgPreview, liveElement, liveMutate, liveOnSlide, liveSampler, liveView, previewHooks, setLive, settleLiveEdit, liveArm } from "./session";
+import { walkableDims } from "../playback";
+import { editDestination } from "../../slide/store";
 
 export interface LiveContext { element: FluximgElement; manifest: FluximgManifest; view: ResolvedView; crop: PixelRect }
 
@@ -37,12 +39,9 @@ export function liveContext(): LiveContext | null {
 
 export const dimLength = (m: FluximgManifest, dim: string): number => { const i = m.pixels.dims.indexOf(dim); return i >= 0 ? m.pixels.shape[i] : 0; };
 
-/** Dimensions worth a rail: every position dimension with more than one plane. Time first, then depth, then the rest. */
-export function railDims(m: FluximgManifest): string[] {
-  const dims = positionDims(m).filter((d) => dimLength(m, d) > 1);
-  const rank = (d: string): number => (d === "t" ? 0 : d === "z" ? 1 : 2);
-  return dims.slice().sort((a, b) => rank(a) - rank(b));
-}
+/** Dimensions worth a rail: every position dimension with more than one plane. Time first, then depth, then the rest
+ *  (the same list a slide's Play through and movie walk: `playback.walkableDims`). */
+export const railDims = (m: FluximgManifest): string[] => walkableDims(m);
 
 /**
  * The board's keys, all under the left hand (the right stays on the mouse). They are the same everywhere on the
@@ -56,6 +55,19 @@ export const LIVE_KEYS = {
   // An annotation on or off; with Shift, to its next corner.
   scalebar: "b", stamp: "w", channelNames: "c", colorbar: "g",
 } as const;
+/**
+ * On a slide, at "Edit after step N", the "this step" card's keys are Shift on keys the board already has, so they
+ * stay under the left hand and nothing new collides: Shift + a rail's own key plays this step through along that
+ * dimension (the rail's key takes it in hand), Shift+N blends its planes (N is smoothing in space), Shift+Space starts
+ * the movie at this step or takes the Start away (Space plays the board's preview). In a figure they mean what they
+ * always did.
+ */
+export const STEP_KEYS = { playThrough: "shift+rail", blend: "shift+n", movie: "shift+space" } as const;
+
+/** The board edits a slide's step (Edit after step N), not a figure or a slide's Design. */
+export const liveAtStep = (): boolean => liveOnSlide() && get(editDestination).kind === "after";
+/** Why a key that makes new elements is off here, or "" when it works: on a slide they belong to Design. */
+export const newElementsOff = (): string => (liveAtStep() ? "Makes new panels: in Design only" : "");
 const RAIL_SPARE = ["q", "`"];
 
 export function dimKeys(m: FluximgManifest): Record<string, string> {
@@ -520,6 +532,7 @@ export function splitPlan(): SplitLayout | null {
 export function splitChannels(): void {
   const c = liveContext();
   if (!c) return;
+  if (newElementsOff()) { pushToast("info", "Split channels makes new panels: switch to Design to split"); return; }
   const n = c.view.channels.length;
   if (n < 2) { pushToast("info", "This image has one channel"); return; }
   const id = c.element.id;
@@ -564,6 +577,7 @@ export function splitChannels(): void {
 export function makeInset(restore: CropRect | null, drawn?: PixelRect): string | null {
   const c = liveContext();
   if (!c) return null;
+  if (newElementsOff()) { pushToast("info", "An inset is a new panel: switch to Design to make one"); return null; }
   const full = fullCrop(c.manifest);
   // A rectangle drawn on the image is the region (the image keeps its frame); otherwise the frame itself is.
   const region = drawn ? clampCrop(c.manifest, drawn) : c.crop;
@@ -640,8 +654,11 @@ let playTimer = 0, playClock = 0, playCarry = 0, playDirection: 1 | -1 = 1;
 export function stopPlayback(): void {
   if (playTimer) cancelAnimationFrame(playTimer);
   playTimer = 0;
+  // A slide's preview leaves nothing behind: the picture returns to the view's own plane.
+  if (get(fluximgPreview)) fluximgPreview.set(null);
   if (get(fluximgLive)?.playing) { setLive({ playing: null }); settleLiveEdit(); }
 }
+previewHooks.stop = stopPlayback;
 
 /** Play along a dimension at `fps` planes per second (default: its natural rate, capped to what a screen shows). */
 export function togglePlayback(dim: string, mode: PlayMode = "loop", fps?: number): void {
@@ -651,7 +668,12 @@ export function togglePlayback(dim: string, mode: PlayMode = "loop", fps?: numbe
   const c = liveContext();
   if (!c || dimLength(c.manifest, dim) <= 1 || c.view.projection?.dim === dim) return;
   const rate = fps ?? naturalRate(c.manifest, dim) * (live.speed > 0 ? live.speed : 1);
+  // On a slide the play key is a PREVIEW: it moves a session-only plane and writes nothing (writing the view would
+  // rewrite Design, or author a step's Change, once a frame). In a figure it writes the view, one undo step per run.
+  const preview = liveOnSlide();
+  if (preview) settleLiveEdit();
   setLive({ playing: { dim, fps: rate, mode }, armed: `pos:${dim}` });
+  if (preview) fluximgPreview.set({ dim, index: c.view.index[dim] ?? 0 });
   playClock = performance.now(); playCarry = 0; playDirection = 1;
   const tick = (now: number): void => {
     const state = get(fluximgLive), ctx = liveContext();
@@ -663,9 +685,12 @@ export function togglePlayback(dim: string, mode: PlayMode = "loop", fps?: numbe
     if (advance > 0) {
       playCarry -= advance;
       const n = dimLength(ctx.manifest, dim);
-      const next = playStep({ index: ctx.view.index[dim] ?? 0, direction: playDirection, done: false }, advance, n, state.playing.mode);
+      const shown = preview ? get(fluximgPreview) : null;
+      if (preview && !shown) { playTimer = 0; return; } // dropped meanwhile (Esc, an edit)
+      const next = playStep({ index: shown ? shown.index : ctx.view.index[dim] ?? 0, direction: playDirection, done: false }, advance, n, state.playing.mode);
       playDirection = next.direction;
-      liveView(`play:${dim}`, { index: { [dim]: next.index } });
+      if (preview) fluximgPreview.set({ dim, index: next.index });
+      else liveView(`play:${dim}`, { index: { [dim]: next.index } });
       if (next.done) { stopPlayback(); return; }
     }
     playTimer = requestAnimationFrame(tick);

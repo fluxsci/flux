@@ -15,6 +15,13 @@
 
 import { makeVideoElement } from "./mediaTypes";
 import { FLUXIMG_BECOME_OTHER_IMAGE, FLUXIMG_NO_CONSUME } from "../fluximg/policy";
+import type { FluximgManifest } from "../fluximg/types";
+import type { FluximgElement, FluximgPlayback } from "../fluximg/element";
+import { longestWalk, naturalDurationMs } from "../fluximg/viewTween";
+import { defaultWalkDim, playbackProblems, walkableDims } from "../fluximg/playback";
+import { mediaTarget, type FluximgManifestFor } from "./mediaTimeline";
+export { mediaTarget, type FluximgManifestFor };
+import { resolveView } from "../fluximg/viewOps";
 import type { Model3dElement } from "../model3d/types";
 import type { Asset, Element, Figure, Id, SemanticPlotElement } from "../types";
 import { newId } from "../ids";
@@ -27,14 +34,14 @@ import { resolveTrack, resolveTrackRaw, resolveStart, ANIM_STYLE_FIELDS, INHERIT
 import { patchStagger } from "./stagger";
 import { presetTrackOf } from "./animTemplates";
 import { familyOf } from "./family";
-import { authoredFields, defaultEasingFor, defaultTimingFor, isExitPreset, rewritesText } from "./presetCatalog";
+import { authoredFields, defaultEasingFor, defaultTimingFor, isExitPreset, presetParam, rewritesText } from "./presetCatalog";
 import { AUTO_DELAY_AUTHORED_MS } from "./timing";
 import { EASING_TOKENS, resolveCurve } from "./curves";
 import { suggestBeatArcs } from "./arcSuggest";
 import { attachProblem, settleAttachments, userDiff, type Attach } from "./attach";
 import { compileSlide, trackDuration, type CompileOptions } from "./compile";
 import { targetOutlines } from "./targetGeometry";
-import { diffState, transformPreState } from "./tween";
+import { diffState, transformEndState, transformPreState } from "./tween";
 import { sourceAt, withGhostIdentity } from "./ghost";
 import { stepOf, cascadeValue, clampTrackValue, type TrackCascadeSpec } from "../cascade";
 import { isHandoff, trackRef, trackKey, targetKey, hasPartBinding, isWholeElementRef, sameRef, normalizeRef, refElementIds, DEFAULT_TRANSFORM_METHOD } from "./targets";
@@ -497,10 +504,11 @@ export function addVideoToSlide(deck: Deck, slideId: Id, opts: {
   return addElement(deck, slideId, makeVideoElement({ ...asset, durationMs: opts.durationMs }, opts.posterAssetId, deck.stage, opts));
 }
 
-/** Media commands coexist with appearance and Change on the same step. */
+/** Media commands coexist with appearance and Change on the same step. A video, or an image that plays as a movie
+ *  (the same three presets: they are persisted; an image's are worded Start / Pause / Stop movie). */
 export function setVideoTrack(deck: Deck, slideId: Id, beatId: Id, target: Id,
-  action: "start" | "pause" | "stop", opts: { start?: number } = {}): boolean {
-  if (slideById(deck, slideId)?.elements.find(e => e.id === target)?.type !== "video") return false;
+  action: "start" | "pause" | "stop", opts: { start?: number; fluximgManifest?: FluximgManifestFor } = {}): boolean {
+  if (!mediaTarget(slideById(deck, slideId)?.elements.find(e => e.id === target), opts.fluximgManifest)) return false;
   const preset = { start: "videoStart", pause: "videoPause", stop: "videoStop" } as const;
   if (!preset[action] || opts.start != null && (!Number.isFinite(opts.start) || opts.start < 0)) return false;
   return setAnimation(deck, slideId, beatId, { target, preset: preset[action], duration: 0, start: opts.start ?? 0 });
@@ -513,6 +521,85 @@ export function setVideoSettings(deck: Deck, slideId: Id, target: Id, opts: { mu
   if (opts.loop != null) el.loop = opts.loop;
   return true;
 }
+
+/** How an image plays as a movie (its Design-level `playback`, plan D7): `patch` merges over what it holds (a null
+ *  field clears it; `null` clears the whole setting, back to the defaults). False when the target is not an image;
+ *  throws with the reasons when the setting does not fit the image (`playback.playbackProblems`). */
+export function setImagePlayback(deck: Deck, slideId: Id, target: Id, patch: { [K in keyof FluximgPlayback]?: FluximgPlayback[K] | null } | null,
+  opts: { fluximgManifest?: FluximgManifestFor } = {}): boolean {
+  const el = slideById(deck, slideId)?.elements.find(e => e.id === target);
+  if (el?.type !== "fluximg") return false;
+  if (patch === null) { delete el.playback; return true; }
+  const m = opts.fluximgManifest?.(el.assetId);
+  const base: Record<string, unknown> = { ...(el.playback ?? { dim: (m && defaultWalkDim(m)) ?? patch.dim ?? "", mode: "loop" }) };
+  for (const [k, v] of Object.entries(patch)) { if (v === null) delete base[k]; else if (v !== undefined) base[k] = v; }
+  // A new dimension starts over its whole range unless the patch names one.
+  if (patch.dim != null && el.playback && patch.dim !== el.playback.dim) { if (patch.from === undefined) delete base.from; if (patch.to === undefined) delete base.to; }
+  const problems = playbackProblems(m, base);
+  if (problems.length) throw new Error(problems.join("; "));
+  el.playback = base as unknown as FluximgPlayback;
+  return true;
+}
+
+/** Planes a second a walk plays at when the image's manifest is not at hand (the data's own rate for anything but time). */
+export const WALK_FALLBACK_RATE = 12;
+/** How long a walk of planes lasts at the data's own pace times `speed`, in whole ms (at least 1). */
+export function walkDurationMs(manifest: FluximgManifest | undefined, dim: string, from: number, to: number, speed = 1): number {
+  const s = speed > 0 && Number.isFinite(speed) ? speed : 1;
+  const ms = manifest ? naturalDurationMs(manifest, dim, from, to, s) : (Math.abs(to - from) / WALK_FALLBACK_RATE) * 1000 / s;
+  return Math.max(1, Math.round(ms));
+}
+
+/** A track's timing is still the one a Change is written with (nobody chose another): duration and curve as authored. */
+function authoredTransformTiming(t: Track): boolean {
+  const a = authoredFields("transform");
+  return !t.styleId && !t.influence && t.duration === a.duration && JSON.stringify(t.curve ?? null) === JSON.stringify(a.curve ?? null) && (t.easing ?? null) === (a.easing ?? null);
+}
+/** The walk pace a track was written at, or null when its timing is not the walk's own (absent, or re-timed by hand). */
+export const walkPace = (t: Pick<Track, "preset" | "params">): number | null => (familyOf(t as Track) === "transform" ? presetParam<number | null>(t, "pace", "transform") : null);
+
+/** A hand re-time (a duration typed or dragged, a curve chosen, a style linked) makes the timing the author's own: the
+ *  walk's pace is forgotten and the track is never re-timed by a walk again. */
+export function dropWalkPace(track: Track): void {
+  if (!track.params || !("pace" in track.params)) return;
+  const { pace: _pace, ...rest } = track.params;
+  void _pace;
+  if (Object.keys(rest).length) track.params = rest; else delete track.params;
+}
+
+/**
+ * THE PACE RULE (stage 2: a walk's pace is written, never played). A Change that makes an image walk planes (the
+ * longest walk when several dimensions move: `viewTween.longestWalk`) is timed at the data's own rate times `speed`
+ * with a linear curve, and records `params.pace = speed` -- but only while the timing is still the walk's own: the
+ * track was just made (`created`), already carries a pace, or still has the plain authored Change timing. A track
+ * the author re-timed by hand is left alone. A paced track whose walk is gone returns to the ordinary Change timing.
+ * `force` (Play through, the pace dial) paces it whatever its timing was.
+ */
+export function retimeImageWalk(track: Track, pre: Element, end: Element, opts: { fluximgManifest?: FluximgManifestFor; speed?: number; created?: boolean; force?: boolean } = {}): void {
+  if (pre.type !== "fluximg" || end.type !== "fluximg" || familyOf(track) !== "transform") return;
+  const m = opts.fluximgManifest?.(end.assetId);
+  const walk = longestWalk(m, { view: pre.view, crop: pre.crop }, { view: end.view, crop: end.crop });
+  const paced = walkPace(track);
+  if (!walk) {
+    if (paced !== null) {
+      dropWalkPace(track);
+      delete track.curve; delete track.influence; delete track.easing;
+      Object.assign(track, authoredTiming());
+    }
+    return;
+  }
+  if (!opts.force && !opts.created && paced === null && !authoredTransformTiming(track)) return;
+  const speed = opts.speed ?? paced ?? 1;
+  track.duration = walkDurationMs(m, walk.dim, walk.from, walk.to, speed);
+  delete track.curve; delete track.influence; delete track.styleId;
+  track.easing = "linear";
+  track.params = { ...(track.params ?? {}), pace: speed };
+}
+const authoredTiming = () => { const a = authoredFields("transform"); return { duration: a.duration, ...(a.curve ? { curve: structuredClone(a.curve) } : {}), ...(a.easing ? { easing: a.easing } : {}) }; };
+
+/** The whole-element Change of `target` at a beat, if any. */
+const wholeChange = (beat: Beat | null | undefined, target: Id): Track | undefined =>
+  beat?.tracks.find((t) => familyOf(t) === "transform" && t.target === target && isWholeElementRef(trackRef(t)));
 
 /** The headless "Send to deck onto an existing slide" (the repurposed
  *  add_slide_figure): copy a FIGURE's elements + groups onto a slide with
@@ -566,9 +653,14 @@ export function placeFluximgOnSlide(deck: Deck, slideId: Id, args: Omit<AddFluxi
 /** "Edit after step N" in one pure op: an element edited at its end state of step `beatId` becomes that step's Change, whose
  *  `to.state` is everything that differs from the element's state before the step (`pre`). The app's capture adapter
  *  (slide/store.ts) and the headless view verbs (`set-image-view --beat`) both write through here. */
-export function writeStepState(deck: Deck, slideId: Id, beatId: Id, edited: Element, pre: Element): Track | null {
+export function writeStepState(deck: Deck, slideId: Id, beatId: Id, edited: Element, pre: Element, opts: { fluximgManifest?: FluximgManifestFor; speed?: number } = {}): Track | null {
   const patch = userDiff(diffState(pre, edited), edited) ?? {};
-  return setTransform(deck, slideId, beatId, edited.id, { state: patch, replaceState: true });
+  const slide = slideById(deck, slideId);
+  // An image's walk is timed here, the one op both engines call (the pace rule); every other kind returns at the kind check.
+  const created = edited.type === "fluximg" && !wholeChange(slide && beatById(slide, beatId), edited.id);
+  const track = setTransform(deck, slideId, beatId, edited.id, { state: patch, replaceState: true });
+  if (track && edited.type === "fluximg") retimeImageWalk(track, pre, edited, { fluximgManifest: opts.fluximgManifest, speed: opts.speed, created });
+  return track;
 }
 
 // ---------------------------------------------------------------------------
@@ -798,6 +890,7 @@ export function setTrackCurve(deck: Deck, slideId: Id, trackId: Id, curve: Curve
   if (!found || found.slide.id !== slideId) return { ok: false, reason: "Track not found on this slide" };
   const saved = structuredClone(found.track);
   patchTimingCurve(found.track, curve && typeof curve === "object" && "influence" in curve ? curve : { curve });
+  dropWalkPace(found.track);
   const refused = sweepClockRefusal(found.track, deck);
   if (refused) { for (const key of Object.keys(found.track)) delete (found.track as unknown as Record<string, unknown>)[key]; Object.assign(found.track, saved); return { ok: false, reason: refused }; }
   return { ok: true };
@@ -1004,6 +1097,7 @@ export function setTrack(deck: Deck, slideId: Id, trackId: Id, patch: {
     if (patch.pairLag !== undefined) setTrackPairLag(found.track, patch.pairLag);
   } catch (error) { return restore({ ok: false, reason: (error as Error).message }); }
   patchTimingCurve(found.track, patch);
+  if (patch.duration !== undefined || patch.curve !== undefined || patch.influence !== undefined || patch.easing !== undefined || patch.styleId !== undefined) dropWalkPace(found.track);
   const refused = sweepClockRefusal(found.track, deck);
   return refused ? restore({ ok: false, reason: refused }) : { ok: true };
 }
@@ -1258,7 +1352,7 @@ export function setAnimation(deck: Deck, slideId: Id, beatId: Id, track: Track):
   const s = slideById(deck, slideId);
   const b = s && beatById(s, beatId);
   if (!b || s!.beats[0] === b) return false;
-  if (familyOf(track) === "media" && (s!.beats[0] === b || s!.elements.find(e => e.id === track.target)?.type !== "video" || hasPartBinding(track) || track.stagger || track.keyframes)) return false;
+  if (familyOf(track) === "media" && (s!.beats[0] === b || !mediaTarget(s!.elements.find(e => e.id === track.target)) || hasPartBinding(track) || track.stagger || track.keyframes)) return false;
   const i = b.tracks.findIndex((t) => tracksMatch(t, track));
   // Every track carries a stable id; replacing a matched track keeps its id so
   // editor selection survives the edit, a brand-new track gets a fresh one.
@@ -1283,7 +1377,7 @@ export function appendAnimation(deck: Deck, slideId: Id, beatId: Id, track: Trac
   const s = slideById(deck, slideId);
   const b = s && beatById(s, beatId);
   if (!b || s!.beats[0] === b || (["transform", "media"].includes(familyOf(track)) && b.tracks.some(t => tracksMatch(t, track)))) return null;
-  if (familyOf(track) === "media" && (s!.beats[0] === b || s!.elements.find(e => e.id === track.target)?.type !== "video" || hasPartBinding(track) || track.stagger || track.keyframes)) return null;
+  if (familyOf(track) === "media" && (s!.beats[0] === b || !mediaTarget(s!.elements.find(e => e.id === track.target)) || hasPartBinding(track) || track.stagger || track.keyframes)) return null;
   const added = { ...structuredClone(track), id: newId("track") };
   b.tracks.push(added);
   return added;
@@ -1486,6 +1580,51 @@ export function addTurntable(deck: Deck, opts: { slideId: Id; beatId: Id; target
   return setTransform(deck, opts.slideId, opts.beatId, opts.target, { state: { orbitAzimuth: pre.orbitAzimuth + (opts.direction === "ccw" ? 1 : -1) * 360 * turns }, duration, start: opts.start ?? 0, curve: opts.pace === "constant" ? "linear" : structuredClone(TURNTABLE_SOFT_CURVE) });
 }
 export const turntable = addTurntable;
+
+/**
+ * Play through (stage 2: the Turntable of images): at `beatId`, a Change that walks the image from where it stands
+ * before the step to the far end of a dimension, at the data's own pace times `speed` (the pace rule). Default
+ * dimension: time, else depth, else the first walkable one; default end: the last plane, or the first when the image
+ * already stands on the last. Like Turntable it joins this step's Change of the image (its other changes are kept) and
+ * re-times it; `blend` crossfades neighbouring planes. Null for Design or a target that is not an image at the step.
+ */
+export function addImageWalk(deck: Deck, opts: { slideId: Id; beatId: Id; target: Id; dim?: string; to?: number; speed?: number; blend?: boolean; start?: number; fluximgManifest?: FluximgManifestFor }): Track | null {
+  if (opts.speed !== undefined && !(Number.isFinite(opts.speed) && opts.speed > 0)) throw new Error("Play through needs a positive speed");
+  if (opts.start !== undefined && !(Number.isFinite(opts.start) && opts.start >= 0)) throw new Error("Play through needs a nonnegative start");
+  if (opts.blend !== undefined && typeof opts.blend !== "boolean") throw new Error("blend must be true or false");
+  const slide = slideById(deck, opts.slideId), bi = slide?.beats.findIndex(beat => beat.id === opts.beatId) ?? -1;
+  if (!slide || bi <= 0) return null;
+  const pre = transformPreState(slide, opts.target, bi);
+  if (pre?.type !== "fluximg") return null;
+  const m = opts.fluximgManifest?.(pre.assetId);
+  if (!m) throw new Error("The image is not loaded yet: its bundle tells how far it can play");
+  const dims = walkableDims(m);
+  if (!dims.length) throw new Error("This image has no time, depth or other dimension to play through");
+  const dim = opts.dim ?? defaultWalkDim(m)!;
+  if (!dims.includes(dim)) throw new Error(`"${dim}" is not a dimension this image can play through (${dims.join(", ")})`);
+  const view = resolveView(m, pre.view);
+  if (view.projection?.dim === dim) throw new Error(`The image shows ${dim} as a projection here: turn the projection off to play through it`);
+  const n = m.pixels.shape[m.pixels.dims.indexOf(dim)], from = view.index[dim] ?? 0;
+  const to = opts.to ?? (from === n - 1 ? 0 : n - 1);
+  if (!Number.isInteger(to) || to < 0 || to >= n) throw new Error(`Play through ends on a whole plane 0..${n - 1}`);
+  if (to === from) throw new Error(`The image already stands on plane ${to + 1} of ${dim}`);
+  // The end the step already reaches (its other changes kept), walked along `dim`: `view` is replaced whole (plan D1).
+  const existing = wholeChange(slide.beats[bi], opts.target);
+  const end = existing ? transformEndState(pre, existing) as FluximgElement : pre;
+  const endView = structuredClone(end.view ?? {});
+  endView.index = { ...(endView.index ?? {}), [dim]: to };
+  const track = setTransform(deck, opts.slideId, opts.beatId, opts.target, { state: { view: endView }, ...(opts.start !== undefined ? { start: opts.start } : !existing ? { start: 0 } : {}) });
+  if (!track) return null;
+  retimeImageWalk(track, pre, { ...end, view: endView } as Element, { fluximgManifest: opts.fluximgManifest, speed: opts.speed ?? walkPace(track) ?? 1, force: true });
+  if (opts.blend !== undefined) {
+    const params = { ...(track.params ?? {}) };
+    if (opts.blend) params.blend = true; else delete params.blend;
+    track.params = params;
+  }
+  return track;
+}
+/** Whether a Change crossfades neighbouring planes (`params.blend`). */
+export const walkBlends = (t: Pick<Track, "preset" | "params">): boolean => presetParam<boolean>(t, "blend", "transform") === true;
 
 /** Drop the content half of a transform (the object keeps its own content). */
 export function clearTransformContent(track: Track): void {
@@ -1786,6 +1925,7 @@ export function cascadeTracks(
         break;
       case "duration":
         t.duration = clampTrackValue("duration", cascadeValue(trackDuration(b0), spec, step));
+        dropWalkPace(t);
         break;
       case "influence.in":
       case "influence.out": {

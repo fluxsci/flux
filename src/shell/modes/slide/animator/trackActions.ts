@@ -6,7 +6,7 @@ import { trackDuration } from "../../../../lib/slide/compile";
 import { get } from "svelte/store";
 import { activeBeat, selTrackIds, commitDeckLive, deckOverlay } from "../../../../lib/slide/store";
 import { activeFigureId, selection, partSelection } from "../../../../lib/store";
-import { slideById, duplicateTrack, moveTrackToBeat, setTrackEnabled, removeTracks, setTrack, setTrackCurve } from "../../../../lib/slide/ops";
+import { slideById, duplicateTrack, moveTrackToBeat, setTrackEnabled, removeTracks, setTrack, setTrackCurve, dropWalkPace } from "../../../../lib/slide/ops";
 import type { Deck, Track } from "../../../../lib/slide/types";
 import { resolveTrackRaw } from "../../../../lib/slide/resolve";
 import { familyOf } from "../../../../lib/slide/family";
@@ -119,7 +119,7 @@ export function nudgeSelected(field: "start" | "duration", deltaMs: number): voi
     if (field === "start") {
       if (t.anchor) t.anchor.offsetMs = (t.anchor.offsetMs ?? 0) + deltaMs;
       else t.start = Math.max(0, (resolved.start ?? 0) + deltaMs);
-    } else if (familyOf(resolved) !== "media") t.duration = Math.max(50, trackDuration(resolved) + deltaMs);
+    } else if (familyOf(resolved) !== "media") { t.duration = Math.max(50, trackDuration(resolved) + deltaMs); dropWalkPace(t); }
   }, `nudge:${field}`);
 }
 

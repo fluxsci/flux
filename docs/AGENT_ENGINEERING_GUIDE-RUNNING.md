@@ -4146,8 +4146,12 @@ opens with a header that states its law. Read those before changing one. The par
   the element's visible part and the element's vectors on top; a press on the image draws an
   inset box (`inset` in hand), pulls contrast (a channel in hand), or moves the image under its
   frame (the frame in hand, or simply zoomed in). R (`keyboard.ts` `openSelectedFluximgLive`)
-  and double-click (`Canvas.svelte`) open it through `fluximgLiveUnavailable` (figures only,
-  unlocked and shown). The map takes its picture from the one still function
+  and double-click (`Canvas.svelte`) open it through `fluximgLiveUnavailable` (figures and slides,
+  unlocked and shown). **On a slide** (stage 2) its edits ride the slide's capture: Design sets the resting
+  view, "Edit after step N" writes that step's Change; the play key is a PREVIEW (`session.fluximgPreview`,
+  a session-only plane over the driver and the playhead: no `mutate`, no undo, no Change); Split and Inset
+  are Design-only; the "this step" card (`live/step.ts`, `BoardStep.svelte`, placed by `boardLayout` in the
+  console's column, never built off a slide) authors through `commitDeckLive` (one undo per press). The map takes its picture from the one still function
   (`fluximgService().still`, slot `live-navigator`, keyed by the resolved view, never by the
   crop) and waits while `fluximgLiveBusy`. `histogramPath` defaults to the `span` scale: the log
   of the count between the rarest occupied bin and the commonest. `railTicks` ticks an evenly
@@ -13823,4 +13827,22 @@ Gate `scripts/verify-tiff.ts` (pure; `VERIFY_TIFF_SLOW=1` adds a 1 GB child-proc
   JSON with axis names, a single plane, or a remembered rule.
 - A converted TIFF's element records the TIFF as `source`, `frozen: true` (the watcher must not try to import a TIFF
   as a bundle), with the content id that slide-only dedupe reads.
+
+### 2026-11-21 — Image animation on slides: authoring and movies (Claude Opus 5.5, `s2/authoring`, fluximg stage 2 W5+W6)
+**Work:** The live board opens on slides (preview playback writes nothing; Split/Inset Design-only; the "this step"
+card with Play through, pace, Blend, Start/Pause/Stop movie and loop/bounce/once). THE PACE RULE lives in
+`slideOps.writeStepState` (both engines): a Change that walks planes is written linear, timed at the data's own
+rate / speed, `params.pace` = speed, while its timing is still the walk's own (just captured, already paced, or
+the plain authored Change timing); `setTrack` / `setTrackCurve` / the cascade / the nudge drop the pace (a hand
+re-time). `addImageWalk` is the Turntable of images. Media: the three video presets on an image with a walkable
+dimension, `FluximgElement.playback` (Design-level), `mediaTimeline.sampleImagePlayback` on the video clock's
+fold, `player/fluximgMedia.ts` joined to the video controller only for slides whose images take movie commands,
+driving W2's binding hook (`setIndexOverride` + `flush`). Gates: `verify-fluximg-slide-authoring` (pure, incl. a
+digest of decks WITHOUT images pinned to the pre-change base) and `verify-fluximg-slide-authoring-gui`.
+**Learnings:**
+- SlideMode's window `keydown` listener is registered before any board mounts, so it runs FIRST: the board's
+  `stopImmediatePropagation` cannot stop it. SlideMode now yields unmodified keys while `fluximgLive` is set.
+- A digest of compile output must fix every fresh id: `createDeck` mints slide, beat AND starter-element ids.
+- `describeViewChange` is pinned by deep equality: per-aspect data for `dropViewChange` travels in a private
+  parallel list (`describeAspects`), not as new fields on `ViewChange`.
 

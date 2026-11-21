@@ -21,6 +21,9 @@
   import { applyAutoAnimation, animateElement } from "../../../lib/slide/autobuild";
   import { guiPlotMeasures } from "../../../lib/slide/partLengthGui";
   import { scene3dManifests } from "../../../lib/model3d/store";
+  import { fluximgManifests } from "../../../lib/fluximg/store";
+  import { walkableDims as walkableDimsOf } from "../../../lib/fluximg/playback";
+  const walkableDims = (m: import("../../../lib/fluximg/types").FluximgManifest | null) => (m ? walkableDimsOf(m) : []);
   import { transformPreState } from "../../../lib/slide/tween";
   import { plotManifests, plotDom } from "../../../lib/plot/store";
   import { compileSlide } from "../../../lib/slide/compile";
@@ -39,7 +42,7 @@
 
   let { slide, onPreview, onAction, onSeek, onPause, onStop, onResume, onUndo, onRedo, onSave, time = 0, playing = false, previewing = false, loop = false, onLoop }: {
     slide: Slide | null; onPreview?: (startBeat?: number, range?: "step" | "from" | "slide") => void;
-    onAction?: (action: "appear" | "appear-from" | "change" | "ghost" | "become" | "emphasize" | "disappear" | "videoStart" | "videoPause" | "videoStop" | "turntable" | "focus" | "unfocus" | "restore-design" | "restore-previous") => void;
+    onAction?: (action: "appear" | "appear-from" | "change" | "ghost" | "become" | "emphasize" | "disappear" | "videoStart" | "videoPause" | "videoStop" | "turntable" | "playThrough" | "focus" | "unfocus" | "restore-design" | "restore-previous", walk?: { dim: string; end: "last" | "first" }) => void;
     onSeek?: (beat: number, time: number) => void; onPause?: () => void; onStop?: () => void; onResume?: () => void;
     onUndo?: () => void; onRedo?: () => void; onSave?: () => void;
     time?: number; playing?: boolean; previewing?: boolean; loop?: boolean; onLoop?: () => void;
@@ -66,6 +69,20 @@
   const sel = $derived([...$selection]);
   const selectedModels = $derived(slide?.elements.filter(element => element.type === "model3d" && sel.includes(element.id)) ?? []);
   const selectedVideos = $derived(slide?.elements.filter(element => element.type === "video" && sel.includes(element.id)) ?? []);
+  // Images that can walk (time, depth, …): Play through and the movie commands (stage 2).
+  const selectedImages = $derived(slide?.elements.filter(element => element.type === "fluximg" && sel.includes(element.id) && walkableDims($fluximgManifests[element.assetId] ?? null).length > 0) ?? []);
+  const imageDims = $derived([...new Set(selectedImages.flatMap(el => el.type === "fluximg" ? walkableDims($fluximgManifests[el.assetId]!) : []))]);
+  const DIM_WORDS: Record<string, string> = { t: "time", z: "depth" };
+  let walkMenu = $state<{ x: number; y: number } | null>(null);
+  function openWalkMenu(e: MouseEvent) {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    appearMenu = null; transformMenu = null;
+    walkMenu = walkMenu ? null : { x: r.left, y: r.bottom + 4 };
+  }
+  const walkItems = $derived<MenuItem[]>(imageDims.flatMap(d => [
+    { label: `Through ${DIM_WORDS[d] ?? d} to the end`, hint: `Walk ${DIM_WORDS[d] ?? d} to its last plane at the data's own pace`, action: () => onAction?.("playThrough", { dim: d, end: "last" }) },
+    { label: `Through ${DIM_WORDS[d] ?? d} back to the start`, hint: `Walk ${DIM_WORDS[d] ?? d} back to its first plane`, action: () => onAction?.("playThrough", { dim: d, end: "first" }) },
+  ]));
   const manifests = $derived($plotManifests);
   const selPlot = $derived.by(() => {
     if (sel.length !== 1 || !slide) return null;
@@ -338,6 +355,18 @@
         <button class="b" onclick={() => onAction?.("unfocus")} title="Bring back everything a dim left behind, smoothly from where it is">Unfocus</button>
         {#if selectedModels.length && selectedModels.length === sel.length && !$partSelections.length}
           <button class="b" onclick={() => onAction?.("turntable")} title="One full turn in 6 seconds, easing in and out — edit its Change track (Pace: Constant speed, for loops)">Turntable</button>
+        {/if}
+        {#if selectedImages.length && selectedImages.length === sel.length && !$partSelections.length}
+          <div class="appear-split">
+            <button class="b" onclick={() => onAction?.("playThrough")} title="Walk the image from where it stands to the far end of its time (else depth) axis, at the data's own pace">Play through</button>
+            {#if imageDims.length > 1 || walkItems.length > 1}<button class="b split-arrow" onclick={openWalkMenu} aria-label="Play through options" aria-haspopup="menu" aria-expanded={!!walkMenu}>▾</button>{/if}
+            {#if walkMenu}<TimelineMenu x={walkMenu.x} y={walkMenu.y} items={walkItems} onClose={() => (walkMenu = null)} />{/if}
+          </div>
+        {/if}
+        {#if selectedImages.length && !selectedVideos.length}
+          <button class="b" onclick={() => onAction?.("videoStart")} title="Start the selected images playing as a movie from the first plane of their range at this step">Start movie</button>
+          <button class="b" onclick={() => onAction?.("videoPause")} title="Pause the selected movies at this step, holding the plane on screen">Pause movie</button>
+          <button class="b" onclick={() => onAction?.("videoStop")} title="Stop the selected movies at this step: back to the step's own plane">Stop movie</button>
         {/if}
         {#if selectedVideos.length}
           <button class="b" onclick={() => onAction?.("videoStart")} title="Start the selected videos from their first frame at this step">Start video</button>

@@ -278,7 +278,9 @@ export const PRESET_PARAMS: Readonly<Record<PresetName, ParamRow>> = {
   // line / straight bond whose endpoints change turns: "shrink" (absent: the endpoint lerp) or "rigid" (keeps its length; tween.rigidSegment).
   // `blend` (stage 2, fluximg): an image Change that walks planes crossfades neighbouring planes instead of stepping them
   // (fluximg/viewTween.ts law 2); read by player/fluximg.ts. Absent = planes step.
-  transform: { fadeStyle: { default: "drift" }, letters: { default: "fade" }, turn: { default: "shrink" }, blend: { default: false } },
+  // `pace` (stage 2, fluximg): the speed (a multiple of the data's own rate) a walk of planes was timed at; present only while
+  // the track's duration is still the walk's own (slide/ops.writeStepState re-times it; a hand re-time removes it). Write-time only.
+  transform: { fadeStyle: { default: "drift" }, letters: { default: "fade" }, turn: { default: "shrink" }, blend: { default: false }, pace: { default: null, types: ["number"], range: [0.0625, 16] } },
   videoStart: {},
   videoPause: {},
   videoStop: {},

@@ -2909,7 +2909,7 @@ export const VERBS: VerbDef[] = [
   {
     name: "set_video_track",
     scope: "project", cli: "set-video-track", cliRoot: "flags",
-    summary: "Start, pause, or stop a video clip on a slide step independently of its appearance. Start restarts from the beginning; pause holds the current frame; stop resets to the poster. start is the command offset in milliseconds within the step.",
+    summary: "Start, pause, or stop a video clip on a slide step independently of its appearance. Start restarts from the beginning; pause holds the current frame; stop resets to the poster. An image with a time or depth axis takes the same commands and plays as a movie (its loop, speed and range: set-image-view --playback); stop returns it to the step's own plane. start is the command offset in milliseconds within the step.",
     params: { deckId: z.string(), slideId: z.string(), beatId: z.string(), target: z.string(), action: z.enum(["start", "pause", "stop"]), start: z.number().nonnegative().optional() },
     cliArgs: [
       { kind: "pos", at: 0, into: "deckId", required: true }, { kind: "pos", at: 1, into: "slideId", required: true },

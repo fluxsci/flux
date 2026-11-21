@@ -325,6 +325,11 @@ const FLUXIMG_BRANCH = elementBranch("fluximg", ["assetId"], {
   source: { type: "object", required: ["bundlePath"], properties: {
     bundlePath: NON_EMPTY, sha256: { type: "string", pattern: "^[a-f0-9]{64}$" }, recipePath: { type: "string" },
     external: { type: "boolean" }, frozen: { type: "boolean" } } },
+  // stage 2 (plan D7): how the image plays as a movie on a slide; Design-level. Checked against the manifest by
+  // fluximg/playback.playbackProblems where one is at hand (the dimension exists, the range lies inside it).
+  playback: { type: "object", additionalProperties: false, required: ["dim", "mode"], properties: {
+    dim: NON_EMPTY, mode: { enum: ["loop", "bounce", "once"] }, speed: { type: "number", exclusiveMinimum: 0 },
+    fps: { type: "number", exclusiveMinimum: 0 }, from: INDEX_NUMBER, to: { type: "integer", minimum: 1 } } },
 });
 ELEMENT_DEF.oneOf.push(FLUXIMG_BRANCH);
 const VEC3 = { type: "array", minItems: 3, maxItems: 3, items: { type: "number" } };

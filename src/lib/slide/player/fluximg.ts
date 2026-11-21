@@ -14,7 +14,7 @@ import type { FluximgElement } from "../../types";
 import type { FluximgManifest, FluximgLayer } from "../../fluximg/types";
 import type { FluximgSurface } from "../../fluximg/slideHost";
 import type { PixelRect, ResolvedFurniture, ResolvedLayer } from "../../fluximg/view";
-import { planViewTween, type TweenPicture, type ViewTweenFrame, type ViewTweenPlan } from "../../fluximg/viewTween";
+import { planViewTween, withIndex, type TweenPicture, type ViewTweenFrame, type ViewTweenPlan } from "../../fluximg/viewTween";
 import { pixelKey, resolveView } from "../../fluximg/viewOps";
 // crop.ts, never still.ts: the exported deck's runtime loads this module, and still.ts pulls the reader and renderer.
 import { clampCrop, tieredStillSize } from "../../fluximg/crop";
@@ -89,18 +89,8 @@ export function fluximgPlan(manifest: FluximgManifest, pre: FluximgElement, end:
   return plan;
 }
 
-/**
- * LOCAL stand-in for `viewTween.withIndex(frame, dim, index)` (the media-playback package adds the real one; replace
- * this with it when it lands): the frame with `index[dim]` set on every picture (a blend along `dim` is dropped, the
- * override owns that position). Pictures already there are kept as they are (identity = "unchanged").
- */
-export function withIndexLocal(f: ViewTweenFrame, dim: string, index: number): ViewTweenFrame {
-  const at = (p: TweenPicture): TweenPicture => (p.view.index[dim] === index ? p : { crop: p.crop, view: { ...p.view, index: { ...p.view.index, [dim]: index } } });
-  const a = at(f.a), b = f.b ? at(f.b) : null;
-  const overlay = f.overlay === f.a ? a : f.overlay === f.b && b ? b : at(f.overlay);
-  const blend = f.blend && f.blend.dim === dim ? null : f.blend;
-  return a === f.a && b === f.b && overlay === f.overlay && blend === f.blend ? f : { ...f, a, b, overlay, blend };
-}
+/** The same frame at another plane: `viewTween.withIndex` is the one definition (kept under this name for the hook's callers). */
+export const withIndexLocal = withIndex;
 
 const manifestOf = (ctx: SlideRenderCtx, assetId: string): FluximgManifest | undefined => ctx.fluximg?.manifest(assetId) ?? ctx.fluximgManifest?.(assetId);
 

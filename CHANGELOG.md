@@ -72,7 +72,15 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   scale bar kept as vectors.
 - **Agents**: `place-image`, `set-image-view` and `image-info` place an image, change its view
   (checked against the image, every problem named) and describe it without rendering.
-- Not yet: images on slides, TIFF import, 3-D rendering of volumes.
+- **Images animate on slides.** The live board opens on a slide. In Design it sets how the image
+  rests; at "Edit after step N" each gesture becomes that step's Change, so the image walks to
+  another frame, its contrast glides, its frame zooms. A walk is timed by the data: a time axis
+  plays in real time. A card on the board says what the step does and holds Play through, the
+  pace, Blend planes, and Start, Pause and Stop movie (loop, bounce or once), which run the image
+  as a clip runs. Space previews without writing anything. The Animate panel and the Animation
+  properties have the same controls; agents use `set-image-view --beat --speed --blend`,
+  `--playback`, and `set-video-track` on an image.
+- Not yet: TIFF import, 3-D rendering of volumes.
 
 ### Flux AI
 
