@@ -28,7 +28,7 @@
   const TYPED = $derived(kind === "text" ? /^[a-z0-9_ .\-]$/i : /^[0-9.,\-−eE*r]$/);
 
   // Begun from a click (or Enter), the old text is shown as if selected: the first key typed replaces it.
-  let fresh = false;
+  let fresh = $state(false);
   /** Start editing (from a key or a click), with `initial` as the text. */
   export function begin(initial = value, selected = false): void { buf = initial; fresh = selected; bad = false; el?.focus(); }
   function commit(): void {
