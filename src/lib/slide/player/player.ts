@@ -71,6 +71,7 @@ import { isVideoCommand, type VideoEvent } from "../mediaTimeline";
 import { createVideoController } from "./media";
 import { createModel3dController, flushSlideModels } from "./model3d";
 import { createFluximgController, flushSlideFluximgs } from "./fluximg";
+import { createFluximgMovieController, joinMedia, slideMovieTargets, type MediaController } from "./fluximgMedia";
 
 // --- target resolution -------------------------------------------------------
 /** A node's spatial coordinate for stagger ordering: the data-space value the
@@ -1086,7 +1087,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   /** the nodes with an entering translate flight in the cue that is playing (begin) */
   let gliders: BoundNode[] = [];
   let specs: Spec[] = [], issues: AnimationIssue[] = [], durations: number[] = [];
-  let media: ReturnType<typeof createVideoController> | undefined;
+  let media: MediaController | undefined;
   let models: ReturnType<typeof createModel3dController> | undefined;
   /** Only on a slide that holds images, with a live host: a deck without images never creates one. */
   let images: ReturnType<typeof createFluximgController> | undefined;
@@ -1160,6 +1161,12 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
       if (!issues.some(issue => issue.target === target && issue.reason === reason)) issues = [...issues, { target, reason }];
       emit("change");
     }, compiled.cues.map(c => c.tracks.map(t => t.track)));
+    // Image movies (stage 2, plan D7) join the videos as ONE media object; built only for a slide with images (the
+    // image controller exists) whose images take movie commands.
+    if (images) {
+      const resolvedTracks = compiled.cues.map(c => c.tracks.map(t => t.track));
+      if (slideMovieTargets(compiled.resolvedSlide, resolvedTracks).length) media = joinMedia(media, createFluximgMovieController(cameraLayer, compiled.resolvedSlide, ctx, durations, !!opts.manualSteps, () => emit("change"), resolvedTracks));
+    }
   }
   function paint(native = false): void {
     applyAt(runSpecs ?? specs, bi, time, native);

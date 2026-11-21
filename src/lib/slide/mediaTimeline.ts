@@ -70,7 +70,7 @@ export function videoEventsForPlan(slide: Slide, plan: Pick<VideoPlan, "cues">, 
 }
 
 /** The one fold of a target's commands up to `at`: how long it has run since its last Start (Pause holds, Stop resets). */
-function mediaFold(events: readonly VideoEvent[], target: string, at: number): VideoSample {
+export function mediaFold(events: readonly VideoEvent[], target: string, at: number): VideoSample {
   let position = 0, origin = 0, running = false, started = false;
   for (const event of events) {
     if (event.at > at) break;
@@ -108,18 +108,18 @@ export interface ImagePlaybackSample { plane: number; running: boolean; started:
 export function sampleImagePlayback(events: readonly VideoEvent[], target: string, at: number, passMs: number, mode: FluximgPlaybackMode, planes: number): ImagePlaybackSample {
   const f = mediaFold(events, target, at);
   if (!f.started || !(planes > 1) || !(passMs > 0)) return { plane: 0, running: f.running && planes > 1 && passMs > 0, started: f.started };
-  const period = passMs / planes;
+  const p = playbackPlane(f.timeMs, passMs, mode, planes);
+  return { plane: p.plane, running: f.running && !p.done, started: true };
+}
+
+/** The plane a movie shows `positionMs` after its Start (the one mapping: the clock above and the player's frame loop). */
+export function playbackPlane(positionMs: number, passMs: number, mode: FluximgPlaybackMode, planes: number): { plane: number; done: boolean } {
+  if (!(planes > 1) || !(passMs > 0)) return { plane: 0, done: false };
   // Whole planes elapsed (the epsilon lands a step boundary on its own plane despite rounding, as viewTween's walk does).
-  const k = Math.floor(f.timeMs / period + 1e-9);
-  if (mode === "once") {
-    if (f.timeMs >= passMs) return { plane: planes - 1, running: false, started: true };
-    return { plane: Math.min(planes - 1, k), running: f.running, started: true };
-  }
-  if (mode === "bounce") {
-    const cycle = 2 * (planes - 1), p = k % cycle;
-    return { plane: p <= planes - 1 ? p : cycle - p, running: f.running, started: true };
-  }
-  return { plane: k % planes, running: f.running, started: true };
+  const k = Math.floor(Math.max(0, positionMs) / (passMs / planes) + 1e-9);
+  if (mode === "once") return positionMs >= passMs ? { plane: planes - 1, done: true } : { plane: Math.min(planes - 1, k), done: false };
+  if (mode === "bounce") { const cycle = 2 * (planes - 1), p = k % cycle; return { plane: p <= planes - 1 ? p : cycle - p, done: false }; }
+  return { plane: k % planes, done: false };
 }
 
 /** Last non-looping clips complete before the final hold. Earlier clips cut by

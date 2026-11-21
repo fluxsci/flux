@@ -13,6 +13,7 @@ import { resolveTrack, resolveStart, resolveBeat, type StyleContext, type Manife
 import { staggerSpan } from "../../../../lib/slide/stagger";
 import { EASING_TOKENS } from "../../../../lib/slide/curves";
 import { PRESET_CATALOG, presetDef, EDITABLE_PRESETS, KNOWN_PRESETS } from "../../../../lib/slide/presetCatalog";
+import { walkBlends, walkPace } from "../../../../lib/slide/ops";
 
 export const PRESET_COLOR: Record<string, string> = Object.fromEntries(
   Object.values(PRESET_CATALOG).map(def => [def.name, def.colour]),
@@ -37,12 +38,20 @@ export function transformWay(t: Track): TransformWay {
 }
 export const WAY_LABEL: Record<TransformWay, string> = { change: "Change", ghost: "Ghost", become: "Become" };
 /** The lane sub-label: "Transform · Become", "Fade in", … */
-export function trackKindLabel(t: Track, deck: StyleContext = {}): string {
+export function trackKindLabel(t: Track, deck: StyleContext = {}, kind?: string): string {
   t = resolveTrack(t, deck);
+  // An image (stage 2): its media commands are a movie's, and a walk timed at the data's pace says so.
+  if (kind === "fluximg") {
+    if (t.preset === "videoStart" || t.preset === "videoPause" || t.preset === "videoStop") return { videoStart: "Start movie", videoPause: "Pause movie", videoStop: "Stop movie" }[t.preset];
+    const pace = t.preset === "transform" ? walkPace(t) : null;
+    if (pace !== null) return `Transform · ${WAY_LABEL[transformWay(t)]} · real time${pace !== 1 ? ` ×${pace}` : ""}${walkBlends(t) ? " · blended" : ""}`;
+  }
   // a hand-off whose source stays says so (its copies become the destination): "Transform · Become · source stays"
   if (t.preset === "transform") return `Transform · ${WAY_LABEL[transformWay(t)]}${t.to?.become?.keepSource ? " · source stays" : ""}`;
   return presetLabel(t.preset ?? "fade");
 }
+/** The lane's glyph for an element kind that has one of its own in the timeline (images: stage 2); "" otherwise. */
+export const laneGlyph = (kind: string | undefined): string => (kind === "fluximg" ? EL_GLYPH.fluximg : "");
 /** Element type → a compact glyph for tree rows / chip labels (the figure
  *  element union — slides-are-figures). */
 export const EL_GLYPH: Record<string, string> = {

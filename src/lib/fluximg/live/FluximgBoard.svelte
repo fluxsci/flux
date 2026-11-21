@@ -29,13 +29,16 @@
   import BoardRail from "./BoardRail.svelte";
   import FluximgNavigator from "./FluximgNavigator.svelte";
   import PaperKey from "./PaperKey.svelte";
+  import BoardStep from "./BoardStep.svelte";
+  import { cycleMovieMode, playThroughHere, playThroughPlan, stepCard, stepPaceDial, toggleStepBlend, toggleStepMovie } from "./step";
+  import { deckOverlay, editDestination } from "../../slide/store";
   import {
     LIVE_KEYS, PROJECTION_MODES, autoContrast, autoPlan, backOut, channelInHand, cycleFurnitureCorner, defaultArmed, dimKeys, dimLength, holdRail, liveContext, makeInset,
     nudgeFurniture, nudgeGamma, nudgeLayerOpacity, nudgeStyleRange, nudgeWindow, panFrame, railDims, resetChannel, resetFrame, resizeProjection, setChannel, setPosition, setProjectionMode, setRun,
-    setWindow, soloChannel, splitChannels, splitPlan, stepPosition, stepSpeed, takeChannel, toggleChannel, toggleFurniture, togglePlayback, toggleSmooth, zoomFrame, zoomInset,
+    setWindow, soloChannel, splitChannels, splitPlan, stepPosition, stepSpeed, takeChannel, toggleChannel, toggleFurniture, togglePlayback, toggleSmooth, zoomFrame, zoomInset, newElementsOff,
   } from "./actions";
   import { boardLayout, type Box } from "./boardLayout";
-  import { armLive, cancelLiveEdit, closeFluximgLive, fluximgFrame, fluximgLive, fluximgLiveProblem, fluximgReadout, fluximgTip, liveArm, livePointer, liveSampler, setLive, settleLiveEdit, type LiveSample } from "./session";
+  import { armLive, cancelLiveEdit, closeFluximgLive, fluximgFrame, fluximgLive, fluximgLiveProblem, fluximgPreview, fluximgReadout, fluximgTip, liveArm, liveOnSlide, livePointer, liveSampler, setLive, settleLiveEdit, type LiveSample } from "./session";
 
   let { image, host, origin, zoom, prefetch, preview = $bindable(null) }: {
     /** The live image's screen bounds, in the canvas host's px. */
@@ -59,6 +62,18 @@
   const ctx = $derived.by(() => { void $project; void $fluximgManifests; return live ? liveContext() : null; });
   const dims = $derived(ctx ? railDims(ctx.manifest) : []);
   const keys = $derived(ctx ? dimKeys(ctx.manifest) : {});
+  // --- on a slide: the step this board edits (stage 2). Off a slide none of this is read or laid out. -------------
+  const onSlide = liveOnSlide();
+  const card = $derived.by(() => { if (!onSlide || !live) return null; void $project; void $deckOverlay; void $editDestination; void $fluximgManifests; return stepCard(); });
+  const atStep = $derived(!!card && !card.design);
+  /** A walk a hovered key would write, shown on its rail before anything is written. */
+  let ghost = $state.raw<{ dim: string; from: number; to: number } | null>(null);
+  function onGhost(g: { dim: string; from: number; to: number } | null, which: "through" | "movie" | null): void { ghost = which === "through" ? playThroughPlan() : g; }
+  $effect(() => { if (!atStep) ghost = null; });
+  /** Where a rail's playhead stands: the board's preview plane while it plays on a slide, else the view's own. */
+  const planeOf = (d: string): number => ($fluximgPreview?.dim === d ? $fluximgPreview.index : ctx?.view.index[d] ?? 0);
+  const stepHk = $derived({ through: dims[0] && keys[dims[0]] ? `⇧${keys[dims[0]].toUpperCase()}` : "", blend: "⇧N", movie: "⇧Space" });
+  let stepH = $state(0);
   const asset = $derived(ctx ? $project.assets.find((a) => a.id === ctx.element.assetId) : undefined);
   const integer = $derived(!!ctx && ctx.manifest.pixels.encoding.kind === "exact" && !ctx.manifest.pixels.dtype.startsWith("float"));
   $effect(() => { if (live) void needLuts(); });
@@ -185,6 +200,7 @@
   function letGo(): void { settleLiveEdit(); liveArm.explicit = false; setLive({ armed: defaultArmed() }); }
   function frameKey(): void { if (live?.armed === "zoom") letGo(); else armLive("zoom"); }
   function insetKey(): void {
+    if (live?.armed !== "inset" && newElementsOff()) { pushToast("info", "An inset is a new panel: switch to Design to make one"); return; }
     if (live?.armed !== "inset") { armLive("inset"); return; }
     // Asked again: the frame as it is becomes the inset (when it is a region), and the image shows all of itself.
     if (!whole && makeInset(null)) { liveArm.explicit = false; setLive({ armed: defaultArmed() }); }
@@ -263,13 +279,18 @@
       done();
       // Space is a TAP for play / stop and a HOLD for Space+drag panning, as everywhere in Flux: the movie toggles when
       // the key comes up without the pointer having gone down meanwhile (and auto-repeat never toggles it).
-      if (d && !e.repeat) spaceTap = d;
+      if (d && !e.repeat) { spaceTap = d; spaceShift = e.shiftKey && atStep; }
       return;
     }
     if (k === "Enter" && live.armed === "inset") { done(); insetKey(); return; }
     done(); // the board owns unmodified keys: nothing leaks to canvas shortcuts (no stray Delete or nudge)
     if (e.repeat) return;
-    for (const d of dims) if (keys[d] === k) { armLive(`pos:${d}`); return; }
+    for (const d of dims) if (keys[d] === k) {
+      // At a step, Shift + a rail's key plays this step through along it (the rail's key takes it in hand).
+      if (e.shiftKey && atStep) { strike("step-through"); playThroughHere(d); return; }
+      armLive(`pos:${d}`); return;
+    }
+    if (k === LIVE_KEYS.smooth && e.shiftKey && atStep) { strike("step-blend"); toggleStepBlend(); return; }
     switch (k) {
       case LIVE_KEYS.auto: { const one = channelInHand(live.armed); strike("auto"); autoContrast(one ? live.channel : "all"); return; }
       case LIVE_KEYS.split: strike("split"); splitChannels(); return;
@@ -287,10 +308,14 @@
   let spaceTap: string | null = null;
   function onKeyUp(e: KeyboardEvent): void {
     if (e.key !== " " || !spaceTap) return;
-    const d = spaceTap;
-    spaceTap = null;
-    if (live && ctx) { strike(`play:${d}`); togglePlayback(d); }
+    const d = spaceTap, shift = spaceShift;
+    spaceTap = null; spaceShift = false;
+    if (!live || !ctx) return;
+    // Shift+Space at a step: the movie starts here (again: the Start is taken away). Space alone previews.
+    if (shift) { strike("step-start"); toggleStepMovie("start"); return; }
+    strike(`play:${d}`); togglePlayback(d);
   }
+  let spaceShift = false;
   const cancelTap = (): void => { spaceTap = null; };
   let layersOwnKeys = $state(false);
   $effect(() => { if (!live) layersOwnKeys = false; });
@@ -339,6 +364,7 @@
       return;
     }
     if (over.startsWith("speed:")) { stepSpeed(Math.sign(notches)); return; }
+    if (over === "pace") { stepPaceDial(Math.sign(notches)); return; }
     if (over === "map") { zoomFrame(Math.pow(1.12, notches * coarse * fine), null); return; }
     if (over.startsWith("layer:")) { nudgeLayerOpacity(over.slice(6), notches * coarse); return; }
     if (over.startsWith("furniture:")) { nudgeFurniture(over.slice(10) as Furniture, notches); return; }
@@ -378,6 +404,7 @@
     host, image, depth: !!vDim, rows: hDims.length,
     console: { w: CONSOLE_W, h: consoleH || 60 + (ctx?.view.channels.length ?? 1) * 84 + 44 },
     layers: hasLayers ? { w: LAYERS_W, h: Math.min(layersH || 160, 520) } : null,
+    step: card ? { w: CONSOLE_W, h: stepH || (card.design ? 50 : 86) } : null,
   }));
   const at = (b: Box): string => `left:${Math.round(b.x)}px;top:${Math.round(b.y)}px`;
   /**
@@ -389,7 +416,7 @@
     if (layout.over) return [];
     const out: Box[] = [], ix0 = image.x, ix1 = image.x + image.w, iy0 = image.y, iy1 = image.y + image.h;
     const span = (a0: number, a1: number, b0: number, b1: number): [number, number] => [Math.max(a0, b0), Math.min(a1, b1)];
-    for (const b of [layout.depth, layout.console.side === "below" ? null : layout.console, layout.layers && layout.layers.side !== "below" && !layout.layers.under ? layout.layers : null]) {
+    for (const b of [layout.depth, layout.console.side === "below" ? null : layout.console, layout.step && layout.step.side !== "below" ? layout.step : null, layout.layers && layout.layers.side !== "below" && !layout.layers.under ? layout.layers : null]) {
       if (!b) continue;
       const [y0, y1] = span(b.y, b.y + b.h, iy0, iy1);
       if (b.x + b.w <= ix0) out.push({ x: b.x + b.w, y: y0, w: ix0 - (b.x + b.w), h: y1 - y0 });
@@ -487,13 +514,15 @@
               onpress={() => autoContrast(channelInHand(live.armed) ? live.channel : "all")}
               onenter={() => { const one = channelInHand(live.armed); ghosts = autoPlan(one ? live.channel : "all"); }} onleave={() => (ghosts = null)} />
             {#if ctx.view.channels.length > 1}
-              <PaperKey glyph="split" label="Split channels" hotkey="S" id="split" onpress={() => { preview = null; splitChannels(); }}
-                onenter={() => { const plan = splitPlan(); preview = plan ? { kind: "split", plan } : null; }} onleave={() => (preview = null)} />
+              <span class="offkey" class:off={atStep}>
+              <PaperKey glyph="split" label={atStep ? "Split channels · in Design only" : "Split channels"} hotkey="S" id="split" onpress={() => { preview = null; splitChannels(); }}
+                onenter={() => { const plan = atStep ? null : splitPlan(); preview = plan ? { kind: "split", plan } : null; }} onleave={() => (preview = null)} />
+              </span>
             {/if}
           </span>
           <span class="grp">
             <PaperKey glyph="frame" label="Frame in hand: roll to zoom, drag to move" hotkey="V" id="frame" on={live.armed === "zoom"} onpress={frameKey} />
-            <PaperKey glyph="inset" label={live.armed === "inset" ? "Drag a box on the image" : "Inset: drag a box on the image"} hotkey="X" id="inset" on={live.armed === "inset"} onpress={insetKey} />
+            <span class="offkey" class:off={atStep}><PaperKey glyph="inset" label={atStep ? "Inset · in Design only" : live.armed === "inset" ? "Drag a box on the image" : "Inset: drag a box on the image"} hotkey="X" id="inset" on={live.armed === "inset"} onpress={insetKey} /></span>
           </span>
           <span class="grp">
             <PaperKey glyph="scalebar" label={hasPixelSize ? "Scale bar" : "Scale bar (the image has no pixel size)"} hotkey="B" id="scalebar" on={!!ctx.view.furniture.scalebar} onpress={(e) => furniture("scalebar", e.shiftKey)} />
@@ -520,11 +549,20 @@
       </div>
     </div>
 
+    <!-- ------------------------------------------------------------------ on a slide: this step -->
+    {#if card && layout.step}
+      <div class="part" style={at(layout.step)} data-side={layout.step.side}>
+        <BoardStep {card} width={CONSOLE_W} hotkeys={stepHk} onthrough={() => { ghost = null; playThroughHere(); }} onpace={stepPaceDial} onblend={toggleStepBlend}
+          onmovie={toggleStepMovie} onmode={cycleMovieMode} onghost={onGhost} onnatural={(h) => (stepH = h)} />
+      </div>
+    {/if}
+
     <!-- ------------------------------------------------------------------ the rails: the image's axes -->
     {#if layout.depth && vDim}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="part" style={at(layout.depth)} onpointerdown={stop} ondblclick={stop}>
-        <BoardRail dim={vDim} hotkey={keys[vDim] ?? ""} label={dimName(vDim)} vertical side={layout.depth.side} w={layout.depth.w} h={layout.depth.h} length={dimLength(ctx.manifest, vDim)} index={ctx.view.index[vDim] ?? 0}
+        <BoardRail dim={vDim} hotkey={keys[vDim] ?? ""} label={dimName(vDim)} vertical side={layout.depth.side} w={layout.depth.w} h={layout.depth.h} length={dimLength(ctx.manifest, vDim)} index={planeOf(vDim)}
+          trail={card?.walk?.dim === vDim ? card.walk : null} ghost={ghost?.dim === vDim ? ghost : null}
           run={ctx.view.projection?.dim === vDim ? ctx.view.projection : null} mode={ctx.view.projection?.dim === vDim ? ctx.view.projection.mode : null} profiles={profilesOf(vDim)} axis={ctx.manifest.axes?.[vDim]}
           armed={live.armed === `pos:${vDim}` || live.armed === `run:${vDim}`} unit={ctx.manifest.axes?.[vDim]?.unit ?? ""} format={formatNumber}
           playing={live.playing?.dim === vDim} speed={live.speed} choosing={choosing === vDim} {modes} {choice}
@@ -537,7 +575,8 @@
       {#if box}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div class="part" style={at(box)} onpointerdown={stop} ondblclick={stop}>
-          <BoardRail {dim} hotkey={keys[dim] ?? ""} label={dimName(dim)} w={box.w} h={box.h} length={dimLength(ctx.manifest, dim)} index={ctx.view.index[dim] ?? 0}
+          <BoardRail {dim} hotkey={keys[dim] ?? ""} label={dimName(dim)} w={box.w} h={box.h} length={dimLength(ctx.manifest, dim)} index={planeOf(dim)}
+            trail={card?.walk?.dim === dim ? card.walk : null} ghost={ghost?.dim === dim ? ghost : null}
             run={ctx.view.projection?.dim === dim ? ctx.view.projection : null} mode={ctx.view.projection?.dim === dim ? ctx.view.projection.mode : null} profiles={profilesOf(dim)} axis={ctx.manifest.axes?.[dim]}
             armed={live.armed === `pos:${dim}` || live.armed === `run:${dim}`} unit={ctx.manifest.axes?.[dim]?.unit ?? ""} format={formatNumber}
             playing={live.playing?.dim === dim} speed={live.speed} choosing={choosing === dim} {modes} {choice}
@@ -591,6 +630,9 @@
   .bad { color: var(--c-danger); white-space: normal; }
   .keypad { display: flex; align-items: center; gap: 9px; padding: 7px 8px 8px; }
   .grp { display: inline-flex; gap: 3px; }
+  /* A key that makes new elements, on a slide's step: still there (its label says why it is off), dimmed. */
+  .offkey { display: inline-flex; }
+  .offkey.off { opacity: 0.38; }
   .mapcard { padding: 8px 8px 7px; transition: border-color 90ms linear; }
   .mapcard.hand { border-color: color-mix(in oklab, var(--fxb-pink) 62%, transparent); }
   .mapcard :global(.nav) { margin-bottom: 7px; }

@@ -13,7 +13,7 @@
   import { restoreState, slideById, addBeat, deleteBeat, duplicateBeat, reorderBeats, reorderTracks, moveTrackToBeat, duplicateTrack, setBeat, setTrackGroup, groupTracks, ungroupTracks, setTrack, setTrackAnchor } from "../../../../lib/slide/ops";
   import type { Slide, Track, Beat, TrackGroup } from "../../../../lib/slide/types";
   import type { FluxPlotManifest } from "../../../../lib/plot/types";
-  import { PRESET_COLOR, chipLabel, trackFanout, beatEndMs, snapMs, gridLineAt, isDanglingTrack, trackKindLabel, timeGrid } from "./shared";
+  import { PRESET_COLOR, chipLabel, trackFanout, beatEndMs, snapMs, gridLineAt, isDanglingTrack, trackKindLabel, timeGrid, laneGlyph } from "./shared";
   import { hoverTrackId, timelinePxPerMs } from "./animatorState";
   import { deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled, moveSelectedToBeat, copySelectedTiming, pasteSelectedTiming, canPasteTiming } from "./trackActions";
   import { openTrackCascade } from "./cascadeTracks";
@@ -603,11 +603,11 @@
             <div class="target-label"><button class="chevron" aria-label={row.group.collapsed?"Expand group":"Collapse group"} onclick={()=>commitDeckLive(d=>setTrackGroup(d,slide.id,beat.id,row.group.id,{collapsed:!row.group.collapsed}))}>{row.group.collapsed?"▸":"▾"}</button>{#if renameGroupId===row.group.id}<input class="group-title" aria-label="Group name" value={row.group.label} onblur={e=>{if(e.currentTarget.value.trim())commitDeckLive(d=>setTrackGroup(d,slide.id,beat.id,row.group.id,{label:e.currentTarget.value.trim()}));renameGroupId=null;}} onkeydown={e=>{e.stopPropagation();if(e.key==="Enter")e.currentTarget.blur();if(e.key==="Escape")renameGroupId=null;}}/>{:else}<button class="group-name" title="Select group · double-click to rename" onclick={()=>chooseGroup(row.tracks)} ondblclick={()=>renameGroupId=row.group.id}>{row.group.label} <small>{row.tracks.length}</small></button>{/if}</div>
             <div class="time-cell"><!-- svelte-ignore a11y_no_static_element_interactions --><span class="group-span" class:sel={row.tracks.every(t=>!!t.id&&highlightedIds.has(t.id))} title="Drag to retime or move this group" onpointerdown={e=>{chooseGroup(row.tracks);down(e,row.tracks[0],"start");}} style={`left:${Math.min(...row.tracks.map(t=>t.start??0))*scale}px;width:${Math.max(8,(Math.max(...row.tracks.map(t=>(t.start??0)+trackDuration(t)+staggerSpan(t,trackFanout(t,slide,manifestFor(t.target)))))-Math.min(...row.tracks.map(t=>t.start??0)))*scale)}px`}></span></div>
           </div>
-        {:else}{@const t=row.track}{@const tx=familyOf(t)==="transform"}
+        {:else}{@const t=row.track}{@const tx=familyOf(t)==="transform"}{@const kind=slide.elements.find(e=>e.id===t.target)?.type}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div class="lane-row" class:selected={!!t.id&&highlightedIds.has(t.id)} class:inherit-target={!!t.id&&inheritOver===t.id} class:inherit-source={!!t.id&&inheritIds.has(t.id)} class:disabled={t.disabled} class:missing={isDanglingTrack(t,slide)} data-row-index={ri} data-track-id={t.id} data-beat={$activeBeat} style={`--pc:${PRESET_COLOR[t.preset??"fade"]??"#4385be"}`} onpointerenter={()=>hoverTrackId.set(t.id??null)} onpointerleave={()=>hoverTrackId.set(null)} oncontextmenu={e=>trackMenu(e,t)}>
-            <button class="target-label track-label" onclick={e=>inheritPick?pickInheritSource(t):chooseTrack(t,e.shiftKey||e.metaKey||e.ctrlKey)} title={`${label(t)} · ${trackKindLabel(t,deck)}`}>
-              <span class="target-name">{#if isDanglingTrack(t,slide)}⚠ {/if}{label(t)}</span><small>{trackKindLabel(t,deck)}{t.disabled?" · disabled":""}</small>
+            <button class="target-label track-label" onclick={e=>inheritPick?pickInheritSource(t):chooseTrack(t,e.shiftKey||e.metaKey||e.ctrlKey)} title={`${label(t)} · ${trackKindLabel(t,deck,kind)}`}>
+              <span class="target-name">{#if isDanglingTrack(t,slide)}⚠ {/if}{#if laneGlyph(kind)}<span class="lane-glyph" aria-hidden="true">{laneGlyph(kind)}</span> {/if}{label(t)}</span><small>{trackKindLabel(t,deck,kind)}{t.disabled?" · disabled":""}</small>
             </button>
             <div class="time-cell">
               <!-- svelte-ignore a11y_no_static_element_interactions -->

@@ -14,7 +14,7 @@ import type { FluximgElement } from "../../types";
 import type { FluximgManifest, FluximgLayer } from "../../fluximg/types";
 import type { FluximgSurface } from "../../fluximg/slideHost";
 import type { PixelRect, ResolvedFurniture, ResolvedLayer } from "../../fluximg/view";
-import { planViewTween, type TweenPicture, type ViewTweenFrame, type ViewTweenPlan } from "../../fluximg/viewTween";
+import { planViewTween, withIndex, type TweenPicture, type ViewTweenFrame, type ViewTweenPlan } from "../../fluximg/viewTween";
 import { pixelKey, resolveView } from "../../fluximg/viewOps";
 // crop.ts, never still.ts: the exported deck's runtime loads this module, and still.ts pulls the reader and renderer.
 import { clampCrop, tieredStillSize } from "../../fluximg/crop";
@@ -463,7 +463,7 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
         }
         return;
       }
-      const f = frame ?? resting(manifest);
+      const f = withMovie(handle, frame ?? resting(manifest));
       if (!cull) widen(clampCrop(manifest, el.crop));
       overlay.update(manifest, el.assetId, el, f.overlay, f.furnitureOpacity, cull!);
       if (!ctx.fluximg) { showStill(manifest, f.a); return; }
@@ -516,6 +516,29 @@ export function fillFluximg(parent: HTMLElement, element: FluximgElement, ctx: S
   if (known) showStill(known, resting(known).a);
   return handle;
 }
+
+// ---------------------------------------------------------------------------------------------
+// W6 (movie playback, player/fluximgMedia.ts): a running movie drives ONE dimension over whatever frame the binding
+// shows (its resting state or a Change's frame): viewTween.withIndex, the one definition of "the same frame at another
+// plane". One WeakMap lookup per flush for a binding without a movie; the composed frame is memoised per (frame, plane)
+// so its pictures keep their identity (and their keys) while the plane holds.
+// ---------------------------------------------------------------------------------------------
+const movieIndex = new WeakMap<SlideFluximgBinding, { dim: string; index: number }>();
+const movieMemo = new WeakMap<SlideFluximgBinding, { base: ViewTweenFrame; dim: string; index: number; out: ViewTweenFrame }>();
+/** Override the plane of `dim` on a binding (a running or paused movie), or drop the override (Stop: the state's own plane). */
+export function setSlideFluximgMovie(binding: SlideFluximgBinding, at: { dim: string; index: number } | null): void {
+  if (at) movieIndex.set(binding, at); else { movieIndex.delete(binding); movieMemo.delete(binding); }
+}
+function withMovie(binding: SlideFluximgBinding, f: ViewTweenFrame): ViewTweenFrame {
+  const o = movieIndex.get(binding);
+  if (!o) return f;
+  const m = movieMemo.get(binding);
+  if (m && m.base === f && m.dim === o.dim && m.index === o.index) return m.out;
+  const out = withIndex(f, o.dim, o.index);
+  movieMemo.set(binding, { base: f, dim: o.dim, index: o.index, out });
+  return out;
+}
+// ---------------------------------------------------------------------------------------------
 
 export function fluximgBindingOf(root: HTMLElement): SlideFluximgBinding | undefined {
   return bindings.get(root) ?? (root.querySelector<HTMLElement>("[data-slide-fluximg-root]") ? bindings.get(root.querySelector<HTMLElement>("[data-slide-fluximg-root]")!) : undefined);

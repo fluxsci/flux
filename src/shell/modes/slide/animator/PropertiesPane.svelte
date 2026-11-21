@@ -43,6 +43,12 @@
   import { presetParam, PRESET_PARAMS, authoredParams, type PointParam } from "../../../../lib/slide/presetCatalog";
   import { multiStroke } from "../../../../lib/slide/strokeGeometry";
   import { pushToast } from "../../../../lib/toast";
+  import { fluximgManifests } from "../../../../lib/fluximg/store";
+  import { describeViewChange, dropViewChange, longestWalk, type ViewChange, type ViewEnd } from "../../../../lib/fluximg/viewTween";
+  import { PACE_SPEEDS, PLAYBACK_MODES, resolvePlayback, walkableDims } from "../../../../lib/fluximg/playback";
+  import { positionText } from "../../../../lib/fluximg/furniture";
+  import type { FluximgElement } from "../../../../lib/fluximg/element";
+  import { retimeImageWalk, dropWalkPace, walkPace, walkBlends, setImagePlayback } from "../../../../lib/slide/ops";
 
   let { slide, plotTags, onChooseMorph, onBecome }: {
     slide: Slide; plotTags: Map<string, string>;
@@ -483,13 +489,67 @@
       t.to = { ...(t.to ?? {}), state: st };
     });
   }
+  const curTargetEl = $derived(curTrack ? transformPreState(slide, curTrack.target, curBeatIndex) : null);
+  // --- an image's Change (stage 2): its aspects as chips, the walk's pace, blend and end plane ---------------------------
+  const imageTarget = $derived(curTargetEl?.type === "fluximg" ? (curTargetEl as FluximgElement) : null);
+  const imageManifest = $derived(imageTarget ? $fluximgManifests[imageTarget.assetId] : undefined);
+  const imageEnds = $derived.by((): { pre: ViewEnd; end: ViewEnd } | null => {
+    if (!imageTarget || curFamily !== "transform" || !curTrack || handoff || curTrack.part || curTrack.parts || curTrack.selector) return null;
+    const end = transformEndState(imageTarget, curTrack) as FluximgElement;
+    return { pre: { view: imageTarget.view, crop: imageTarget.crop }, end: { view: end.view, crop: end.crop } };
+  });
+  const imageChanges = $derived(imageEnds ? describeViewChange(imageManifest, imageEnds.pre, imageEnds.end) : []);
+  const imageWalk = $derived(imageEnds ? longestWalk(imageManifest, imageEnds.pre, imageEnds.end) : null);
+  /** Write an image Change's end (view, crop) as its state: a part equal to the start is dropped, one cleared is null. */
+  function writeImageEnd(t: Track, next: ViewEnd): void {
+    const st = { ...((t.to?.state ?? {}) as Record<string, unknown>) }, pre = imageEnds!.pre;
+    for (const k of ["view", "crop"] as const) {
+      const v = next[k] ?? undefined, p = pre[k] ?? undefined;
+      if (JSON.stringify(v ?? null) === JSON.stringify(p ?? null)) delete st[k]; else st[k] = v === undefined ? null : structuredClone(v);
+    }
+    t.to = { ...(t.to ?? {}), state: st };
+    // the walk changed: a paced track follows it (the pace rule), a hand-timed one keeps its timing
+    if (imageTarget) retimeImageWalk(t, imageTarget, transformEndState(imageTarget, t), { fluximgManifest: (id) => $fluximgManifests[id] });
+  }
+  function dropImageChange(c: ViewChange) {
+    if (!imageEnds) return;
+    const next = dropViewChange(imageEnds.pre, imageEnds.end, c, imageManifest);
+    withCurTrack((t) => writeImageEnd(t, next));
+  }
+  function setImagePace(value: string) {
+    if (!imageTarget) return;
+    withCurTrack((t) => {
+      if (value === "custom") { dropWalkPace(t); return; }
+      retimeImageWalk(t, imageTarget, transformEndState(imageTarget, t), { fluximgManifest: (id) => $fluximgManifests[id], speed: Number(value), force: true });
+    });
+  }
+  function setImageBlend(on: boolean) {
+    withCurTrack((t) => { const p = { ...(t.params ?? {}) }; if (on) p.blend = true; else delete p.blend; if (Object.keys(p).length) t.params = p; else delete t.params; });
+  }
+  function setWalkEnd(value: string) {
+    const w = imageWalk, n = imageManifest && w ? imageManifest.pixels.shape[imageManifest.pixels.dims.indexOf(w.dim)] : 0, i = Math.round(Number(value)) - 1;
+    if (!w || !imageEnds || !(i >= 0 && i < n)) return;
+    const view = structuredClone(imageEnds.end.view ?? {});
+    view.index = { ...(view.index ?? {}), [w.dim]: i };
+    withCurTrack((t) => writeImageEnd(t, { ...imageEnds!.end, view }));
+  }
+  const speedWords = (v: number): string => (v === 0.25 ? "¼" : v === 0.5 ? "½" : String(v));
+  // --- an image's movie command: how it plays (Design-level, on the element) --------------------------------------------
+  const movieTarget = $derived(allMedia && curTrack ? (slide.elements.find((e) => e.id === curTrack.target && e.type === "fluximg") as FluximgElement | undefined) : undefined);
+  const movieManifest = $derived(movieTarget ? $fluximgManifests[movieTarget.assetId] : undefined);
+  const moviePlayback = $derived(movieManifest && movieTarget ? resolvePlayback(movieManifest, movieTarget.playback) : null);
+  function patchPlayback(patch: Parameters<typeof setImagePlayback>[3]) {
+    const id = movieTarget?.id;
+    if (!id) return;
+    try { commitDeckLive((d) => setImagePlayback(d, slide.id, id, patch, { fluximgManifest: (a) => $fluximgManifests[a] })); }
+    catch (e) { pushToast("info", e instanceof Error ? e.message : String(e)); }
+  }
   function clearT2() {
     withCurTrack((t) => {
       t.to = { ...(t.to ?? {}), state: {} };
     });
   }
   // morph-content row: other compatible plots on the slide (plot targets only)
-  const curTargetEl = $derived(curTrack ? transformPreState(slide, curTrack.target, curBeatIndex) : null);
   const targetParts = $derived.by(() => {
     if (curTargetEl?.type !== "plot" && curTargetEl?.type !== "model3d") return [] as string[];
     const tree = curTargetEl.type === "model3d" ? ($scene3dManifests[curTargetEl.assetId] ? buildModel3dTree($scene3dManifests[curTargetEl.assetId]) : null) : buildPartTree($plotManifests[curTargetEl.assetId]);
@@ -688,8 +748,12 @@
       {#if !handoff && changedProps.length}
         <div class="delta" title="The properties this transform changes at t₂ — ✕ drops one">
           <span class="dl">Δ</span>
-          {#each changedProps as k (k)}
+          {#each changedProps.filter((k) => !imageEnds || (k !== "view" && k !== "crop")) as k (k)}
             <span class="dchip">{deltaLabel(k)}<button class="dx" title={`Drop the ${deltaName(k)} change`} aria-label={`Drop the ${deltaName(k)} change`} onclick={() => dropChangedProp(k)}>✕</button></span>
+          {/each}
+          <!-- an image's view and frame, one chip per thing it does ("t 0.00 s → 5.00 s", "zooms in"): ✕ puts that one back -->
+          {#each imageChanges as c, i (i)}
+            <span class="dchip" data-image-change={c.kind}>{c.label}<button class="dx" title={`Drop “${c.label}”`} aria-label={`Drop “${c.label}”`} onclick={() => dropImageChange(c)}>✕</button></span>
           {/each}
           <button class="dclear" title="Reset t₂ to equal t₁ (drop every change)" onclick={clearT2}>clear t₂</button>
         </div>
@@ -752,10 +816,39 @@
       <label class="f">Action<kbd class="kc" title="shortcut: p">p</kbd>
         <select data-fld="p" aria-label="Video action" value={curTrack.preset}
           onchange={event => patchTrack({ preset: event.currentTarget.value as PresetName, duration: 0 })}>
-          <option value="videoStart">Start video</option><option value="videoPause">Pause video</option><option value="videoStop">Stop video</option>
+          {#if movieTarget}<option value="videoStart">Start movie</option><option value="videoPause">Pause movie</option><option value="videoStop">Stop movie</option>
+          {:else}<option value="videoStart">Start video</option><option value="videoPause">Pause video</option><option value="videoStop">Stop video</option>{/if}
         </select>
       </label>
+      {#if movieTarget}
+        <div class="note">{curTrack.preset === "videoStart" ? "Plays the image as a movie from the first plane of its range, across steps, until a Pause or Stop." : curTrack.preset === "videoPause" ? "Holds the plane on screen. A later Start plays again from the beginning." : "Stops the movie: the image shows its own plane at this step again."}</div>
+        {#if moviePlayback && movieManifest}
+          {@const n = movieManifest.pixels.shape[movieManifest.pixels.dims.indexOf(moviePlayback.dim)]}
+          <!-- How the movie plays: one setting of the image (Design-level, like a video's loop), shared by every step. -->
+          <label class="f">Plays
+            <select aria-label="Movie dimension" value={moviePlayback.dim} onchange={(e) => patchPlayback({ dim: e.currentTarget.value, from: null, to: null })}>
+              {#each walkableDims(movieManifest) as d (d)}<option value={d}>{d === "t" ? "time" : d === "z" ? "depth" : d}</option>{/each}
+            </select>
+          </label>
+          <label class="f">Mode
+            <select aria-label="Movie mode" value={moviePlayback.mode} onchange={(e) => patchPlayback({ mode: e.currentTarget.value as (typeof PLAYBACK_MODES)[number] })}>
+              <option value="loop">Loop</option><option value="bounce">Bounce</option><option value="once">Once</option>
+            </select>
+          </label>
+          <label class="f" title="A multiple of the data's own rate (a time axis plays in real time)">Speed
+            <select aria-label="Movie speed" value={String(moviePlayback.speed)} onchange={(e) => patchPlayback({ speed: Number(e.currentTarget.value) === 1 ? null : Number(e.currentTarget.value) })}>
+              {#each PACE_SPEEDS as v (v)}<option value={String(v)}>×{speedWords(v)}</option>{/each}
+              {#if !PACE_SPEEDS.includes(moviePlayback.speed)}<option value={String(moviePlayback.speed)}>×{moviePlayback.speed}</option>{/if}
+            </select>
+          </label>
+          <label class="f" title="The planes it plays, first to last">Range
+            <span class="unit"><input aria-label="Movie first plane" type="number" min="1" max={n} step="1" value={moviePlayback.from + 1} onchange={(e) => patchPlayback({ from: Math.round(Number(e.currentTarget.value)) - 1 })} /><small>to</small>
+              <input aria-label="Movie last plane" type="number" min="1" max={n} step="1" value={moviePlayback.to} onchange={(e) => patchPlayback({ to: Math.round(Number(e.currentTarget.value)) })} /><small>of {n}</small></span>
+          </label>
+        {/if}
+      {:else}
       <div class="note">{curTrack.preset === "videoStart" ? "Starts from the first frame. Playback continues across steps until the clip ends or a Pause/Stop action runs." : curTrack.preset === "videoPause" ? "Freezes the current frame. A later Start action plays again from the beginning." : "Stops playback and returns to the first frame."} Appearance is controlled separately.</div>
+      {/if}
     {:else if curFamily === "appearance" && !anyGhost && !anyMedia}
       <label class="f">Effect<kbd class="kc" title="shortcut: p">p</kbd>
         <select data-fld="p" value={curTrack.preset ?? "fade"} onchange={(e) => switchEffect(e.currentTarget.value as PresetName)}>
@@ -784,6 +877,25 @@
           <select aria-label="Turntable pace" value={curTrack.easing === "linear" && !curTrack.curve ? "constant" : JSON.stringify(curTrack.curve) === JSON.stringify(TURNTABLE_SOFT_CURVE) ? "soft" : "custom"} onchange={(e) => changeCurve(e.currentTarget.value === "constant" ? "linear" : structuredClone(TURNTABLE_SOFT_CURVE), false)}>
             <option value="soft">Soft start</option><option value="constant">Constant speed</option><option value="custom" disabled>Custom curve</option>
           </select>
+        </label>
+      {/if}
+      {#if imageWalk && imageManifest}
+        {@const n = imageManifest.pixels.shape[imageManifest.pixels.dims.indexOf(imageWalk.dim)]}
+        <!-- An image's walk: its pace is written, never played (real time = the data's own rate); Custom = the plain duration field. -->
+        <label class="f" title="How fast the planes go by: the data's own rate (a time axis plays in real time), or a multiple of it. Custom keeps the duration you set.">Pace
+          <select aria-label="Image walk pace" value={walkPace(curTrack) !== null ? String(walkPace(curTrack)) : "custom"} onchange={(e) => setImagePace(e.currentTarget.value)}>
+            {#each PACE_SPEEDS as v (v)}<option value={String(v)}>Real time ×{speedWords(v)}</option>{/each}
+            <option value="custom">Custom</option>
+          </select>
+        </label>
+        <div class="f" title="Step through the planes one by one, or crossfade each into the next">Planes
+          <div class="seg" role="group" aria-label="Blend planes">
+            <button class="sg" class:on={!walkBlends(curTrack)} aria-pressed={!walkBlends(curTrack)} onclick={() => setImageBlend(false)}>step</button>
+            <button class="sg" class:on={walkBlends(curTrack)} aria-pressed={walkBlends(curTrack)} onclick={() => setImageBlend(true)}>blend</button>
+          </div>
+        </div>
+        <label class="f" title={`The plane of ${imageWalk.dim} this step ends on`}>Ends on {imageWalk.dim}
+          <span class="unit"><input aria-label="Image walk end plane" type="number" min="1" max={n} step="1" value={imageWalk.to + 1} onchange={(e) => setWalkEnd(e.currentTarget.value)} /><small>{positionText(imageManifest.axes?.[imageWalk.dim], imageWalk.to, n)}</small></span>
         </label>
       {/if}
       {#if !handoff && turnApplies(curTargetEl)}
