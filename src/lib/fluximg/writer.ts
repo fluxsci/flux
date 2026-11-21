@@ -75,7 +75,22 @@ export interface WriteOptions {
   overviewFloor?: number;
   maxShardBytes?: number;
   guardThreshold?: number;
+  /** Checked between planes: an aborted write throws an AbortError before the manifest is written. */
+  signal?: AbortSignal;
+  /** After every plane of each pass. `bytesRead` is the source's own count when it keeps one. */
+  onProgress?: (p: WriteProgress) => void;
+  /** Chunks compressed at once when the codec has `compressAsync` (default 1: synchronous, as callers before it
+   *  expect; the TIFF converter asks for 8). The window holds that many chunks besides the shard-size sample. */
+  concurrency?: number;
 }
+
+export interface WriteProgress { phase: "learn" | "store"; done: number; total: number; bytesRead?: number }
+
+/** What `signal` aborts with (the platform's AbortError name, so callers can tell a cancel from a failure). */
+export class WriteAbortError extends Error { constructor() { super("The image write was cancelled"); this.name = "AbortError"; } }
+const checkAbort = (signal?: AbortSignal): void => { if (signal?.aborted) throw new WriteAbortError(); };
+/** Raw bytes in flight in the compression window, at most (besides the chunk count). */
+const INFLIGHT_BYTES = 128 * 1024 * 1024;
 
 export interface WriteReport {
   manifest: FluximgManifest;
@@ -161,28 +176,47 @@ class ArrayWriter {
   private planesDone = 0;
   private planesBytes = 0;
   private open: { shard: number[]; parts: Array<{ local: number; blob: Uint8Array }> } | null = null;
+  /** Compressions in flight, in C order; consumed from the front, so shards get exactly the sync path's bytes. */
+  private pending: Array<{ coords: number[]; job: Promise<Uint8Array> | null; bytes: number }> = [];
+  private pendingBytes = 0;
   bytes = 0;
   files = 0;
 
   constructor(
     private io: BundleWriteIO, private codec: ZstdCodec, readonly path: string,
     readonly shape: number[], readonly dtype: FluximgDtype, readonly inner: number[], readonly fill: number,
-    readonly dims: string[], private level: number, private maxShardBytes: number,
+    readonly dims: string[], private level: number, private maxShardBytes: number, private window = 1,
   ) {
     this.counts = chunkCounts(shape, inner);
     this.chunkBytes = product(inner) * DTYPE_BYTES[dtype];
     this.samplePlanes = Math.min(SHARD_SAMPLE_PLANES, product(this.counts.slice(0, -2)));
+    if (!codec.compressAsync) this.window = 1;
   }
 
   /** `chunk` must be exactly one inner chunk; null (or entirely fill) writes nothing. Every chunk of the array
-   *  must be offered, in C order of `coords` (the estimate counts rows and planes as they end). */
+   *  must be offered, in C order of `coords` (the estimate counts rows and planes as they end). With a window
+   *  above 1 the chunk is compressed asynchronously: the caller must not modify it afterwards. */
   async add(coords: readonly number[], chunk: FluximgTypedArray | null): Promise<void> {
-    let blob: Uint8Array | null = null;
+    let raw: Uint8Array | null = null;
     if (chunk && !allFill(chunk, this.fill)) {
-      const raw = new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+      raw = new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
       if (raw.byteLength !== this.chunkBytes) throw new Error(`fluximg: chunk has ${raw.byteLength} bytes, expected ${this.chunkBytes}`);
-      blob = this.codec.compress!(raw, this.level);
     }
+    if (this.window <= 1) { await this.accept(coords, raw ? this.codec.compress!(raw, this.level) : null); return; }
+    const job = raw ? this.codec.compressAsync!(raw, this.level) : null;
+    job?.catch(() => {});                                // a failure surfaces when the job is consumed, not as unhandled
+    this.pending.push({ coords: coords.slice(), job, bytes: raw?.byteLength ?? 0 });
+    this.pendingBytes += raw?.byteLength ?? 0;
+    while (this.pending.length >= this.window || this.pendingBytes > INFLIGHT_BYTES) await this.drainOne();
+  }
+
+  private async drainOne(): Promise<void> {
+    const p = this.pending.shift()!;
+    this.pendingBytes -= p.bytes;
+    await this.accept(p.coords, p.job ? await p.job : null);
+  }
+
+  private async accept(coords: readonly number[], blob: Uint8Array | null): Promise<void> {
     if (this.per) { if (blob) await this.put(coords, blob); return; }
     if (blob) { this.held.push({ coords: coords.slice(), blob }); this.heldBytes += blob.byteLength; }
     const nd = coords.length;
@@ -230,6 +264,7 @@ class ArrayWriter {
   }
 
   async finish(attributes: Record<string, unknown> = {}): Promise<ZarrArrayMeta> {
+    while (this.pending.length) await this.drainOne();
     if (!this.per) await this.decide();
     await this.writeOpen();
     const outer = this.per!.map((p, i) => p * this.inner[i]);
@@ -261,10 +296,11 @@ function* tilesOf(plane: FluximgTypedArray, W: number, H: number, cw: number, ch
   }
 }
 
-/** Mean of the valid samples in each f x f block (fewer at the right and bottom edges); NaN where none. */
-export function blockMean(values: Float32Array | Float64Array, W: number, H: number, f: number): { data: Float64Array; width: number; height: number } {
+/** Mean of the valid samples in each f x f block (fewer at the right and bottom edges); NaN where none.
+ *  `into` (sized for this level) is reused instead of allocating; `data` is then `into.sum`. */
+export function blockMean(values: Float32Array | Float64Array, W: number, H: number, f: number, into?: { sum: Float64Array; cnt: Uint32Array }): { data: Float64Array; width: number; height: number } {
   const w = Math.ceil(W / f), h = Math.ceil(H / f);
-  const sum = new Float64Array(w * h), cnt = new Uint32Array(w * h);
+  const sum = into ? into.sum.fill(0) : new Float64Array(w * h), cnt = into ? into.cnt.fill(0) : new Uint32Array(w * h);
   for (let y = 0; y < H; y++) {
     const row = Math.floor(y / f) * w;
     for (let x = 0; x < W; x++) {
@@ -359,7 +395,11 @@ export async function writeFluximg(io: BundleWriteIO, codec: ZstdCodec, input: W
   const tileThreshold = options.tileThreshold ?? TILE_THRESHOLD, tileSize = options.tileSize ?? TILE_SIZE;
   const overviewFloor = options.overviewFloor ?? OVERVIEW_FLOOR, maxShard = options.maxShardBytes ?? MAX_SHARD_BYTES;
   const threshold = options.guardThreshold ?? GUARD_THRESHOLD;
+  const { signal, onProgress } = options;
+  const window = Math.max(1, Math.floor(options.concurrency ?? 1));
   const { source } = input;
+  const bytesRead = (): number | undefined => (source as { bytesRead?: unknown }).bytesRead as number | undefined;
+  checkAbort(signal);
   const { dims, shape, dtype } = source;
   const nd = dims.length;
   if (nd < 2 || dims[nd - 2] !== "y" || dims[nd - 1] !== "x") throw new Error("fluximg: the last two dimensions must be y and x");
@@ -387,6 +427,8 @@ export async function writeFluximg(io: BundleWriteIO, codec: ZstdCodec, input: W
     profCnt[d] = Array.from({ length: C }, () => new Float64Array(n));
   }
   const seenPerChannel = new Array<number>(C).fill(0);
+  const totalPlanes = product(leadShape);
+  let done = 0;
   for (const lead of ndindex(leadShape.length ? leadShape : [1])) {
     const leading = leadShape.length ? lead : [];
     const c = ci >= 0 ? leading[ci] : 0;
@@ -397,6 +439,8 @@ export async function writeFluximg(io: BundleWriteIO, codec: ZstdCodec, input: W
       const i = leading[dims.indexOf(d)];
       profSum[d][c][i] += sum; profCnt[d][c][i] += count;
     }
+    checkAbort(signal);
+    onProgress?.({ phase: "learn", done: ++done, total: totalPlanes, bytesRead: bytesRead() });
   }
   const encoding = chooseEncoding(accs, dtype, input.lossless === true, threshold, notes, "pixels");
   const sDtype = storedDtype(dtype, encoding), sFill = storedFill(dtype, encoding, nodata);
@@ -410,25 +454,29 @@ export async function writeFluximg(io: BundleWriteIO, codec: ZstdCodec, input: W
   const pixelsPath = "pixels";
   const writers = factors.map((f, i) => {
     const lshape = [...leadShape, Math.ceil(H / f), Math.ceil(W / f)];
-    return new ArrayWriter(io, codec, `${pixelsPath}/${i}`, lshape, sDtype, innerShape(lshape, tileThreshold, tileSize), sFill, dims, zstdLevel, maxShard);
+    return new ArrayWriter(io, codec, `${pixelsPath}/${i}`, lshape, sDtype, innerShape(lshape, tileThreshold, tileSize), sFill, dims, zstdLevel, maxShard, window);
   });
 
   // ---- pass 2: store -----------------------------------------------------------------------------
+  // Overview scratch, allocated once: the plane's values and each level's block sums.
+  const values = factors.length > 1 ? new Float64Array(W * H) : null;
+  const scratch = factors.map((f) => (f === 1 ? null : { sum: new Float64Array(Math.ceil(W / f) * Math.ceil(H / f)), cnt: new Uint32Array(Math.ceil(W / f) * Math.ceil(H / f)) }));
+  done = 0;
   for (const lead of ndindex(leadShape.length ? leadShape : [1])) {
     const leading = leadShape.length ? lead : [];
     const c = ci >= 0 ? leading[ci] : 0;
     const plane = await source.plane(leading);
+    if (values) for (let i = 0; i < plane.length; i++) { const v = plane[i]; values[i] = (isFloat ? Number.isFinite(v) : v !== nodata) ? v : NaN; }
     for (let li = 0; li < factors.length; li++) {
       const w = writers[li], lw = w.shape[nd - 1], lh = w.shape[nd - 2];
       let stored: FluximgTypedArray;
       if (li === 0) stored = storePlane(plane, encoding, c);
       else {
-        // Overviews are means of the VALUES, re-stored under the same encoding.
-        const values = new Float64Array(plane.length);
-        for (let i = 0; i < plane.length; i++) { const v = plane[i]; values[i] = (isFloat ? Number.isFinite(v) : v !== nodata) ? v : NaN; }
-        const m = blockMean(values, W, H, factors[li]).data;
+        // Overviews are means of the VALUES, re-stored under the same encoding. Every branch hands the writer a new
+        // array: chunks may still be compressing when the scratch is reused for the next plane.
+        const m = blockMean(values!, W, H, factors[li], scratch[li]!).data;
         if (encoding.kind === "linear16") stored = storePlane(m, encoding, c);
-        else if (dtype === "float64") stored = m;
+        else if (dtype === "float64") stored = m.slice();
         else if (dtype === "float32") stored = Float32Array.from(m);
         else { stored = allocTyped(dtype, m.length); for (let i = 0; i < m.length; i++) stored[i] = m[i] === m[i] ? Math.round(m[i]) : (nodata ?? 0); }
       }
@@ -436,6 +484,8 @@ export async function writeFluximg(io: BundleWriteIO, codec: ZstdCodec, input: W
         await w.add([...leading, ty, tx], chunk);
       }
     }
+    checkAbort(signal);
+    onProgress?.({ phase: "store", done: ++done, total: totalPlanes, bytesRead: bytesRead() });
   }
   const levels: FluximgLevel[] = [];
   for (let i = 0; i < writers.length; i++) {
