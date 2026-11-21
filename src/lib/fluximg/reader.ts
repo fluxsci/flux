@@ -24,6 +24,9 @@ export interface BundleReadIO {
 export interface ZstdCodec {
   decompress(src: Uint8Array, outBytes: number): Uint8Array;
   compress?(src: Uint8Array, level: number): Uint8Array;
+  /** Compression off the calling thread (Node: zlib's thread pool). The writer keeps a bounded window of these in
+   *  flight and consumes them in order (deterministic output). `src` is not modified meanwhile. */
+  compressAsync?(src: Uint8Array, level: number): Promise<Uint8Array>;
 }
 
 export interface ArrayHandle {

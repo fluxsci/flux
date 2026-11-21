@@ -75,7 +75,29 @@ export interface WriteOptions {
   overviewFloor?: number;
   maxShardBytes?: number;
   guardThreshold?: number;
+  /** Checked between planes: an aborted write throws an AbortError before the manifest is written. */
+  signal?: AbortSignal;
+  /** After every plane of each pass. `bytesRead` is the source's own count when it keeps one. */
+  onProgress?: (p: WriteProgress) => void;
+  /** Write `preview.png` (the default view, at most 512 px, SPEC 8) with this PNG encoder of straight RGBA. Off by
+   *  default: callers before it write exactly the files they did. */
+  preview?: { encodePng(rgba: Uint8Array, width: number, height: number): Uint8Array };
+  /** "auto": add a region per connected valid area of the union of 16 evenly spaced planes' masks (fluxplot's rule:
+   *  8-neighbour, at least `regionMinPixels`, never the whole image, none when more than 64). Off by default. */
+  regions?: "auto";
+  regionMinPixels?: number;
+  /** Chunks compressed at once when the codec has `compressAsync` (default 1: synchronous, as callers before it
+   *  expect; the TIFF converter asks for 8). The window holds that many chunks besides the shard-size sample. */
+  concurrency?: number;
 }
+
+export interface WriteProgress { phase: "learn" | "store"; done: number; total: number; bytesRead?: number }
+
+/** What `signal` aborts with (the platform's AbortError name, so callers can tell a cancel from a failure). */
+export class WriteAbortError extends Error { constructor() { super("The image write was cancelled"); this.name = "AbortError"; } }
+const checkAbort = (signal?: AbortSignal): void => { if (signal?.aborted) throw new WriteAbortError(); };
+/** Raw bytes in flight in the compression window, at most (besides the chunk count). */
+const INFLIGHT_BYTES = 128 * 1024 * 1024;
 
 export interface WriteReport {
   manifest: FluximgManifest;
@@ -161,28 +183,47 @@ class ArrayWriter {
   private planesDone = 0;
   private planesBytes = 0;
   private open: { shard: number[]; parts: Array<{ local: number; blob: Uint8Array }> } | null = null;
+  /** Compressions in flight, in C order; consumed from the front, so shards get exactly the sync path's bytes. */
+  private pending: Array<{ coords: number[]; job: Promise<Uint8Array> | null; bytes: number }> = [];
+  private pendingBytes = 0;
   bytes = 0;
   files = 0;
 
   constructor(
     private io: BundleWriteIO, private codec: ZstdCodec, readonly path: string,
     readonly shape: number[], readonly dtype: FluximgDtype, readonly inner: number[], readonly fill: number,
-    readonly dims: string[], private level: number, private maxShardBytes: number,
+    readonly dims: string[], private level: number, private maxShardBytes: number, private window = 1,
   ) {
     this.counts = chunkCounts(shape, inner);
     this.chunkBytes = product(inner) * DTYPE_BYTES[dtype];
     this.samplePlanes = Math.min(SHARD_SAMPLE_PLANES, product(this.counts.slice(0, -2)));
+    if (!codec.compressAsync) this.window = 1;
   }
 
   /** `chunk` must be exactly one inner chunk; null (or entirely fill) writes nothing. Every chunk of the array
-   *  must be offered, in C order of `coords` (the estimate counts rows and planes as they end). */
+   *  must be offered, in C order of `coords` (the estimate counts rows and planes as they end). With a window
+   *  above 1 the chunk is compressed asynchronously: the caller must not modify it afterwards. */
   async add(coords: readonly number[], chunk: FluximgTypedArray | null): Promise<void> {
-    let blob: Uint8Array | null = null;
+    let raw: Uint8Array | null = null;
     if (chunk && !allFill(chunk, this.fill)) {
-      const raw = new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+      raw = new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
       if (raw.byteLength !== this.chunkBytes) throw new Error(`fluximg: chunk has ${raw.byteLength} bytes, expected ${this.chunkBytes}`);
-      blob = this.codec.compress!(raw, this.level);
     }
+    if (this.window <= 1) { await this.accept(coords, raw ? this.codec.compress!(raw, this.level) : null); return; }
+    const job = raw ? this.codec.compressAsync!(raw, this.level) : null;
+    job?.catch(() => {});                                // a failure surfaces when the job is consumed, not as unhandled
+    this.pending.push({ coords: coords.slice(), job, bytes: raw?.byteLength ?? 0 });
+    this.pendingBytes += raw?.byteLength ?? 0;
+    while (this.pending.length >= this.window || this.pendingBytes > INFLIGHT_BYTES) await this.drainOne();
+  }
+
+  private async drainOne(): Promise<void> {
+    const p = this.pending.shift()!;
+    this.pendingBytes -= p.bytes;
+    await this.accept(p.coords, p.job ? await p.job : null);
+  }
+
+  private async accept(coords: readonly number[], blob: Uint8Array | null): Promise<void> {
     if (this.per) { if (blob) await this.put(coords, blob); return; }
     if (blob) { this.held.push({ coords: coords.slice(), blob }); this.heldBytes += blob.byteLength; }
     const nd = coords.length;
@@ -230,6 +271,7 @@ class ArrayWriter {
   }
 
   async finish(attributes: Record<string, unknown> = {}): Promise<ZarrArrayMeta> {
+    while (this.pending.length) await this.drainOne();
     if (!this.per) await this.decide();
     await this.writeOpen();
     const outer = this.per!.map((p, i) => p * this.inner[i]);
@@ -261,10 +303,11 @@ function* tilesOf(plane: FluximgTypedArray, W: number, H: number, cw: number, ch
   }
 }
 
-/** Mean of the valid samples in each f x f block (fewer at the right and bottom edges); NaN where none. */
-export function blockMean(values: Float32Array | Float64Array, W: number, H: number, f: number): { data: Float64Array; width: number; height: number } {
+/** Mean of the valid samples in each f x f block (fewer at the right and bottom edges); NaN where none.
+ *  `into` (sized for this level) is reused instead of allocating; `data` is then `into.sum`. */
+export function blockMean(values: Float32Array | Float64Array, W: number, H: number, f: number, into?: { sum: Float64Array; cnt: Uint32Array }): { data: Float64Array; width: number; height: number } {
   const w = Math.ceil(W / f), h = Math.ceil(H / f);
-  const sum = new Float64Array(w * h), cnt = new Uint32Array(w * h);
+  const sum = into ? into.sum.fill(0) : new Float64Array(w * h), cnt = into ? into.cnt.fill(0) : new Uint32Array(w * h);
   for (let y = 0; y < H; y++) {
     const row = Math.floor(y / f) * w;
     for (let x = 0; x < W; x++) {
@@ -359,7 +402,11 @@ export async function writeFluximg(io: BundleWriteIO, codec: ZstdCodec, input: W
   const tileThreshold = options.tileThreshold ?? TILE_THRESHOLD, tileSize = options.tileSize ?? TILE_SIZE;
   const overviewFloor = options.overviewFloor ?? OVERVIEW_FLOOR, maxShard = options.maxShardBytes ?? MAX_SHARD_BYTES;
   const threshold = options.guardThreshold ?? GUARD_THRESHOLD;
+  const { signal, onProgress } = options;
+  const window = Math.max(1, Math.floor(options.concurrency ?? 1));
   const { source } = input;
+  const bytesRead = (): number | undefined => (source as { bytesRead?: unknown }).bytesRead as number | undefined;
+  checkAbort(signal);
   const { dims, shape, dtype } = source;
   const nd = dims.length;
   if (nd < 2 || dims[nd - 2] !== "y" || dims[nd - 1] !== "x") throw new Error("fluximg: the last two dimensions must be y and x");
@@ -387,6 +434,14 @@ export async function writeFluximg(io: BundleWriteIO, codec: ZstdCodec, input: W
     profCnt[d] = Array.from({ length: C }, () => new Float64Array(n));
   }
   const seenPerChannel = new Array<number>(C).fill(0);
+  const totalPlanes = product(leadShape);
+  let done = 0;
+  // Preview and automatic regions (opt-in): the opening planes, downsampled, and the union of sampled masks.
+  const opening = dims.slice(0, nd - 2).map((d) => (d === "c" ? -1 : input.defaults?.index?.[d] ?? (d === "z" ? Math.floor(shape[dims.indexOf(d)] / 2) : 0)));
+  const previewPlanes: Array<Float64Array | null> = new Array(C).fill(null);
+  const previewF = Math.max(1, Math.ceil(Math.max(H, W) / PREVIEW_SIDE));
+  const regionPlanes = options.regions === "auto" ? evenPlanes(totalPlanes, REGION_PLANES) : null;
+  let union: Uint8Array | null = null, missingSeen = false;
   for (const lead of ndindex(leadShape.length ? leadShape : [1])) {
     const leading = leadShape.length ? lead : [];
     const c = ci >= 0 ? leading[ci] : 0;
@@ -397,6 +452,18 @@ export async function writeFluximg(io: BundleWriteIO, codec: ZstdCodec, input: W
       const i = leading[dims.indexOf(d)];
       profSum[d][c][i] += sum; profCnt[d][c][i] += count;
     }
+    if (count < H * W) missingSeen = true;
+    if (regionPlanes?.has(done)) {
+      union ??= new Uint8Array(H * W);
+      for (let i = 0; i < plane.length; i++) if (isFloat ? Number.isFinite(plane[i]) : plane[i] !== nodata) union[i] = 1;
+    }
+    if (options.preview && !previewPlanes[c] && opening.every((o, k) => o < 0 || leading[k] === o)) {
+      const v = new Float64Array(plane.length);
+      for (let i = 0; i < plane.length; i++) { const x = plane[i]; v[i] = (isFloat ? Number.isFinite(x) : x !== nodata) ? x : NaN; }
+      previewPlanes[c] = previewF > 1 ? blockMean(v, W, H, previewF).data : v;
+    }
+    checkAbort(signal);
+    onProgress?.({ phase: "learn", done: ++done, total: totalPlanes, bytesRead: bytesRead() });
   }
   const encoding = chooseEncoding(accs, dtype, input.lossless === true, threshold, notes, "pixels");
   const sDtype = storedDtype(dtype, encoding), sFill = storedFill(dtype, encoding, nodata);
@@ -410,25 +477,29 @@ export async function writeFluximg(io: BundleWriteIO, codec: ZstdCodec, input: W
   const pixelsPath = "pixels";
   const writers = factors.map((f, i) => {
     const lshape = [...leadShape, Math.ceil(H / f), Math.ceil(W / f)];
-    return new ArrayWriter(io, codec, `${pixelsPath}/${i}`, lshape, sDtype, innerShape(lshape, tileThreshold, tileSize), sFill, dims, zstdLevel, maxShard);
+    return new ArrayWriter(io, codec, `${pixelsPath}/${i}`, lshape, sDtype, innerShape(lshape, tileThreshold, tileSize), sFill, dims, zstdLevel, maxShard, window);
   });
 
   // ---- pass 2: store -----------------------------------------------------------------------------
+  // Overview scratch, allocated once: the plane's values and each level's block sums.
+  const values = factors.length > 1 ? new Float64Array(W * H) : null;
+  const scratch = factors.map((f) => (f === 1 ? null : { sum: new Float64Array(Math.ceil(W / f) * Math.ceil(H / f)), cnt: new Uint32Array(Math.ceil(W / f) * Math.ceil(H / f)) }));
+  done = 0;
   for (const lead of ndindex(leadShape.length ? leadShape : [1])) {
     const leading = leadShape.length ? lead : [];
     const c = ci >= 0 ? leading[ci] : 0;
     const plane = await source.plane(leading);
+    if (values) for (let i = 0; i < plane.length; i++) { const v = plane[i]; values[i] = (isFloat ? Number.isFinite(v) : v !== nodata) ? v : NaN; }
     for (let li = 0; li < factors.length; li++) {
       const w = writers[li], lw = w.shape[nd - 1], lh = w.shape[nd - 2];
       let stored: FluximgTypedArray;
       if (li === 0) stored = storePlane(plane, encoding, c);
       else {
-        // Overviews are means of the VALUES, re-stored under the same encoding.
-        const values = new Float64Array(plane.length);
-        for (let i = 0; i < plane.length; i++) { const v = plane[i]; values[i] = (isFloat ? Number.isFinite(v) : v !== nodata) ? v : NaN; }
-        const m = blockMean(values, W, H, factors[li]).data;
+        // Overviews are means of the VALUES, re-stored under the same encoding. Every branch hands the writer a new
+        // array: chunks may still be compressing when the scratch is reused for the next plane.
+        const m = blockMean(values!, W, H, factors[li], scratch[li]!).data;
         if (encoding.kind === "linear16") stored = storePlane(m, encoding, c);
-        else if (dtype === "float64") stored = m;
+        else if (dtype === "float64") stored = m.slice();
         else if (dtype === "float32") stored = Float32Array.from(m);
         else { stored = allocTyped(dtype, m.length); for (let i = 0; i < m.length; i++) stored[i] = m[i] === m[i] ? Math.round(m[i]) : (nodata ?? 0); }
       }
@@ -436,6 +507,8 @@ export async function writeFluximg(io: BundleWriteIO, codec: ZstdCodec, input: W
         await w.add([...leading, ty, tx], chunk);
       }
     }
+    checkAbort(signal);
+    onProgress?.({ phase: "store", done: ++done, total: totalPlanes, bytesRead: bytesRead() });
   }
   const levels: FluximgLevel[] = [];
   for (let i = 0; i < writers.length; i++) {
@@ -552,13 +625,22 @@ export async function writeFluximg(io: BundleWriteIO, codec: ZstdCodec, input: W
   }
   for (const L of layers) if (L.kind === "labels" && L.weights && !layers.some((x) => x.kind === "intensity" && x.id === L.weights)) throw new Error(`fluximg: layer ${L.id} names a weights layer that does not exist`);
 
+  // ---- opt-in extras: automatic regions and preview.png ---------------------------------------------------
+  const regions = [...(input.regions ?? [])];
+  if (union && missingSeen) regions.push(...autoRegions(union, W, H, new Set(regions.map((r) => r.id)), options.regionMinPixels ?? REGION_MIN_PIXELS));
+  if (options.preview && previewPlanes.some(Boolean)) {
+    const pw = Math.ceil(W / previewF), ph = Math.ceil(H / previewF);
+    const png = options.preview.encodePng(previewRgba(previewPlanes, channels, pw, ph), pw, ph);
+    await io.writeFile("preview.png", png); bytes += png.byteLength; files++;
+  }
+
   // ---- the manifest is written LAST: a bundle without it is an unfinished write -----------------------
   const manifest: FluximgManifest = {
     spec: FLUXIMG_SPEC, name: input.name,
     pixels: { path: pixelsPath, dims, shape, dtype: sDtype, levels, encoding, ...(isFloat || nodata === null ? {} : { nodata }), ome },
     axes, channels, ...(input.photometric ? { photometric: input.photometric } : {}),
     ...(profileDims.length ? { profiles } : {}), ...(input.defaults ? { defaults: input.defaults } : {}),
-    layers, regions: input.regions ?? [], ...(input.world ? { world: input.world } : {}),
+    layers, regions, ...(input.world ? { world: input.world } : {}),
     ...(input.provenance ? { provenance: input.provenance } : {}),
   };
   const text = JSON.stringify(manifest, null, 1);
@@ -567,3 +649,79 @@ export async function writeFluximg(io: BundleWriteIO, codec: ZstdCodec, input: W
 }
 
 const esc = (s: string): string => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/** preview.png: at most this many pixels on the longer side (SPEC 8). */
+export const PREVIEW_SIDE = 512;
+/** Planes sampled for automatic regions, the smallest region, and the most regions kept (fluxplot's constants). */
+export const REGION_PLANES = 16, REGION_MIN_PIXELS = 64, MAX_AUTO_REGIONS = 64;
+
+function evenPlanes(total: number, k: number): Set<number> {
+  k = Math.min(k, total);
+  if (k <= 1) return new Set([0]);
+  return new Set(Array.from({ length: k }, (_, i) => Math.round((i * (total - 1)) / (k - 1))));
+}
+
+/**
+ * Regions from the connected valid areas (8-neighbour) of `mask`: areas under `minPixels` are ignored, a box
+ * covering the whole image is never a region, and there are none when more than MAX_AUTO_REGIONS remain. Sorted
+ * by (x, y, width, height); ids roi_1, roi_2, ... skipping ids already taken. Two-pass labelling with union-find.
+ */
+export function autoRegions(mask: Uint8Array, W: number, H: number, taken: Set<string> = new Set(), minPixels = REGION_MIN_PIXELS): FluximgRegion[] {
+  const label = new Int32Array(W * H), parent: number[] = [0];
+  const find = (a: number): number => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
+  const join = (a: number, b: number): void => { a = find(a); b = find(b); if (a !== b) parent[Math.max(a, b)] = Math.min(a, b); };
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x;
+    if (!mask[i]) continue;
+    let l = 0;
+    const look = (j: number): void => { const m = label[j]; if (m) { if (!l) l = m; else join(l, m); } };
+    if (x > 0) look(i - 1);
+    if (y > 0) { if (x > 0) look(i - W - 1); look(i - W); if (x < W - 1) look(i - W + 1); }
+    if (!l) { l = parent.length; parent.push(l); }
+    label[i] = l;
+  }
+  const boxes = new Map<number, { x0: number; y0: number; x1: number; y1: number; n: number }>();
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const l0 = label[y * W + x];
+    if (!l0) continue;
+    const l = find(l0), b = boxes.get(l);
+    if (!b) boxes.set(l, { x0: x, y0: y, x1: x, y1: y, n: 1 });
+    else { if (x < b.x0) b.x0 = x; if (x > b.x1) b.x1 = x; if (y < b.y0) b.y0 = y; if (y > b.y1) b.y1 = y; b.n++; }
+  }
+  const rects = [...boxes.values()].filter((b) => b.n >= Math.max(1, Math.floor(minPixels)))
+    .map((b) => [b.x0, b.y0, b.x1 - b.x0 + 1, b.y1 - b.y0 + 1] as const)
+    .filter(([x, y, w, h]) => !(x === 0 && y === 0 && w === W && h === H));
+  if (!rects.length || rects.length > MAX_AUTO_REGIONS) return [];
+  rects.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2] || a[3] - b[3]);
+  let k = 0;
+  return rects.map(([x, y, width, height], i) => {
+    let id: string;
+    do { id = `roi_${++k}`; } while (taken.has(id));
+    taken.add(id);
+    return { id, name: `ROI ${i + 1}`, rect: { x, y, width, height } };
+  });
+}
+
+/** The default view as straight RGBA: visible channels added (colour ramps; LUT channels drawn gray), no data transparent. */
+function previewRgba(planes: Array<Float64Array | null>, channels: FluximgChannel[], w: number, h: number): Uint8Array {
+  let shown = channels.map((_, c) => c).filter((c) => channels[c].visible !== false && planes[c]);
+  if (!shown.length) shown = channels.map((_, c) => c).filter((c) => planes[c]).slice(0, 1);
+  const rgb = new Float64Array(w * h * 3), any = new Uint8Array(w * h);
+  for (const c of shown) {
+    const v = planes[c]!, ch = channels[c], [lo, hi] = ch.range;
+    const col = ch.color ? [1, 3, 5].map((k) => parseInt(ch.color!.slice(k, k + 2), 16) / 255) : [1, 1, 1];
+    for (let i = 0; i < w * h; i++) {
+      const x = v[i];
+      if (x !== x) continue;
+      any[i] = 1;
+      const t = Math.min(1, Math.max(0, (x - lo) / (hi - lo)));
+      rgb[i * 3] += t * col[0]; rgb[i * 3 + 1] += t * col[1]; rgb[i * 3 + 2] += t * col[2];
+    }
+  }
+  const out = new Uint8Array(w * h * 4);
+  for (let i = 0; i < w * h; i++) {
+    for (let k = 0; k < 3; k++) out[i * 4 + k] = Math.round(Math.min(1, Math.max(0, rgb[i * 3 + k])) * 255);
+    out[i * 4 + 3] = any[i] ? 255 : 0;
+  }
+  return out;
+}

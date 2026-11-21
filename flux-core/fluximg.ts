@@ -30,6 +30,7 @@ import { loadFigModel, mutateFigModel, requireProject } from "./model";
 import { fluximgReader } from "./fluximgRender";
 import { compileDeckSlide, listDecks, loadDeck, mutateDeck } from "./slides";
 import { NotFoundError, ValidationError } from "./errors";
+import { convertForPlacement, isTiffPath, tiffInfo, type TiffFlags } from "./tiffPlace";
 
 const isInside = (root: string, p: string): boolean => {
   const rel = path.relative(root, p);
@@ -179,13 +180,19 @@ function elementSummary(figure: Figure, element: FluximgElement, manifest: Fluxi
 
 // --- place-image ---------------------------------------------------------------------------------------------------
 
-export interface PlaceImageOptions { x?: number; y?: number; width?: number; view?: unknown; crop?: unknown; name?: string }
+export interface PlaceImageOptions {
+  x?: number; y?: number; width?: number; view?: unknown; crop?: unknown; name?: string;
+  /** For a `.tif` / `.tiff` path: how its pages are read (flux-core/tiffPlace.ts). */
+  tiff?: TiffFlags;
+  /** The element's source record instead of the bundle path (a converted TIFF records the TIFF, frozen). */
+  sourceRecord?: { bundlePath: string; external?: boolean; frozen?: boolean };
+}
 
 /**
  * Import a `.fluximg` bundle into `fig/assets/` and place it on a figure or a slide (`deckId/slideId`, or a slide id). A
  * bundle whose content is already an asset of this project is not copied again: the new element shows the existing asset.
  */
-export async function placeImage(root: string, figureId: string, bundlePath: string, options: PlaceImageOptions = {}) {
+async function placeBundle(root: string, figureId: string, bundlePath: string, options: PlaceImageOptions = {}) {
   await requireProject(root);
   const realRoot = await fs.realpath(path.resolve(root));
   const source = path.resolve(root, bundlePath);
@@ -259,7 +266,7 @@ export async function placeImage(root: string, figureId: string, bundlePath: str
     const crop = options.crop === undefined || options.crop === null ? undefined : checkedCrop(manifest, options.crop);
     const recipe = source.replace(/\.fluximg[\\/]*$/i, "") + ".recipe.json";
     const hasRecipe = !!(await fs.stat(recipe).catch(() => null))?.isFile();
-    const sourceRecord = { bundlePath: sourcePath, sha256: asset.sha256, ...(external ? { external: true } : {}), ...(hasRecipe ? { recipePath: external ? recipe : path.relative(path.resolve(root), recipe).split(path.sep).join("/") } : {}) };
+    const sourceRecord = options.sourceRecord ? { ...options.sourceRecord, sha256: asset.sha256 } : { bundlePath: sourcePath, sha256: asset.sha256, ...(external ? { external: true } : {}), ...(hasRecipe ? { recipePath: external ? recipe : path.relative(path.resolve(root), recipe).split(path.sep).join("/") } : {}) };
     if (onSlide) {
       // The deck refers to the bundle by id: only the element is written (the deck stamps itself 0.8.0 on save).
       const placedOnSlide = await mutateDeck(root, onSlide.deckId, "place_image", (deck) => {
@@ -306,6 +313,28 @@ export async function placeImage(root: string, figureId: string, bundlePath: str
     await discard();
     throw error;
   }
+}
+
+/** Place a bundle, or a TIFF converted to one first (`tiff` says how its pages are read). */
+export async function placeImage(root: string, figureId: string, bundlePath: string, options: PlaceImageOptions = {}) {
+  if (isTiffPath(bundlePath)) return placeTiff(root, figureId, bundlePath, options);
+  return placeBundle(root, figureId, bundlePath, options);
+}
+
+/**
+ * A TIFF: probe it, take the answer (or refuse with the ranked proposals), convert it into a scratch bundle, then
+ * place that bundle exactly as any other, on a figure or a slide. The target is checked before converting.
+ */
+async function placeTiff(root: string, target: string, tiffPath: string, options: PlaceImageOptions) {
+  await requireProject(root);
+  const { project } = await loadFigModel(root);
+  if (!project.figures.some((f) => f.id === target) && !(await findSlideTarget(root, target))) throw new NotFoundError(`Figure or slide not found: ${target}`);
+  const { tiff, ...rest } = options;
+  const converted = await convertForPlacement(root, tiffPath, tiff);
+  try {
+    const placed = await placeBundle(root, target, converted.bundle, { ...rest, sourceRecord: { bundlePath: converted.sourcePath, frozen: true, ...(converted.external ? { external: true } : {}) } });
+    return { ...placed, tiff: { source: converted.sourcePath, read: converted.summary, answer: converted.answer, notes: converted.notes } };
+  } finally { await converted.cleanup(); }
 }
 
 // --- set-image-view ------------------------------------------------------------------------------------------------
@@ -432,6 +461,7 @@ export async function setImageView(root: string, elementId: string, patch: unkno
 
 /** What an image is and how an element shows it, without rendering: an agent's way to plan a view. */
 export async function imageInfo(root: string, target: string) {
+  if (isTiffPath(target)) return tiffInfo(root, target);
   const { project } = await loadFigModel(root);
   let asset: Asset | undefined, placed: { figure: Figure; element: FluximgElement } | undefined;
   const el = project.figures.flatMap((f) => f.elements.map((e) => ({ figure: f, element: e }))).find((x) => x.element.id === target);
