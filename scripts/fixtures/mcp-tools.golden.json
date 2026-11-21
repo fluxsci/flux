@@ -65,6 +65,7 @@
   "edit_path",
   "ensure_context",
   "export_deck",
+  "export_image_movie",
   "export_slide_video",
   "fetch_pdfs",
   "fetch_supplements",
