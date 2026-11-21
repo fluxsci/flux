@@ -218,7 +218,15 @@ function solve(n: BoardNeeds, room?: { x: number; y: number; w: number; h: numbe
       if (n.layers) layersBox = { x: x + cw + (n.step ? gap + sW : 0) + gap, y, w: lw, h: Math.max(0, Math.min(lh, ab - y)), side: "below", under: false };
       const d = a.left.includes("depth") ? "left" : a.right.includes("depth") ? "right" : null;
       if (d) {
-        const dx = d === "left" ? Math.max(ax, stage.x - gap - depthW) : Math.min(ar - depthW, stage.x + stage.w + gap);
+        // Beside the image, past any kept panel there (else packed against the image, inside the canvas).
+        let dx = d === "left" ? stage.x - gap - depthW : stage.x + stage.w + gap;
+        if (avoid) for (let g = 0; g <= kept.length; g++) {
+          const hit = firstMet(dx, stage.y, depthW, stage.h, kept);
+          if (!hit) break;
+          dx = d === "left" ? hit.x - gap - depthW : hit.x + hit.w + gap;
+          stepped = true;
+        }
+        if (dx < ax - 0.5 || dx + depthW > ar + 0.5) dx = d === "left" ? Math.max(ax, stage.x - gap - depthW) : Math.min(ar - depthW, stage.x + stage.w + gap);
         depth = { x: dx, y: stage.y, w: depthW, h: stage.h, side: d };
       }
     } else {

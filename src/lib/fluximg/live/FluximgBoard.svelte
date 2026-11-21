@@ -318,12 +318,13 @@
       adds: true,
     };
   }
-  // Holding Shift over the key previews the other form.
+  // Holding Shift over the key previews the other form. Capture phase: the board's own key handler swallows unmodified
+  // keys (Shift alone among them) before a later listener could see it; this one only looks, it never stops a key.
   $effect(() => {
     const shift = (e: KeyboardEvent): void => { if (e.key !== "Shift" || splitShift === e.shiftKey) return; splitShift = e.shiftKey; if (splitHover) preview = splitGhosts(splitShift); };
-    window.addEventListener("keydown", shift);
-    window.addEventListener("keyup", shift);
-    return () => { window.removeEventListener("keydown", shift); window.removeEventListener("keyup", shift); };
+    window.addEventListener("keydown", shift, { capture: true });
+    window.addEventListener("keyup", shift, { capture: true });
+    return () => { window.removeEventListener("keydown", shift, { capture: true }); window.removeEventListener("keyup", shift, { capture: true }); };
   });
 
   /** A key struck from the keyboard goes down on the board too. */
