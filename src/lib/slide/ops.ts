@@ -550,11 +550,6 @@ export function walkDurationMs(manifest: FluximgManifest | undefined, dim: strin
   return Math.max(1, Math.round(ms));
 }
 
-/** A track's timing is still the one a Change is written with (nobody chose another): duration and curve as authored. */
-function authoredTransformTiming(t: Track): boolean {
-  const a = authoredFields("transform");
-  return !t.styleId && !t.influence && t.duration === a.duration && JSON.stringify(t.curve ?? null) === JSON.stringify(a.curve ?? null) && (t.easing ?? null) === (a.easing ?? null);
-}
 /** The walk pace a track was written at, or null when its timing is not the walk's own (absent, or re-timed by hand). */
 export const walkPace = (t: Pick<Track, "preset" | "params">): number | null => (familyOf(t as Track) === "transform" ? presetParam<number | null>(t, "pace", "transform") : null);
 
@@ -571,9 +566,12 @@ export function dropWalkPace(track: Track): void {
  * THE PACE RULE (stage 2: a walk's pace is written, never played). A Change that makes an image walk planes (the
  * longest walk when several dimensions move: `viewTween.longestWalk`) is timed at the data's own rate times `speed`
  * with a linear curve, and records `params.pace = speed` -- but only while the timing is still the walk's own: the
- * track was just made (`created`), already carries a pace, or still has the plain authored Change timing. A track
- * the author re-timed by hand is left alone. A paced track whose walk is gone returns to the ordinary Change timing.
- * `force` (Play through, the pace dial) paces it whatever its timing was.
+ * track was just made (`created`) or already carries a pace. THE FLAG IS THE RULE (C11): a track is paced if and only
+ * if it carries `params.pace`; never by comparing its timing with the defaults (a duration typed by hand that happens to
+ * equal the default is still the author's). Typing a duration, choosing a curve or linking a style drops the flag
+ * (`dropWalkPace`: setTrack, setTrackCurve, the cascade, the timeline's nudge); setting a pace sets it. So a track the
+ * author re-timed, or an image Change made before it walked anything, is left alone; Play through and the pace dial
+ * (`force`) pace it whatever its timing was. A paced track whose walk is gone returns to the ordinary Change timing.
  */
 export function retimeImageWalk(track: Track, pre: Element, end: Element, opts: { fluximgManifest?: FluximgManifestFor; speed?: number; created?: boolean; force?: boolean } = {}): void {
   if (pre.type !== "fluximg" || end.type !== "fluximg" || familyOf(track) !== "transform") return;
@@ -588,7 +586,7 @@ export function retimeImageWalk(track: Track, pre: Element, end: Element, opts: 
     }
     return;
   }
-  if (!opts.force && !opts.created && paced === null && !authoredTransformTiming(track)) return;
+  if (!opts.force && !opts.created && paced === null) return;
   const speed = opts.speed ?? paced ?? 1;
   track.duration = walkDurationMs(m, walk.dim, walk.from, walk.to, speed);
   delete track.curve; delete track.influence; delete track.styleId;
