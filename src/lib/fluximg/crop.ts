@@ -45,6 +45,19 @@ export function tieredStillSize(crop: PixelRect, box: { width: number; height: n
   return { width: Math.max(1, Math.round(crop.width * r)), height: Math.max(1, Math.round(crop.height * r)), native: r === 1 };
 }
 
+/**
+ * THE zoom rule (review B4), shared by every surface that draws a still under a slide camera: the output scale a
+ * still needs where the camera rests at `zoom` (> 1 magnifies the stage). `scale x zoom`, but the zoom never takes the
+ * still past the crop's own pixels (beyond them a zoom shows the same pixels larger); a still already past them at
+ * `scale` stays as it is. `zoom` <= 1 (no camera, a pan, a zoom out): `scale` exactly, so a deck without a camera
+ * zoom draws the same stills as before. The pixel cap still applies (`stillSize` / `tieredStillSize`).
+ */
+export function zoomedStillScale(crop: PixelRect, box: { width: number; height: number }, scale: number, zoom: number): number {
+  if (!(zoom > 1) || !(box.width > 0) || !(box.height > 0)) return scale;
+  const native = Math.max(crop.width / box.width, crop.height / box.height);
+  return Math.max(scale, Math.min(scale * zoom, native));
+}
+
 export interface StillSizeOptions {
   /**
    * false (the editor): never more pixels than the crop holds; the display magnifies true pixels itself.

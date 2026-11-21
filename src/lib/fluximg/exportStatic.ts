@@ -116,6 +116,8 @@ export function fluximgTableFiles(manifest: FluximgManifest, rv: ResolvedView): 
 export interface FluximgSvgContext {
   /** Still pixels per canvas px of the output this context was prepared for. */
   scale: number;
+  /** An element's own scale where it differs (a slide step whose camera rests zoomed in on it: crop.zoomedStillScale). */
+  scaleOf?(elementId: string): number | undefined;
   /** Paper's display renders namespace every id (an embed of a figure must not share ids with the live canvas). */
   namespace?: string;
   assetOf(assetId: string): Asset | undefined;
@@ -282,7 +284,7 @@ export function fluximgElementMarkup(e: FluximgElement, ctx?: FluximgSvgContext)
   const asset = ctx?.assetOf(e.assetId), manifest = asset ? ctx?.manifestOf(asset.id) : undefined;
   if (!ctx || !asset || !manifest) return fluximgPlaceholderSvg(e, asset ?? null);
   const rv = resolveView(manifest, e.view);
-  const request = fluximgStillRequest(e, asset, manifest, ctx.scale, rv);
+  const request = fluximgStillRequest(e, asset, manifest, ctx.scaleOf?.(e.id) ?? ctx.scale, rv);
   const layerSvg: Record<string, string> = {};
   for (const file of fluximgLayerFiles(manifest, rv)) {
     const text = ctx.layerTextOf(asset.id, file.path);

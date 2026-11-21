@@ -59,6 +59,8 @@ export const checkViewPatch: K["checkViewPatch"] = (...a) => need().checkViewPat
 export const lerpFluximgView: K["lerpFluximgView"] = (...a) => need().lerpFluximgView(...a);
 export const planViewTween: K["planViewTween"] = (...a) => need().planViewTween(...a);
 export const insetsOf: K["insetsOf"] = (...a) => need().insetsOf(...a);
+export const clampCrop: K["clampCrop"] = (...a) => need().clampCrop(...a);
+export const zoomedStillScale: K["zoomedStillScale"] = (...a) => need().zoomedStillScale(...a);
 export const resolveView: K["resolveView"] = (...a) => need().resolveView(...a);
 export const cachedObjectStyles: K["cachedObjectStyles"] = (...a) => need().cachedObjectStyles(...a);
 export const missingStyle: K["missingStyle"] = (...a) => need().missingStyle(...a);

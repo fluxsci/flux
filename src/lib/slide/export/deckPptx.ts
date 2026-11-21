@@ -354,14 +354,16 @@ async function elementXml(ctx: SlideContext, el: Element): Promise<string | null
     case "fluximg": {
       // One picture per image at 2x (the model3d rule): the step's still with its vector layers and furniture
       // rasterised over it, since a slide picture cannot hold both.
-      const images = payloadImageSvgContext(ctx.payload, ctx.ev.elements, ctx.ev.partStates);
+      // A page whose camera rests zoomed in on the image: the still and its raster at the zoom's resolution (review B4).
+      const images = payloadImageSvgContext(ctx.payload, ctx.ev.elements, ctx.ev.partStates, ctx.ev.camera, ctx.ev.stage);
+      const k = images?.scaleOf?.(el.id) ?? 2;
       const composed = fluximgElementMarkup({ ...el, x: 0, y: 0 }, images);
       if (!images || !composed.includes("data:image/png")) {
         const note = `Slide ${ctx.source}: image "${el.name || el.id}" has no rendered still for this build state; showing its frame`;
         if (!ctx.warnings.includes(note)) ctx.warnings.push(note);
       }
       const svg = standaloneSvg(composed, el.width, el.height);
-      const png = await ctx.rasterize(svg, Math.max(1, Math.round(el.width * 2)), Math.max(1, Math.round(el.height * 2)));
+      const png = await ctx.rasterize(svg, Math.max(1, Math.round(el.width * k)), Math.max(1, Math.round(el.height * k)));
       const id = await ctx.media(`fx ${svg}`, async () => ({ bytes: png, ext: "png" }));
       return picXml(ctx, el, el.x, el.y, el.width, el.height, el.rotation, `<a:blip r:embed="${id}"/>`);
     }

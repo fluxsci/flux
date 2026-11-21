@@ -21,4 +21,5 @@ export { cachedObjectStyles, missingStyle } from "./objectStyle";
 export { walkableDims } from "./playback";
 export { fluximgElementMarkup } from "./exportStatic";
 export { insetsOf } from "./static";
+export { clampCrop, zoomedStillScale } from "./crop";
 export { payloadImageHost, payloadImageContext } from "../slide/export/fluximgPayloadHost";
