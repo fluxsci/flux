@@ -16,7 +16,8 @@ import { nodeBundleReader, nodeZstd } from "../flux-core/fluximgIo";
 import { openFluximg } from "../src/lib/fluximg/reader";
 import type { FluximgLayer, FluximgManifest, FluximgStats } from "../src/lib/fluximg/types";
 import type { FluximgChannelView, FluximgFurnitureView, FluximgLayerView, FluximgView, PixelRect, ResolvedLayer, ResolvedView } from "../src/lib/fluximg/view";
-import { positionDims, resolveView } from "../src/lib/fluximg/viewOps";
+import { explicitView, isEmptyViewPatch, patchView, positionDims, resolveView, viewPatch } from "../src/lib/fluximg/viewOps";
+import { checkViewPatch } from "../src/lib/fluximg/viewCheck";
 import { clampCrop, fullCrop } from "../src/lib/fluximg/still";
 import { prepareColorLerp } from "../src/lib/color/interp";
 import { naturalRate } from "../src/lib/fluximg/live/rail";
@@ -27,6 +28,7 @@ import {
 
 const h = harness("verify-fluximg-view-tween");
 const show = (v: unknown): string => JSON.stringify(v);
+const sortKeys = (v: unknown): unknown => Array.isArray(v) ? v.map(sortKeys) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortKeys((v as Record<string, unknown>)[k])])) : v;
 const near = (a: number, b: number, eps = 1e-9): boolean => Math.abs(a - b) <= eps * Math.max(1, Math.abs(a), Math.abs(b));
 function find<T>(cases: Iterable<T>, bad: (c: T) => boolean): T | null { for (const c of cases) if (bad(c)) return c; return null; }
 const lin = (u: number): number => u;
@@ -466,6 +468,72 @@ h.section("properties over seeded random pairs");
     });
     h.ok(flags === null, `twoPictures says exactly whether in-between frames carry b${flags !== null ? ` (case ${flags})` : ""}`);
   }
+}
+
+h.section("viewPatch: a step's view is a patch over the view before it (B2)");
+{
+  // Hand cases first: what the patch says in words.
+  const m2 = MANIFESTS.find((m) => m.channels.length >= 2) ?? M;
+  const design: FluximgView = { channels: [{ color: "#00ffff" }, { range: [0, 900] }], projection: { dim: positionDims(m2)[0], mode: "max", from: 0, to: 2 } };
+  const stepEnd: FluximgView = { channels: [{ color: "#00ffff" }, { range: [0, 500] }] };
+  h.eq(viewPatch(design, stepEnd), { channels: [null, { range: [0, 500] }], projection: null },
+    "a step that changes channel 2's window patches channel 2 only (channel 1's colour is not frozen) and clears a projection with null");
+  h.eq(viewPatch(design, design), {}, "viewPatch(v, v) is {}");
+  h.eq(viewPatch({ channels: [{ color: "#ff0000", range: [0, 9] }] }, {}), { channels: [{ color: null, range: null }] }, "a channel cleared entirely: a patch of nulls for each field it had");
+  h.eq(viewPatch({ projection: { dim: "z", mode: "max", from: 0, to: 4 } }, { projection: { dim: "t", mode: "max", from: 1, to: 3 } }), { projection: { dim: "t", mode: "max", from: 1, to: 3 } }, "a projection is one value: restated whole");
+  h.eq(viewPatch({ layers: { a: { lut: "magma" } } }, { layers: { a: { color: "#ff0000" } } }), { layers: { a: { lut: null, color: "#ff0000" } } }, "a layer's colour replacing its colour map");
+  h.eq(viewPatch({}, { furniture: { scalebar: {} } }), { furniture: { scalebar: {} } }, "a piece switched on with defaults is stated as {}");
+  h.eq(patchView(patchView(design, { channels: [{ color: "#ff00ff" }] }), viewPatch(design, stepEnd)).channels?.[0]?.color, "#ff00ff",
+    "a Design edit of something the step does not touch carries through the step");
+
+  // The law over seeded random pairs: patchView(before, viewPatch(before, after)) resolves to what after resolves to.
+  const extra = (m: FluximgManifest, e: ViewEnd): FluximgView => {
+    const v = structuredClone(e.view ?? {}) as FluximgView;
+    const objectLayer = m.layers.find((l) => l.kind === "labels" && l.table);
+    if (objectLayer && chance(0.4)) {
+      v.layers = { ...(v.layers ?? {}), [objectLayer.id]: { ...(v.layers?.[objectLayer.id] ?? {}), styleBy: chance(0.5) ? { color: { column: pick(["area", "kind"]), ...(chance(0.5) ? { lut: pick(LUTS) } : {}) } } : { opacity: { column: "area", ...(chance(0.5) ? { range: [0, 1 + R() * 9] as [number, number] } : {}) } } } };
+    }
+    if (chance(0.2)) v.furniture = { ...(v.furniture ?? {}), names: {} };
+    if (chance(0.2)) v.smooth = chance(0.5);
+    if (chance(0.15)) delete v.channels;
+    if (chance(0.15)) delete v.index;
+    if (chance(0.1)) delete v.layers;
+    return v;
+  };
+  const pairs = Array.from({ length: 400 }, (_, i) => {
+    const m = MANIFESTS[i % MANIFESTS.length];
+    return { m, before: extra(m, randomEnd(m)), after: extra(m, randomEnd(m)) };
+  });
+  const resolvedLaw = find(pairs.keys(), (i) => {
+    const { m, before, after } = pairs[i];
+    return show(resolveView(m, patchView(before, viewPatch(before, after)))) !== show(resolveView(m, after));
+  });
+  h.ok(resolvedLaw === null, `patchView(before, viewPatch(before, after)) resolves to exactly what after resolves to (400 seeded pairs over ${MANIFESTS.length} manifests)${resolvedLaw !== null ? ` (pair ${resolvedLaw}: ${show(pairs[resolvedLaw])})` : ""}`);
+  const canon = (v: FluximgView): FluximgView => patchView(undefined, v);
+  const structural = find(pairs.keys(), (i) => {
+    const b = canon(pairs[i].before), a = canon(pairs[i].after);
+    return show(sortKeys(patchView(b, viewPatch(b, a)))) !== show(sortKeys(a));
+  });
+  h.ok(structural === null, `and between stored (canonical) views it is exact, key for key${structural !== null ? ` (pair ${structural})` : ""}`);
+  const empty = find(pairs.keys(), (i) => !isEmptyViewPatch(viewPatch(pairs[i].before, structuredClone(pairs[i].before))) || !isEmptyViewPatch(viewPatch(pairs[i].after, pairs[i].after)));
+  h.ok(empty === null, `viewPatch(v, v) is empty for every random view${empty !== null ? ` (pair ${empty})` : ""}`);
+  const chained = find(pairs.keys(), (i) => {
+    if (i + 1 >= pairs.length || pairs[i + 1].m !== pairs[i].m) return false;
+    const { m, before: v0, after: v1 } = pairs[i], v2 = pairs[i + 1].after;
+    return show(resolveView(m, patchView(patchView(v0, viewPatch(v0, v1)), viewPatch(v1, v2)))) !== show(resolveView(m, v2));
+  });
+  h.ok(chained === null, `chained steps compose: step 2's patch over step 1's result gives step 2's view${chained !== null ? ` (pair ${chained})` : ""}`);
+  const inLanguage = find(pairs.keys(), (i) => {
+    const { m, before, after } = pairs[i];
+    if (checkViewPatch(m, after).problems.length) return false;
+    return checkViewPatch(m, viewPatch(before, after)).problems.length > 0;
+  });
+  h.ok(inLanguage === null, `the patch is in set-image-view's language: checkViewPatch accepts it whenever it accepts the end${inLanguage !== null ? ` (pair ${inLanguage}: ${show(checkViewPatch(pairs[inLanguage].m, viewPatch(pairs[inLanguage].before, pairs[inLanguage].after)).problems)})` : ""}`);
+  const explicit = find(pairs.keys(), (i) => {
+    const { m, after } = pairs[i], rv = resolveView(m, after);
+    return show(resolveView(m, explicitView(rv))) !== show(rv);
+  });
+  h.ok(explicit === null, `explicitView: resolveView(m, explicitView(rv)) is rv${explicit !== null ? ` (pair ${explicit})` : ""}`);
 }
 
 h.section("upcoming: the pictures to decode ahead");

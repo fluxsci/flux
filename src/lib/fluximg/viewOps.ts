@@ -326,6 +326,189 @@ export function patchView(view: FluximgView | undefined, patch: FluximgView): Fl
   return out as FluximgView;
 }
 
+// ---------------------------------------------------------------------------------------------
+// viewPatch: the inverse of patchView
+// ---------------------------------------------------------------------------------------------
+
+function same(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((x, i) => same(x, b[i]));
+  if (isObj(a) && isObj(b)) {
+    const ka = Object.keys(a).filter((k) => a[k] !== undefined), kb = Object.keys(b).filter((k) => b[k] !== undefined);
+    return ka.length === kb.length && ka.every((k) => same(a[k], b[k]));
+  }
+  return false;
+}
+
+/** Field by field (mergeFields' inverse): changed or new fields as `after` has them, null for a field `after` drops. */
+function fieldsPatch(before: Record<string, unknown>, after: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    const a = before[k], b = after[k];
+    if (b === undefined || b === null) { if (a !== undefined && a !== null) out[k] = null; }
+    else if (!same(a, b)) out[k] = clone(b);
+  }
+  return out;
+}
+
+/** A field patch of a channel or a layer, with the colour/colour-map exclusion of `exclusiveColor` accounted for. */
+function colourFieldsPatch(before: Record<string, unknown>, after: Record<string, unknown>): Record<string, unknown> {
+  const out = fieldsPatch(before, after);
+  // patchView clears the colour when a patch sets only the colour map: where `after` holds both (the colour wins when
+  // resolved), restate the colour, which keeps what `after` shows.
+  if (typeof out.lut === "string" && typeof after.color === "string") out.color = after.color;
+  return out;
+}
+
+/** mergeStyleBy's inverse: a part that keeps its column patches field by field, one on another column is restated whole. */
+function styleByPatch(before: Record<string, unknown>, after: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    const a = before[k], b = after[k];
+    if (b === undefined || b === null) { if (a !== undefined && a !== null) out[k] = null; continue; }
+    if (same(a, b)) continue;
+    if ((k === "color" || k === "opacity") && isObj(b)) {
+      if (isObj(a) && a.column === b.column) { const f = fieldsPatch(a, b); if (!isEmpty(f)) out[k] = f; }
+      // a part without a column cannot be stated over one that has it (it would merge): it means nothing, so it clears
+      else out[k] = b.column === undefined && isObj(a) ? null : clone(b);
+    } else out[k] = clone(b);
+  }
+  return out;
+}
+
+/**
+ * The smallest patch that turns `before` into `after` (the inverse of `patchView`, in the same language
+ * `set-image-view --view` speaks): `patchView(before, viewPatch(before, after))` resolves to exactly what `after`
+ * resolves to, and `viewPatch(v, v)` is `{}`. A key `after` drops that `before` holds is `null` (clear to the
+ * image's default). Shapes, as patchView merges them:
+ *   - `index` per dimension, `layers` per layer and within a layer per field (`styleBy` per part), `furniture` per
+ *     piece and within a piece per field (a piece switched on is stated whole, `{}` included);
+ *   - `channels` per channel index and within a channel per field: a patch entry `null` keeps that channel as it
+ *     was, so a channel `after` clears entirely is a patch of nulls for each field it had;
+ *   - `projection` is ONE value (like a crop): restated whole when it differs, so a step's run never merges with
+ *     another run's fields;
+ *   - everything else (`composite`, `solo`, `smooth`, `background`, `layerOrder`, `insetOf`, `link`) is replaced.
+ * A container `after` lacks altogether (`index`, `channels`, `layers`, `furniture`) is cleared entry by entry, never
+ * with one top-level null, so a later Design edit of an entry the step never held survives the step.
+ */
+export function viewPatch(before: FluximgView | null | undefined, after: FluximgView | null | undefined): FluximgView {
+  const A = (isObj(before) ? before : {}) as Record<string, unknown>, B = (isObj(after) ? after : {}) as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of new Set([...Object.keys(A), ...Object.keys(B)])) {
+    const a = A[key];
+    let b = B[key];
+    // A container `after` drops is cleared entry by entry (narrowly: a later Design edit of another entry survives).
+    if ((b === undefined || b === null) && CONTAINERS.has(key) && (key === "channels" ? Array.isArray(a) : isObj(a))) b = key === "channels" ? [] : {};
+    if (b === undefined || b === null) { if (a !== undefined && a !== null) out[key] = null; continue; }
+    if (same(a, b)) continue;
+    switch (key) {
+      case "index": {
+        if (!isObj(b)) { out[key] = clone(b); break; }
+        const f = fieldsPatch(isObj(a) ? a : {}, b);
+        if (!isEmpty(f)) out[key] = f;
+        break;
+      }
+      case "projection": {
+        // Whole: mergeFields over the old run would keep a field the new one lacks, so name every old field.
+        const whole: Record<string, unknown> = isObj(b) ? clone(b) : {};
+        if (isObj(a) && isObj(b)) for (const k of Object.keys(a)) if (b[k] === undefined) whole[k] = null;
+        out[key] = isObj(b) ? whole : clone(b);
+        break;
+      }
+      case "layers": {
+        if (!isObj(b)) { out[key] = null; break; }
+        const la: Record<string, unknown> = isObj(a) ? a : {}, layers: Record<string, unknown> = {};
+        for (const id of new Set([...Object.keys(la), ...Object.keys(b)])) {
+          const x = la[id], y = b[id];
+          if (!isObj(y)) { if (isObj(x)) layers[id] = null; continue; }
+          const xo: Record<string, unknown> = isObj(x) ? x : {};
+          const { styleBy: sa, ...ra } = xo, { styleBy: sb, ...rb } = y;
+          const f = colourFieldsPatch(ra, rb);
+          if (!same(sa, sb)) {
+            if (isObj(sb)) { const s = styleByPatch(isObj(sa) ? sa : {}, sb); if (!isEmpty(s)) f.styleBy = s; }
+            else if (sa !== undefined && sa !== null) f.styleBy = null;
+          }
+          if (!isEmpty(f)) layers[id] = f;
+        }
+        if (!isEmpty(layers)) out[key] = layers;
+        break;
+      }
+      case "furniture": {
+        if (!isObj(b)) { out[key] = null; break; }
+        const fa: Record<string, unknown> = isObj(a) ? a : {}, fur: Record<string, unknown> = {};
+        for (const k of new Set([...Object.keys(fa), ...Object.keys(b)])) {
+          const x = fa[k], y = b[k];
+          if (!isObj(y)) { if (isObj(x)) fur[k] = null; continue; }
+          if (!isObj(x)) { fur[k] = clone(y); continue; }
+          const f = fieldsPatch(x, y);
+          if (!isEmpty(f)) fur[k] = f;
+        }
+        if (!isEmpty(fur)) out[key] = fur;
+        break;
+      }
+      case "channels": {
+        if (!Array.isArray(b)) { out[key] = null; break; }
+        const ca: unknown[] = Array.isArray(a) ? a : [], n = Math.max(ca.length, b.length), next: Array<Record<string, unknown> | null> = [];
+        for (let i = 0; i < n; i++) {
+          const x: Record<string, unknown> = isObj(ca[i]) ? (ca[i] as Record<string, unknown>) : {}, y: Record<string, unknown> = isObj(b[i]) ? (b[i] as Record<string, unknown>) : {};
+          const f = colourFieldsPatch(x, y);
+          next.push(isEmpty(f) ? null : f);
+        }
+        while (next.length && next[next.length - 1] === null) next.pop();
+        if (next.length) out[key] = next;
+        break;
+      }
+      default: out[key] = clone(b);
+    }
+  }
+  return out as FluximgView;
+}
+
+const CONTAINERS = new Set(["index", "layers", "furniture", "channels"]);
+
+/** True when a patch changes nothing (`viewPatch(v, v)`). */
+export const isEmptyViewPatch = (p: FluximgView | null | undefined): boolean => !isObj(p) || isEmpty(p as Record<string, unknown>);
+
+/**
+ * A resolved view written back as a stored view that says every setting explicitly (`resolveView(m, explicitView(rv))`
+ * is `rv` again): what a sample of a slide at a moment between two steps holds as its image's `view`.
+ */
+export function explicitView(rv: ResolvedView): FluximgView {
+  const out: FluximgView = { index: { ...rv.index } };
+  if (rv.projection) out.projection = { ...rv.projection };
+  out.channels = rv.channels.map((c): FluximgChannelView => ({
+    visible: c.visible, ...(c.color ? { color: c.color } : c.lut ? { lut: c.lut } : {}),
+    range: [c.range[0], c.range[1]], norm: c.norm, gamma: c.gamma, invert: c.invert,
+  }));
+  out.composite = rv.composite;
+  out.solo = rv.solo;
+  out.smooth = rv.smooth;
+  out.background = rv.background;
+  if (rv.layers.length) {
+    const layers: Record<string, FluximgLayerView> = {};
+    for (const l of rv.layers) {
+      const o: FluximgLayerView = { visible: l.visible, opacity: l.opacity, strokeWidth: l.strokeWidth, fillOpacity: l.fillOpacity };
+      if (l.color) o.color = l.color; else if (l.lut) o.lut = l.lut;
+      if (l.range) o.range = [l.range[0], l.range[1]];
+      if (l.styleBy) o.styleBy = clone(l.styleBy);
+      layers[l.id] = o;
+    }
+    out.layers = layers;
+    out.layerOrder = rv.layers.map((l) => l.id);
+  }
+  const fur: Record<string, unknown> = {};
+  for (const [k, piece] of Object.entries(rv.furniture)) {
+    if (!isObj(piece)) continue;
+    const p: Record<string, unknown> = {};
+    for (const [f, v] of Object.entries(piece)) if (v !== null && v !== undefined) p[f] = clone(v);
+    fur[k] = p;
+  }
+  if (!isEmpty(fur)) out.furniture = fur as FluximgView["furniture"];
+  if (rv.insetOf) out.insetOf = rv.insetOf;
+  if (rv.link) out.link = rv.link;
+  return out;
+}
+
 /**
  * The part of a patch that linked panels share: position, projection, and each channel's window, norm and gamma.
  * Null when the patch touches none of those. (Visibility, colours, the composite mode, layers, furniture and the
