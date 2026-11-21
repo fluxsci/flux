@@ -22,7 +22,7 @@ import { clampCrop, fullCrop } from "../src/lib/fluximg/still";
 import { prepareColorLerp } from "../src/lib/color/interp";
 import { naturalRate } from "../src/lib/fluximg/live/rail";
 import {
-  describeViewChange, lerpFluximgView, lerpResolvedLayer, naturalDurationMs, planViewTween,
+  describeViewChange, framePicture, lerpFluximgView, lerpResolvedLayer, naturalDurationMs, planViewTween,
   type TweenPicture, type ViewEnd, type ViewTweenFrame, type ViewTweenPlan,
 } from "../src/lib/fluximg/viewTween";
 
@@ -534,6 +534,33 @@ h.section("viewPatch: a step's view is a patch over the view before it (B2)");
     return show(resolveView(m, explicitView(rv))) !== show(rv);
   });
   h.ok(explicit === null, `explicitView: resolveView(m, explicitView(rv)) is rv${explicit !== null ? ` (pair ${explicit})` : ""}`);
+}
+
+h.section("one definition of the in-between: a slide sample is the player's frame (C1)");
+{
+  // lerpElement (and through it compile.sample) with the image's manifest gives, at every raw, the view the player draws.
+  const { lerpElement } = await import("../src/lib/slide/tween");
+  const el = (e: ViewEnd) => ({ type: "fluximg", id: "img", assetId: "a", x: 0, y: 0, width: 10, height: 10, rotation: 0, ...(e.view ? { view: e.view } : {}), ...(e.crop ? { crop: e.crop } : {}) }) as never;
+  const cases = Array.from({ length: 200 }, (_, i) => { const m = MANIFESTS[i % MANIFESTS.length]; return { m, pre: randomEnd(m), end: randomEnd(m) }; });
+  let bad: string | null = null;
+  for (let i = 0; i < cases.length && !bad; i++) {
+    const { m, pre, end } = cases[i], plan = planViewTween(m, pre, end);
+    for (const raw of [0, 0.25, 0.5, 0.75, 1]) for (const t of [raw, easeInOut(raw)]) {
+      const sampled = lerpElement(el(pre), el(end), t, raw, { fluximgManifest: m }) as unknown as { view?: FluximgView; crop?: PixelRect };
+      const want = framePicture(plan.frame(t, raw));
+      if (show(resolveView(m, sampled.view)) !== show(want.view)) { bad = `case ${i} raw ${raw} t ${t}: view`; break; }
+      if (show(clampCrop(m, sampled.crop)) !== show(want.crop)) { bad = `case ${i} raw ${raw} t ${t}: crop ${show(sampled.crop)} vs ${show(want.crop)}`; break; }
+    }
+  }
+  h.ok(bad === null, `200 seeded pairs × raw 0, 0.25, 0.5, 0.75, 1 (linear and eased): the sampled view and crop resolve to framePicture(planViewTween(...).frame(t, raw))${bad ? ` (${bad})` : ""}`);
+  // The review's example: a Design view with no index, a step that sets t = 40. The player walks; so does the sample now.
+  const mt = MANIFESTS.find((m) => positionDims(m).includes("t") && dimN(m, "t") > 1)!;
+  const nT = dimN(mt, "t"), far = nT - 1;
+  const walk = [0.1, 0.3, 0.5, 0.7, 0.9].map((r) => (lerpElement(el({}), el({ view: { index: { t: far } } }), r, r, { fluximgManifest: mt }) as unknown as { view: FluximgView }).view.index!.t!);
+  h.ok(walk.every((x, k) => k === 0 || x >= walk[k - 1]) && walk[0] > 0 && walk[4] < far && new Set(walk).size >= 4, `a one-sided walk glides plane by plane in the sample, as in the player (${walk.join(", ")} of 0..${far})`);
+  const fade = planViewTween(mt, { view: {} }, { view: { furniture: { scalebar: {} } } }).frame(0.3, 0.3);
+  h.ok(fade.furnitureOpacity.scalebar !== undefined && framePicture(fade).view.furniture.scalebar === false && framePicture(planViewTween(mt, { view: {} }, { view: { furniture: { scalebar: {} } } }).frame(0.7, 0.7)).view.furniture.scalebar !== false,
+    "framePicture: a fading furniture piece is in the one picture from half its opacity on");
 }
 
 h.section("upcoming: the pictures to decode ahead");

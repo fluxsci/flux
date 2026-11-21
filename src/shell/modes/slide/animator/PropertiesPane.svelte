@@ -51,7 +51,7 @@
   import { PACE_SPEEDS, PLAYBACK_MODES, resolvePlayback, walkableDims } from "../../../../lib/fluximg/playback";
   import { positionText } from "../../../../lib/fluximg/furniture";
   import type { FluximgElement } from "../../../../lib/fluximg/element";
-  import { retimeImageWalk, dropWalkPace, walkPace, walkBlends, setImagePlayback } from "../../../../lib/slide/ops";
+  import { retimeImageWalk, setImageChangeEnd, dropWalkPace, walkPace, walkBlends, setImagePlayback } from "../../../../lib/slide/ops";
 
   let { slide, plotTags, onChooseMorph, onBecome }: {
     slide: Slide; plotTags: Map<string, string>;
@@ -530,16 +530,9 @@
   });
   const imageChanges = $derived(imageEnds ? describeViewChange(imageManifest, imageEnds.pre, imageEnds.end) : []);
   const imageWalk = $derived(imageEnds ? longestWalk(imageManifest, imageEnds.pre, imageEnds.end) : null);
-  /** Write an image Change's end (view, crop) as its state: a part equal to the start is dropped, one cleared is null. */
+  /** Write an image Change's end (view, crop) as its state: the view as a patch over the start (slideOps.setImageChangeEnd). */
   function writeImageEnd(t: Track, next: ViewEnd): void {
-    const st = { ...((t.to?.state ?? {}) as Record<string, unknown>) }, pre = imageEnds!.pre;
-    for (const k of ["view", "crop"] as const) {
-      const v = next[k] ?? undefined, p = pre[k] ?? undefined;
-      if (JSON.stringify(v ?? null) === JSON.stringify(p ?? null)) delete st[k]; else st[k] = v === undefined ? null : structuredClone(v);
-    }
-    t.to = { ...(t.to ?? {}), state: st };
-    // the walk changed: a paced track follows it (the pace rule), a hand-timed one keeps its timing
-    if (imageTarget) retimeImageWalk(t, imageTarget, transformEndState(imageTarget, t), { fluximgManifest: (id) => $fluximgManifests[id] });
+    if (imageTarget) setImageChangeEnd(t, imageTarget, next, { fluximgManifest: (id) => $fluximgManifests[id] });
   }
   function dropImageChange(c: ViewChange) {
     if (!imageEnds) return;

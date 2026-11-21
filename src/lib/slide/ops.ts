@@ -21,7 +21,7 @@ import { longestWalk, naturalDurationMs } from "../fluximg/viewTween";
 import { defaultWalkDim, playbackProblems, walkableDims } from "../fluximg/playback";
 import { mediaTarget, type FluximgManifestFor } from "./mediaTimeline";
 export { mediaTarget, type FluximgManifestFor };
-import { resolveView } from "../fluximg/viewOps";
+import { resolveView, viewPatch } from "../fluximg/viewOps";
 import type { Model3dElement } from "../model3d/types";
 import type { Asset, Element, Figure, Id, SemanticPlotElement } from "../types";
 import { newId } from "../ids";
@@ -648,6 +648,20 @@ export function placeFluximgOnSlide(deck: Deck, slideId: Id, args: Omit<AddFluxi
   const scratch = { version: 2, name: "", canvases: [], palette: [], assets: [],
     figures: [{ id: s.id, name: s.id, canvasId: DECK_CANVAS_ID, x: 0, y: 0, width: deck.stage.width, height: deck.stage.height, background: "", elements: s.elements }] } as unknown as import("../types").Project;
   return addFluximg(scratch, { ...args, figureId: s.id });
+}
+
+/** An image Change's end written as its state (the animator's chips and end plane): the step's `view` is the patch over the
+ *  view before the step (`viewOps.viewPatch`; an empty patch drops the key), its `crop` whole (dropped when it equals the
+ *  start, null when the end clears it). A paced walk follows the new end (the pace rule); other keys are kept. */
+export function setImageChangeEnd(track: Track, pre: Element, next: { view?: FluximgElement["view"] | null; crop?: FluximgElement["crop"] | null }, opts: { fluximgManifest?: FluximgManifestFor } = {}): void {
+  if (pre.type !== "fluximg") return;
+  const st = { ...((track.to?.state ?? {}) as Record<string, unknown>) };
+  const patch = viewPatch(pre.view, next.view ?? undefined);
+  if (Object.keys(patch).length) st.view = patch; else delete st.view;
+  const crop = next.crop ?? undefined;
+  if (JSON.stringify(crop ?? null) === JSON.stringify(pre.crop ?? null)) delete st.crop; else st.crop = crop === undefined ? null : structuredClone(crop);
+  track.to = { ...(track.to ?? {}), state: st };
+  retimeImageWalk(track, pre, transformEndState(pre, track), opts);
 }
 
 /** "Edit after step N" in one pure op: an element edited at its end state of step `beatId` becomes that step's Change, whose
@@ -1608,12 +1622,13 @@ export function addImageWalk(deck: Deck, opts: { slideId: Id; beatId: Id; target
   const to = opts.to ?? (from === n - 1 ? 0 : n - 1);
   if (!Number.isInteger(to) || to < 0 || to >= n) throw new Error(`Play through ends on a whole plane 0..${n - 1}`);
   if (to === from) throw new Error(`The image already stands on plane ${to + 1} of ${dim}`);
-  // The end the step already reaches (its other changes kept), walked along `dim`: `view` is replaced whole (plan D1).
+  // The end the step already reaches (its other changes kept), walked along `dim`; the step's `view` is the patch over the
+  // view before the step that reaches it (B2: the one diff, viewOps.viewPatch).
   const existing = wholeChange(slide.beats[bi], opts.target);
   const end = existing ? transformEndState(pre, existing) as FluximgElement : pre;
   const endView = structuredClone(end.view ?? {});
   endView.index = { ...(endView.index ?? {}), [dim]: to };
-  const track = setTransform(deck, opts.slideId, opts.beatId, opts.target, { state: { view: endView }, ...(opts.start !== undefined ? { start: opts.start } : !existing ? { start: 0 } : {}) });
+  const track = setTransform(deck, opts.slideId, opts.beatId, opts.target, { state: { view: viewPatch(pre.view, endView) }, ...(opts.start !== undefined ? { start: opts.start } : !existing ? { start: 0 } : {}) });
   if (!track) return null;
   retimeImageWalk(track, pre, { ...end, view: endView } as Element, { fluximgManifest: opts.fluximgManifest, speed: opts.speed ?? walkPace(track) ?? 1, force: true });
   if (opts.blend !== undefined) {

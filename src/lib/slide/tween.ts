@@ -34,8 +34,11 @@ import { compileSlide } from "./compile";
 import { planHandoff } from "./handoffPlan";
 import type { GeometryCtx } from "./targetGeometry";
 import type { ModelFieldOverride } from "../model3d/types";
-import { lerpFluximgView } from "../fluximg/viewTween";
+import { lerpFluximgView, sampleViewTween, type TweenPicture } from "../fluximg/viewTween";
+import type { FluximgManifest } from "../fluximg/types";
+import type { FluximgElement } from "../fluximg/element";
 import type { FluximgView } from "../fluximg/view";
+import { explicitView, isEmptyViewPatch, patchView, viewPatch } from "../fluximg/viewOps";
 
 // --- the property law --------------------------------------------------------
 
@@ -120,7 +123,8 @@ const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object
 // --- applyState (⊕) ----------------------------------------------------------
 
 /** Apply a sparse transform patch to an element: shallow per top-level prop
- *  (`null` deletes), with `overrides` merging PER PART-ID (a part key of
+ *  (`null` deletes), an image's `view` merging as a view patch (`viewOps.patchView`),
+ *  with `overrides` merging PER PART-ID (a part key of
  *  `null` deletes that part; a present part replaces its override object
  *  verbatim — exactly what diffState records). Returns a fresh clone; the
  *  input is never mutated. Text whose metric props changed drops its derived
@@ -137,6 +141,8 @@ export function applyState(el: Element, state: Record<string, unknown> | undefin
     out = kept;
   }
   let metrics = false;
+  // the kind the patch lands on (constant time: one comparison per call, whatever the kind)
+  const fluximgKind = (retype ? state.type : el.type) === "fluximg";
   for (const [k, v] of Object.entries(state)) {
     if (NEVER_CAPTURED.has(k)) continue;
     if (k === "type") { if (retype) out.type = v; continue; }
@@ -150,6 +156,13 @@ export function applyState(el: Element, state: Record<string, unknown> | undefin
       }
       if (Object.keys(merged).length) out.overrides = merged;
       else delete out.overrides;
+      continue;
+    }
+    // An image's view is a PATCH over the view before the step (stage 2, B2): merged key by key by the one merge
+    // (`viewOps.patchView`, what set-image-view speaks), so a Design edit of what a step does not touch carries through.
+    if (k === "view" && fluximgKind && isObj(v)) {
+      const view = patchView(out.view as FluximgView | undefined, v as FluximgView);
+      if (Object.keys(view).length || "view" in el) out.view = view; else delete out.view;
       continue;
     }
     if (v === null) delete out[k];
@@ -181,7 +194,8 @@ function eq(a: unknown, b: unknown): boolean {
 }
 
 /** Sparse capture: the patch that turns `pre` into `cur` (applyState-exact:
- *  applyState(pre, diffState(pre, cur)) ≡ cur up to NEVER_CAPTURED props).
+ *  applyState(pre, diffState(pre, cur)) ≡ cur up to NEVER_CAPTURED props; an image's
+ *  `view` is captured as a view patch, `viewOps.viewPatch`, exact between stored views).
  *  Returns null when nothing captured changed. */
 export function diffState(pre: Element, cur: Element): Record<string, unknown> | null {
   const a = pre as unknown as Record<string, unknown>;
@@ -202,6 +216,12 @@ export function diffState(pre: Element, cur: Element): Record<string, unknown> |
         else if (!eq(ova[part], ovb[part])) parts[part] = structuredClone(ovb[part]);
       }
       if (Object.keys(parts).length) out.overrides = parts;
+      continue;
+    }
+    if (k === "view" && !retype && pre.type === "fluximg") {
+      // an image's view is captured as a patch over the view before the step (applyState merges it: viewOps.viewPatch)
+      const p = viewPatch(a.view as FluximgView | undefined, b.view as FluximgView | undefined);
+      if (!isEmptyViewPatch(p)) out.view = p;
       continue;
     }
     if (!(k in b)) {
@@ -582,7 +602,7 @@ function stickOf(el: { x: number; y: number; closed?: boolean; d: string; nodes?
 
 /** `haloBackground`: the background a halo without its own colour takes (WP 4.2). Given, a halo colour set on one side only blends from /
  *  to it instead of stepping halfway (the player knows it; a caller that does not keeps the step). */
-export function lerpElement(pre: Element, end: Element, t: number, raw = t, opts?: { turn?: TurnMode; haloBackground?: string }): Element {
+export function lerpElement(pre: Element, end: Element, t: number, raw = t, opts?: { turn?: TurnMode; haloBackground?: string; fluximgManifest?: FluximgManifest }): Element {
   if (raw <= 0) return structuredClone(pre);
   if (raw >= 1) return structuredClone(end);
   // Across kinds (or a path changing closedness): the outline morph — one
@@ -598,6 +618,9 @@ export function lerpElement(pre: Element, end: Element, t: number, raw = t, opts
   const out = structuredClone(b); // end's shape; every differing prop overwritten below
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
   let metrics = false;
+  // An image's view and frame between two steps (with its manifest): planned once per call, only when one differs.
+  const imageManifest = pre.type === "fluximg" ? opts?.fluximgManifest : undefined;
+  let picture: TweenPicture | undefined;
   for (const k of keys) {
     const va = a[k], vb = b[k];
     if (eq(va, vb)) continue;
@@ -627,6 +650,10 @@ export function lerpElement(pre: Element, end: Element, t: number, raw = t, opts
       const d = lerpDash(va as number[] | undefined, vb as number[] | undefined, t);
       if (d) out[k] = d;
       else delete out[k];
+    } else if (k === "crop" && imageManifest) {
+      // an image's frame between two steps: the player's (one-sided ends glide from or to the whole image)
+      const c = (picture ??= imageSample(imageManifest, pre, end, t, raw)).crop;
+      out[k] = { x: c.x, y: c.y, width: c.width, height: c.height };
     } else if (k === "crop") {
       if (isObj(va) && isObj(vb)) {
         out[k] = {
@@ -643,8 +670,10 @@ export function lerpElement(pre: Element, end: Element, t: number, raw = t, opts
       // `view` names two different things: a plot's axis domains and an image's display recipe (fluximg). The kind decides
       // (pre and end share it here: a retype went to lerpAcrossKinds above). The image tween is the ONE definition in
       // fluximg/viewTween.ts (planes step, numbers lerp, exact ends).
-      const view = pre.type === "fluximg"
-        ? lerpFluximgView(va as FluximgView | undefined, vb as FluximgView | undefined, t, raw)
+      // With the image's manifest the view is the player's own frame (`viewTween.sampleViewTween`), written out explicitly;
+      // without one, the documented sparse fallback.
+      const view = imageManifest ? explicitView((picture ??= imageSample(imageManifest, pre, end, t, raw)).view)
+        : pre.type === "fluximg" ? lerpFluximgView(va as FluximgView | undefined, vb as FluximgView | undefined, t, raw)
         : lerpView(va as PlotView | undefined, vb as PlotView | undefined, t, raw);
       if (view) out[k] = view; else delete out[k];
     } else if (k === "colorScale") {
@@ -885,6 +914,12 @@ function lerpOverrides(
     if (Object.keys(merged).length) out[part] = merged;
   }
   return out;
+}
+
+/** An image element between two steps, as the player draws it (`viewTween.sampleViewTween`). */
+function imageSample(m: FluximgManifest, pre: Element, end: Element, t: number, raw: number): TweenPicture {
+  const a = pre as FluximgElement, b = end as FluximgElement;
+  return sampleViewTween(m, { view: a.view, crop: a.crop }, { view: b.view, crop: b.crop }, t, raw);
 }
 
 // --- pre-state folding (chained transforms) -----------------------------------
