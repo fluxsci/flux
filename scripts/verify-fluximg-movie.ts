@@ -341,6 +341,30 @@ async function encoded(ffmpeg: string) {
     const stepEl = { ...el, view: { ...el.view, channels: [{ range: [600, 2200] }, { range: [300, 1800] }] } };
     const d = diff(bf[0], await referenceFrame(stepEl, 0, st, matte), beat.width), dDesign = diff(bf[0], await referenceFrame(el, 0, st, matte), beat.width);
     h.ok(d.mean <= BOUND.mean && dDesign.mean > 3 * d.mean, `with beat: the image as it stands after that step (mean ${d.mean.toFixed(3)} from the step's picture, ${dDesign.mean.toFixed(3)} from Design's)`);
+    // A step where a layer's objects have not appeared yet: the movie at that step draws them as the slide does (hidden),
+    // and at the step where they appear it draws them (the static writers' own reading of the step's part states).
+    {
+      const objectLayer = manifest.layers.find((l: any) => l.kind === "labels") as { id: string } | undefined;
+      if (!objectLayer) h.fail("the fixture has no label layer to animate");
+      else {
+        const shown = { ...stepEl.view, layers: { ...(stepEl.view.layers ?? {}), [objectLayer.id]: { ...(stepEl.view.layers?.[objectLayer.id] ?? {}), visible: true } } };
+        await P.slidesCore.mutateDeck(P.root, "talk", "parts", (d: any) => {
+          const s = d.slides[0]; (s.elements.find((e: any) => e.id === elementId)).view = { ...el.view, layers: shown.layers };
+          s.beats = [s.beats[0], s.beats[1], { id: "b2", tracks: [{ id: "a1", target: elementId, part: `layer:${objectLayer.id}`, preset: "fade", start: 0, duration: 300, easing: "linear" }] }];
+        });
+        const before = await P.call("export_image_movie", { elementId, slide, beatId: "b1", out: path.join(P.scratch, "verb-unborn.mp4"), from: 0, to: 2, scale: 6 });
+        const after = await P.call("export_image_movie", { elementId, slide, beatId: "b2", out: path.join(P.scratch, "verb-born.mp4"), from: 0, to: 2, scale: 6 });
+        const fb = decode(ffmpeg, before.path, before.width, before.height)[0], fa = decode(ffmpeg, after.path, after.width, after.height)[0];
+        const withObjects = await referenceFrame({ ...stepEl, view: shown }, 0, st, matte);
+        const without = await referenceFrame({ ...stepEl, view: { ...shown, layers: { ...shown.layers, [objectLayer.id]: { ...shown.layers[objectLayer.id], visible: false } } } }, 0, st, matte);
+        // Where the objects' FILLS change the picture (a moderate difference: their one-pixel coloured outlines are
+        // what 4:2:0 cannot hold, so those are left out): how far each decoded frame is from each reference.
+        const fills = (rgb: Uint8Array) => { let ea = 0, eb = 0, n = 0; for (let p = 0, q = 0; p < rgb.length; p += 3, q += 4) { const d = Math.abs(withObjects[q] - without[q]) + Math.abs(withObjects[q + 1] - without[q + 1]) + Math.abs(withObjects[q + 2] - without[q + 2]); if (d < 24 || d > 60) continue; for (let k = 0; k < 3; k++) { ea += Math.abs(rgb[p + k] - withObjects[q + k]); eb += Math.abs(rgb[p + k] - without[q + k]); } n++; } return { a: ea / Math.max(1, 3 * n), b: eb / Math.max(1, 3 * n), n }; };
+        const mb = fills(fb), ma = fills(fa);
+        h.ok(mb.n > 500 && mb.b < mb.a / 3, `at a step before a layer's objects appear, the movie draws them hidden (inside the objects, ${mb.n} px: ${mb.b.toFixed(1)} from the picture without them, ${mb.a.toFixed(1)} from the one with)`);
+        h.ok(ma.n > 500 && ma.a < ma.b / 3, `at the step where they appear, it draws them (${ma.a.toFixed(1)} from the picture with them, ${ma.b.toFixed(1)} from the one without)`);
+      }
+    }
     let refused = "";
     try { await P.call("export_image_movie", { elementId, slide, out: path.join(P.scratch, "x.mov") }); } catch (e) { refused = String(e); }
     h.ok(/ending in \.mp4/.test(refused), "an output that is not .mp4 is refused");

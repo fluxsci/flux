@@ -29,6 +29,7 @@ import { furnitureSvg, stampLines } from "../src/lib/fluximg/furniture";
 import { fluximgLayerFiles, fluximgTableFiles } from "../src/lib/fluximg/exportStatic";
 import { sanitizeLayerSvg, svgNum } from "../src/lib/fluximg/layers";
 import { colormapLut, ensureColormapLuts } from "../src/lib/color/colormapLuts";
+import { modelPartOpacity } from "../src/lib/model3d/appearance";
 import { MovieRequestError, hasDecorationView, movieFileName, planMovieClip, resolveMovie, type MovieOptions, type MovieSettings } from "../src/lib/fluximg/moviePlan";
 import { effectiveHidden } from "../src/lib/groups";
 import { resolveTheme } from "../src/lib/slide/theme";
@@ -110,7 +111,7 @@ export async function exportImageMovie(root: string, elementId: string, request:
 
   // --- what is drawn over the pixels ------------------------------------------------------------------------------
   const t0 = performance.now();
-  const overlay = await prepareOverlay(reader, manifest, element, rv, siblings, settings, warnings);
+  const overlay = await prepareOverlay(reader, manifest, element, rv, siblings, settings, warnings, found.partOpacity);
   const raster = overlay.needed ? openRasterizer() : null;
   let stampCalls = 0, overlayMs = performance.now() - t0;
   try {
@@ -157,7 +158,12 @@ function cancelled(): Error { const e = new Error("Movie export cancelled"); e.n
 export const hasDecoration = hasDecorationView;
 
 /** The image element a movie is made of, its asset, the elements beside it (blow-out outlines) and the matte. */
-export interface MovieElement { element: FluximgElement; asset: Asset; siblings: FluximgElement[]; matte: string; project: Project }
+export interface MovieElement {
+  element: FluximgElement; asset: Asset; siblings: FluximgElement[]; matte: string; project: Project;
+  /** At a step on a slide: its objects' opacity by part id (an object that has not appeared yet, or has gone, is drawn
+   *  that way: what the slide shows once the step has played). Absent in Design and on a figure. */
+  partOpacity?: Record<string, number>;
+}
 
 /** Figure matte: its background, else the page's white. Slide matte: the slide's, the deck's, the theme's. */
 export const figureMatte = (f: Figure): string => (isHex(f.background) ? f.background.toLowerCase() : "#ffffff");
@@ -176,7 +182,7 @@ interface Overlay {
   stamp: null | { group(rv: ResolvedView): string; text(rv: ResolvedView): string; y0: number; y1: number; open: string };
 }
 
-async function prepareOverlay(reader: Awaited<ReturnType<typeof fluximgReader>>, manifest: FluximgManifest, element: FluximgElement, rv: ResolvedView, siblings: FluximgElement[], s: MovieSettings, warnings: string[]): Promise<Overlay> {
+async function prepareOverlay(reader: Awaited<ReturnType<typeof fluximgReader>>, manifest: FluximgManifest, element: FluximgElement, rv: ResolvedView, siblings: FluximgElement[], s: MovieSettings, warnings: string[], partOpacity?: Record<string, number>): Promise<Overlay> {
   if (!hasDecoration(manifest, rv) && !siblings.some((e) => e.view?.insetOf === element.id)) return { needed: false, base: "", stamp: null };
   await ensureColormapLuts();
   const resolveLut = (name: string) => colormapLut(name)?.lut ?? null;
@@ -192,7 +198,7 @@ async function prepareOverlay(reader: Awaited<ReturnType<typeof fluximgReader>>,
   const box = s.box, crop = s.crop, prefix = fluximgIdPrefix(element.id);
   const insets = insetsOf(siblings, element.id, element.assetId);
   let inner: string;
-  const input = { manifest, view: rv, crop, tables, box, stillHref: null, layerSvg, idPrefix: prefix, flipX: !!element.flipX, flipY: !!element.flipY, insets, resolveLut };
+  const input = { manifest, view: rv, crop, tables, box, stillHref: null, layerSvg, idPrefix: prefix, flipX: !!element.flipX, flipY: !!element.flipY, insets, resolveLut, ...(partOpacity ? { partOpacity } : {}) };
   try { inner = fluximgStaticSvg(input); }
   catch { warnings.push("the image's vector layers could not be placed; the movie is drawn without them"); inner = fluximgStaticSvg({ ...input, layerSvg: {} }); }
   // The pixels (and their background) are drawn by the frame pass: what the static composer puts under the vectors (its
@@ -372,17 +378,20 @@ export async function findImageElement(root: string, elementId: string, slide?: 
   const design = sl.elements.find((e) => e.id === elementId);
   if (!design) throw new NotFoundError(`Image element not found: ${elementId} on slide ${where.slideId}`);
   if (design.type !== "fluximg") throw new ValidationError(`Element ${elementId} is a ${design.type}, not an image (fluximg)`);
-  let elements = sl.elements;
+  let elements = sl.elements, partOpacity: Record<string, number> | undefined;
   if (beatId !== undefined) {
     const bi = sl.beats.findIndex((b) => b.id === beatId);
     if (bi < 1) throw new ValidationError("Choose an existing build step after Design (--beat).");
-    elements = (await compileDeckSlide(root, deck, sl.id)).sample(bi).elements;
+    const frame = (await compileDeckSlide(root, deck, sl.id)).sample(bi);
+    elements = frame.elements;
+    // the same reading of a step's part states the static writers use (imageExport.payloadImageSvgContext)
+    partOpacity = frame.partStates?.[elementId] ? modelPartOpacity(frame.partStates[elementId]) : undefined;
   }
   const element = elements.find((e) => e.id === elementId) as FluximgElement;
   // Playback is Design-level (plan D7): the Design element's setting, whatever the step.
   const withPlayback = { ...element, ...((design as FluximgElement).playback ? { playback: (design as FluximgElement).playback } : {}) } as FluximgElement;
   const siblings = elements.filter((e): e is FluximgElement => e.type === "fluximg" && !e.hidden);
-  return { element: withPlayback, asset: await deckImageAsset(root, project, element), siblings, matte: slideMatte(sl, deck), project };
+  return { element: withPlayback, asset: await deckImageAsset(root, project, element), siblings, matte: slideMatte(sl, deck), project, ...(partOpacity ? { partOpacity } : {}) };
 }
 
 export { movieFileName };
