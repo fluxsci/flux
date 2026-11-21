@@ -266,6 +266,22 @@ try {
     h.eq(deckSchemaFor(deck), "0.8.0", "the deck is written as 0.8.0");
   }
 
+  h.section("N. static writers: a slide where footprints appear one by one");
+  {
+    const { renderSlidePosterSvg } = await import("../src/lib/slide/embedRender");
+    const byPath: Record<string, string> = {};
+    for (const l of manifest.layers) { const p = layerSvgPath(l); if (p) byPath[p] = texts[l.id]; }
+    const deck = { schemaVersion: "0.8.0", id: "d", title: "p", created: "", modified: "", stage: { width: 640, height: 360 }, theme: "flux-dark", defaults: { transition: "none" }, assets: [],
+      slides: [{ id: "s", elements: [{ ...el, view: { layers: { footprints: { visible: true }, discs: { visible: true } } } }],
+        beats: [{ id: "b0", tracks: [] }, { id: "b1", tracks: [{ id: "t", target: "img", parts: ["footprints/s1", "footprints/s2"], preset: "fade", duration: 400 }] }, { id: "b2", tracks: [{ id: "u", target: "img", part: "layer:footprints", preset: "fade", duration: 400, stagger: { perMs: 100 } }] }] }] };
+    const payload = { deck, plots: {}, assets: {}, images: { A: { manifest, texts: byPath } } } as never;
+    const keysAt = (step: number) => { const svg = renderSlidePosterSvg(payload, step); const g = /data-layer="footprints"[^]*?<\/g>/.exec(svg)?.[0] ?? ""; return [...g.matchAll(/data-key="([^"]+)"/g)].map((m) => m[1]); };
+    h.eq(keysAt(0), [], "the poster of Design (PDF step 0, PPTX build 0): no footprint drawn yet");
+    h.eq(keysAt(1), ["s1", "s2"], "step 1: the two that appeared");
+    h.eq(keysAt(2), ["s1", "s2", "s3", "s7"], "step 2: all of them");
+    h.ok(/data-layer="discs"/.test(renderSlidePosterSvg(payload, 0)), "an object layer without effects is drawn at every step");
+  }
+
   h.section("K. stamps and the deck without images");
   {
     const base = createDeck({ id: "d", title: "d" });
