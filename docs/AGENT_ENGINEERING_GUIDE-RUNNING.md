@@ -13846,3 +13846,22 @@ digest of decks WITHOUT images pinned to the pre-change base) and `verify-fluxim
 - `describeViewChange` is pinned by deep equality: per-aspect data for `dropViewChange` travels in a private
   parallel list (`describeAspects`), not as new fields on `ViewChange`.
 
+### 2026-11-21 — An image's objects as slide parts; Become by key (Claude Opus 5.5, `s2/parts`, fluximg stage 2 W8)
+**Work:** `fluximg/parts.ts` is THE law of image parts: `layer:<id>` (a container → its objects in file order) and
+`<layer>/<key>`, the index (built once per manifest + layer texts), `fluximgPartNode` (by `data-layer` / `data-key`,
+any host), key matching, column stagger order. It reaches `targets.targetPartIds` as a third manifest kind
+(`isFluximgPartIndex`); compiles take `CompileOptions.fluximgParts` / `fluximgTable`, else the window's provider
+(`fluximg/partStore.ts` registers it), else the player derives it from its image context (the exported deck).
+Rest states ride `layerMarkup(..., partOpacity)` in the editor element and every static writer. The overlay
+RECONCILES a rebuilt layer into its existing nodes (identity is a contract now), holds a styled layer back until
+its table lands (`settled()` waits), and tweens a styling change object by object (`objectStyle.objectStyleTween`).
+Pair policy `"key"` (correspondence.byKey; auto only when an image object is on a side). Gates:
+`verify-fluximg-slide-parts` (pure + the real player in Chrome) and `verify-fluximg-slide-parts-gui`.
+**Learnings:**
+- An effect on an image object animates a `<g data-sl-fx>` wrapper: CSS `opacity` REPLACES the SVG `opacity`
+  attribute, and the shape's attribute is its styling (styleBy), which a later step may change.
+- A shape inside the layer group lives in image pixels: a stage-px lift (fadeRise, move) is divided by the crop
+  scale of the step's start (`player.imageUnits`).
+- `resolve.beatResolver` asked for an anchor's manifest even for whole-element tracks; it now asks only for a
+  part-bound track (an image's lookup may load files).
+
