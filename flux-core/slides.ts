@@ -820,7 +820,10 @@ export async function ungroupTracksVerb(
 }
 
 /** Read manifests for timing without rendering or refreshing source assets. */
-async function slideCompileOptions(root: string, deck: Deck, slideId: string, knownModelManifests?: Record<string, Scene3dManifest | undefined>) {
+async function slideCompileOptions(root: string, deck: Deck, slideId: string, knownModelManifests?: Record<string, Scene3dManifest | undefined>,
+  /** The refs the PENDING request names (a become's source and destination, …): an image whose objects they name has its
+   *  object index read too, though no existing track names its objects yet. */
+  request: readonly TargetRef[] = []) {
   const slide = mustSlide(deck, slideId);
   const manifests = new Map<string, FluxPlotManifest | undefined>();
   const modelAssets = new Map((await externalDeckAssetMetadata(root, deck)).map(asset => [asset.id, asset]));
@@ -855,7 +858,8 @@ async function slideCompileOptions(root: string, deck: Deck, slideId: string, kn
   const imageParts = new Map<string, FluximgPartIndex>(), imageTables = new Map<string, FluximgTable | null>();
   const partImages = new Set<string>();
   for (const beat of slide.beats) for (const track of beat.tracks) if (hasPartBinding(track)) { const el = slide.elements.find(e => e.id === track.target); if (el?.type === "fluximg") partImages.add(el.assetId); }
-  for (const t of slide.beats.flatMap(b => b.tracks)) for (const m of t.to?.become?.ref ? refMembers(t.to.become.ref) : []) { const el = slide.elements.find(e => e.id === m.element); if (el?.type === "fluximg" && (m.parts?.length || m.selector)) partImages.add(el.assetId); }
+  for (const ref of [...slide.beats.flatMap(b => b.tracks).flatMap(t => t.to?.become?.ref ? [t.to.become.ref] : []), ...request])
+    for (const m of refMembers(ref)) { const el = slide.elements.find(e => e.id === m.element); if (el?.type === "fluximg" && (m.parts?.length || m.selector)) partImages.add(el.assetId); }
   for (const assetId of partImages) {
     const manifest = imageManifests.get(assetId);
     if (!manifest) continue;
@@ -922,7 +926,7 @@ export async function setTrackVerb(root: string, deckId: string, slideId: string
     const bi = found.slide.beats.indexOf(found.beat);
     const result = slideOps.setTrack(deck, slideId, trackId, patch, target => {
       const el = compiled.preState(target, bi);
-      return el?.type === "plot" ? context.plotManifest(el.assetId) : el?.type === 'model3d' ? context.modelManifest(el.assetId) : undefined;
+      return el?.type === "plot" ? context.plotManifest(el.assetId) : el?.type === 'model3d' ? context.modelManifest(el.assetId) : el?.type === "fluximg" ? context.fluximgParts(el.assetId) : undefined;
     });
     if (!result.ok) throw new ValidationError(result.reason!);
     const after = await compileDeckSlide(root, deck, slideId);
@@ -1443,8 +1447,9 @@ export async function become(
   return mutateDeck(root, deckId, "become", async (deck) => {
     const slide = mustSlide(deck, slideId);
     if (opts.targetId || opts.members) {
-      const options = await slideCompileOptions(root, deck, slideId);
-      const result = slideOps.becomeTransform(deck, slideId, beatId, partRef(sourceId, opts.sourceParts), destinationRef(opts.targetId, opts.parts, opts.members), {
+      const source = partRef(sourceId, opts.sourceParts), destination = destinationRef(opts.targetId, opts.parts, opts.members);
+      const options = await slideCompileOptions(root, deck, slideId, undefined, [source, destination]);
+      const result = slideOps.becomeTransform(deck, slideId, beatId, source, destination, {
         ...opts, modelAsset: options.modelAsset, compiled: compileSlide(slide, deck.stage, options),
       });
       if (!result) throw new Error(`beat not found: ${beatId} on ${slideId}`);
@@ -1488,8 +1493,9 @@ export async function appearFrom(root: string, deckId: string, slideId: string, 
   if ((destId == null) === (opts.members == null)) throw new Error("appear-from needs exactly one of --dest <elementId> or --members <json>");
   return mutateDeck(root, deckId, "appear_from", async deck => {
     const slide = mustSlide(deck, slideId);
-    const options = await slideCompileOptions(root, deck, slideId);
-    const result = slideOps.appearFrom(deck, slideId, beatId, destinationRef(destId, opts.parts, opts.members), partRef(sourceId, opts.sourceParts), {
+    const destination = destinationRef(destId, opts.parts, opts.members), source = partRef(sourceId, opts.sourceParts);
+    const options = await slideCompileOptions(root, deck, slideId, undefined, [source, destination]);
+    const result = slideOps.appearFrom(deck, slideId, beatId, destination, source, {
       ...opts, modelAsset: options.modelAsset, compiled: compileSlide(slide, deck.stage, options),
     });
     if (!result) throw new Error(`beat not found: ${beatId} on ${slideId}`);

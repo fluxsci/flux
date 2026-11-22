@@ -30,7 +30,7 @@ import type { StageOutline } from "../src/lib/slide/stageOutline";
 import type { Deck, Slide, Track } from "../src/lib/slide/types";
 import type { FluximgElement } from "../src/lib/fluximg/element";
 import { deckSchemaFor } from "../src/lib/slide/schemaStamp";
-import { createDeck } from "../src/lib/slide/ops";
+import { createDeck, becomeTransform as becomeTransformOp } from "../src/lib/slide/ops";
 import { decksWithoutImages, deckDigest } from "./lib/noImageDeckDigest";
 import { styleTweenAt, objectStyleTween } from "../src/lib/fluximg/objectStyle";
 import { lerpColor } from "../src/lib/color/interp";
@@ -347,6 +347,44 @@ try {
       const key = run(["S1", "q8", "q9", "x"], "key");
       h.eq([key.plan.policy, key.pairing.policy], ["key", "key"], "an explicit key pairs by key whatever the count");
     } finally { Object.assign(g, had); }
+  }
+
+  h.section("P. headless on a FRESH deck: become --source-part layer:… (review NEW-B3), and the GUI's bytes");
+  {
+    const fs = await import("node:fs/promises");
+    const core = await import("../flux-core/index");
+    const { placeImage } = await import("../flux-core/fluximg");
+    const proj = await mkdtemp(path.join(tmpdir(), "w8-headless-"));
+    try {
+      await core.scaffold(proj, { title: "W8" });
+      await fs.cp(dir, path.join(proj, "plots", "cells.fluximg"), { recursive: true });
+      const { deckId } = await core.createDeck(proj, { id: "talk", title: "t" });
+      const deckPath = path.join(proj, "slides", "talk", "deck.json");
+      const sid = JSON.parse(await fs.readFile(deckPath, "utf8")).slides[0].id as string;
+      const a = await placeImage(proj, sid, "plots/cells.fluximg", { x: 20, y: 20, width: 200 }) as unknown as { elementId: string };
+      const b = await placeImage(proj, sid, "plots/cells.fluximg", { x: 360, y: 20, width: 200 }) as unknown as { elementId: string };
+      const { beatId } = await core.addBeat(proj, deckId, sid, {});
+      const before = JSON.parse(await fs.readFile(deckPath, "utf8")) as Deck;
+      h.ok(!before.slides[0].beats.some((bt) => bt.tracks.length), "a fresh deck: no track names the images' objects yet");
+      let error = "";
+      let r: { trackId: string } | undefined;
+      try { r = await core.become(proj, deckId, sid, beatId, a.elementId, { sourceParts: ["layer:footprints"], targetId: b.elementId, parts: ["layer:footprints"] }); }
+      catch (e) { error = e instanceof Error ? e.message : String(e); }
+      h.ok(!!r?.trackId && !error, `become --source-part layer:footprints --part layer:footprints works on a fresh deck${error ? ` (threw: ${error})` : ""}`);
+      const after = JSON.parse(await fs.readFile(deckPath, "utf8")) as Deck;
+      const written = after.slides[0].beats.flatMap((bt) => bt.tracks).find((t) => t.id === r?.trackId);
+      // the GUI's bytes: the same pure op on the same deck, with the index the app would hand it
+      const gui = structuredClone(before), slide = gui.slides[0];
+      const opts = { fluximgParts: () => index, fluximgTable: () => null };
+      const g = becomeTransformOp(gui, sid, beatId, { element: a.elementId, parts: ["layer:footprints"] }, { element: b.elementId, parts: ["layer:footprints"] }, { compiled: compileSlide(slide, gui.stage, opts as never) });
+      const strip = (t: Track | undefined) => t && { ...t, id: undefined };
+      h.eq(strip(written), strip(gui.slides[0].beats.flatMap((bt) => bt.tracks).find((t) => t.id === g?.trackId)), "the headless track is byte-for-byte the GUI's (twin engines)");
+      const { setAnimation } = await import("../flux-core/slides");
+      const ap = await setAnimation(proj, deckId, sid, beatId, { id: "ap", target: a.elementId, part: "layer:discs", preset: "fade", duration: 300, stagger: { perMs: 50 } } as Track);
+      const c = await core.compileDeckSlide(proj, JSON.parse(await fs.readFile(deckPath, "utf8")) as Deck, sid);
+      const ct = c.cues.flatMap((cu) => cu.tracks).find((t) => t.track.id === ap.id);
+      h.ok(!!ct && ct.parts.length === 3 && !c.issues.some((i) => i.trackId === ap.id), `an Appear with --part layer:discs compiles headlessly to its 3 objects (${ct?.parts.join(", ")})`);
+    } finally { await rm(proj, { recursive: true, force: true }); }
   }
 
   h.section("K. stamps and the deck without images");
