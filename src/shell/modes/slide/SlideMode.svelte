@@ -86,11 +86,12 @@
   import { slideDefaultBackground } from "../../../lib/slide/deckProject";
   import { inspectorHidden, leftRailHidden } from "../../../lib/settings";
   import { resolveTheme, BUILTIN_THEMES } from "../../../lib/slide/theme";
-  import type { Deck, TransitionKind, TargetRef } from "../../../lib/slide/types";
+  import type { Deck, TransitionKind, TargetRef, Slide } from "../../../lib/slide/types";
   import type { Figure } from "../../../lib/types";
   import { createPlayer, type Player } from "../../../lib/slide/player/player";
   import { gridFit, devicePixelRatioOf } from "../../../lib/slide/player/deviceGrid";
   import { plotManifests, plotGen, plotDom } from "../../../lib/plot/store";
+  import { fluximgPartsRevision } from "../../../lib/fluximg/partStore";
   import { createAppInlineModels, type AppInlineModels } from "../../../lib/model3d/appInlineHost";
   import { createAppFluximgHost, type AppFluximg } from "../../../lib/fluximg/appSlideHost";
   import { modelPair, modelPairIssue } from "../../../lib/slide/model3dMorph";
@@ -766,7 +767,9 @@
   // Change content/hand-off reads as "topology unavailable" (a warning the author can never clear).
   // glyphStatus: a text ↔ shape Become whose font has no readable outlines lands
   // as boxes; the revision re-derives once a font settles (oct2 W3).
-  const animationIssues=$derived(activeSlide && $glyphFontsRevision >= 0 ? compileSlide(activeSlide,stage,{animStyles:overlay?.animStyles,modelManifest:id=>$scene3dManifests[id],plotManifest:id=>$plotManifests[id],modelAsset:id=>$project.assets.find(a=>a.id===id),glyphStatus:textGlyphStatus,fluximgManifest:id=>$fluximgManifests[id],fluximgIssue:id=>$project.assets.some(a=>a.id===id&&a.kind==="fluximg")?$fluximgIssues[id]:"Image file missing"}).issues : []);
+  // A slide whose tracks name an image's objects compiles against the image's object index, which lands lazily: its
+  // issues are recomputed when it lands (fluximgPartsRevision, read only for such a slide: other decks never depend on it).
+  const animationIssues=$derived(activeSlide && $glyphFontsRevision >= 0 && (!hasImagePartTracks(activeSlide) || $fluximgPartsRevision >= 0) ? compileSlide(activeSlide,stage,{animStyles:overlay?.animStyles,modelManifest:id=>$scene3dManifests[id],plotManifest:id=>$plotManifests[id],modelAsset:id=>$project.assets.find(a=>a.id===id),glyphStatus:textGlyphStatus,fluximgManifest:id=>$fluximgManifests[id],fluximgIssue:id=>$project.assets.some(a=>a.id===id&&a.kind==="fluximg")?$fluximgIssues[id]:"Image file missing"}).issues : []);
   function inspectIssue(trackId?:string){
     if(!activeSlide||!trackId)return;
     const bi=activeSlide.beats.findIndex(b=>b.tracks.some(t=>t.id===trackId));
@@ -833,6 +836,7 @@
     previewAssetGenerations=Object.fromEntries([...dependencies].map(id=>[id,generations[id]??0]));
     previewModelGeneration=get(scene3dGeneration);
     previewImageBundles=imageBundles(slide);
+    previewPartsRevision=get(fluximgPartsRevision);
     pvStage=deck.stage;previewing=true;
     await tick();
     if(generation!==previewGeneration||!previewHost||!previewMount)return;
@@ -863,11 +867,25 @@
   function pausePreview(){player?.pause();previewPlaying=false;}
   $effect(() => { if ($captureOpen) pausePreview(); });
   function resumePreview(){if(!player)return;const state=player.state();if(state.time>=state.duration && !state.mediaPaused){void startPreview(previewStartBeat,previewRange);return;}player.resume();previewPlaying=player.state().playing || player.state().mediaPlaying;}
+  let previewPartsRevision=-1;
+  /** Whether a slide's tracks name an image's objects (a part-bound track on an image element). */
+  function hasImagePartTracks(slide: Slide | null | undefined): boolean {
+    if(!slide)return false;
+    const images=new Set(slide.elements.filter(e=>e.type==="fluximg").map(e=>e.id));
+    return images.size>0&&slide.beats.some(b=>b.tracks.some(t=>images.has(t.target)&&hasPartBinding(t)));
+  }
   function stopPreview() {
     previewGeneration++;unsubscribeFrame?.();unsubscribeFrame=undefined;
     player?.destroy();player=undefined;previewModels?.dispose();previewModels=undefined;previewImages?.dispose();previewImages=undefined;previewing=false;previewPlaying=false;previewTime=0;
     previewAssetGenerations={};
   }
+  // A preview built before an image's objects were known (its player said "not loaded") stops when they land, as it does
+  // when a plot regenerates; a preview of a slide without image-object tracks never reads the revision.
+  $effect(()=>{
+    if(!previewing||!player||!hasImagePartTracks(currentDeck()?.slides[previewSlideIndex]))return;
+    const rev=$fluximgPartsRevision;
+    if(rev!==previewPartsRevision&&player.state().issues.some(i=>/objects are not loaded/.test(i.reason)))stopPreview();
+  });
   $effect(()=>{
     const generations=$plotGen, modelGeneration=$scene3dGeneration;
     if(previewing&&(modelGeneration!==previewModelGeneration || Object.entries(previewAssetGenerations).some(([id,atStart])=>(generations[id]??0)!==atStart)))stopPreview();

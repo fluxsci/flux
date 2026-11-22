@@ -4,7 +4,7 @@ import type { Track, TargetRef, BecomeSpec } from "./types";
 import type { StageOutline } from "./stageOutline";
 import { trackRef, isWholeElementRef } from "./targets";
 import { targetOutlines, withSeriesNames, plotStageMapping, geometryPlotRoot, geometryPlotManifest, type GeometryCtx } from "./targetGeometry";
-import { planCorrespondence, type CorrespondencePlan, type DataHint } from "./correspondence";
+import { planCorrespondence, keyPairing, type CorrespondencePlan, type DataHint } from "./correspondence";
 import { viewFits } from "../plot/project";
 
 /** An outline wholly outside a cropped plot cannot take part in a flight.
@@ -69,7 +69,9 @@ function planMergeShare(track: Track, frame: SlideFrame, ctx: GeometryCtx, group
   return { pairs, policy: full.policy, driver: full.driver, destinations: full.destinations, prepare() { for (const p of pairs) p.plan?.prepare(); } };
 }
 
-function planOne(track: Track, frame: SlideFrame, ctx: GeometryCtx, sourceOutlines?: StageOutline[]): CorrespondencePlan {
+/** Both sides' outlines of a hand-off as its plan sees them (crop-filtered, letters where they fly as letters, series
+ *  names where key pairing is in play). */
+function handoffSides(track: Track, frame: SlideFrame, ctx: GeometryCtx, sourceOutlines?: StageOutline[]): { a: StageOutline[]; b: StageOutline[] } {
   const spec = track.to!.become as BecomeSpec, source = trackRef(track);
   const boxed = ctx.glyphs ? { ...ctx, glyphs: undefined } : ctx;
   let a = sourceOutlines ?? targetOutlines(source, frame, boxed).filter(o => insideCrop(o, frame));
@@ -81,6 +83,23 @@ function planOne(track: Track, frame: SlideFrame, ctx: GeometryCtx, sourceOutlin
   // Pairing by key (named, or an image's objects on a side) matches a series' NAME as well as its id: only then do
   // the plot outlines carry it.
   if (spec.pair === "key" || a.some(o => o.owner.key !== undefined) || b.some(o => o.owner.key !== undefined)) { a = withSeriesNames(a, frame, ctx); b = withSeriesNames(b, frame, ctx); }
+  return { a, b };
+}
+
+/** What a hand-off pairs by, and how many keys pair: the plan's own answer (the Animation properties show it). */
+export function handoffPairing(track: Track, frame: SlideFrame, ctx: GeometryCtx): { policy: "key" | "other"; pairs: number; auto: boolean; images: boolean } {
+  const spec = track.to!.become as BecomeSpec, { a, b } = handoffSides(track, frame, ctx), k = keyPairing(a, b);
+  return { policy: byKey(spec, k) ? "key" : "other", pairs: k.pairs, auto: k.auto, images: k.images };
+}
+/** Named "key", or "auto" with an image's objects on a side and enough keys matching. */
+const byKey = (spec: BecomeSpec, k: { auto: boolean }) => spec.pair === "key" || (!spec.pair || spec.pair === "auto") && k.auto;
+
+function planOne(track: Track, frame: SlideFrame, ctx: GeometryCtx, sourceOutlines?: StageOutline[]): CorrespondencePlan {
+  const spec = track.to!.become as BecomeSpec, source = trackRef(track);
+  const { a, b } = handoffSides(track, frame, ctx, sourceOutlines);
+  // Pairing by key (an image's objects against a plot's series, plan D10) wins over the whole-plot default below: the
+  // series pair, every other part of the plot takes the b-only envelope, exactly as under an explicit "key".
+  if (byKey(spec, keyPairing(a, b))) return planCorrespondence(a, b, { pair: "key", method: spec.method });
   const data: DataHint = { destAxisFit: axisHint(spec.ref, b, frame, ctx), sourceAxisFit: axisHint(source, a, frame, ctx) };
   const dest = frame.elements.find(el => el.id === spec.ref.element);
   // Whole-plot default: one source becomes the merged axes, not a slice of

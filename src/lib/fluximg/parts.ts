@@ -382,3 +382,23 @@ export function objectStaggerCoordinates(index: FluximgPartIndex | undefined, pa
   }
   return out;
 }
+
+/**
+ * The layers whose table no longer has the column a stagger is ordered by (`{ column }`), among the layers of the
+ * objects it staggers: their objects keep their order, and the compiler says so (naming the column and the layer). A
+ * table still loading (undefined) is not judged; an unreadable one (null) has no column either.
+ */
+export function missingStaggerColumns(index: FluximgPartIndex | undefined, partIds: readonly string[], stagger: { by?: unknown } | undefined,
+  tableFor: (layer: FluximgPartLayer) => FluximgTable | null | undefined): Array<{ layer: string; column: string }> {
+  const by = stagger?.by, column = by && typeof by === "object" && typeof (by as { column?: unknown }).column === "string" ? (by as { column: string }).column : null;
+  if (!index || !column) return [];
+  const layers = new Set<FluximgPartLayer>();
+  for (const id of partIds) { const o = fluximgObject(index, id); if (o) layers.add(o.layer); }
+  const out: Array<{ layer: string; column: string }> = [];
+  for (const layer of layers) {
+    const table = layer.table ? tableFor(layer) : null;
+    if (table === undefined) continue;
+    if (!Array.isArray(table?.columns?.[column])) out.push({ layer: layer.name, column });
+  }
+  return out;
+}

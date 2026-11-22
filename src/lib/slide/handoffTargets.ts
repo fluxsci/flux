@@ -8,8 +8,6 @@ import type { Slide, TargetRef, Track } from "./types";
 import { resolveTargetLeaves, mergeResolved, type ResolvedTarget } from "./targets";
 import { transformPreState } from "./tween";
 import type { FluximgPartIndex } from "../fluximg/parts";
-import { keyGroups, keyPolicyApplies, memberKeys } from "./keyMatch";
-import { parseFluximgPartId } from "./imageSeam";
 
 export function handoffTargetResolver(slide: Slide, manifestFor: (assetId: string) => FluxPlotManifest | undefined, modelManifestFor?: (assetId: string) => Scene3dManifest | undefined,
   imagePartsFor?: (assetId: string) => FluximgPartIndex | undefined) {
@@ -53,28 +51,4 @@ export function remapBecomeTarget(track: Track, elements: ReadonlyMap<string, st
   if (ref.group) ref.group = groups?.get(ref.group) ?? ref.group;
   // A set remaps every member's element (and nothing else).
   for (const member of ref.members ?? []) member.element = elements.get(member.element) ?? member.element;
-}
-
-/**
- * How a hand-off pairs by key (stage 2, plan D10), from its resolved ends alone (no geometry): an image object answers to
- * its key, a plot part to its series' id and name. `pairs` = matched keys; `auto` = whether "auto" would choose "key"
- * (the planner's own rule over the same members). For the PropertiesPane's count and the pick bar; the flight itself
- * pairs its outlines (correspondence.byKey) by the same law.
- */
-export function handoffKeyPairs(slide: Slide, source: readonly ResolvedTarget[], destination: readonly ResolvedTarget[],
-  lookups: { plotManifest?: (assetId: string) => FluxPlotManifest | undefined }): { pairs: number; source: number; destination: number; auto: boolean } {
-  const members = (targets: readonly ResolvedTarget[]) => targets.flatMap(t => {
-    const el = slide.elements.find(e => e.id === t.elementId);
-    if (!el) return [];
-    if (el.type === "fluximg") return (t.partIds ?? []).map(id => { const p = parseFluximgPartId(id); return { keys: memberKeys({ key: p?.key }) }; });
-    if (el.type !== "plot") return [];
-    const manifest = lookups.plotManifest?.(el.assetId), index = buildPartIndex(manifest);
-    const names = new Map((manifest?.series ?? []).map(s => [s.id, s.name ?? ""]));
-    // a whole plot flies as all its parts: those of a series answer to its key
-    const ids = t.partIds ?? Object.values(index).filter(p => p.series && p.role !== "point" || p.series && p.index != null).map(p => p.id);
-    return ids.map(id => { const series = index[id]?.series; return { keys: memberKeys({ series, seriesName: series ? names.get(series) : undefined }) }; });
-  });
-  const a = members(source), b = members(destination);
-  const distinct = (side: { keys: readonly string[] }[]) => new Set(side.map(m => m.keys.join("\u0000")).filter(Boolean)).size;
-  return { pairs: keyGroups(a, b).pairs, source: distinct(a), destination: distinct(b), auto: keyPolicyApplies(a, b) };
 }

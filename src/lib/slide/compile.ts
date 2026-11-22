@@ -5,7 +5,7 @@ import type { FluxPlotManifest } from "../plot/types";
 import type { Scene3dManifest } from "../model3d/types";
 import type { FluximgManifest, FluximgTable } from "../fluximg/types";
 import type { FluximgPartIndex, FluximgPartsLookup } from "../fluximg/parts";
-import { fluximgPartsLookup, fluximgTableLookup, fluximgPartsPending, objectStaggerCoordinates, checkMergedView, checkViewPatch } from "./imageSeam";
+import { fluximgPartsLookup, fluximgTableLookup, fluximgPartsPending, objectStaggerCoordinates, missingStaggerColumns, checkMergedView, checkViewPatch } from "./imageSeam";
 import type { FluximgElement } from "../fluximg/element";
 import { FLUXIMG_BECOME_OTHER_IMAGE } from "../fluximg/policy";
 import type { Slide, StageSize, Track, Camera, TargetRef, BecomeSpec } from "./types";
@@ -118,6 +118,13 @@ export function imageStaggerCoordinates(track: Track, el: Element | null | undef
   const table = fluximgTableLookup(opts.fluximgTable);
   return objectStaggerCoordinates(index, parts, track.stagger, (layer) => layer.table ? table?.(el.assetId, layer.table) : undefined);
 }
+/** A stagger ordered by a column some of its objects' tables do not have: said, never a silent plain order. */
+function staggerColumnIssues(track: Track, el: Element, parts: readonly string[], opts: CompileOptions): string[] {
+  if (el.type !== "fluximg" || !track.stagger?.by || typeof track.stagger.by !== "object" || !("column" in track.stagger.by)) return [];
+  const index = fluximgPartsLookup(opts.fluximgParts)?.(el.assetId), table = fluximgTableLookup(opts.fluximgTable);
+  return missingStaggerColumns(index, parts, track.stagger, (layer) => layer.table ? table?.(el.assetId, layer.table) : null)
+    .map((m) => `Stagger by "${m.column}": layer "${m.layer}" has no such column, so its objects keep their order. Choose another order.`);
+}
 const clamp = (n: number) => Math.max(0, Math.min(1, n));
 /** What is wrong with an image's view (Design, or a step's end when `step`) for THIS image, and a bundle that cannot be
  *  shown. No manifest known: the view is not checked (the bundle issue still is). */
@@ -229,6 +236,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       // spacing "true" (an x-clock sweep's markers) ranks by the PIXEL-space coordinate, from the manifest alone (the player does the same)
       const spacing = track.stagger?.spacing === "true" && (staggerBy === "x" || staggerBy === "y") ? "true" : "even";
       // WP 4.3: a radial order ranks by pixel-space distance from its origin, from the manifest (the player computes the same)
+      if (images && el?.type === "fluximg" && parts.length) for (const reason of staggerColumnIssues(track, el, parts, opts)) issues.push({ trackId: track.id, target: track.target, reason });
       const coordinates = images && el?.type === "fluximg" ? imageStaggerCoordinates(track, el, parts, opts)
         : track.stagger?.by === "radial" ? (manifest ? radialCoordinates(manifest, parts, track.stagger.origin) : undefined)
         : staggerBy && manifest ? manifestCoordinates(manifest, parts, staggerBy, spacing === "true" ? "pixel" : "data") : undefined;

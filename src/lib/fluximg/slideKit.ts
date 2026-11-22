@@ -12,7 +12,7 @@ export { createFluximgController, flushSlideFluximgs, fillFluximg, fluximgTween,
 export { createFluximgMovieController, joinMedia, slideMovieTargets } from "../slide/player/fluximgMedia";
 export {
   fluximgObject, fluximgPartIdOf, fluximgPartNode, fluximgPartNodes, fluximgPartsLookup, fluximgPartsPending, fluximgPartTargets,
-  fluximgTableLookup, imageToBox, imageToStage, objectStaggerCoordinates, parseFluximgPartId, partIndexFromTexts,
+  fluximgTableLookup, imageToBox, imageToStage, objectStaggerCoordinates, missingStaggerColumns, parseFluximgPartId, partIndexFromTexts,
 } from "./parts";
 export { checkMergedView, checkViewPatch } from "./viewCheck";
 export { lerpFluximgView, planViewTween, sampleViewTween } from "./viewTween";
