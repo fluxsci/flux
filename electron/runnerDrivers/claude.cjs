@@ -1,37 +1,28 @@
 "use strict";
 
-const REQUIRED = ["--input-format", "--output-format", "--verbose", "--include-partial-messages", "--tools", "--permission-mode", "--permission-prompt-tool", "--permission-prompts", "--allowedTools", "--disallowedTools", "--add-dir", "--strict-mcp-config", "--mcp-config", "--resume"];
+const REQUIRED = ["--input-format", "--output-format", "--verbose", "--include-partial-messages", "--tools", "--permission-mode", "--permission-prompts", "--allowedTools", "--disallowedTools", "--add-dir", "--strict-mcp-config", "--mcp-config", "--resume"];
 function capabilities(version, help) {
   const missing = REQUIRED.filter(flag => !help.includes(flag));
   const promptFile = help.includes("--append-system-prompt-file");
   if (!promptFile && !help.includes("--append-system-prompt")) missing.push("--append-system-prompt");
+  const modes = help.match(/--permission-mode\b([\s\S]*?)(?=\s-{1,2}[a-zA-Z]|$)/)?.[1] ?? "";
   return { version: version.trim(), available: !missing.length, reason: missing.length ? `Update Claude Code: missing ${missing.join(", ")}` : undefined,
-    promptFile, model: help.includes("--model"), effort: help.includes("--effort"), auto: AUTO_MODE.test(help) };
+    promptFile, model: help.includes("--model"), effort: help.includes("--effort"), auto: modes.includes('"auto"'), promptTool: help.includes("--permission-prompt-tool") };
 }
-// Does this CLI know the "auto" permission mode? Its help lists the modes after the flag.
-const AUTO_MODE = /--permission-mode\b[\s\S]{0,320}?"auto"/;
-// HOW A BACKGROUND AGENT IS ALLOWED TO ACT (task mode). Owner, 2026-11-19: "there should be NO
-// permissions prompts … it should act like claude code in my terminal, which is always on auto
-// mode". So a task runs in Claude Code's own AUTO mode with nobody to ask:
-//   --permission-mode auto --permission-prompts none
-// Reads and edits inside the project (cwd and --add-dir) are allowed; anything else is decided by
-// auto mode's classifier; what it will not approve is DENIED BACK TO THE MODEL, which carries on
-// another way. Nothing ever reaches the user. The narrow --allowedTools rules below still apply
-// (they skip the classifier); deny rules apply in every mode.
-// Where auto mode does not exist (an older CLI: caps.auto false) or is refused for this account,
-// organisation or model (the runner sees it in the init event and sets askFirst), a task falls
-// back to the earlier profile: edits allowed, everything else asks through mcp__flux__approve.
-const autonomous = o => o.mode === "task" && !!o.caps.auto && !o.askFirst;
 function args(o) {
+  // The CLI decides what may run. Only the user's explicit preference decides who it may ask.
+  const askFirst = o.mode === "task" && o.askFirst === true;
+  if (askFirst && !o.caps.promptTool) throw new Error("Update Claude Code to use background permission prompts, or turn them off in Flux Settings.");
+  const taskMode = o.caps.auto && !askFirst ? "auto" : "acceptEdits";
   const a = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
     o.caps.promptFile ? "--append-system-prompt-file" : "--append-system-prompt", o.caps.promptFile ? o.packPath : o.packText,
     "--tools", o.mode === "task" ? "Read,Grep,Glob,Edit,Write,Bash" : "Read,Grep,Glob",
-    "--permission-mode", o.mode === "task" ? (autonomous(o) ? "auto" : "acceptEdits") : "dontAsk",
+    "--permission-mode", o.mode === "task" ? taskMode : "dontAsk",
     "--strict-mcp-config", "--mcp-config", o.mcpPath];
   if (o.model) a.push("--model", o.model);
   if (o.effort) a.push("--effort", o.effort);
   if (o.resume) a.push("--resume", o.resume);
-  if (o.mode === "task" && !autonomous(o)) a.push("--permission-prompt-tool", "mcp__flux__approve");
+  if (askFirst) a.push("--permission-prompt-tool", "mcp__flux__approve");
   else a.push("--permission-prompts", "none");
   // Variadic lists are last; user turns always travel on stdin.
   a.push("--add-dir", ...(o.mode === "task" ? [o.root] : []), o.runDir);
@@ -48,7 +39,7 @@ function turn(text, images = []) {
   const content = text + (images.length ? `\n\nAttached view (read these PNG files):\n${images.map(p => JSON.stringify(p)).join("\n")}` : "");
   return JSON.stringify({ type: "user", message: { role: "user", content } }) + "\n";
 }
-function parser(emit) {
+function parser(emit, options) {
   const tools = new Map(), blocks = new Map(), streamed = new Set();
   let messageId = "", sawMessage = false;
   const tool = (b, status, output) => {
@@ -64,11 +55,13 @@ function parser(emit) {
         emit({ type: "error", fatal: true, message: "Claude Code started in bare mode. Disable bare mode and sign in using your installed CLI. See https://code.claude.com/docs/en/cli-reference" });
         return;
       }
-      // The mode Claude Code actually started in (a refused "auto" starts in manual, silently).
-      if (typeof e.permissionMode === "string") emit({ type: "permission-mode", mode: e.permissionMode });
       if (e.session_id) emit({ type: "session", sessionId: e.session_id });
       const connected = e.mcp_servers?.some(s => s.name === "flux" && s.status === "connected");
-      emit({ type: "status", state: "running", ...(connected ? {} : { reason: "Flux tools unavailable in this Claude session — run Flux → AI status → Repair" }) });
+      const notices = [];
+      if (options?.mode === "task" && !options.askFirst && e.permissionMode && e.permissionMode !== "auto")
+        notices.push(`Claude started in ${e.permissionMode} mode. Actions requiring a prompt will be declined.`);
+      if (!connected) notices.push("Flux tools unavailable in this Claude session — run Flux → AI status → Repair");
+      emit({ type: "status", state: "running", ...(notices.length ? { reason: notices.join(" ") } : {}) });
     } else if (e.type === "stream_event") {
       const v = e.event ?? {};
       if (v.type === "message_start") { messageId = v.message?.id ?? ""; blocks.clear(); }
@@ -111,4 +104,4 @@ function parser(emit) {
     } else if (e.type === "error") emit({ type: "error", message: e.error?.message || e.message || "Claude Code failed" });
   };
 }
-module.exports = { capabilities, args, turn, parser, autonomous };
+module.exports = { capabilities, args, turn, parser };

@@ -257,17 +257,18 @@ bg · claude · wren)"), ready to run again or assign. Replying in the item's th
 reply sent while the agent is working waits for that turn to finish. If a run ends
 without replying or resolving, its last message is added to the thread.
 
-A background agent does not ask you for permission. Claude Code runs in its own **auto
-mode**, the same mode as a terminal session set to auto: it reads and edits the project and
-its analysis workspace freely, uses Flux's tools and `uv run`, and decides other actions
-itself; what auto mode judges unsafe is refused and the agent finds another way, without a
-dialog. Codex runs with workspace-write access and refuses anything outside it, also without
-asking. Both are told never to push, publish or delete, and to propose those instead.
+Background agents work without permission dialogs by default. Claude uses its own **auto
+mode** to review commands. If the installed CLI lacks auto mode or Claude declines it for
+your account or model, the agent can still use its permitted tools. Claude declines actions
+that would require confirmation and the agent can try another approach. Codex runs new and
+resumed tasks in its workspace-write sandbox with approvals turned off. Both agents are
+instructed to propose pushes, publication and deletion to you first.
 
-If auto mode is not available for your Claude account, organisation or chosen model, Flux
-notices when the agent starts, says so in the agent's line, and falls back to asking first:
-edits are allowed, and anything else opens a dialog showing the **exact** command or input
-(**Allow once** or **Deny**; closing the window, or leaving it for two minutes, denies it).
+To review Claude requests yourself, open **Settings → General → Agents** and tick **Ask for
+tool permissions in new Claude background sessions**. New Claude sessions can then show
+the exact command or tool input with **Allow once** and **Deny**. Existing sessions keep the
+setting they started with, including when you reply. Closing the window or leaving a request
+unanswered for two minutes declines it.
 
 One agent works on each item. **Agent that Flux launches** (Settings, or AI status)
 sets how many background runs go at once (1–3, default 2); further items wait for a

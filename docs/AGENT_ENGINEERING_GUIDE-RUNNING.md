@@ -96,34 +96,29 @@ capabilities as the GUI, through these surfaces:
   `electron/runnerDrivers/taskPolicy.cjs`. The default background limit is two, within
   the runner's total of three; `fluxchat.backgroundConcurrency` sets one to three.
   Completed turns release their process slots and keep vendor IDs for resume.
-  Task MCP env is `FLUX_CLIENT=fluxchat`, `FLUX_PROJECT`, `FLUX_BACKGROUND=1`, a private
-  `FLUX_RUNNER_TOKEN`, stable `FLUX_RUNNER_ID`, `FLUX_RUNNER_DRIVER`, and
+  Task MCP env is `FLUX_CLIENT=fluxchat`, `FLUX_PROJECT`, `FLUX_BACKGROUND=1`,
+  stable `FLUX_RUNNER_ID`, `FLUX_RUNNER_DRIVER`, and
   `FLUX_RUNNER_STATE` (a machine-local session descriptor in the run directory).
   MCP publishes background presence on startup without requiring another connect;
   the descriptor preserves the same name across subprocesses and fallback replies.
   Stop appends the shared release-session event and removes presence after the process
   tree exits. Task turns use writable Flux MCP tools; Ask remains read-only and never
   registers `approve`, even if a token is accidentally inherited.
-  **A background Claude task runs in Claude Code's AUTO mode and never prompts (2026-11-19; owner: "there
-  should be NO permissions prompts … it should act like claude code in my terminal, which is always on auto
-  mode").** `runnerDrivers/claude.cjs`: when the CLI's help lists `"auto"` among its permission modes
-  (`caps.auto`), a task gets `--permission-mode auto --permission-prompts none` and NO
-  `--permission-prompt-tool`. Reads and edits inside cwd and `--add-dir` are allowed; anything else is decided
-  by auto mode's classifier; what it will not approve is denied back to the model, which carries on. The
-  narrow `--allowedTools` rules stay (they skip the classifier; broad rules such as a bare `Bash` are dropped
-  by auto mode anyway, so never add one), deny rules apply in every mode, and it is NEVER
-  `bypassPermissions`. Auto mode can be refused for an account, organisation or model, and then the CLI
-  starts in manual mode WITHOUT AN ERROR (exit 0): the only tell is `permissionMode` in the stream's
-  `system/init` event. The driver forwards it as an internal `permission-mode` event; `agentRunner`
-  (`askFirstInstead`) stops that session before it has acted, starts the same turn again with the earlier
-  ask-first profile (`acceptEdits` + `--permission-prompt-tool mcp__flux__approve`), tells the user once in
-  the status line, and remembers the refusal per model for the app's lifetime. The ask-first path below is
-  therefore still live code: for an older CLI and for a refused auto mode.
-  Claude's `approve` MCP tool exists only with a run token; authenticated `POST /approve`
-  checks token, project, owning window and active Claude task. `runner:respond` answers
-  the exact input once; cancellation, closed window, bad token and 120s timeout deny.
+  **Background permission prompts default to off.** Claude tasks request `--permission-mode auto`
+  when the installed CLI advertises it, or `acceptEdits` on a compatible older CLI. Both use
+  `--permission-prompts none`. If Claude starts in manual mode, the same process continues with
+  the same prompt policy. An action that needs confirmation is denied back to the model.
+  The capability cache must be invalidated when a decision-making field is added. Earlier
+  schema-2 entries for the same binary version could lack `auto` even when the CLI supported it.
+  Only an explicit `fluxchat.backgroundPermissionPrompts: true` opts a new Claude task into
+  `acceptEdits` with `--permission-prompt-tool mcp__flux__approve`. The runner snapshots this
+  preference for the session and its follow-ups. Only those tasks receive the private
+  `FLUX_RUNNER_TOKEN` that makes the MCP server publish `approve`. The owning Electron
+  process independently checks the session's opt-in, token, project, window and active process
+  before emitting a permission event. Cancellation, window close and a 120-second timeout deny.
   Codex's `TASK_MCP_APPROVAL_MODE="approve"` is the explicit per-server write-tool
-  override after replacing its MCP config; its shell still uses approval_policy=never.
+  override after replacing its MCP config. Both the server and environment TOML tables must close,
+  or Codex exits with `invalid transport` before the first turn. Its shell uses `approval_policy=never`.
   The renderer exposes `backgroundAvailable` (also re-exported by annotationStore),
   `backgroundDrivers`, `backgroundRuns` and `backgroundPermissions` from
   `shell/inbox/backgroundState.ts`. `BackgroundRun`/`BackgroundStop` mount in Inbox
@@ -14087,3 +14082,6 @@ order; an image entry's fields have one order in the export payload; an image's 
   schema back in place, and a pointer INTO a schema (`x#/definitions/y`) is compiled once per schema that refers to
   it, while a schema added on its own is compiled once for all. A schema keyword the generator has not met stops it
   on purpose: sort it into the right list there (a schema, a map of schemas, a list of schemas, or data).
+
+### 2026-11-22 — Background permission prompts require explicit opt-in (Codex, fix/background-permission-prompts)
+**Work:** Reproduced the launch flags behind the Bash dialog using the installed Claude CLI and a copy of the existing capability cache. Fixed cache upgrades, removed the retry with interactive permissions, and added a Settings opt-in with coverage for refusal and follow-ups. Fixed a malformed Codex MCP configuration found by exercising the installed CLI on a new and resumed task.

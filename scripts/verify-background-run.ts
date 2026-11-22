@@ -51,7 +51,7 @@ try {
   await fs.mkdir(path.join(root,'.meta/feedback'),{recursive:true});await fs.writeFile(path.join(root,'.meta/feedback/task.png'),png);
   const note=makeNote('resolve-task',{surface:'figure',snapshot:{image:'.meta/feedback/task.png',rect:{x:0,y:0,w:1,h:1},window:{w:1,h:1,dpr:1},marks:[]}},'human');await appendAnnotationEvent(root,note);
   const events:any[]=[], evidence=path.join(temp,'evidence.jsonl');
-  const env={...process.env,SHELL:'/missing',FAKE_TASK_LAUNCHER:launcher,FAKE_TASK_ID:note.id,FAKE_TASK_EVIDENCE:evidence};
+  const env={...process.env,SHELL:'/missing',FAKE_TASK_LAUNCHER:launcher,FAKE_TASK_ID:note.id,FAKE_TASK_EVIDENCE:evidence,FLUX_RUNNER_TOKEN:'inherited-token'};
   const runner=createAgentRunner({userDataDir:path.join(temp,'config'),launcher,binaries:binary,env,approvalTimeoutMs:80,preferences:()=>({fluxchat:{backgroundConcurrency:2}}),emit:(owner:any,event:any)=>events.push({...event,owner})});runners.push(runner);
   const run=await runner.start(1,{mode:'task',driver:'claude',root,itemId:note.id});
   let duplicate=false;try{await runner.start(1,{mode:'task',driver:'codex',root,itemId:note.id})}catch{duplicate=true}h.ok(duplicate,'one background session per item');
@@ -62,11 +62,11 @@ try {
   h.ok(proof.state.background && proof.state.display.startsWith('bg · claude · ') && item.thread.some(m=>m.author===proof.state.name),'presence and signed reply use one background session name');
   h.eq(proof.cwd,workspace,'task driver actually spawns in the analysis workspace');
   h.ok(proof.text.includes('Attached view (read these PNG files)'),'item snapshot is delivered as a readable image attachment');
-  h.ok(proof.text.includes(note.id)&&proof.text.includes('targets')&&proof.approve,'task receives the shared packet and hosted-only approval tool');
+  h.ok(proof.text.includes(note.id)&&proof.text.includes('targets')&&!proof.approve,'task receives the shared packet and writable Flux tools without the approval tool');
   h.ok(events.some(e=>e.type==='usage'&&e.costUsd===0.01),'task usage and cost forwarded');
   await wait(async()=>!(await readPresence(root)).some(s=>s.id===run.runId),'completed task presence removed');
   runner.cancel(1,run);
-  h.ok(proof.args.includes('acceptEdits')&&proof.args.includes('mcp__flux__approve'),'a CLI that does not know auto mode runs the ask-first profile');
+  h.ok(proof.args.includes('acceptEdits')&&proof.args.includes('none')&&!proof.args.includes('--permission-prompt-tool'),'a CLI without auto quietly declines actions requiring permission');
 
   // 2026-11-19 (owner: "there should be NO permissions prompts … it should act like claude code in my terminal, which is
   // always on auto mode"): a CLI that knows auto mode runs a task in it, with nobody to ask.
@@ -74,36 +74,51 @@ try {
   const flags=(args:string[])=>({mode:args[args.indexOf('--permission-mode')+1],prompts:args.includes('--permission-prompts')?args[args.indexOf('--permission-prompts')+1]:null,tool:args.includes('--permission-prompt-tool')});
   const autoNote=makeNote('auto-task',{surface:'figure'},'human');await appendAnnotationEvent(root,autoNote);
   const autoEvents:any[]=[];
-  const autoRunner=createAgentRunner({userDataDir:path.join(temp,'auto-config'),launcher,binaries:binary,env:{...env,FAKE_TASK_ID:autoNote.id,FAKE_TASK_AUTO:'1'},emit:(_:any,e:any)=>autoEvents.push(e)});runners.push(autoRunner);
+  // Reproduce the cache from an upgraded Flux installation with the same Claude binary.
+  const autoConfig = path.join(temp, 'auto-config');
+  await fs.mkdir(autoConfig);
+  const cachePath = path.join(autoConfig, 'runner-caps.json');
+  const cacheKey = 'claude:' + binary.claude + ':2.1.283';
+  await fs.writeFile(cachePath, JSON.stringify({ schema:2, entries:{ [cacheKey]:{ version:'2.1.283', available:true, promptFile:false, model:true, effort:true } } }));
+  const autoRunner=createAgentRunner({userDataDir:autoConfig,launcher,binaries:binary,env:{...env,FAKE_TASK_ID:autoNote.id,FAKE_TASK_AUTO:'1'},emit:(_:any,e:any)=>autoEvents.push(e)});runners.push(autoRunner);
   const autoRun=await autoRunner.start(4,{mode:'task',driver:'claude',root,itemId:autoNote.id});
   await wait(()=>autoEvents.some(e=>e.runId===autoRun.runId&&e.state==='idle'),'auto-mode task');
   let made=await launches(autoNote.id);
   h.eq(made.map(c=>flags(c.args)),[{mode:'auto',prompts:'none',tool:false}],'a background Claude task runs in auto mode with nobody to ask: one launch, no permission-prompt tool');
   h.ok(made[0].args.includes('Bash(uv run *)')&&made[0].args[made[0].args.indexOf('--add-dir')+1]===root,'it keeps its narrow allow rules and its project directory');
-  h.eq([(await readInbox(root)).items.find(i=>i.id===autoNote.id)!.status,autoEvents.some(e=>e.type==='permission'),autoEvents.some(e=>e.type==='permission-mode')],['resolved',false,false],'it does the work; no permission request exists, and the mode report is not sent to the window');
+  h.eq([(await readInbox(root)).items.find(i=>i.id===autoNote.id)!.status,autoEvents.some(e=>e.type==='permission'), made[0].approve],['resolved',false,false],'auto resolves the item without exposing a permission tool or emitting a prompt');
+  h.ok(JSON.parse(await fs.readFile(cachePath,'utf8')).entries[cacheKey].auto === true, 'the old same-version cache was re-probed and repaired');
   autoRunner.cancel(4,autoRun);
 
   // Auto mode refused for this account, organisation or model: the CLI starts in manual mode without a word.
-  // The runner sees it in the init event, stops that session before it has acted, and starts the turn again ask-first.
-  const refusedNote=makeNote('refused-task',{surface:'figure'},'human');await appendAnnotationEvent(root,refusedNote);
+  const refusedNote=makeNote('fallback-task',{surface:'figure'},'human');await appendAnnotationEvent(root,refusedNote);
   const refusedEvents:any[]=[];
-  const refusedRunner=createAgentRunner({userDataDir:path.join(temp,'refused-config'),launcher,binaries:binary,env:{...env,FAKE_TASK_ID:refusedNote.id,FAKE_TASK_AUTO:'1',FAKE_TASK_MODE:'default'},emit:(_:any,e:any)=>refusedEvents.push(e)});runners.push(refusedRunner);
+  const refusedConfig = path.join(temp, 'refused-config');
+  let promptsEnabled = false;
+  const refusedRunner=createAgentRunner({userDataDir:refusedConfig,launcher,binaries:binary,preferences:()=>({fluxchat:{backgroundPermissionPrompts:promptsEnabled}}),env:{...env,FAKE_TASK_ID:refusedNote.id,FAKE_TASK_AUTO:'1',FAKE_TASK_MODE:'manual'},approvalTimeoutMs:500,emit:(_:any,e:any)=>refusedEvents.push(e)});runners.push(refusedRunner);
   const refusedRun=await refusedRunner.start(5,{mode:'task',driver:'claude',root,itemId:refusedNote.id});
   await wait(()=>refusedEvents.some(e=>e.runId===refusedRun.runId&&e.state==='idle'),'refused auto falls back');
   made=await launches(refusedNote.id);
-  h.eq(made.map(c=>flags(c.args)),[{mode:'auto',prompts:'none',tool:false},{mode:'acceptEdits',prompts:null,tool:true}],'refused auto mode: the same turn is started again the ask-first way');
-  h.eq((await readInbox(root)).items.find(i=>i.id===refusedNote.id)!.status,'resolved','and the work is done by the second session');
-  h.ok(refusedEvents.some(e=>e.type==='status'&&/Auto mode is not available here \(Claude Code started in default mode\)/.test(e.reason??''))&&!refusedEvents.some(e=>e.state==='failed'),'the user is told once, and nothing is reported as a failure');
-  refusedRunner.cancel(5,refusedRun);
-  const again=makeNote('refused-again',{surface:'figure'},'human');await appendAnnotationEvent(root,again);
-  const againRun=await refusedRunner.start(5,{mode:'task',driver:'claude',root,itemId:again.id});
-  await wait(()=>refusedEvents.some(e=>e.runId===againRun.runId&&e.state==='idle'),'second task after a refusal');
-  h.eq((await launches(again.id)).map(c=>flags(c.args)),[{mode:'acceptEdits',prompts:null,tool:true}],'once refused, later tasks start ask-first at once instead of starting twice');
-  refusedRunner.cancel(5,againRun);
+  h.eq(made.map(c=>flags(c.args)),[{mode:'auto',prompts:'none',tool:false}],'refused auto runs the original turn exactly once');
+  h.eq((await readInbox(root)).items.find(i=>i.id===refusedNote.id)!.thread.at(-1)?.text,'Final background answer','the same session can finish and reply');
+  h.ok(refusedEvents.some(e=>e.state==='running'&&e.reason?.includes('manual mode'))&&!refusedEvents.some(e=>e.state==='failed'),'the actual mode is reported as a running status');
+  promptsEnabled = true;
+  await refusedRunner.send(5, {runId:refusedRun.runId, text:'hold-task'});
+  await wait(()=>refusedEvents.filter(e=>e.type==='session').length===2,'Claude resumed after provider refusal');
+  made=await launches(refusedNote.id);
+  h.ok(made.length===2 && made[1].args.includes('--resume') && made.every(c=>!c.approve && flags(c.args).prompts==='none' && flags(c.args).mode==='auto'), 'an existing session stays unattended on resume even after enabling prompts for new sessions');
+  const quietEnv = JSON.parse(await fs.readFile(path.join(refusedConfig,'runs',refusedRun.runId,'mcp.json'),'utf8')).mcpServers.flux.env;
+  const request={tool_name:'Bash',input:{command:'git status --short',description:'Actual command'}};
+  h.ok(!Object.hasOwn(quietEnv,'FLUX_RUNNER_TOKEN'), 'an unattended run has a presence identity and receives no approval token');
+  for (const token of [undefined, env.FLUX_RUNNER_TOKEN, quietEnv.FLUX_RUNNER_ID]) {
+    const quietReply = await refusedRunner.approve(5,root,{token,...request});
+    h.ok(quietReply.behavior==='deny' && !refusedEvents.some(e=>e.type==='permission'), 'the broker refuses unsolicited requests for the active unattended session without emitting a dialog');
+  }
+  await refusedRunner.cancel(5,refusedRun);
 
   const fallback=makeNote('fallback-task',{surface:'figure'},'human');await appendAnnotationEvent(root,fallback);
   const fEvents:any[]=[];
-  const fRunner=createAgentRunner({userDataDir:path.join(temp,'fallback-config'),launcher,binaries:binary,env:{...env,FAKE_TASK_ID:fallback.id},emit:(_:any,e:any)=>fEvents.push(e)});runners.push(fRunner);
+  const fRunner=createAgentRunner({userDataDir:path.join(temp,'fallback-config'),launcher,binaries:binary,env:{...env,FAKE_TASK_ID:fallback.id},preferences:()=>({fluxchat:{backgroundPermissionPrompts:true}}),emit:(_:any,e:any)=>fEvents.push(e)});runners.push(fRunner);
   const f=await fRunner.start(2,{mode:'task',driver:'codex',root,itemId:fallback.id});
   await wait(()=>fEvents.some(e=>e.state==='idle'),'fallback saved');
   let folded=(await readInbox(root)).items.find(i=>i.id===fallback.id)!;
@@ -117,18 +132,21 @@ try {
   h.eq(folded.thread.filter(m=>m.text==='Final background answer').length,2,'each resumed turn has its own fallback receipt');
   const calls=(await fs.readFile(evidence,'utf8')).trim().split('\n').map(s=>JSON.parse(s));
   h.ok(calls.at(-1).args.includes('resume')&&calls.at(-1).text.includes('follow-up'),'follow-up resumes vendor thread with latest full item packet');
+  const codexTurns = await launches(fallback.id);
+  h.ok(codexTurns.length===2 && codexTurns.every(c=>!c.approve && c.args.includes('approval_policy="never"')) && !fEvents.some(e=>e.type==='permission'), 'both Codex turns stay unattended with the Claude prompt setting enabled');
   fRunner.cancel(2,f);
 
   const held=makeNote('hold-task',{surface:'figure'},'human');await appendAnnotationEvent(root,held);
   const heldEvents:any[]=[];
-  const holder=createAgentRunner({userDataDir:path.join(temp,'held-config'),launcher,binaries:binary,env:{...env,FAKE_TASK_ID:held.id},approvalTimeoutMs:500,emit:(_:any,e:any)=>heldEvents.push(e)});runners.push(holder);
+  const holder=createAgentRunner({userDataDir:path.join(temp,'held-config'),launcher,binaries:binary,preferences:()=>({fluxchat:{backgroundPermissionPrompts:true}}),env:{...env,FAKE_TASK_ID:held.id,FAKE_TASK_AUTO:'1'},approvalTimeoutMs:500,emit:(_:any,e:any)=>heldEvents.push(e)});runners.push(holder);
   const heldRun=await holder.start(3,{mode:'task',driver:'claude',root,itemId:held.id});
   await wait(async()=>!!(await readInbox(root)).items.find(i=>i.id===held.id)?.claimedBy,'held task claim');
   const config=JSON.parse(await fs.readFile(path.join(temp,'held-config/runs',heldRun.runId,'mcp.json'),'utf8'));
   const token=config.mcpServers.flux.env.FLUX_RUNNER_TOKEN;
   const bridge=startBridge({root,getContext:()=>({}),dispatch:async()=>{},approve:(r:any)=>holder.approve(3,root,r)});bridges.push(bridge);
   await wait(()=>bridge.isRunning(),'fake app bridge');
-  const request={tool_name:'Bash',input:{command:'git status --short',description:'Actual command'}};
+  const [heldLaunch] = await launches(held.id);
+  h.ok(heldLaunch.approve && heldLaunch.args.includes('mcp__flux__approve'), 'only an opted-in Claude session connects the CLI to the Flux permission tool');
   const approvalClient=await rawMcp(launcher,root,[root],{...process.env,FLUX_PROJECT:root,FLUX_RUNNER_TOKEN:token});
   await approvalClient.initialize();
   // A connected session with a pending "since you last looked" delta must still answer the

@@ -10,7 +10,9 @@ import { presenceName, presenceFileRel, type PresenceSession } from "../src/lib/
 import type { AgentIdentity } from "./agentIdentity";
 
 export function backgroundIdentity(env: NodeJS.ProcessEnv): AgentIdentity | null {
-  if (!env.FLUX_RUNNER_TOKEN || env.FLUX_BACKGROUND !== "1" || !env.FLUX_RUNNER_ID) return null;
+  // Presence belongs to every hosted task. The approval token is issued only to interactive ones.
+  if (env.FLUX_BACKGROUND !== "1" || !env.FLUX_RUNNER_ID || !env.FLUX_RUNNER_STATE ||
+      (env.FLUX_RUNNER_DRIVER !== "claude" && env.FLUX_RUNNER_DRIVER !== "codex")) return null;
   const claude = env.FLUX_RUNNER_DRIVER === "claude";
   return { vendor: claude ? "anthropic" : "openai", product: claude ? "Claude Code" : "Codex", surface: "headless", client: "fluxchat", sessionId: env.FLUX_RUNNER_ID };
 }

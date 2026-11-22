@@ -102,7 +102,7 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
 
   if (process.env.FLUX_RUNNER_TOKEN && !readOnly) registerTool("approve", {
     scope: "machine", core: true,
-    description: "Ask the owning Flux window to allow this exact tool input once. Only available to hosted runs.",
+    description: "Ask the owning Flux window to allow this exact tool input once. Available to background Claude sessions with permission prompts enabled.",
     inputSchema: { tool_name: z.string(), input: z.record(z.unknown()), tool_use_id: z.string().optional() },
   }, async args => ok(JSON.stringify(await live.approve(process.env.FLUX_PROJECT ?? "", process.env.FLUX_RUNNER_TOKEN!, args))));
 

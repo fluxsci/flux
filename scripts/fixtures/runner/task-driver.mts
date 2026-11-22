@@ -35,7 +35,6 @@ try {
   // (the real CLI then starts in manual mode, silently, and reports it in this event).
   const asked = args[args.indexOf('--permission-mode') + 1], refused = asked === 'auto' && !!process.env.FAKE_TASK_MODE;
   if (driver === 'claude') emit({ type: 'system', subtype: 'init', session_id: 'vendor-thread', permissionMode: refused ? process.env.FAKE_TASK_MODE : asked, mcp_servers: [{ name: 'flux', status: 'connected' }] });
-  if (refused) await new Promise(r => setTimeout(r, 5000)); // a real session has done nothing yet when the runner stops it
   else { emit({ type: 'thread.started', thread_id: 'vendor-thread' }); emit({ type: 'turn.started' }); }
   const claim = await call('claim_item', { id: itemId });
   if (!JSON.parse((claim.content as any[])[0].text).claimed) throw Error('Fake could not claim');

@@ -13,7 +13,9 @@ function mcpConfig(o) {
   // JSON strings are valid TOML basic strings; keys here are fixed, never user input.
   const q = JSON.stringify;
   const env = o.mcpEnv ?? { FLUX_MCP_READONLY: "1", FLUX_CLIENT: "fluxchat", FLUX_PROJECT: o.root };
-  return `mcp_servers.flux={command=${q(o.launcher)},args=["mcp",${q(o.root)}],env={${Object.entries(env).map(([k,v]) => `${k}=${q(v)}`).join(",")}}`;
+  const entries = Object.entries(env).map(([key, value]) => `${key}=${q(value)}`).join(",");
+  const fields = [`command=${q(o.launcher)}`, `args=["mcp",${q(o.root)}]`, `env={${entries}}`];
+  return `mcp_servers.flux={${fields.join(",")}}`;
 }
 function args(o) {
   // exec resume has a smaller flag grammar: sandbox/cwd belong to the global

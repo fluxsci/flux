@@ -7,6 +7,20 @@ async function emit(event) {
 }
 try {
   await gotoApp(page,{url:APP_URL+'?fixture=demo'});await seedAnnotationFigure(page);
+  const setSettingsOpen = open => page.evaluate(async value => (await import('/src/lib/settings.ts')).settingsOpen.set(value), open);
+  const promptSetting = '[aria-label="Agent that Flux launches"] input[type="checkbox"]';
+  await setSettingsOpen(true);
+  await page.click('#settings-tab-general');
+  await page.waitForSelector(promptSetting + ':enabled');
+  h.eq(await page.$eval(promptSetting, e => e.checked), false, 'new and existing installations default to unattended background sessions');
+  await page.click(promptSetting);
+  await waitFor(page, async () => (await window.fig.prefsGet()).fluxchat?.backgroundPermissionPrompts === true, null, {label:'prompt opt-in saved'});
+  await setSettingsOpen(false);
+  await page.waitForSelector(promptSetting, {hidden:true});
+  await setSettingsOpen(true);
+  await page.waitForSelector(promptSetting + ':enabled');
+  h.ok(await page.$eval(promptSetting, e => e.checked), 'the explicit Claude prompt setting survives reopening Settings');
+  await setSettingsOpen(false);
   await page.evaluate(async()=>{const a=await import('/src/shell/agent/annotationStore.ts');await a.addAnnotation('Background test',{surface:'figure'},'none');});
   await chord(page,'KeyQ',{altKey:true});await page.waitForSelector('[data-background-item]');
   await page.click('.background-run .launch summary');

@@ -4,7 +4,7 @@
   let { heading = true }: { heading?: boolean } = $props();
   let caps = $state<RunnerCapability[]>([]), loaded = $state(false), error = $state("");
   let driver = $state<RunnerDriver | "">(""), model = $state(""), effort = $state("");
-  let concurrency = $state(2);
+  let concurrency = $state(2), permissionPrompts = $state(false);
   let saving: Promise<unknown> = Promise.resolve();
   const choices = $derived(caps.filter(c => c.detected));
   const selected = $derived(caps.find(c => c.driver === driver));
@@ -17,16 +17,17 @@
       const [found, prefs] = await Promise.all([fb.runnerCapabilities(), fb.prefsGet?.()]);
       if (gone) return;
       caps = found;
-      const p = prefs?.fluxchat as { driver?: RunnerDriver; model?: string; effort?: string; backgroundConcurrency?: number } | undefined;
+      const p = prefs?.fluxchat as { driver?: RunnerDriver; model?: string; effort?: string; backgroundConcurrency?: number; backgroundPermissionPrompts?: boolean } | undefined;
       driver = p?.driver ?? found.find(c => c.available)?.driver ?? ""; model = p?.model ?? ""; effort = p?.effort ?? "";
       concurrency = p?.backgroundConcurrency ?? 2;
+      permissionPrompts = p?.backgroundPermissionPrompts === true;
       loaded = true;
     })().catch(e => { if (!gone) { error = e.message; loaded = true; } });
     return () => { gone = true; };
   });
   function save() {
     if (!loaded || !driver) return;
-    const fluxchat = { driver, model: model.trim(), effort, backgroundConcurrency: concurrency };
+    const fluxchat = { driver, model: model.trim(), effort, backgroundConcurrency: concurrency, backgroundPermissionPrompts: permissionPrompts };
     saving = saving.catch(() => {}).then(async () => {
       await fileBridge()?.prefsSet?.({ fluxchat }); error = "";
     }).catch(e => { error = `Could not save agent settings: ${e.message}`; });
@@ -47,6 +48,9 @@
     <option value="">CLI default</option>{#each efforts as value}<option value={value}>{value}</option>{/each}
   </select></label>
   <label><span>Background runs</span> <select bind:value={concurrency} onchange={save}>{#each [1, 2, 3] as n}<option value={n}>{n} at a time</option>{/each}</select></label>
+  <label><span>Ask for tool permissions in new Claude background sessions</span>
+    <input type="checkbox" bind:checked={permissionPrompts} disabled={!loaded || !choices.some(c => c.available && c.driver === "claude")} onchange={save} />
+  </label>
   {#each choices.filter(c => !c.available) as c}<p class="error">{c.reason}</p>{/each}
   {#if error}<p class="error" role="alert">{error}</p>{/if}
 </section>
@@ -58,6 +62,7 @@
   input, select { box-sizing: border-box; width: var(--ctl, 212px); min-width: 0; height: 24px; margin: 0; padding: 0 8px; color: var(--c-tx); background-color: var(--c-bg); border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); font: 12px var(--font-ui); transition: border-color 80ms linear; }
   select { appearance: none; -webkit-appearance: none; padding-right: 24px; text-overflow: ellipsis; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23878580' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5 6 7.5l3-3'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 7px center; background-size: 11px 11px; cursor: var(--cursor-cross-hover); }
   input::placeholder { color: var(--c-tx-faint); }
+  input[type="checkbox"] { width: 16px; height: 16px; justify-self: end; accent-color: var(--c-accent); }
   input:hover:not(:disabled), select:hover:not(:disabled) { border-color: var(--c-tx-muted); }
   input:focus, select:focus { outline: none; border-color: var(--c-accent); }
   input:disabled, select:disabled { opacity: .5; }
