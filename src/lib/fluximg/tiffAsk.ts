@@ -32,8 +32,8 @@ export interface AskState {
   remembered: { scope: "project" | "machine"; summary: string } | null;
   /** Why a file whose metadata says enough is asked about anyway (a value that looks like "no data"), or null. */
   reason: string | null;
-  /** This file is n of m TIFFs of one drop that need an answer. */
-  batch: { index: number; count: number };
+  /** Files of this kind the answer converts (this one included), and files of other kinds waiting their turn. */
+  counts: { kind: number; waiting: number };
 }
 
 export const tiffAsk = writable<AskState | null>(null);
