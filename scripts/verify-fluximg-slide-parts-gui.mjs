@@ -32,18 +32,19 @@ function bundleFiles(name) {
 
 // A synthetic fluxplot-style plot of traces whose series NAMES are three of the footprints' keys (s1, s2, s3) and one that
 // is no key (q9): the shape of the X-ray gates' band-power fixture (scripts/fixtures/xray-context), lines only.
-const TRACES = ["s1", "s2", "s3", "q9"];
+// (the review's names: case, spaces and a near miss; ids say nothing, so only the NAMES can pair)
+const TRACES = ["S1", " s2 ", "s3x", "q9", "S7 "];
 function tracesManifest() {
   return {
     spec: "fluxplot", schemaVersion: "0.3.0", plotType: "line", svg: "", size: { width: 300, height: 200, unit: "px" },
     axes: [{ x: { scale: "linear", label: "time", domain: [0, 10], anchors: [{ data: 0, svg: 40 }, { data: 10, svg: 280 }], ticks: [] },
       y: { scale: "linear", label: "dF/F", domain: [0, 4], anchors: [{ data: 0, svg: 180 }, { data: 4, svg: 20 }], ticks: [] } }],
-    series: TRACES.map((name) => ({ id: `trace-${name}`, name, svg: { line: `trace-${name}.line` } })),
+    series: TRACES.map((name, i) => ({ id: `trace-${i}`, name, svg: { line: `trace-${i}.line` } })),
     build: { order: [] },
     parts: { id: "figure", role: "figure", kind: "container", children: [{ id: "plot-area", role: "plot-area", kind: "container", children: [
       { id: "axis.x", role: "axis", axis: "x", kind: "container", children: [{ ref: "axis.x.spine", kind: "line" }, { ref: "axis.x.tick.0", kind: "line" }, { ref: "axis.x.label", kind: "text" }] },
       { id: "axis.y", role: "axis", axis: "y", kind: "container", children: [{ ref: "axis.y.spine", kind: "line" }] },
-      ...TRACES.map((name) => ({ id: `trace-${name}`, role: "series", kind: "container", children: [{ ref: `trace-${name}.line`, kind: "line" }] })),
+      ...TRACES.map((_, i) => ({ id: `trace-${i}`, role: "series", kind: "container", children: [{ ref: `trace-${i}.line`, kind: "line" }] })),
     ] }] },
   };
 }
@@ -51,7 +52,7 @@ function tracesSvg() {
   const t = [`<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200"><g id="figure">`,
     `<path id="axis.x.spine" d="M40 180H280" stroke="#100f0f"/><path id="axis.y.spine" d="M40 20V180" stroke="#100f0f"/>`,
     `<path id="axis.x.tick.0" d="M160 180V185" stroke="#100f0f" fill="none"/><text id="axis.x.label" x="160" y="196" font-size="10" text-anchor="middle" fill="#100f0f">time</text>`];
-  TRACES.forEach((name, i) => t.push(`<path id="trace-${name}.line" d="M40 ${160 - i * 35}L100 ${140 - i * 35}L160 ${150 - i * 35}L220 ${120 - i * 35}L280 ${135 - i * 35}" fill="none" stroke="${["#4385be", "#da702c", "#8b7ec8", "#35ab49"][i]}" stroke-width="1.5"/>`));
+  TRACES.forEach((_, i) => t.push(`<path id="trace-${i}.line" d="M40 ${165 - i * 30}L100 ${145 - i * 30}L160 ${155 - i * 30}L220 ${125 - i * 30}L280 ${140 - i * 30}" fill="none" stroke="${["#4385be", "#da702c", "#8b7ec8", "#35ab49", "#ce5d97"][i]}" stroke-width="1.5"/>`));
   t.push(`</g></svg>`);
   return t.join("");
 }
@@ -192,8 +193,8 @@ try {
   await F((id) => window.__flux.slide.selTrackIds.set([id]), bk.id);
   await F(() => { for (const b of document.querySelectorAll(".inspector-tabs button")) if (b.textContent.trim() === "Animation") b.click(); });
   await waitFor(page, () => !!document.querySelector(".keypairs"), null, { label: "the pair count", timeout: 5000 });
-  const kp = await F(() => ({ n: document.querySelector(".keypairs").getAttribute("data-key-pairs"), text: document.querySelector(".keypairs").textContent.trim() }));
-  h.ok(kp.n === "3" && /auto pairs by key/.test(kp.text), `the Animation properties show the pairing: "${kp.text}"`);
+  const kp = await F(() => ({ n: document.querySelector(".keypairs").getAttribute("data-key-pairs"), policy: document.querySelector(".keypairs").getAttribute("data-key-policy"), text: document.querySelector(".keypairs").textContent.trim() }));
+  h.ok(bk.to.become.pair === "auto" && kp.n === "3" && kp.policy === "key" && /auto pairs by key/.test(kp.text), `Alt-click the WHOLE plot (series "S1", " s2 ", "s3x", "q9", "S7 "): saved auto, the plan pairs by key and the label says the plan's answer: "${kp.text}" (policy ${kp.policy})`);
   const pairOpts = await F(() => [...document.querySelector('select[aria-label="Hand-off pair"]').options].map((o) => o.value));
   h.ok(pairOpts.includes("key"), `the Pair select offers by key (${pairOpts.join(", ")})`);
   p0 = await past();
@@ -272,6 +273,46 @@ try {
     const offered = await waitFor(page, () => { const o = [...document.querySelectorAll("option")].filter((x) => x.value.startsWith("col:")).map((x) => x.value.slice(4)); return o.length ? o : null; }, null, { label: "the layer's columns offered", timeout: 8000 }).catch(() => null);
     h.ok(!!offered && offered.includes("dendrite"), `the Animation properties offer the layer's columns once its table has arrived (${(offered ?? []).join(", ") || "none"})`);
     h.ok(!!second.id && !errs.some((e) => /state_unsafe_mutation/.test(e)), "asking for a table from inside a derived computation changes no state (no Svelte error)");
+  }
+
+  h.section("an image-object warning clears itself; a gone stagger column is said");
+  if (await F(() => !!document.querySelector(".xray"))) await press("Escape");
+  {
+    const seen = await F(() => { window.__w8seen = []; const mo = new MutationObserver(() => { const t = document.querySelector(".animation-issues")?.textContent ?? ""; if (/objects are not loaded/.test(t)) window.__w8seen.push(t); }); mo.observe(document.body, { subtree: true, childList: true, characterData: true }); window.__w8mo = mo; return true; });
+    void seen;
+    // a SECOND image (its own asset: nothing of it loaded) placed with a part track on a layer it does not draw: its index
+    // is loaded only because the track names it, so the first compile cannot resolve the track
+    const fresh = await F(async (files) => {
+      const f = window.__flux, root = f.get(f.fig.embeddedProjectRoot) ?? f.get(f.fig.projectDir), sid = f.get(f.fig.activeFigureId);
+      window.__fluxSeedFluximg("plots/cells2.fluximg", files);
+      const assetId = f.fluximg.place.fluximgAssetId("cells2", "gui");
+      const result = await window.fig.importFluximg({ root, sourcePath: "plots/cells2.fluximg", assetId });
+      const asset = f.fluximg.place.fluximgAsset(assetId, result, "plots/cells2.fluximg");
+      const untouched = !Object.keys(f.get(f.fluximg.store.fluximgLayerText)).some((k) => k.startsWith(`${assetId}|`));
+      let id;
+      f.fig.commit((p) => { id = f.ops.addFluximg(p, { figureId: sid, asset, x: 60, y: 260, width: 120 }); });
+      f.slide.commitDeckLive((d) => { d.slides.find((x) => x.id === sid).beats[1].tracks.push({ id: "w8-prox", target: id, part: "layer:prox_lines", preset: "fade", duration: 300, stagger: { perMs: 50 } }); });
+      return untouched;
+    }, bundleFiles("mean_f64_layers"));
+    await waitFor(page, () => !/objects are not loaded/.test(document.querySelector(".animation-issues")?.textContent ?? ""), null, { label: "the warning cleared by itself", timeout: 8000 });
+    const appeared = await F(() => { window.__w8mo.disconnect(); return window.__w8seen.length; });
+    h.ok(fresh && appeared > 0, `with the layer's objects not loaded the badge says so (${appeared} frame(s) with the warning)`);
+    h.ok(!/objects are not loaded/.test(await F(() => document.querySelector(".animation-issues")?.textContent ?? "")), "…and the warning clears by itself when they land, with no edit");
+  }
+  {
+    await F((id) => { const f = window.__flux, sid = f.get(f.fig.activeFigureId); f.slide.commitDeckLive((d) => { const t = d.slides.find((x) => x.id === sid).beats.flatMap((b) => b.tracks).find((x) => x.part === "layer:footprints" && x.preset === "fade"); t.stagger = { ...t.stagger, by: { column: "distance" } }; }); }, IMG);
+    await waitFor(page, () => /Stagger by "distance"/.test(document.querySelector(".animation-issues")?.textContent ?? ""), null, { label: "the gone-column issue", timeout: 5000 });
+    const issueText = await F(() => [...document.querySelectorAll(".animation-issues button")].map((b) => b.textContent).find((t) => /distance/.test(t)) ?? "");
+    h.ok(/synapse footprints/.test(issueText), `a stagger by a column the table lacks is an issue naming column and layer: "${issueText}"`);
+    const fadeId = (await authored()).beats.flatMap((b) => b.tracks).find((t) => t.part === "layer:footprints" && t.preset === "fade").id;
+    await F((id) => window.__flux.slide.selTrackIds.set([id]), fadeId);
+    await F(() => { for (const b of document.querySelectorAll(".inspector-tabs button")) if (b.textContent.trim() === "Animation") b.click(); });
+    await waitFor(page, () => !!document.querySelector('select[aria-label="Stagger order"] option[value="col:distance"]'), null, { label: "the gone column in the select", timeout: 5000 });
+    const opt = await F(() => { const o = document.querySelector('select[aria-label="Stagger order"] option[value="col:distance"]'); return { text: o.textContent.trim(), missing: o.hasAttribute("data-missing") }; });
+    h.ok(opt.missing && /\(missing\)/.test(opt.text), `the Stagger order select marks it missing ("${opt.text}")`);
+    await page.select('select[aria-label="Stagger order"]', "col:pixels");
+    await waitFor(page, () => !/Stagger by "distance"/.test(document.querySelector(".animation-issues")?.textContent ?? ""), null, { label: "issue cleared by another order", timeout: 5000 });
+    h.ok(true, "choosing another order clears it");
   }
 
   h.section("console");
