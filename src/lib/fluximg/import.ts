@@ -20,10 +20,10 @@ import type { Incoming } from "../io";
 import { pushToast } from "../toast";
 import type { Asset } from "../types";
 import type { FluximgImportResult } from "./bridge";
-import { fluximgAsset, fluximgAssetId, fluximgDisplayName } from "./place";
+import { fluximgAsset, fluximgAssetId, fluximgAssetPath, fluximgDisplayName, fluximgResolvedAsset } from "./place";
 import { trackFluximgImport } from "./importProgress";
 import { findFluximgAsset, fluximgRecipeBeside, fluximgSourceRecord, makeFluximgElement } from "./importCore";
-import { fluximgManifests } from "./store";
+import { fluximgManifests, needManifest } from "./store";
 import type { FluximgManifest } from "./types";
 import type { FluximgElement } from "./element";
 
@@ -165,3 +165,31 @@ export const readMadeFluximg = (made: MadeBundle, figureId?: string): Promise<In
 
 /** A display name for toasts. */
 export const fluximgLabel = (manifest: FluximgManifest, sourcePath?: string): string => fluximgDisplayName(manifest, sourcePath);
+
+/**
+ * The figure's record of images that only slides have placed (their bundles are the project's own, `fig/assets`; only
+ * `fig/index.json` has never listed them): what an import would have recorded, from the bundle where it is
+ * (`measureFluximg`: its content id and byte count) and its manifest. Used when such an image is pasted into a figure
+ * (the twin of project/convert.ts for "Send slide to canvas"). Null, with a toast that says why, when a bundle is not
+ * there, is no longer the one the element placed, or this build cannot measure it.
+ */
+export async function figureRecordsOfSlideImages(elements: ReadonlyArray<{ assetId: string; name?: string; source?: { sha256?: string } }>): Promise<Asset[] | null> {
+  const bridge = fileBridge(), root = get(embeddedProjectRoot);
+  const out: Asset[] = [];
+  for (const assetId of new Set(elements.map((e) => e.assetId))) {
+    const el = elements.find((e) => e.assetId === assetId)!;
+    try {
+      if (!bridge?.measureFluximg || !root) throw new Error("this build cannot read the image's bundle");
+      const manifest = await needManifest({ id: assetId, path: fluximgAssetPath(assetId) });
+      const m = await bridge.measureFluximg({ root, assetId });
+      if (el.source?.sha256 && el.source.sha256 !== m.sha256) throw new Error("its files changed since it was placed");
+      out.push({ ...fluximgResolvedAsset(assetId, manifest, m.sha256), bytes: m.bytes });
+    } catch (error) {
+      const why = error instanceof Error ? error.message.replace(/^ENOENT:\s*/, "") : String(error);
+      pushToast("info", "The copied image is not in this project", { detail: `${el.name ?? assetId}: ${why}. Import it here before pasting.` });
+      return null;
+    }
+  }
+  return out;
+}
+

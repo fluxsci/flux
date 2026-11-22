@@ -47,7 +47,7 @@ import {
 } from "./store";
 import { storeTenant } from "./tenancy";
 import { toggleActiveRange } from "./textEditRange";
-import type { Element, GroupDef, Figure } from "./types";
+import type { Asset, Element, GroupDef, Figure } from "./types";
 import { FLUX_CLIP_MARKER, decidePaste, pastedImageName } from "./clipboardPaste";
 import { archivePastedImage, importDroppedFiles } from "./io";
 import { ancestorsOf, cloneGroupsFor, groupDefs, membersDeep, unitKeyOf, unitOf } from "./groups";
@@ -438,12 +438,21 @@ function cutSelected() {
   selection.set(new Set([...get(selection)].filter((id) => !targets.has(id))));
 }
 
-function paste() {
+function paste(imageRecords: Asset[] = []) {
   if (!clipboard.length) return;
   const fig = activeFig();
   if (!fig) return;
-  const assetIds = new Set(get(project).assets.map(a => a.id));
-  if (clipboard.some(e => (e.type === "image" || e.type === "plot" || e.type === "model3d" || e.type === "fluximg") && !assetIds.has(e.assetId))) {
+  const assetIds = new Set([...get(project).assets.map(a => a.id), ...imageRecords.map(a => a.id)]);
+  const unknown = clipboard.filter(e => (e.type === "image" || e.type === "plot" || e.type === "model3d" || e.type === "fluximg") && !assetIds.has(e.assetId));
+  if (unknown.length) {
+    // An image (fluximg) copied from a slide that only slides have placed: its bundle is the project's own, only the
+    // figure's record of it is missing. The record is read from the bundle, then the paste runs again with it (one
+    // undo step for the record and the copy), as "Send slide to canvas" does.
+    if (!imageRecords.length && unknown.every(e => e.type === "fluximg")) {
+      const copied = unknown as Array<Extract<Element, { type: "fluximg" }>>, held = clipboard;
+      void import("./fluximg/import").then((m) => m.figureRecordsOfSlideImages(copied)).then((records) => { if (records?.length && clipboard === held) paste(records); });
+      return;
+    }
     pushToast("info", "Import the copied image, plot or 3D model into this project before pasting."); return;
   }
   if (clipboard.some(e => e.type === "model3d") && storeTenant() !== "figure") {
@@ -463,6 +472,7 @@ function paste() {
   const remap = new Map<string, string>();
   commit((p) => {
     const f = p.figures.find((ff) => ff.id === fig.id)!;
+    for (const record of imageRecords) if (!p.assets.some((a) => a.id === record.id)) p.assets.push(record);
     const cloned = cloneGroupsFor(clipboardGroups, clipboard, remap);
     if (Object.keys(cloned).length) {
       f.groups = f.groups ?? {};

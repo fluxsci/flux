@@ -166,6 +166,38 @@ try {
     h.ok(figs.length >= 1, `the new figure places the same asset (${figs.length} element(s))`);
     h.eq(await bundles(), bundlesBefore, "…and no bundle was moved or copied");
   }
+  h.section("paste into a figure: an image only slides have placed brings its figure record with it");
+  {
+    // A third copy of the bundle under its own asset, placed on the slide only (fig/index.json has never listed it).
+    // Copied there and pasted into a figure, it used to be refused ("Import the copied image … before pasting"), unlike
+    // Send slide to canvas. The paste reads the record from the bundle and registers it with the copy: one undo step.
+    const third = await page.evaluate(async () => {
+      const f = window.__flux, rootDir = f.get(f.fig.embeddedProjectRoot) ?? f.get(f.fig.projectDir), sid = f.get(f.fig.activeFigureId);
+      const files = {}; for (const [k, v] of window.fig._files) if (k.startsWith(`${rootDir}/plots/cells.fluximg/`)) files[k.slice(`${rootDir}/plots/cells.fluximg/`.length)] = v;
+      for (const [rel, bytes] of Object.entries(files)) window.fig._files.set(`${rootDir}/plots/cells-c.fluximg/${rel}`, bytes);
+      window.fig._dirs?.add?.(`${rootDir}/plots/cells-c.fluximg`);
+      const assetId = f.fluximg.place.fluximgAssetId("cells-c", "gui");
+      const result = await window.fig.importFluximg({ root: rootDir, sourcePath: "plots/cells-c.fluximg", assetId });
+      const asset = f.fluximg.place.fluximgAsset(assetId, result, "plots/cells-c.fluximg");
+      let id; f.fig.commit((p) => { id = f.ops.addFluximg(p, { figureId: sid, asset, x: 30, y: 30, width: 120 }); });
+      await f.lifecycle.flushById("slide");
+      return { id, assetId, sha: result.sha256, bytes: result.bytes };
+    });
+    await page.evaluate((id) => { document.activeElement?.blur?.(); window.__flux.fig.selectOnly(id); }, third.id);
+    await page.keyboard.down("Control"); await page.keyboard.press("KeyC"); await page.keyboard.up("Control");
+    await clickMode(page, "Figure", { settle: 1500 });
+    const figBefore = await page.evaluate(() => { const f = window.__flux; return { known: f.get(f.fig.project).assets.map((a) => a.id), past: f.fig.historyStats().past, tenant: f.get(f.fig.activeFigureId) }; });
+    h.ok(!figBefore.known.includes(third.assetId), "in Figure mode the figure project does not know the slide-only image");
+    await page.mouse.click(700, 500);
+    await page.keyboard.down("Control"); await page.keyboard.press("KeyV"); await page.keyboard.up("Control");
+    const landed = await waitFor(page, (assetId) => { const f = window.__flux, p = f.get(f.fig.project); const el = p.figures.flatMap((x) => x.elements).find((e) => e.type === "fluximg" && e.assetId === assetId); const a = p.assets.find((x) => x.id === assetId); return el && a ? { kind: a.kind, sha: a.sha256, bytes: a.bytes, path: a.path, past: f.fig.historyStats().past } : null; }, third.assetId, { label: "the pasted image and its record", timeout: 8000 }).catch(() => null);
+    h.ok(!!landed, `the copy is pasted into the figure: no refusal${landed ? "" : ` (${(await page.evaluate(() => [...document.querySelectorAll(".toast")].map((t) => t.textContent.trim()).join(" | "))).slice(0, 200)})`}`);
+    h.ok(landed?.kind === "fluximg" && landed?.sha === third.sha && landed?.bytes === third.bytes && landed?.path === `assets/${third.assetId}.fluximg`, `…with the record an import would have made (content id and ${landed?.bytes} bytes, the bundle where it already is)`);
+    h.eq(landed?.past, figBefore.past + 1, "…as one undo step (the record and the copy together)");
+    await page.keyboard.down("Control"); await page.keyboard.press("KeyZ"); await page.keyboard.up("Control");
+    const undone = await waitFor(page, (assetId) => { const f = window.__flux, p = f.get(f.fig.project); return !p.figures.flatMap((x) => x.elements).some((e) => e.type === "fluximg" && e.assetId === assetId); }, third.assetId, { label: "undo", timeout: 4000 }).catch(() => false);
+    h.ok(undone, "undo takes the copy away again");
+  }
   h.eq(errs.length, 0, `clean console${errs.length ? `: ${errs.slice(0, 3).join(" | ")}` : ""}`);
 } catch (error) {
   h.fail(`unexpected: ${error?.stack ?? error}`);
