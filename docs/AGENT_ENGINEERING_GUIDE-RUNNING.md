@@ -4118,13 +4118,22 @@ opens with a header that states its law. Read those before changing one. The par
   and after a split or an inset (`session.fluximgFitDue`, a store so a remount when the image
   scrolls away and back does not move the view again), through Canvas's `moveViewForBoard` (the
   display viewport, so a slide's presentation transform is respected). One instant view change,
-  like every programmatic view change in the canvas (none animates). **Previews are honest**: a
+  like every programmatic view change in the canvas (none animates). It is asked again, once per
+  cause, when the canvas host's size changes (the animator dock, the window) or the step card
+  comes, goes or changes (Design / a step): after the canvas has held still 160 ms and a frame,
+  so after Slide mode's own Fit, and never because the view moved (no chase with Slide's Fit;
+  the dock gate counts view changes per cause). **Closing the board does not restore the view.** **Previews are honest**: a
   key showing new panels (Split, an inset being drawn or pulled from the frame) also draws a
   dashed outline (`[data-fxb-after]`) where each instrument that will move will stand once they
   exist; the press moves it there once; when even that would not stand clear the readout says
   "The view will make room for them". Gates: `verify-fluximg-board-room-gui` (split 2 / 4 channels,
   insets right and below, opened later and on a panel) and `verify-fluximg-board-slide-dock-gui`
   (Slide with the animator dock open, 1440 x 900 and 1280 x 720).
+  **Where a new panel goes** (`panelLayout.splitLayout` / `insetLayout`, given `occupiedOf`: every
+  shown element of the figure, the image's family among them): where NOTHING is: beside the
+  image, below it, beside / below the image's panels, else the free place nearest the image; in
+  the image's own box only when no free place of its size exists. The toast says which (review
+  NEW-B5: an inset after a split landed exactly on the first channel panel).
   **Split channels has two looks** (`splitLook.ts`, pure): each panel in its channel's colour from
   the merged image (default, owner 2026-11-21) or in gray. S splits in the look last used
   (`settings.fluximgSplitLook`), Shift+S the other (remembered); a lamp on the key shows it and the
