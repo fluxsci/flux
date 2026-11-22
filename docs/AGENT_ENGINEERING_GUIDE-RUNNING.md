@@ -4289,7 +4289,8 @@ opens with a header that states its law. Read those before changing one. The par
    never Electron main. No SQLite/FTS5 — the pure-JS fulltext index exists precisely because of this.
 5. **CSP:** never add `script-src 'unsafe-inline'` or `'unsafe-eval'`. Runtime `new Function` is
    banned in the renderer — Ajv validators are **pre-generated**
-   (`node --import tsx scripts/gen-validators.mjs`, drift-gated in `verify-loadgate.ts`). A new
+   (`node --import tsx scripts/gen-validators.mjs`, drift-gated in `verify-loadgate.ts`; every repeated
+   part of the schemas is compiled once there, held to the plain schemas by `verify-validators-shared.ts`). A new
    inline script in the manuscript preview needs its sha256 hash added in `index.html` AND
    `electron/main.cjs` (`verify-w12-security.ts` recomputes them from source).
 6. **Never hand-edit generated/golden files**: `validators.gen.js`,
@@ -14071,3 +14072,18 @@ order; an image entry's fields have one order in the export payload; an image's 
 - **Real data finds what fixtures do not**: an open outline drawn filled in a hand-off (a dark wedge over the plot),
   the Svelte error above, and a probe heuristic that never fired on masked float movies all came from running the
   real app on a private copy, not from a gate.
+- **The bundle and startup tiers run in no everyday tier, so run them before a branch is called done.** They need
+  `npm run build`. The CLI core bundle had passed its 10 MB budget (`verify-w13-cli.mjs`) during stage 1 and nobody
+  saw it until stage 2's final build: 10.27 MB before stage 2, 11.16 MB after. After the last merge: build, then
+  `env -u WAYLAND_DISPLAY -u DISPLAY node scripts/run-verifies.mjs --tier bundle` and `--tier startup`.
+- **Generated code is a cost like any import; look at it before raising a budget.** A quarter of that bundle was
+  `validators.gen.js`: Ajv writes a schema part's code out at every place the part is used, and the five project
+  schemas are built from the same parts (the element union three times, about 340 KB each). The generator now gives
+  every part that repeats a schema of its own (`shareRepeats` in `scripts/gen-validators.mjs`): 1.63 MB to 0.53 MB,
+  the core bundle to 9.13 MB, validation no slower. `SCHEMAS` itself is untouched (what `flux schema` publishes stays
+  self-contained). `verify-validators-shared.ts` proves the shared form is the same schema and that the generated
+  validators answer as the plain compilation does, document by document, errors in order; `schemaPath` is the one
+  field that differs and nothing reads it. Two Ajv facts behind it: `inlineRefs` (on by default) writes a referenced
+  schema back in place, and a pointer INTO a schema (`x#/definitions/y`) is compiled once per schema that refers to
+  it, while a schema added on its own is compiled once for all. A schema keyword the generator has not met stops it
+  on purpose: sort it into the right list there (a schema, a map of schemas, a list of schemas, or data).

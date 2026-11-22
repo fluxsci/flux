@@ -83,6 +83,7 @@
       "verify-dev-prebundle.ts",
       "verify-docx-svg-fallback.ts",
       "verify-loadgate.ts",
+      "verify-validators-shared.ts",
       "verify-fwdguard.ts",
       "verify-schema-stamp.ts",
       "verify-figsave-txn.ts",
@@ -6895,6 +6896,15 @@
       "coverage": "behavior"
     },
     "verify-loadgate.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-validators-shared.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
