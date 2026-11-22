@@ -29,6 +29,7 @@ import { createMemBridge } from "../src/lib/project/memBridge";
 import { buildTiffWorker } from "./build-tiff-worker.mjs";
 import { createTiffDevRoutes } from "./lib/tiffDevRoutes.mjs";
 import * as ops from "../src/lib/tiff/askOps";
+import { TiffBatch } from "../src/lib/tiff/batch";
 import { pathToFileURL } from "node:url";
 import type { DimsAnswer } from "../src/lib/tiff/types";
 
@@ -345,6 +346,31 @@ try {
     h.ok(cliRules.some((r) => r.fingerprint === rule.fingerprint), "the CLI's place-image reads the project's remembered rules (project.json tiffRules)");
     h.ok(inferDims(probeB, { rules: cliRules })[0].from === "remembered", "…so a file of the family converts there without flags");
     await fs.writeFile(pjPath, before);
+  }
+
+  h.section("the window's batch: files that arrive while a question is open (review NEW-C2)");
+  {
+    const b = new TiffBatch();
+    const F = (id: string, fp: string, ready = false) => ({ id, label: `${id}.tif`, fingerprint: fp, ready });
+    b.add(F("x1", "aaaaaaaaaaaaaaaa"));
+    const s1 = b.next();
+    h.eq([s1?.file.id, s1?.how], ["x1", "ask"], "the first file without metadata is asked about");
+    b.add(F("x2", "aaaaaaaaaaaaaaaa")); b.add(F("y1", "bbbbbbbbbbbbbbbb")); b.add(F("r1", "cccccccccccccccc", true));
+    h.eq(b.counts(s1!.file), { kind: 2, waiting: 2 }, "while it is open, a file of its kind joins its count and others wait");
+    b.answer("aaaaaaaaaaaaaaaa"); b.settle(s1!.file);
+    const s2 = b.next();
+    h.eq([s2?.file.id, s2?.how], ["x2", "family"], "after it converts, the file of its kind follows the same answer");
+    b.settle(s2!.file);
+    const s3 = b.next();
+    h.eq([s3?.file.id, s3?.how], ["y1", "ask"], "then the waiting file of another kind is asked about, in arrival order");
+    b.add(F("y2", "bbbbbbbbbbbbbbbb"));
+    h.eq(b.counts(s3!.file), { kind: 2, waiting: 1 }, "a newcomer of its kind joins that question too");
+    h.eq(b.leave("bbbbbbbbbbbbbbbb"), ["y1.tif", "y2.tif"], "leaving the question leaves out exactly its kind's files, named");
+    h.eq(b.add(F("y3", "bbbbbbbbbbbbbbbb")), ["y3.tif"], "…and one of that kind arriving later is named as left out at once");
+    const s4 = b.next();
+    h.eq([s4?.file.id, s4?.how], ["r1", "ready"], "a ready file still converts in its turn");
+    b.settle(s4!.file);
+    h.eq([b.next(), b.unsettled()], [null, []], "every file ends settled: converted or named");
   }
 
   h.section("the in-memory bridge: the dev server's real route, the same refusals, the same content id");

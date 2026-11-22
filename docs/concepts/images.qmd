@@ -115,7 +115,10 @@ Flux converts it into an image bundle first, then places it like any other.
   **Convert** stays off, with the reason beside it, until the sizes multiply to the page count.
   **Esc** or **×** leaves without converting anything.
 - **Files of one kind.** Drop several files that share a structure and Flux asks once; the others
-  follow the same answer, each one's own page count included. A remembered answer works the same
+  follow the same answer, each one's own page count included. Files dropped (or pasted, or
+  imported) while a question is open join it: one of the same kind is counted in the panel's
+  header ("2 files"), one of another kind waits its turn ("1 more waits") and is asked about
+  next. **Esc** leaves out only the files of that question, and a notice names them. A remembered answer works the same
   way the next time: the file converts at once, and the notice says "(remembered)". A project's
   remembered answers are kept in its `project.json`; answers for every project live in your
   FluxConfig folder (`presets/tiff-answers.json`). To forget one, open the panel again with

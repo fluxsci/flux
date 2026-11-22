@@ -176,7 +176,7 @@
     const el = e.target instanceof Element ? e.target.closest<HTMLElement>("[data-tip]") : null;
     tip = el ? { text: el.dataset.tip ?? "", hk: el.dataset.hk ?? "" } : null;
   }
-  const hint = $derived(tip?.text ? tip : { text: `${s?.batch.count && s.batch.count > 1 ? `File ${s.batch.index} of ${s.batch.count}: the others of its kind follow this answer. ` : ""}Enter converts · Esc leaves nothing`, hk: "" });
+  const hint = $derived(tip?.text ? tip : { text: `${s && s.counts.kind > 1 ? `This answer converts all ${s.counts.kind} files of this kind. ` : ""}Enter converts · Esc leaves ${s && s.counts.kind > 1 ? "them" : "it"} out`, hk: "" });
 
   // --- keyboard ---------------------------------------------------------------------------------------------
   let root = $state<HTMLDivElement>();
@@ -260,7 +260,8 @@
         <div class="l1">
           <span class="live" class:wait={!!s.problem} data-tip={s.problem ? "The answer does not fit the file yet" : "The answer fits the file"}></span>
           <span class="ttl">{s.name}</span>
-          {#if s.batch.count > 1}<span class="batch">{s.batch.index} of {s.batch.count}</span>{/if}
+          {#if s.counts.kind > 1}<span class="batch" data-ask-kind={s.counts.kind}>{s.counts.kind} files</span>{/if}
+          {#if s.counts.waiting > 0}<span class="batch wait" data-ask-waiting={s.counts.waiting}>{s.counts.waiting} more {s.counts.waiting === 1 ? "waits" : "wait"}</span>{/if}
           <PaperKey quiet size={20} glyph="close" label="Leave it: nothing is converted" hotkey="Esc" id="close" onpress={() => askCancel()} />
         </div>
         <div class="l2">{#each facts as f (f)}<span class="fact">{f}</span>{/each}</div>
@@ -429,7 +430,8 @@
   .live { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--fxb-pink); box-shadow: 0 0 6px 0 var(--fxb-pink); }
   .live.wait { background: transparent; box-shadow: inset 0 0 0 1.5px var(--fxb-pink); }
   .ttl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 13.5px var(--font-serif); color: var(--fxb-tx-hi); }
-  .batch { font: 600 10px var(--font-mono); color: var(--fxb-pink-hi); }
+  .batch { flex: none; font: 600 10px var(--font-mono); color: var(--fxb-pink-hi); }
+  .batch.wait { color: var(--fxb-tx-dim); }
   .l2 { display: flex; flex-wrap: wrap; padding-left: 15px; font: 10px/15px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--fxb-tx-dim); }
   .reason { margin-top: 5px; padding-left: 15px; color: var(--fxb-pink-hi); font: 10.5px/14px var(--font-mono); overflow-wrap: anywhere; }
   .fact + .fact::before { content: "·"; margin: 0 6px; opacity: 0.6; }

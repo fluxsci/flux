@@ -247,6 +247,32 @@ try {
   h.ok(/JPEG/.test(refusal) && /Re-save/.test(refusal), `a refused file says why and what to do: "${refusal.replace(/\s+/g, " ").trim().slice(0, 140)}"`);
   await S(() => { for (const b of document.querySelectorAll(".toast .t-x")) b.click(); });
 
+  h.section("files dropped while a question is open join its batch: none vanishes");
+  {
+    const kindX = (t) => family(t, 60, 40), kindY = (t) => family(t, 44, 36);
+    const n0 = (await images()).length;
+    await drop(kindX(10), "qx_001.tif");
+    await surface();
+    await drop(kindX(7), "qx_002.tif");
+    const kind2 = await waitFor(page, () => document.querySelector("[data-ask-kind]")?.getAttribute("data-ask-kind") === "2" ? document.querySelector("[data-tiff-ask] .l1")?.textContent ?? "" : null, null, { label: "the question counts the second file", timeout: 10000 }).catch(() => null);
+    h.ok(!!kind2 && /qx_001\.tif/.test(kind2), `a second file of the same kind joins the open question, which counts it ("${kind2?.replace(/\s+/g, " ").trim()}")`);
+    await drop(kindY(6), "qy_001.tif");
+    const waits = await waitFor(page, () => document.querySelector("[data-ask-waiting]")?.textContent ?? null, null, { label: "the question says another waits", timeout: 10000 }).catch(() => null);
+    h.eq(waits, "1 more waits", "a file of another kind waits its turn, and the question says so");
+    h.ok(/qx_001/.test(await S(() => document.querySelector("[data-tiff-ask] .ttl")?.textContent ?? "")), "…while the first file's question stays open");
+    await page.keyboard.press("Enter");
+    await waitFor(page, () => /qy_001/.test(document.querySelector("[data-tiff-ask] .ttl")?.textContent ?? ""), null, { label: "the waiting file's question", timeout: 30000 });
+    h.eq(await S(() => window.__flux.get(window.__flux.fluximg.tiff.tiffJobs).filter((j) => /^qx_/.test(j.label) && j.state === "placed").map((j) => j.label).sort()), ["qx_001.tif", "qx_002.tif"], "the first answer converts both files of its kind, then the waiting file is asked about");
+    await drop(kindY(4), "qy_002.tif");
+    await waitFor(page, () => document.querySelector("[data-ask-kind]")?.getAttribute("data-ask-kind") === "2", null, { label: "the second question counts its newcomer", timeout: 10000 });
+    await page.keyboard.press("Escape");
+    const leftNotice = await waitFor(page, () => [...document.querySelectorAll(".toast")].map((t) => t.textContent.replace(/\s+/g, " ")).find((t) => /Not imported: .*qy_/.test(t)) ?? null, null, { label: "the left-out notice", timeout: 10000 }).catch(() => "");
+    h.ok(/qy_001\.tif/.test(leftNotice) && /qy_002\.tif/.test(leftNotice), `Esc leaves out exactly that question's files and names them: "${leftNotice.trim().slice(0, 120)}"`);
+    const placedX = await waitFor(page, (n) => { const els = window.__flux.figures().flatMap((f) => f.elements).filter((e) => e.type === "fluximg"); return els.length >= n + 2 ? els.slice(-2).map((e) => e.source?.bundlePath).sort() : null; }, n0, { label: "the batch placed", timeout: 20000 }).catch(() => null);
+    h.eq(placedX, ["qx_001.tif", "qx_002.tif"], "every dropped file is placed or named: both of the first kind are on the figure");
+    h.ok(await noSurface(), "…and no question is left open");
+  }
+
   h.section("keyboard only");
   await drop(famKeys, "keys_01.tif");
   await surface();

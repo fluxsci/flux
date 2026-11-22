@@ -23,7 +23,8 @@ import { assertFluximgDestination, ensureFluximgImportRoot, fluximgImportRoot, r
 import { fluximgSourceRecord } from "./importCore";
 import { answerRule, applyRule, describeAnswer, validateAnswer } from "../tiff/infer";
 import { consultedRules, forgetRule, rememberRule, sanitizeRules, type RememberedRule } from "../tiff/remember";
-import type { DimsAnswer, DimsProposal, TiffProbe } from "../tiff/types";
+import type { AnswerRule, DimsAnswer, DimsProposal, TiffProbe } from "../tiff/types";
+import { TiffBatch, type BatchFile } from "../tiff/batch";
 import type { TiffConvertResult, TiffPreviewPng, TiffProbeResult, TiffProgress } from "../tiff/bridge";
 import type { FluximgImportResult } from "./bridge";
 
@@ -58,13 +59,13 @@ function fileSays(probe: TiffProbe): Record<string, string> {
 }
 
 /** Open the asking surface for one file; resolves with the answer, or null when the person cancels. */
-function ask(token: string, root: string, r: TiffProbeResult, figureId: string, at: { x: number; y: number }, start: DimsAnswer | null, remembered: AskState["remembered"], batch: AskState["batch"], reason: string | null = null): Promise<{ answer: DimsAnswer; remember: RememberScope } | null> {
+function ask(token: string, root: string, r: TiffProbeResult, figureId: string, at: { x: number; y: number }, start: DimsAnswer | null, remembered: AskState["remembered"], counts: AskState["counts"], reason: string | null = null): Promise<{ answer: DimsAnswer; remember: RememberScope } | null> {
   return new Promise((resolve) => {
     const answer: DimsAnswer = JSON.parse(JSON.stringify(start ?? r.proposals[0]?.answer ?? { dims: [] }));
     open = { token, resolve, root, seq: 0, inflight: false, queued: null, hoverSeq: 0 };
     tiffAsk.set({
       id: ++askSeq, figureId, at, name: r.name, probe: r.probe, proposals: r.proposals, answer, chosen: start ? -1 : 0, fileSays: fileSays(r.probe),
-      preview: start ? null : r.preview, hover: null, problem: validateAnswer(r.probe, answer), remember: "off", remembered, batch, reason,
+      preview: start ? null : r.preview, hover: null, problem: validateAnswer(r.probe, answer), remember: "off", remembered, counts, reason,
     });
     if (start) requestPreview(answer);
   });
@@ -195,9 +196,31 @@ const uniq = (): string => `${Date.now().toString(36)}${(++jobSeq).toString(36)}
 /** What the gates read: the jobs of this window as they run. */
 export const tiffJobs = writable<Array<{ jobId: string; label: string; summary: string; state: "converting" | "placed" | "cancelled" | "failed"; progress: TiffProgress | null }>>([]);
 
+/** A probed file in the window's batch, with where it was dropped. */
+interface Entry extends BatchFile { item: Item; figId: string; at: PlaceAt | undefined; where: { x: number; y: number } }
+/** The window's one batch: files dropped, pasted or picked while it runs join it (nothing a person dropped vanishes). */
+interface Run {
+  root: string;
+  tenant: string;
+  batch: TiffBatch<Entry>;
+  probing: number;
+  wake: (() => void) | null;
+  /** Set once the batch stops taking files (it is placing): a later drop starts a new batch. */
+  closing: boolean;
+  ready: Promise<{ pRules: RememberedRule[]; mRules: RememberedRule[]; rules: AnswerRule[] }>;
+}
+let run: Run | null = null;
+let entrySeq = 0;
+
+/** Say which files were left out (the words of io.ts's "Not imported" notice) and why. */
+function sayLeftOut(labels: string[], why: string): void {
+  if (labels.length) pushToast("info", `Not imported: ${labels.join(", ")}`, { detail: why });
+}
+
 /**
- * Bring TIFFs onto figure `figId` (or a slide). Resolves with how many were placed. Refusals and failures are
- * toasts naming the cause and a way out; nothing is ever dropped silently.
+ * Bring TIFFs onto figure `figId` (or a slide). Resolves with how many this call placed: a call made while the window's
+ * batch is still taking files joins it (and resolves 0; the batch places them). Refusals, failures and files left out
+ * are toasts naming them; nothing is ever dropped silently.
  */
 export async function importTiffSources(sources: TiffSource[], figId: string, at?: PlaceAt): Promise<number> {
   if (!sources.length) return 0;
@@ -205,151 +228,186 @@ export async function importTiffSources(sources: TiffSource[], figId: string, at
   const root = await ensureFluximgImportRoot();
   const bridge = fileBridge();
   if (!bridge?.probeTiff || !bridge.convertTiff) throw new Error("TIFF import needs the Flux desktop app.");
-  const tenant = storeTenant();
-  const current = (): boolean => fluximgImportRoot() === root && storeTenant() === tenant && get(project).figures.some((f) => f.id === figId);
   const fig = get(project).figures.find((f) => f.id === figId);
   if (!fig) throw new Error("The insertion destination changed");
   const where = at ? { x: at.x, y: at.y } : { x: fig.width / 2, y: fig.height / 2 };
-  const [pRules, mRules] = await Promise.all([projectRules(root), machineRules()]);
-  const rules = consultedRules(pRules, mRules);
-
-  // 1. Probe every file (a refused one is said, not dropped).
-  const refused: string[] = [], items: Item[] = [];
-  for (const source of sources) {
-    const label = labelOf(source);
-    try {
-      const result = "file" in source ? await bridge.probeDroppedTiff!(source.file, { root, rules }) : await bridge.probeTiff({ root, sourcePath: source.path, rules });
-      if (result.probe.refusals.length) { refused.push(`${label}: ${result.probe.refusals.map((r) => r.message).join("; ")}`); void bridge.releaseTiff?.(result.token); continue; }
-      items.push({ source, label, result });
-    } catch (error) { refused.push(`${label}: ${errMsg(error)}`); }
-  }
-  if (refused.length) pushToast("error", refused.length === 1 ? "This TIFF cannot be imported" : `${refused.length} TIFFs cannot be imported`, { detail: refused.join("\n") });
-  if (!items.length) return 0;
-
-  // 2. Answers: from the file or a remembered rule at once; otherwise asked, once per family of this drop.
-  const family = new Map<string, ReturnType<typeof answerRule>>();
-  const skipped = new Set<string>();
-  // A file whose metadata settles the pages is still asked ONE question when its plane is float and a negative round
-  // value fills a good part of it (−1 written where nothing was measured): left unanswered, that value would set the
-  // black point and the stored range. A frequent 0 is offered in the surface but never forces the question.
-  const nodataQuestion = (it: Item): string | null => {
-    const top = it.result.proposals[0], fm = it.result.preview?.frequentMin;
-    if (!top?.ready || top.from === "remembered" || top.answer.nodata != null || !fm || !(fm.value < 0)) return null;
-    return `The file says how its pages are ordered. One question: does ${fm.value} (${Math.round(fm.share * 100)} % of this plane) mean "no data"? D says yes; Enter converts.`;
+  const tenant = storeTenant();
+  if (run && !run.closing && run.root === root && run.tenant === tenant) { addSources(run, sources, figId, at, where); return 0; }
+  const r: Run = {
+    root, tenant, batch: new TiffBatch<Entry>(), probing: 0, wake: null, closing: false,
+    ready: Promise.all([projectRules(root), machineRules()]).then(([pRules, mRules]) => ({ pRules, mRules, rules: consultedRules(pRules, mRules) })),
   };
-  const toAsk = items.filter((it) => !it.result.proposals[0]?.ready || nodataQuestion(it));
-  let asked = 0;
-  const plan: Array<{ item: Item; answer: DimsAnswer; how: "file" | "remembered" | "asked" | "family" }> = [];
+  run = r;
+  addSources(r, sources, figId, at, where);
+  try { return await drive(r); }
+  finally { r.closing = true; if (run === r) run = null; }
+}
+
+/** Probe each source and add it to the batch as it comes (a refused one is said, not dropped). */
+function addSources(r: Run, sources: TiffSource[], figId: string, at: PlaceAt | undefined, where: { x: number; y: number }): void {
+  const bridge = fileBridge()!;
+  const refused: string[] = [];
+  let left = sources.length;
+  for (const source of sources) {
+    r.probing++;
+    void (async () => {
+      const label = labelOf(source);
+      try {
+        const { rules } = await r.ready;
+        const result = "file" in source ? await bridge.probeDroppedTiff!(source.file, { root: r.root, rules }) : await bridge.probeTiff!({ root: r.root, sourcePath: source.path, rules });
+        if (result.probe.refusals.length) { refused.push(`${label}: ${result.probe.refusals.map((x) => x.message).join("; ")}`); void bridge.releaseTiff?.(result.token); return; }
+        if (r.closing) { sayLeftOut([label], "It arrived as the batch before it was being placed; drop it again."); void bridge.releaseTiff?.(result.token); return; }
+        const entry: Entry = { id: `e${++entrySeq}`, label, fingerprint: result.probe.fingerprint, ready: !!result.proposals[0]?.ready && !nodataQuestion({ source, label, result }), item: { source, label, result }, figId, at, where };
+        sayLeftOut(r.batch.add(entry), "You left the question about files of this kind; nothing was converted.");
+        // A question that is open counts the newcomer: one of its kind, or one more waiting.
+        const cur = r.batch.current;
+        if (cur) tiffAsk.update((st) => (st ? { ...st, counts: r.batch.counts(cur) } : st));
+      } catch (error) { refused.push(`${label}: ${errMsg(error)}`); }
+      finally {
+        r.probing--;
+        if (--left === 0 && refused.length) pushToast("error", refused.length === 1 ? "This TIFF cannot be imported" : `${refused.length} TIFFs cannot be imported`, { detail: refused.join("\n") });
+        const w = r.wake; r.wake = null; w?.();
+      }
+    })();
+  }
+}
+
+/**
+ * A file whose metadata settles the pages is still asked ONE question when its plane is float and a negative round
+ * value fills a good part of it (−1 written where nothing was measured): left unanswered, that value would set the
+ * black point and the stored range. A frequent 0 is offered in the surface but never forces the question.
+ */
+function nodataQuestion(it: Item): string | null {
+  const top = it.result.proposals[0], fm = it.result.preview?.frequentMin;
+  if (!top?.ready || top.from === "remembered" || top.answer.nodata != null || !fm || !(fm.value < 0)) return null;
+  return `The file says how its pages are ordered. One question: does ${fm.value} (${Math.round(fm.share * 100)} % of this plane) mean "no data"? D says yes; Enter converts.`;
+}
+
+/** Answer and convert the batch's files one by one, in arrival order; then place them (one undo step per figure). */
+async function drive(r: Run): Promise<number> {
+  const bridge = fileBridge()!;
+  const { pRules, mRules } = await r.ready;
+  const current = (figId: string): boolean => fluximgImportRoot() === r.root && storeTenant() === r.tenant && get(project).figures.some((f) => f.id === figId);
+  const family = new Map<string, ReturnType<typeof answerRule>>();
   const rememberedOf = (probe: TiffProbe): AskState["remembered"] => {
-    const p = pRules.find((r) => r.fingerprint === probe.fingerprint), m = mRules.find((r) => r.fingerprint === probe.fingerprint);
+    const p = pRules.find((x) => x.fingerprint === probe.fingerprint), m = mRules.find((x) => x.fingerprint === probe.fingerprint);
     return p ? { scope: "project", summary: p.summary } : m ? { scope: "machine", summary: m.summary } : null;
   };
-  const askFor = async (item: Item, start: DimsAnswer | null, reason: string | null = null): Promise<DimsAnswer | null> => {
-    const got = await ask(item.result.token, root, item.result, figId, where, start, rememberedOf(item.result.probe), { index: ++asked, count: Math.max(asked, toAsk.length) }, reason);
+  const askFor = async (e: Entry, start: DimsAnswer | null, reason: string | null = null): Promise<DimsAnswer | null> => {
+    const got = await ask(e.item.result.token, r.root, e.item.result, e.figId, e.where, start, rememberedOf(e.item.result.probe), r.batch.counts(e), reason);
     if (!got) return null;
     if (got.remember !== "off") {
-      try { await remember(root, item.result.probe, got.answer, got.remember); }
+      try { await remember(r.root, e.item.result.probe, got.answer, got.remember); }
       catch (error) { pushToast("error", "The answer could not be remembered", { detail: errMsg(error) }); }
     }
     return got.answer;
   };
-  for (const item of items) {
-    const fp = item.result.probe.fingerprint, top = item.result.proposals[0];
-    if (skipped.has(fp)) continue;
-    const rule = family.get(fp);
-    if (rule) { const a = applyRule(rule, item.result.probe); if (a.answer && !a.problems.length) { plan.push({ item, answer: a.answer, how: "family" }); continue; } }
-    const why = nodataQuestion(item);
-    if (top?.ready && !why) { plan.push({ item, answer: top.answer, how: top.from === "remembered" ? "remembered" : "file" }); continue; }
-    if (!current()) break;
-    const answer = await askFor(item, null, why);
-    if (!answer) { skipped.add(fp); continue; }
-    family.set(fp, answerRule(answer, item.result.probe));
-    plan.push({ item, answer, how: "asked" });
-  }
-  for (const item of items) if (!plan.some((p) => p.item === item)) void bridge.releaseTiff?.(item.result.token);
-  if (!plan.length) return 0;
-
-  // 3. Convert one by one (the window's child runs one at a time anyway), one toast for the batch.
-  const incoming: Incoming[] = [], notes: string[] = [];
-  let aborted = false;
-  let toast = pushJobToast("info", "Converting…", { tag: "tiff-import", progress: 0 });
+  const placed: Array<{ inc: Incoming; e: Entry }> = [], notes: string[] = [];
+  let aborted = false, toast = -1;
   try {
-    for (let i = 0; i < plan.length && !aborted; i++) {
-      let { answer } = plan[i];
-      const { item, how } = plan[i];
+    for (;;) {
+      const step = r.batch.next();
+      if (!step) {
+        if (r.probing > 0) { await new Promise<void>((res) => { r.wake = res; }); continue; }
+        break;
+      }
+      const e = step.file, probe = e.item.result.probe, top = e.item.result.proposals[0];
+      if (fluximgImportRoot() !== r.root || storeTenant() !== r.tenant) { aborted = true; break; }
+      if (!current(e.figId)) { r.batch.settle(e); sayLeftOut([e.label], "The figure it was dropped on is gone."); continue; }
+      // 1. The answer: the batch's own for its kind, the file's, or a person's.
+      let answer: DimsAnswer | null = null, how: "file" | "remembered" | "asked" | "family" = "file";
+      if (step.how === "family") { const a = applyRule(family.get(e.fingerprint)!, probe); if (a.answer && !a.problems.length) { answer = a.answer; how = "family"; } }
+      if (!answer && top?.ready && !nodataQuestion(e.item)) { answer = top.answer; how = top.from === "remembered" ? "remembered" : "file"; }
+      if (!answer) {
+        answer = await askFor(e, null, nodataQuestion(e.item));
+        if (!answer) { sayLeftOut(r.batch.leave(e.fingerprint), "You left its question; nothing was converted."); continue; }
+        r.batch.answer(e.fingerprint);
+        family.set(e.fingerprint, answerRule(answer, probe));
+        how = "asked";
+      }
+      // 2. Convert (Change asks again and converts again; Cancel ends the batch).
       for (;;) {
-        if (!current()) { aborted = true; break; }
+        if (!current(e.figId)) { aborted = true; break; }
         const jobId = `tiff-${uniq()}`;
         let change = false, cancel = false;
-        const summary = describeAnswer(item.result.probe, answer);
-        const head = `${item.label}: ${summary}${how === "remembered" ? " (remembered)" : ""}`;
-        const batchWord = plan.length > 1 ? `${i + 1} of ${plan.length} · ` : "";
+        const summary = describeAnswer(probe, answer);
+        const head = `${e.label}: ${summary}${how === "remembered" ? " (remembered)" : ""}`;
+        const total = r.batch.files.length, nth = placed.length + 1;
+        const batchWord = total > 1 ? `${nth} of ${total} · ` : "";
         let est: { left: number | null; raw: number[] } = { left: null, raw: [] };
         const actions = [
           { label: "Change", run: () => { change = true; void bridge.cancelTiff?.(jobId); } },
           { label: "Cancel", run: () => { cancel = true; void bridge.cancelTiff?.(jobId); } },
         ];
         // Change or Cancel dismissed the toast: the next conversion of the batch brings its own.
-        if (!updateToast(toast, { msg: head, detail: `${batchWord}starting`, progress: 0, actions })) toast = pushJobToast("info", head, { tag: "tiff-import", detail: `${batchWord}starting`, progress: 0, actions });
-        tiffJobs.update((l) => [...l, { jobId, label: item.label, summary, state: "converting", progress: null }]);
+        if (toast < 0 || !updateToast(toast, { msg: head, detail: `${batchWord}starting`, progress: 0, actions })) toast = pushJobToast("info", head, { tag: "tiff-import", detail: `${batchWord}starting`, progress: 0, actions });
+        tiffJobs.update((l) => [...l, { jobId, label: e.label, summary, state: "converting", progress: null }]);
         const off = bridge.onTiffProgress?.((p) => {
           if (p.jobId !== jobId) return;
           est = timeLeft(est, p);
           updateToast(toast, { detail: batchWord + progressWords(p, est), progress: p.fraction ?? 0 });
           tiffJobs.update((l) => l.map((j) => (j.jobId === jobId ? { ...j, progress: p } : j)));
         });
+        const use = answer;
         const made = {
-          label: item.label,
-          make: async (r: string, assetId: string): Promise<FluximgImportResult> => {
+          label: e.label,
+          make: async (root: string, assetId: string): Promise<FluximgImportResult> => {
             // Change or Cancel pressed before the conversion started: it never starts.
             if (change || cancel) throw abortError();
-            const res: TiffConvertResult = await bridge.convertTiff!({ root: r, token: item.result.token, answer, assetId, jobId });
+            const res: TiffConvertResult = await bridge.convertTiff!({ root, token: e.item.result.token, answer: use, assetId, jobId });
             notes.push(...(res.notes ?? []));
             return res;
           },
-          source: (r: string, sha256: string) => ({ ...fluximgSourceRecord(r, item.result.sourcePath, sha256), frozen: true }),
+          source: (root: string, sha256: string) => ({ ...fluximgSourceRecord(root, e.item.result.sourcePath, sha256), frozen: true }),
         };
         try {
-          const inc = await readMadeFluximg(made, figId);
+          const inc = await readMadeFluximg(made, e.figId);
           off?.();
           // Pressed as the conversion finished: the person's word wins over the finished work.
           if (change || cancel) { await inc.discard?.().catch(() => {}); throw abortError(); }
-          incoming.push(inc);
+          placed.push({ inc, e });
+          r.batch.settle(e);
           tiffJobs.update((l) => l.map((j) => (j.jobId === jobId ? { ...j, state: "placed" } : j)));
           break;
         } catch (error) {
           off?.();
           tiffJobs.update((l) => l.map((j) => (j.jobId === jobId ? { ...j, state: (error as Error)?.name === "AbortError" || /cancelled/.test(errMsg(error)) ? "cancelled" : "failed" } : j)));
           if (change) {
-            const next = await askFor(item, answer);
-            if (!next) break; // asked again and cancelled: this file is left out
+            const next = await askFor(e, answer);
+            if (!next) { r.batch.settle(e); sayLeftOut([e.label], "You left its question; nothing was converted."); break; }
             answer = next;
             continue;
           }
           if (cancel || /cancelled/.test(errMsg(error))) { aborted = true; break; }
-          pushToast("error", `${item.label} could not be converted`, { detail: errMsg(error) });
+          r.batch.settle(e);
+          pushToast("error", `${e.label} could not be converted`, { detail: errMsg(error) });
           break;
         }
       }
+      if (aborted) break;
     }
   } finally {
-    for (const it of items) void bridge.releaseTiff?.(it.result.token);
+    r.closing = true;
+    for (const f of r.batch.files) void bridge.releaseTiff?.(f.item.result.token);
   }
-  if (aborted || !current()) {
-    dismissToast(toast);
+  if (aborted) {
+    if (toast >= 0) dismissToast(toast);
     tiffAsk.set(null);
-    for (const inc of incoming) await inc.discard?.().catch(() => {});
-    if (aborted) pushToast("info", incoming.length ? "Import cancelled: nothing was added" : "Import cancelled");
+    for (const p of placed) await p.inc.discard?.().catch(() => {});
+    const names = [...placed.map((p) => p.e.label), ...r.batch.unsettled().map((f) => f.label)];
+    pushToast("info", "Import cancelled: nothing was added", names.length ? { detail: `Not imported: ${names.join(", ")}` } : {});
     return 0;
   }
-  if (!incoming.length) { dismissToast(toast); return 0; }
-  // 4. Place: ONE undo step for everything this drop brought.
-  try { placeIncoming(incoming, figId, at); }
-  catch (error) { for (const inc of incoming) await inc.discard?.().catch(() => {}); dismissToast(toast); throw error; }
+  if (!placed.length) { if (toast >= 0) dismissToast(toast); return 0; }
+  // 3. Place: ONE undo step per figure for everything this batch brought.
+  const byFigure = new Map<string, Array<{ inc: Incoming; e: Entry }>>();
+  for (const p of placed) byFigure.set(p.e.figId, [...(byFigure.get(p.e.figId) ?? []), p]);
+  try { for (const [figId, list] of byFigure) placeIncoming(list.map((p) => p.inc), figId, list[0].e.at); }
+  catch (error) { for (const p of placed) await p.inc.discard?.().catch(() => {}); if (toast >= 0) dismissToast(toast); throw error; }
   // The toast's detail is the writer's storage note, as fluxplot prints it.
-  const doneMsg = incoming.length === 1 ? `${incoming[0].asset.name} placed` : `${incoming.length} images placed`, detail = [...new Set(notes)].join(" ") || undefined;
-  if (!updateToast(toast, { level: "success", msg: doneMsg, detail, progress: undefined, actions: [], ttl: 6000 })) pushToast("success", doneMsg, { detail, ttl: 6000 });
-  return incoming.length;
+  const doneMsg = placed.length === 1 ? `${placed[0].inc.asset.name} placed` : `${placed.length} images placed`, detail = [...new Set(notes)].join(" ") || undefined;
+  if (toast < 0 || !updateToast(toast, { level: "success", msg: doneMsg, detail, progress: undefined, actions: [], ttl: 6000 })) pushToast("success", doneMsg, { detail, ttl: 6000 });
+  return placed.length;
 }
 
 const abortError = (): Error => Object.assign(new Error("The TIFF conversion was cancelled"), { name: "AbortError" });
