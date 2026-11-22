@@ -552,6 +552,26 @@
     if (f && moveView) moveView(f);
   });
   /**
+   * The board asks for room again when what it stands in changes under it: the canvas's size (the animator dock opening
+   * or closing, the window resizing) or the step card coming, going or changing (Design and a step). Once per cause:
+   * after the canvas has held still for a moment, so a window being dragged asks once, and after Slide mode's own Fit
+   * (which answers the same resize within a tick): the board's fit is the last word, and Slide mode's Fit then lets the
+   * view be (a view moved by anyone else ends its Fit). The fit is asked only for a cause, never because the view moved,
+   * so the two cannot chase each other. Closing the board leaves the view where it is.
+   */
+  let causeSeen = "";
+  let causeTimer: ReturnType<typeof setTimeout> | undefined, causeFrame = 0;
+  const cause = $derived(`${Math.round(host.w)}x${Math.round(host.h)}|${card ? (card.design ? "design" : "step") : "-"}`);
+  $effect(() => {
+    const k = cause;
+    if (!causeSeen) { causeSeen = k; return; }
+    if (k === causeSeen) return;
+    causeSeen = k;
+    clearTimeout(causeTimer); cancelAnimationFrame(causeFrame);
+    causeTimer = setTimeout(() => { causeFrame = requestAnimationFrame(() => fluximgFitDue.set(true)); }, 160);
+  });
+  $effect(() => () => { clearTimeout(causeTimer); cancelAnimationFrame(causeFrame); });
+  /**
    * Honest previews: while a key shows the panels it would make, the board shows where its instruments will stand once
    * they are there (a dashed outline for each that moves), so the press moves them once, to exactly there. When even
    * that would not stand clear, the readout says the view will make room.

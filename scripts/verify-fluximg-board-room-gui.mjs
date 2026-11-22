@@ -39,7 +39,7 @@ function bundleFiles(name) {
   return out;
 }
 
-const { browser, page } = await launch({ width: 1500, height: 950 });
+let { browser, page } = await launch({ width: 1500, height: 950 });
 const base = new URL(APP_URL);
 base.search = "?fixture=demo";
 await gotoApp(page, { url: base.href, settle: 1500 });
@@ -267,6 +267,59 @@ for (const [label, figure, where] of [["to the right", { width: 1400, height: 11
   await closeLive();
 }
 
+h.section("a split then an inset, and an inset then a split: no new panel lands on another (review NEW-B5), Figure");
+/** Every image element of the active figure (or slide), and whether any two overlap. */
+const pile = () => page.evaluate(() => {
+  const F = window.__flux, fid = F.get(F.fig.activeFigureId), f = F.figures().find((x) => x.id === fid);
+  const els = f.elements.filter((e) => !e.hidden);
+  const hit = [];
+  for (let i = 0; i < els.length; i++) for (let k = i + 1; k < els.length; k++) { const a = els[i], b = els[k]; if (a.x < b.x + b.width - 0.5 && b.x < a.x + a.width - 0.5 && a.y < b.y + b.height - 0.5 && b.y < a.y + a.height - 0.5) hit.push(`${a.name ?? a.id} / ${b.name ?? b.id}`); }
+  return { n: els.length, hit };
+});
+const lastToast = () => page.evaluate(() => [...document.querySelectorAll(".toasts .toast")].map((t) => t.textContent.replace(/\s+/g, " ").trim()).filter((t) => /^Inset placed/.test(t)).pop() ?? ""); // the newest: toasts stack oldest first
+async function drawInset(id) {
+  const img = await rect("[data-fluximg-live]");
+  await press("x");
+  await page.mouse.move(img.x + 0.2 * img.w, img.y + 0.25 * img.h); await page.mouse.down();
+  await page.mouse.move(img.x + 0.4 * img.w, img.y + 0.45 * img.h, { steps: 3 }); await page.mouse.move(img.x + 0.5 * img.w, img.y + 0.55 * img.h, { steps: 3 });
+  await waitForFrame(page);
+  const ghost = (await rects("[data-fxb-ghost]"))[0], img0 = await rect("[data-fluximg-live]");
+  await page.mouse.up();
+  await settle();
+  const inset = (await els()).find((e) => e.view?.insetOf === id);
+  // Where the ghost showed it, against the image (the view may have made room since): where it is.
+  const img1 = await rect("[data-fluximg-live]"), got = inset ? await rect(`[data-editor-element-id="${inset.id}"]`) : null, k = img1.w / img0.w;
+  const same = !!ghost && !!got && Math.abs((got.x - img1.x) - (ghost.x - img0.x) * k) <= 1.5 && Math.abs((got.y - img1.y) - (ghost.y - img0.y) * k) <= 1.5 && Math.abs(got.w - ghost.w * k) <= 1.5;
+  return { ghost: same ? ghost : null, inset };
+}
+async function orders(where) {
+  for (const order of ["split, then inset", "inset, then split"]) {
+    const A = where === "figure" ? await fresh("two_u16", { x: 200, y: 80 }, { width: 320 }, undefined, { panX: 160, panY: 110, zoom: 0.7 }) : await slideImage();
+    await openLive(A);
+    await page.mouse.move(5, 940);
+    let toast = "";
+    if (order.startsWith("split")) { await press("s"); await settle(); }
+    const { ghost, inset } = await drawInset(A);
+    toast = await lastToast();
+    if (order.startsWith("inset")) { await page.mouse.move(5, 940); await press("s"); await settle(); }
+    const p = await pile();
+    h.ok(!!inset && p.n >= 4, `${where}, ${order}: the image, two channel panels and an inset (${p.n} elements)`);
+    h.ok(!p.hit.length, `${where}, ${order}: no element of the ${where} overlaps another${p.hit.length ? ` (${p.hit.join("; ")})` : ""}`);
+    if (order.startsWith("split")) {
+      // It went where the model says, and the toast says so.
+      const parent = (await els()).find((e) => e.id === A);
+      const words = inset.x >= parent.x + parent.width ? "beside" : inset.y >= parent.y + parent.height ? "below" : "?";
+      h.ok(new RegExp(`Inset placed ${words} the image`).test(toast) || /where the figure had room/.test(toast), `${where}, ${order}: the toast says where the inset went (${words}: "${toast}")`);
+      // The ghost showed the same place (on the figure: measured against the image, which the view may have moved).
+      h.ok(!!ghost, `${where}, ${order}: while the box was drawn its ghost showed exactly where the inset went`);
+    }
+    await clear(`${where}, ${order}`, (await els()).filter((e) => e.id !== A).map((e) => e.id));
+    if (SHOTS) await shot(page, `fluximg-${where}-${order.startsWith("split") ? "split-then-inset" : "inset-then-split"}`);
+    await closeLive();
+  }
+}
+await orders("figure");
+
 h.section("nothing animates at rest; no console errors");
 {
   const Z = await fresh("two_u16", { x: 200, y: 80 }, { width: 320 }, undefined, { panX: 160, panY: 110, zoom: 0.7 });
@@ -282,6 +335,33 @@ h.section("nothing animates at rest; no console errors");
   h.ok(frames.n === 0 && frames.anims === 0, `the board open and idle for a second: no animation frames asked for, nothing animating (${frames.n} frames, ${frames.anims} animations${frames.who ? `: ${frames.who}` : ""})`);
   await closeLive();
 }
-h.eq(realErrors(page).filter((e) => !/Couldn't save|save figures/i.test(e)), [], "no console errors");
+h.section("the same two orders on a slide (Design)");
+async function slideImage() {
+  const files = bundleFiles("two_u16");
+  const id = await page.evaluate(async (files) => {
+    const f = window.__flux, root = f.get(f.fig.embeddedProjectRoot) ?? f.get(f.fig.projectDir), sid = f.get(f.fig.activeFigureId);
+    f.fluximg.live.closeFluximgLive();
+    window.__fluxSeedFluximg("plots/two_u16.fluximg", files);
+    const assetId = f.fluximg.place.fluximgAssetId("two_u16", Math.random().toString(36).slice(2));
+    const result = await window.fig.importFluximg({ root, sourcePath: "plots/two_u16.fluximg", assetId });
+    const asset = f.fluximg.place.fluximgAsset(assetId, result, "plots/two_u16.fluximg");
+    let id;
+    f.fig.commit((p) => { const s = p.figures.find((x) => x.id === sid); s.elements = []; id = f.ops.addFluximg(p, { figureId: sid, asset, x: 40, y: 40, width: 160 }); /* the stage is 640 x 360: room beside and below */ });
+    f.slide.setEditDestination({ kind: "design" });
+    f.fig.resetHistory();
+    return id;
+  }, files);
+  await waitFor(page, (id) => !!document.querySelector(`[data-editor-element-id="${id}"] image`)?.getAttribute("href"), id, { label: "the slide image's still", timeout: 15000 });
+  return id;
+}
+const figureErrors = realErrors(page).filter((e) => !/Couldn't save|save figures/i.test(e));
+await browser.close();
+({ browser, page } = await launch({ width: 1500, height: 950 }));
+await gotoApp(page, { url: base.href, settle: 2500 });
+await clickMode(page, "Slide", { settle: 2600 });
+await waitFor(page, () => !!window.__flux?.get(window.__flux.slide.deckOverlay), null, { timeout: 15000, label: "deck loaded" });
+await orders("slide");
+
+h.eq([...figureErrors, ...realErrors(page).filter((e) => !/Couldn't save|save figures/i.test(e))], [], "no console errors (Figure and Slide)");
 await browser.close();
 await h.done();
