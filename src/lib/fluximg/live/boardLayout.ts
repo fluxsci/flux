@@ -198,7 +198,7 @@ function solve(n: BoardNeeds, room?: { x: number; y: number; w: number; h: numbe
   const options = arrangements(n.depth, !!n.layers, stage.w >= BOARD.wide * stage.h, !!n.step);
   const placed: Placed[] = [];
 
-  const standOne = (a: Arrangement, avoid: boolean): { p: Placed; stepped: boolean } => {
+  const standOne = (a: Arrangement, avoid: boolean, cyAt?: number): { p: Placed; stepped: boolean } => {
     let stepped = false;
     const stepBeside = a.left.includes("step") || a.right.includes("step");
     const cardH = n.step && !stepBeside ? sH + gap : 0;
@@ -233,7 +233,7 @@ function solve(n: BoardNeeds, room?: { x: number; y: number; w: number; h: numbe
       // The heights first (they do not depend on the side), then each side outward from the stage.
       const consoleH = cardH ? Math.max(0, Math.min(ch, fitH - cardH)) : Math.min(ch, fitH);
       const block = a.stack ? Math.min(ah, consoleH + cardH + gap + lh) : consoleH + cardH;
-      const cy = clamp(stage.y, ay, ab - block);
+      const cy = clamp(cyAt ?? stage.y, ay, ab - block);
       // Each instrument's height and top (no closures here: this runs for every arrangement).
       const lH = Math.min(lh, ah);
       const V: Record<Item, readonly [number, number]> = {
@@ -315,6 +315,7 @@ function solve(n: BoardNeeds, room?: { x: number; y: number; w: number; h: numbe
     };
   };
   const best = (p: Placed): boolean => !p.lost && p.pile <= 0.5 && p.kept <= 0.5 && p.image <= 0.5 && p.whole;
+  const dodges: Array<{ a: Arrangement; k: Box }> = [];
   for (const base of options) {
     // The step card under the console; where that squeezes the console, beside it (one column further out).
     const forms = [base];
@@ -326,7 +327,18 @@ function solve(n: BoardNeeds, room?: { x: number; y: number; w: number; h: numbe
       // The best there can be (clear, whole, the first such in the board's order): nothing later can beat it.
       if (stopAtBest && best(first.p)) return { stage, placed };
       if (first.stepped) placed.push(standOne(a, false).p);
+      // A console column that still stands on a kept panel may stand above or below it instead (tried after every
+      // arrangement as it is: the console beside the image at its height is the board's shape).
+      if (first.p.kept > 0.5 && !a.below) for (const k of kept) if (meets(first.p.layout.console, k)) dodges.push({ a, k });
       if (a === base && base.beside && !first.p.whole) forms.push(base.beside);
+    }
+  }
+  for (const { a, k } of dodges) {
+    const card = n.step && !(a.left.includes("step") || a.right.includes("step")) ? sH + gap : 0;
+    for (const y of [k.y + k.h + gap, k.y - gap - Math.min(n.console.h, fitH) - card]) {
+      const q = standOne(a, true, y).p;
+      placed.push(q);
+      if (stopAtBest && best(q)) return { stage, placed };
     }
   }
   return { stage, placed };

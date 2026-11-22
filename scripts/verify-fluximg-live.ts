@@ -15,7 +15,7 @@ import { BOARD, boardClear, boardFit, boardLayout, boardOptions, fitNeeds, type 
 import {
   AUTO_STEPS, autoStepOf, autoWindow, clippedShares, formatShare, histDomain, histogramPath, moveWindow, nextAutoStep, nudgeStep, shareBelow, snapValue, transferPath, valueToX, viewHistogram, xToValue,
 } from "../src/lib/fluximg/live/histogram";
-import { boundsOf, familyOf, gridCells, insetLayout, splitLayout, type PanelBox } from "../src/lib/fluximg/panelLayout";
+import { boundsOf, familyOf, gridCells, insetLayout, occupiedOf, splitLayout, type PanelBox } from "../src/lib/fluximg/panelLayout";
 import { roundNeighbour } from "../src/lib/fluximg/furniture";
 import { patchView, resolveView } from "../src/lib/fluximg/viewOps";
 import type { FluximgManifest, FluximgStats } from "../src/lib/fluximg/types";
@@ -410,7 +410,7 @@ h.section("viewOps: a patch that restores a default leaves no key");
   h.eq(gridCells({ x: 0, y: 0, width: 300, height: 100 }, 3, 1, 0).map((b) => [b.x, b.width]), [[0, 100], [100, 100], [200, 100]], "a wide box takes its cells in one row");
   h.eq(gridCells({ x: 0, y: 0, width: 100, height: 100 }, 0, 1, 6), [], "no cells asked for: none given");
 
-  h.eq(insetLayout(page, small, 1), { place: "right", box: { x: 148, y: 20, width: 90, height: 90 } }, "an inset stands to its image's right at the image's height when the figure has room");
+  h.eq(insetLayout(page, small, 1), { place: "right", past: false, box: { x: 148, y: 20, width: 90, height: 90 } }, "an inset stands to its image's right at the image's height when the figure has room");
   h.eq(insetLayout({ width: 150, height: 850 }, small, 2).place, "below", "no room to the right: below the image");
   const corner = insetLayout(page, fitted, 1);
   h.eq([corner.place, corner.box], ["inside", { x: 16 + 648 - 259.2 - 8, y: 109, width: 259.2, height: 259.2 }], "no room beside an image as wide as its figure: the inset stands in the image's top-right corner at two fifths of its height");
@@ -689,6 +689,59 @@ h.section("the board: the view makes room (boardFit)");
   for (let i = 0; i < 20; i++) boardFit(many);
   const fitMs = (performance.now() - t0) / 20;
   h.ok(fitMs < 8, `one fit (four panels, a zoom out) takes ${fitMs.toFixed(2)} ms (runs once when the board opens and once after a split or an inset)`);
+}
+
+h.section("panels: a new panel never lands on the image's other panels (review NEW-B5)");
+{
+  const ov = (a: PanelBox, b: PanelBox): boolean => a.x < b.x + b.width - 1e-6 && b.x < a.x + a.width - 1e-6 && a.y < b.y + b.height - 1e-6 && b.y < a.y + a.height - 1e-6;
+  const inFig = (f: { width: number; height: number }, b: PanelBox): boolean => b.x >= -1e-6 && b.y >= -1e-6 && b.x + b.width <= f.width + 1e-6 && b.y + b.height <= f.height + 1e-6;
+  /** Is there any free place of this size on the figure (an oracle: a fine sweep, knowing nothing of the law)? */
+  const anyFree = (f: { width: number; height: number }, occ: PanelBox[], w: number, hh: number): boolean => {
+    for (let y = 0; y + hh <= f.height + 1e-6; y += 2) for (let x = 0; x + w <= f.width + 1e-6; x += 2) { const b = { x, y, width: w, height: hh }; if (!occ.some((o) => ov(b, o))) return true; }
+    return false;
+  };
+  // The reported case: a split, then an inset. The inset went exactly onto the first channel panel.
+  const fig = { width: 1400, height: 1100 }, img = { x: 200, y: 80, width: 320, height: 240 };
+  const split2 = splitLayout(fig, img, 2).channels;
+  const el = (id: string, b: PanelBox, view: Record<string, unknown>) => ({ id, type: "fluximg", assetId: "a", x: b.x, y: b.y, width: b.width, height: b.height, rotation: 0, view });
+  const elements = [el("img", img, { link: "L" }), el("p0", split2[0], { link: "L", composite: "single", solo: 0 }), el("p1", split2[1], { link: "L", composite: "single", solo: 1 })];
+  const room = occupiedOf(elements, elements[0]);
+  const old = insetLayout(fig, img, 1);
+  h.ok(ov(old.box, split2[0]), "(without what is occupied, the inset lands on the first channel panel: the reported bug)");
+  const ins = insetLayout(fig, img, 1, undefined, room.occupied, room.family);
+  h.ok(!room.occupied.some((o) => ov(ins.box, o)) && ins.place !== "inside", `split then inset: the inset stands clear of every panel (${ins.place}${ins.past ? ", beyond the panels" : ""}, ${show(ins.box)})`);
+  // The mirror: an inset first, then a split.
+  const inset0 = insetLayout(fig, img, 1).box;
+  const els2 = [el("img", img, { link: "L" }), el("i", inset0, { link: "L", insetOf: "img" })];
+  const room2 = occupiedOf(els2, els2[0]);
+  const sp = splitLayout(fig, img, 2, undefined, room2.occupied, room2.family);
+  h.ok(sp.channels.every((c) => !room2.occupied.some((o) => ov(c, o))) && sp.place !== "inPlace", `inset then split: the channel panels stand clear of the inset (${sp.place}${sp.past ? ", beyond the panels" : ""})`);
+
+  // The matrix: figure sizes × an existing family (2 or 4 channel panels, an inset, both) × other elements: whenever a
+  // free place of the new panel's size exists, the new panel is in one; it is always inside the figure.
+  let bad: unknown = null, freeCount = 0, inPlace = 0, n = 0;
+  for (const fw of [700, 1000, 1400]) for (const fh of [500, 800, 1100]) for (const fam of ["2", "4", "inset", "2+inset"]) for (const other of [false, true]) for (const what of ["inset", "split2", "split4"]) {
+    const f = { width: fw, height: fh }, src = { x: 40, y: 40, width: Math.min(260, fw / 4), height: Math.min(200, fh / 4) };
+    const els: Array<ReturnType<typeof el>> = [el("img", src, { link: "L" })];
+    const k = fam.startsWith("4") ? 4 : fam.startsWith("2") ? 2 : 0;
+    splitLayout(f, src, k || 1).channels.slice(0, k).forEach((c, i) => els.push(el(`p${i}`, c, { link: "L", composite: "single", solo: i })));
+    if (fam.includes("inset")) { const r0 = occupiedOf(els, els[0]); els.push(el("ins", insetLayout(f, src, 1.3, undefined, r0.occupied, r0.family).box, { link: "L", insetOf: "img" })); }
+    if (other) els.push(el("plot", { x: fw * 0.5, y: fh * 0.55, width: fw * 0.3, height: fh * 0.3 }, {}));
+    const r = occupiedOf(els, els[0]);
+    const boxes: PanelBox[] = what === "inset" ? [insetLayout(f, src, 1.5, undefined, r.occupied, r.family)].map((l) => (l.place === "inside" ? null : l.box)).filter((b): b is PanelBox => !!b)
+      : (() => { const l = splitLayout(f, src, what === "split2" ? 2 : 4, undefined, r.occupied, r.family); return l.place === "inPlace" ? [] : l.channels; })();
+    n++;
+    if (!boxes.length) {
+      inPlace++;
+      const w = what === "inset" ? src.height * 1.5 : (what === "split2" ? 2 : 4) * src.width + ((what === "split2" ? 2 : 4) - 1) * 6, hh = src.height;
+      const w2 = what === "inset" ? Math.min(src.width, w) : w, h2 = what === "inset" ? w2 / 1.5 : hh;
+      if ((anyFree(f, r.occupied, w, hh) || anyFree(f, r.occupied, w2, h2)) && !bad) bad = { f, fam, other, what, why: "a free place existed but the panel stayed in the image" };
+      continue;
+    }
+    freeCount++;
+    if (!boxes.every((b) => inFig(f, b) && !r.occupied.some((o) => ov(b, o))) && !bad) bad = { f, fam, other, what, boxes };
+  }
+  h.ok(bad === null, `over ${n} cases (${freeCount} placed beside, ${inPlace} in the image), a new panel never covers another element whenever a free place of its size exists${bad ? ` (counter-example ${show(bad)})` : ""}`);
 }
 
 h.section("panels: the family an image keeps in view");

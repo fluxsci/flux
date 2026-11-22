@@ -16,7 +16,7 @@ import { clampCrop, fullCrop } from "../still";
 import type { FluximgManifest } from "../types";
 import type { FluximgChannelView, FluximgFurnitureView, FluximgLayerView, FluximgProjectionMode, FluximgStyleBy, FluximgView, PixelRect, ResolvedView } from "../view";
 import { patchView, resolveView } from "../viewOps";
-import { insetLayout, splitLayout, type PanelBox, type SplitLayout } from "../panelLayout";
+import { insetLayout, occupiedOf, splitLayout, type FamilyElement, type PanelBox, type SplitLayout } from "../panelLayout";
 import { flipPlan, splitLookOf, splitPanelView, type SplitElement, type SplitLook } from "../splitLook";
 import { settings } from "../../settings";
 import { autoWindow, histDomain, moveWindow, nextAutoStep, nextSampleStep, nudgeStep, sampleWindow, snapValue, sortedSample } from "./histogram";
@@ -561,7 +561,9 @@ export function splitPlan(other = false): SplitPreview | null {
   if (flip) return { kind: "flip", to: flip.to, ids: flip.patches.map((p) => p.id) };
   const figure = get(project).figures.find((f) => f.elements.some((e) => e.id === c.element.id));
   const pref = splitLookPref();
-  return figure ? { kind: "split", plan: splitLayout(figure, c.element, c.view.channels.length), look: other ? (pref === "color" ? "gray" : "color") : pref } : null;
+  if (!figure) return null;
+  const { occupied, family } = roomOf(figure.elements, c.element);
+  return { kind: "split", plan: splitLayout(figure, c.element, c.view.channels.length, undefined, occupied, family), look: other ? (pref === "color" ? "gray" : "color") : pref };
 }
 
 /**
@@ -590,17 +592,19 @@ export function splitChannels(look: SplitLook = splitLookPref()): void {
   if (n < 2) { pushToast("info", "This image has one channel"); return; }
   const id = c.element.id;
   const created: string[] = [];
-  const done: { place: "beside" | "inPlace" } = { place: "beside" };
+  const done: { place: SplitLayout["place"]; past: boolean } = { place: "beside", past: false };
   liveMutate("split", (p) => {
     const found = elementFigure(p, id);
     const asset = p.assets.find((a) => a.id === c.element.assetId);
     const figure = found ? p.figures.find((f) => f.id === found.figureId) : undefined;
     if (!found || !asset || !figure) return;
     const src = found.element;
-    // Beside the image when the figure has the room; otherwise image and channels share the image's own box
+    // Where nothing else is (the image's own panels, an inset, every other element): beside the image, below it,
+    // beside or below its panels, or where the figure has room; otherwise image and channels share the image's own box
     // (a figure clips what lies outside it: panels past its edge would be panels nobody can see).
-    const layout = splitLayout(figure, src, n);
-    done.place = layout.place;
+    const { occupied, family } = roomOf(figure.elements, src);
+    const layout = splitLayout(figure, src, n, undefined, occupied, family);
+    done.place = layout.place; done.past = layout.past;
     if (layout.place === "inPlace") { src.x = layout.source.x; src.y = layout.source.y; src.width = layout.source.width; src.height = layout.source.height; }
     // The composite and its channel panels move together from now on (position, projection, each channel's window;
     // a coloured panel also follows its channel's colour).
@@ -622,7 +626,11 @@ export function splitChannels(look: SplitLook = splitLookPref()): void {
   rememberSplitLook(look);
   if (created.length) {
     fluximgFitDue.set(true);
-    pushToast("info", `Split into ${created.length} channel panels${look === "gray" ? " in gray" : " in colour"}`, done.place === "inPlace" ? { detail: "The figure has no room beside the image, so they share its place." } : {});
+    const where = done.place === "inPlace" ? "The figure has no room beside the image, so they share its place."
+      : done.place === "free" ? "The figure has no room beside the image or its panels: they stand where it had room."
+      : done.place === "below" ? (done.past ? "They stand below the image's panels." : "They stand below the image.")
+      : done.past ? "They stand beside the image's panels." : "";
+    pushToast("info", `Split into ${created.length} channel panels${look === "gray" ? " in gray" : " in colour"}`, where ? { detail: where } : {});
   }
 }
 
@@ -647,12 +655,24 @@ function setFluximgViewOnly(p: Project, id: string, patch: FluximgView): void {
 }
 
 /** Where an inset of this shape (width / height of its region) would go, for its preview (the figure's coordinates). */
-export function insetPlan(aspect: number): { place: "right" | "below" | "inside"; box: PanelBox } | null {
+export function insetPlan(aspect: number): ReturnType<typeof insetLayout> | null {
   const c = liveContext();
   if (!c || !(aspect > 0) || newElementsOff()) return null;
   const figure = get(project).figures.find((f) => f.elements.some((e) => e.id === c.element.id));
-  return figure ? insetLayout(figure, c.element, aspect) : null;
+  if (!figure) return null;
+  const { occupied, family } = roomOf(figure.elements, c.element);
+  return insetLayout(figure, c.element, aspect, undefined, occupied, family);
 }
+
+/** What a new panel of this image must leave clear: every other shown element of the figure (its family's boxes too). */
+function roomOf(elements: readonly AnyElement[], el: FluximgElement): { occupied: PanelBox[]; family: PanelBox[] } {
+  return occupiedOf(elements as unknown as FamilyElement[], el as unknown as FamilyElement);
+}
+
+/** What the toast says of where an inset went. */
+const INSET_WORDS = (place: string, past: boolean): string => place === "inside" ? "Inset placed on the image"
+  : place === "free" ? "Inset placed where the figure had room"
+  : `Inset placed ${place === "below" ? "below" : "beside"} the image${past ? "'s panels" : ""}`;
 
 /**
  * Blow-out: a new panel beside the image showing the current frame, while the image itself returns to `restore`
@@ -669,14 +689,16 @@ export function makeInset(restore: CropRect | null, drawn?: PixelRect): string |
   if (region.width >= full.width - 1e-6 && region.height >= full.height - 1e-6) { pushToast("info", "Draw a rectangle on the image, or zoom into a region first, then pull it out as an inset"); return null; }
   const id = c.element.id;
   let created: string | null = null;
-  const done: { place: "right" | "below" | "inside" } = { place: "right" };
+  const done: { place: "right" | "below" | "free" | "inside"; past: boolean } = { place: "right", past: false };
   liveMutate("inset", (p) => {
     const found = elementFigure(p, id), asset = p.assets.find((a) => a.id === c.element.assetId);
     const figure = found ? p.figures.find((f) => f.id === found.figureId) : undefined;
     if (!found || !asset || !figure) return;
     const src = found.element;
-    const at = insetLayout(figure, src, region.width / region.height);
-    done.place = at.place;
+    // Where nothing else is: never on the image's channel panels or an earlier inset (nor on any other element).
+    const { occupied, family } = roomOf(figure.elements, src);
+    const at = insetLayout(figure, src, region.width / region.height, undefined, occupied, family);
+    done.place = at.place; done.past = at.past;
     // A blow-out follows its parent through planes and contrast (it is the same picture, closer).
     const link = src.view?.link ?? `inset-${src.id}`;
     src.view = { ...(src.view ?? {}), link };
@@ -694,7 +716,7 @@ export function makeInset(restore: CropRect | null, drawn?: PixelRect): string |
   // An inset standing ON its image lies under the live picture: the view closes on it, with the inset selected,
   // so what was just made is what you see and can drag.
   if (created && done.place === "inside") { closeFluximgLive(); selection.set(new Set([created])); }
-  if (created) pushToast("info", done.place === "inside" ? "Inset placed on the image" : done.place === "below" ? "Inset placed below the image" : "Inset placed beside the image", done.place === "inside" ? { detail: "The figure has no room beside it. Drag the inset where you want it." } : {});
+  if (created) pushToast("info", INSET_WORDS(done.place, done.past), done.place === "inside" ? { detail: "The figure has no free place beside it. Drag the inset where you want it." } : {});
   return created;
 }
 
