@@ -267,9 +267,9 @@ try {
     h.ok(t?.to?.become?.pair === "key" && t.to.become.mode === "handoff", "becomeTransform writes a hand-off paired by key between two images' objects");
     const c = compileSlide(s, deck.stage, partsOf(index));
     h.eq(c.issues.filter((i) => i.trackId === t?.id), [], "it compiles without issues (objects of two images may hand off)");
-    const { handoffKeyPairs } = await import("../src/lib/slide/handoffTargets");
-    const hk = c.handoffs[0] ? handoffKeyPairs(c.resolvedSlide, c.handoffs[0].source, c.handoffs[0].destination, {}) : null;
-    h.eq(hk && [hk.pairs, hk.source, hk.destination, hk.auto], [4, 4, 4, true], "handoffKeyPairs: 4 keys pair, auto would pair by key");
+    const { handoffPairing } = await import("../src/lib/slide/handoffPlan");
+    const hp = t ? handoffPairing(c.resolvedSlide.beats[1].tracks.find((x) => x.id === t.id)!, c.sample(1, 0), { manifest: () => undefined, plotRoot: () => undefined, fluximgParts: () => index } as never) : null;
+    h.eq(hp && [hp.policy, hp.pairs, hp.auto], ["key", 4, true], "handoffPairing (the plan's answer): by key, 4 keys pair");
     h.eq(deckSchemaFor(deck), "0.8.0", "the deck is written as 0.8.0");
     // stagger by a table column from the CLI: set-track --stagger-by column:<name> writes the deck's column shape
     const st = VERBS.find((v) => v.name === "set_track")!, stSchema = z.object(st.params as Record<string, never>);
@@ -304,6 +304,49 @@ try {
     h.eq(keysAt(1), ["s1", "s2"], "step 1: the two that appeared");
     h.eq(keysAt(2), ["s1", "s2", "s3", "s7"], "step 2: all of them");
     h.ok(/data-layer="discs"/.test(renderSlidePosterSvg(payload, 0)), "an object layer without effects is drawn at every step");
+  }
+
+  h.section("O. auto Become into a WHOLE plot: the plan pairs by key when the series match (review NEW-B2)");
+  {
+    const { DOMParser, parseHTML } = await import("linkedom");
+    const g = globalThis as Record<string, unknown>, had = { DOMParser: g.DOMParser, document: g.document };
+    Object.assign(g, { DOMParser, document: parseHTML("<html><body></body></html>").document });
+    try {
+      const { preparePlot } = await import("../src/lib/plot/parse");
+      const { planHandoff, handoffPairing } = await import("../src/lib/slide/handoffPlan");
+      const plotOf = (names: string[]) => {
+        const manifest = { spec: "fluxplot", schemaVersion: "0.3.0", plotType: "line", svg: "", size: { width: 300, height: 200, unit: "px" },
+          axes: [{ x: { scale: "linear", label: "", domain: [0, 10], anchors: [{ data: 0, svg: 40 }, { data: 10, svg: 280 }], ticks: [] }, y: { scale: "linear", label: "", domain: [0, 4], anchors: [{ data: 0, svg: 180 }, { data: 4, svg: 20 }], ticks: [] } }],
+          series: names.map((name, i) => ({ id: `tr${i}`, name, svg: { line: `tr${i}.line` } })), build: { order: [] },
+          parts: { id: "figure", role: "figure", kind: "container", children: [{ id: "plot-area", role: "plot-area", kind: "container", children: [
+            { id: "axis.x", role: "axis", axis: "x", kind: "container", children: [{ ref: "axis.x.spine", kind: "line" }] },
+            { id: "axis.y", role: "axis", axis: "y", kind: "container", children: [{ ref: "axis.y.spine", kind: "line" }] },
+            ...names.map((_, i) => ({ id: `tr${i}`, role: "series", kind: "container", children: [{ ref: `tr${i}.line`, kind: "line" }] }))] }] } };
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200"><g id="figure"><path id="axis.x.spine" d="M40 180H280" stroke="#000"/><path id="axis.y.spine" d="M40 20V180" stroke="#000"/>${names.map((_, i) => `<path id="tr${i}.line" d="M40 ${150 - i * 30}L280 ${140 - i * 30}" fill="none" stroke="#f00"/>`).join("")}</g></svg>`;
+        return preparePlot(svg, manifest as never);
+      };
+      const plotEl = { type: "plot", id: "pl", x: 360, y: 40, width: 240, height: 160, rotation: 0, assetId: "P", overrides: {} };
+      const run = (names: string[], pair?: string) => {
+        const prep = plotOf(names);
+        const ctx = { manifest: () => prep.manifest, plotRoot: () => prep.root as unknown as Element, fluximgParts: () => index };
+        const frame = { elements: [el, plotEl], partStates: {}, issues: [], presentation: { elementStates: {}, hiddenElementIds: [], partStates: {} } } as never;
+        const track = { id: "h", target: "img", part: "layer:footprints", preset: "transform", to: { become: { ref: { element: "pl" }, mode: "handoff", ...(pair ? { pair } : {}) } } } as Track;
+        return { plan: planHandoff(track, frame, ctx as never), pairing: handoffPairing(track, frame, ctx as never) };
+      };
+      const names = ["S1", " s2 ", "s3x", "q9", "S7 "];
+      const auto = run(names);
+      const flown = auto.plan.pairs.filter((p) => p.a && p.b).map((p) => [p.a!.owner.key, p.b!.owner.partId]);
+      h.eq(auto.plan.policy, "key", "auto into a whole plot whose series are named by the footprints' keys: the plan pairs by key");
+      h.eq(flown, [["s1", "tr0.line"], ["s2", "tr1.line"], ["s7", "tr4.line"]], "each footprint flies into its own trace (S1, ' s2 ', 'S7 '), none into a spine");
+      h.ok(auto.plan.pairs.some((p) => !p.a && p.b?.owner.partId === "axis.x.spine") && auto.plan.pairs.some((p) => p.a?.owner.key === "s3" && !p.b), "the spines and unmatched traces take the b-only envelope; the unmatched footprint fades");
+      h.eq([auto.pairing.policy, auto.pairing.pairs, auto.pairing.auto], ["key", 3, true], "the panel's answer is the plan's (handoffPairing: key, 3 pairs)");
+      const few = run(["S1", "q8", "q9", "x"]);
+      h.eq([few.plan.policy, few.pairing.policy, few.pairing.pairs], ["tile", "other", 1], "too few matches: the whole-plot default (tile into the spines) stays, and the panel says so");
+      const tile = run(names, "tile");
+      h.eq([tile.plan.policy, tile.pairing.policy], ["tile", "other"], "an explicit tile stays tile");
+      const key = run(["S1", "q8", "q9", "x"], "key");
+      h.eq([key.plan.policy, key.pairing.policy], ["key", "key"], "an explicit key pairs by key whatever the count");
+    } finally { Object.assign(g, had); }
   }
 
   h.section("K. stamps and the deck without images");

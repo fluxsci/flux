@@ -207,7 +207,7 @@ function dataAxis(A: StageOutline[], B: StageOutline[], hint?: DataHint): "x" | 
 export function choosePolicy(A: StageOutline[], B: StageOutline[], hint?: DataHint): Exclude<PairPolicy, "auto"> {
   // An image's objects on either side (their owners carry a key): pair by key when enough keys match (plan D10). One
   // scan for an owner key; two sides without image objects never reach the test.
-  if ((A.some((o) => o.owner.key !== undefined) || B.some((o) => o.owner.key !== undefined)) && keyPolicyApplies(A.map(keyed), B.map(keyed))) return "key";
+  if (keyPairing(A, B).auto) return "key";
   if (hint?.destAxisFit && dataAxis(A, B, hint)) return "data";
   if (A.length === B.length && A.length && A.every((o) => Number.isFinite(o.owner.index)) && B.every((o) => Number.isFinite(o.owner.index))) return "order";
   if (A.length === 1 || B.length === 1) return "tile";
@@ -215,6 +215,18 @@ export function choosePolicy(A: StageOutline[], B: StageOutline[], hint?: DataHi
 }
 
 const keyed = (o: StageOutline) => ({ keys: memberKeys(o.owner) });
+/**
+ * THE answer to "does this Become pair by key, and how many keys pair": `auto` = whether "auto" chooses "key" (an image's
+ * objects on a side, plan D10, and enough keys match: `keyPolicyApplies`), `pairs` = the matched keys. The planner
+ * (`choosePolicy`, `handoffPlan.planOne`) and the Animation properties' label (`handoffPlan.handoffPairing`) both call
+ * it over the same outlines. Two sides without image objects cost one scan for an owner key.
+ */
+export function keyPairing(A: readonly StageOutline[], B: readonly StageOutline[]): { auto: boolean; pairs: number; images: boolean } {
+  const images = A.some((o) => o.owner.key !== undefined) || B.some((o) => o.owner.key !== undefined);
+  if (!images) return { auto: false, pairs: 0, images };
+  const a = A.map(keyed), b = B.map(keyed);
+  return { auto: keyPolicyApplies(a, b), pairs: keyGroups(a, b).pairs, images };
+}
 /**
  * Pair policy "key" (stage 2, plan D10): members sharing a key pair (an image object's key = a plot series' name or id,
  * or another object's key; `parts.keyGroups`). One to one morphs, one to many tiles (a footprint into its series'

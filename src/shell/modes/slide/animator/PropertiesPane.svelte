@@ -26,7 +26,8 @@
   import { plotManifests, plotDom, plotGen } from "../../../../lib/plot/store";
   import { appFluximgParts, appFluximgTable, fluximgPartsRevision } from "../../../../lib/fluximg/partStore";
   import { staggerColumns } from "../../../../lib/fluximg/parts";
-  import { handoffKeyPairs } from "../../../../lib/slide/handoffTargets";
+  import { handoffPairing } from "../../../../lib/slide/handoffPlan";
+  import { resolveLut } from "../../../../lib/fluximg/store";
   import type { Slide, Track, PresetName, Stagger, Deck, BecomeSpec } from "../../../../lib/slide/types";
   import { PRESET_COLOR, EDIT_PRESETS, chipLabel, refLabel, presetLabel, transformWay, WAY_LABEL } from "./shared";
   import { clearTransformContent, linkTrackStyle, styleFromTrack, setAnimStyle, setTrackCurve, setTrack, setTrackAnchor, becomeTransform, swapBecome, setTrackArc, suggestArcsForBeat, setTrackTurn, setTrackPairLag, TURNTABLE_SOFT_CURVE } from "../../../../lib/slide/ops";
@@ -430,16 +431,23 @@
     });
     refreshEndpointDisplay();
   }
-  /** A hand-off with an image's objects on a side (W8): how many keys pair, and whether "auto" pairs by key. */
+  /** A hand-off with an image's objects on a side (W8): what the PLAN pairs by and how many keys pair
+   *  (handoffPlan.handoffPairing: the planner's own answer over the same outlines, never a second estimate). */
   const keyInfo = $derived.by(() => {
     if (!handoff || !curTrack) return null;
-    void $fluximgPartsRevision;
+    void $fluximgPartsRevision; void $plotGen;
     const ids = [curTrack.target, ...refMembers(handoff.ref).map((m) => m.element)];
     if (!ids.some((id) => slide.elements.find((e) => e.id === id)?.type === "fluximg")) return null;
     const deck = $deckOverlay;
     if (!deck) return null;
     const c = compile(deck, slide), h = c.handoffs.find((x) => x.trackId === curTrack.id);
-    return h ? handoffKeyPairs(c.resolvedSlide, h.source, h.destination, { plotManifest: (id) => $plotManifests[id] }) : null;
+    if (!h) return null;
+    const track = c.resolvedSlide.beats[h.beat]?.tracks.find((t) => t.id === curTrack.id);
+    if (!track) return null;
+    const frame = c.sample(h.beat, track.start ?? 0);
+    const p = handoffPairing(track, frame, { manifest: (id) => $plotManifests[id], plotRoot: (id) => plotDom.get(id), groups: c.resolvedSlide.groups,
+      fluximgParts: appFluximgParts, fluximgTable: appFluximgTable, fluximgLut: resolveLut });
+    return p.images ? p : null;
   });
   const compile = (d: Deck, s: Slide) => compileSlide(s, d.stage, { animStyles: d.animStyles, plotManifest: id => $plotManifests[id], modelManifest: id => $scene3dManifests[id], modelAsset: id=>$project.assets.find(a=>a.id===id) });
   function changeHandoff(patch: Partial<Pick<BecomeSpec, "pair" | "reveal" | "mode" | "method" | "keepSource">>) {
@@ -796,7 +804,7 @@
               {#each PAIR_POLICIES as p (p.id)}<option value={p.id}>{p.label}</option>{/each}
             </select>
           </label>
-          {#if keyInfo}<span class="keypairs" data-key-pairs={keyInfo.pairs} title="Objects and series that share a key fly to each other; the others fade">{keyInfo.pairs} {keyInfo.pairs === 1 ? "pair" : "pairs"} by key{(handoff.pair ?? "auto") === "auto" ? (keyInfo.auto ? " (auto pairs by key)" : " (too few for auto)") : ""}</span>{/if}
+          {#if keyInfo}<span class="keypairs" data-key-pairs={keyInfo.pairs} data-key-policy={keyInfo.policy} title="Objects and series that share a key fly to each other; the others fade">{keyInfo.pairs} {keyInfo.pairs === 1 ? "pair" : "pairs"} by key{(handoff.pair ?? "auto") === "auto" ? (keyInfo.policy === "key" ? " (auto pairs by key)" : " (too few for auto)") : ""}</span>{/if}
           <label class="f" title="Transform method: what a filled shape's interior does while its outline splits into several pieces, or several pieces merge into it">Method ▾
             <select aria-label="Hand-off method" value={handoff.method ?? DEFAULT_TRANSFORM_METHOD} onchange={e => changeHandoff({ method: e.currentTarget.value as BecomeSpec["method"] })}>
               {#each TRANSFORM_METHODS as m (m.id)}<option value={m.id} title={m.hint}>{m.label}</option>{/each}
