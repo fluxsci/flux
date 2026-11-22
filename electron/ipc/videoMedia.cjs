@@ -80,7 +80,7 @@ function createVideoMediaCore({ app, protocol, rootFor, fsReadGuard, noteWrite }
       checkCurrent();
       // Both ends are constrained by the shared copier to deck-owned files
       // within this requesting window's current project.
-      await media.copyVideoAssets({ root, sourceDeckId: request?.sourceDeckId, deckId: request?.deckId, paths: request?.paths, checkCurrent });
+      await media.copyVideoAssets({ root, sourceDeckId: request?.sourceDeckId, deckId: request?.deckId, paths: request?.paths, checkCurrent, intoSavedDeck: request?.intoSavedDeck === true });
       for (const relative of request.paths) noteWrite(path.join(root, "slides", request.deckId, relative));
     });
     ipcMain.handle("slides:videoMediaUrl", (e, request) => localUrl(e, request?.root, request?.path));

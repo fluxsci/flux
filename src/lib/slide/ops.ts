@@ -29,8 +29,8 @@ import { gcGroups } from "../groups";
 import { makePlotPanel, makeImagePanel, makeText, mergePartOverride, addFluximg, deleteElements as deleteFigureElements, type Box, type TextOpts, type AddFluximgArgs } from "../ops";
 import { FLEXOKI } from "../flexoki";
 import { DEFAULT_THEME_ID, resolveTheme } from "./theme";
-import { cloneContentWithFreshIds, placeContentOnStage, DECK_CANVAS_ID } from "./deckProject";
-import { resolveTrack, resolveTrackRaw, resolveStart, ANIM_STYLE_FIELDS, INHERITED_STYLE_FIELDS, type ManifestFor } from "./resolve";
+import { cloneContentWithFreshIds, placeContentOnStage, slideAssetIds, slideDefaultBackground, DECK_CANVAS_ID } from "./deckProject";
+import { resolveTrack, resolveTrackRaw, resolveStart, slideAnimStyles, ANIM_STYLE_FIELDS, INHERITED_STYLE_FIELDS, type ManifestFor } from "./resolve";
 import { patchStagger } from "./stagger";
 import { presetTrackOf } from "./animTemplates";
 import { familyOf } from "./family";
@@ -271,15 +271,14 @@ export function duplicateName(deck: Pick<Deck, "slides">, name: string): string 
   }
 }
 
-export function duplicateSlide(deck: Deck, slideId: Id): Id | null {
-  const src = slideById(deck, slideId);
-  if (!src) return null;
-  const i = deck.slides.findIndex((s) => s.id === slideId);
+/** A copy of a slide with FRESH slide/element/group/beat/track ids and its tracks retargeted at the copy's elements: the ONE
+ *  remap discipline, shared by duplicateSlide (same deck) and copySlidesInto (another deck). */
+function cloneSlideFresh(src: Slide, name: string): Slide {
   const { elements, groups, idRemap, groupRemap } = cloneContentWithFreshIds(src.elements, src.groups);
   const copy: Slide = {
     ...structuredClone(src),
     id: newId("slide"),
-    name: duplicateName(deck, src.name ?? "Slide"),
+    name,
     elements,
     ...(Object.keys(groups).length ? { groups } : {}),
   };
@@ -298,8 +297,65 @@ export function duplicateSlide(deck: Deck, slideId: Id): Id | null {
       remapBecomeTarget(t, idRemap, groupRemap);
     }
   }
+  return copy;
+}
+
+export function duplicateSlide(deck: Deck, slideId: Id): Id | null {
+  const src = slideById(deck, slideId);
+  if (!src) return null;
+  const i = deck.slides.findIndex((s) => s.id === slideId);
+  const copy = cloneSlideFresh(src, duplicateName(deck, src.name ?? "Slide"));
   deck.slides.splice(i + 1, 0, copy);
   return copy.id;
+}
+
+/**
+ * Copy slides of `source` into `target`, ANOTHER deck of the same project: appended in the source's order (or inserted at
+ * `at`). Each copy is duplicateSlide's clone (fresh ids, tracks retargeted). What a slide needs from its own deck comes with it:
+ *  - the deck-owned assets it shows, under the SAME id and path (an id the target already holds is that asset, as in a
+ *    duplicated deck). They are returned in `assets`, so the caller copies their FILES. Project-owned content (plots, image
+ *    bundles) resolves by id in every deck of the project and needs nothing;
+ *  - the animation styles its tracks link: matched by name + family as a preset insert does, else added;
+ *  - the text styles its text links, by id;
+ *  - the accepted sizes of the linked project assets it shows (`externalAssetSizes`), where the target has none;
+ *  - its look: a slide that follows its deck's background keeps that background where the target's default differs.
+ * A name the target already uses gets duplicateName's suffix. Nothing is rescaled: a slide keeps its coordinates, whatever
+ * the target's stage. `source` is not changed (a move is this, then deleteSlide on the source).
+ */
+export function copySlidesInto(target: Deck, source: Deck, slideIds: readonly Id[], opts: { at?: number } = {}): { slideIds: Id[]; assets: Asset[] } {
+  const wanted = new Set(slideIds), copied: Id[] = [], assets: Asset[] = [];
+  const styleRemap = new Map<Id, Id>();
+  const background = slideDefaultBackground(source), sameBackground = background === slideDefaultBackground(target);
+  let at = opts.at != null && opts.at >= 0 && opts.at <= target.slides.length ? opts.at : target.slides.length;
+  for (const src of source.slides) {
+    if (!wanted.has(src.id)) continue;
+    for (const style of slideAnimStyles(src, source)) {
+      if (styleRemap.has(style.id)) continue;
+      const existing = target.animStyles?.find((s) => s.name === style.name && s.family === style.family);
+      styleRemap.set(style.id, existing?.id ?? addAnimStyle(target, style).id);
+    }
+    for (const el of src.elements) {
+      const linked = el.type === "text" && el.styleId ? source.textStyles?.find((t) => t.id === el.styleId) : undefined;
+      if (linked && !target.textStyles?.some((t) => t.id === linked.id)) (target.textStyles ??= []).push(structuredClone(linked));
+    }
+    for (const id of slideAssetIds(src)) {
+      const asset = source.assets.find((a) => a.id === id);
+      if (asset && !target.assets.some((a) => a.id === id)) {
+        const copy = structuredClone(asset);
+        target.assets.push(copy);
+        assets.push(copy);
+      }
+      const size = source.externalAssetSizes?.[id];
+      if (size && !target.externalAssetSizes?.[id]) (target.externalAssetSizes ??= {})[id] = { ...size };
+    }
+    const name = src.name ?? "Slide";
+    const copy = cloneSlideFresh(src, target.slides.some((s) => (s.name ?? "") === name) ? duplicateName(target, name) : name);
+    for (const beat of copy.beats) for (const t of beat.tracks) if (t.styleId) t.styleId = styleRemap.get(t.styleId) ?? t.styleId;
+    if (copy.background === undefined && !sameBackground) copy.background = background;
+    target.slides.splice(at++, 0, copy);
+    copied.push(copy.id);
+  }
+  return { slideIds: copied, assets };
 }
 
 // ---------------------------------------------------------------------------

@@ -263,8 +263,10 @@ Everything in the Figure table works on the stage. Additionally:
 | Shortcut | Action |
 |---|---|
 | **F5** / **Shift+F5** | Present from the start / from the current slide |
-| **↓** / **↑**, **PageDown** / **PageUp** (nothing selected) | Next / previous slide |
+| **↓** / **↑** (nothing selected), **PageDown** / **PageUp** | Next / previous slide |
 | **F2** | Rename the slide |
+| **Shift+click** / **Ctrl/Cmd+click** a slide in the filmstrip | Select a range from the current slide / add or remove one |
+| Right-click a slide in the filmstrip | Move or copy the selected slides to another deck |
 | **Space** / **Escape** (a preview playing on the stage) | Pause or resume / stop |
 | **Ctrl+B** (nothing text-like selected) | Hide/show the left rail (filmstrip or Plots) |
 | **Alt+G** | Toggle Plots / Slides; a hidden rail opens to Plots with search focused |

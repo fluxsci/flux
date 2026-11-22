@@ -176,6 +176,7 @@
       "verify-prefs-atomic.ts",
       "verify-win-spawn.ts",
       "verify-slide-presets.ts",
+      "verify-slide-copy-between-decks.ts",
       "verify-snip-headless.ts",
       "verify-snips.ts",
       "verify-supplement.ts",
@@ -594,6 +595,7 @@
       "verify-fig-suspend.mjs",
       "verify-slide-editor-gui.mjs",
       "verify-slide-filmstrip-gui.mjs",
+      "verify-slide-move-copy-gui.mjs",
       "verify-slide-animator-gui.mjs",
       "verify-transform-gui.mjs",
       "verify-beat-display-gui.mjs",
@@ -8334,6 +8336,17 @@
       "exclusive": true,
       "coverage": "behavior"
     },
+    "verify-slide-move-copy-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
     "verify-slide-ghost-api.ts": {
       "runtime": "tsx",
       "prerequisites": [],
@@ -8537,6 +8550,15 @@
       "coverage": "behavior"
     },
     "verify-slide-presets.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-copy-between-decks.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

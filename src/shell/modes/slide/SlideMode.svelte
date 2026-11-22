@@ -72,7 +72,8 @@
     listProjectDecks,
     loadDeckInto,
     saveDeckFrom,
-    embeddedSlideRemovalBlocker,
+    embeddedSlideRemovalBlocker, embeddedSlidesRemovalBlockers,
+    copySlidesToDeck,
     deckDiskDiverged, refreshDeckSources,
     createDeckInProject,
     duplicateDeckInProject as duplicateDeckBridge,
@@ -142,6 +143,7 @@
   import { describeUnit } from "./pick/pickLabels";
   import { hoverTrackId } from "./animator/animatorState";
   import DeckPicker from "./DeckPicker.svelte";
+  import TimelineMenu, { type MenuItem } from "./animator/TimelineMenu.svelte";
   import SlidePresetMenu from "./SlidePresetMenu.svelte";
   import PresentOverlay from "./PresentOverlay.svelte";
   import SlideThumb from "./SlideThumb.svelte";
@@ -535,6 +537,86 @@
     const [moved] = ids.splice(from, 1);
     ids.splice(to, 0, moved);
     commitDeckLive((dd) => slideOps.reorderSlides(dd, ids));
+  }
+
+  // --- filmstrip selection of several slides, and Move / Copy to another deck (owner, 2026-11-22) -----------------
+  // The ACTIVE slide (the one on the stage) is always selected; `extraSel` holds the others. Shift+click selects the range
+  // from the active slide, Ctrl/Cmd+click adds or removes one, and neither changes what the stage shows. A plain click, or the
+  // active slide changing any other way (keys, a new slide, another deck), is a selection of one again.
+  let extraSel = $state<string[]>([]);
+  const selectedSlideIds = $derived(overlay ? overlay.slides.filter((s) => s.id === $activeFigureId || extraSel.includes(s.id)).map((s) => s.id) : []);
+  $effect(() => { void $activeFigureId; void activeDeckId; untrack(() => { if (extraSel.length) extraSel = []; }); });
+  function onThumbClick(e: MouseEvent, id: string, i: number) {
+    const slides = overlay?.slides ?? [], current = get(activeFigureId);
+    if (e.shiftKey && current) {
+      const a = slides.findIndex((s) => s.id === current);
+      if (a >= 0) { extraSel = slides.slice(Math.min(a, i), Math.max(a, i) + 1).map((s) => s.id).filter((x) => x !== current); return; }
+    }
+    if (e.ctrlKey || e.metaKey) {
+      if (id !== current) extraSel = extraSel.includes(id) ? extraSel.filter((x) => x !== id) : [...extraSel, id];
+      return;
+    }
+    extraSel = [];
+    selectSlide(id);
+  }
+  // Right-click: Move to / Copy to, then the project's other decks. A right-click outside the selection selects that slide first.
+  let slideMenu = $state<{ x: number; y: number; items: MenuItem[]; stage: number } | null>(null);
+  function onThumbMenu(e: MouseEvent, id: string) {
+    e.preventDefault();
+    if (renaming) return;
+    let ids = selectedSlideIds;
+    if (!ids.includes(id)) { extraSel = []; selectSlide(id); ids = [id]; }
+    const x = e.clientX, y = e.clientY, n = ids.length, what = n === 1 ? "slide" : `${n} slides`;
+    const others = decks.filter((d) => d.id !== activeDeckId), whole = n >= (overlay?.slides.length ?? 0);
+    const none = others.length ? undefined : "This project has no other deck yet";
+    const pick = (mode: "move" | "copy") => () => {
+      // the menu closes itself after an action: the deck list opens once it has
+      queueMicrotask(() => {
+        slideMenu = { x, y, stage: 2, items: [
+          { label: `${mode === "move" ? "Move" : "Copy"} ${what} to`, disabled: true },
+          { label: "", divider: true },
+          ...others.map((d) => ({ label: d.title || "Untitled deck", hint: `${d.slides} ${d.slides === 1 ? "slide" : "slides"}`, action: () => void transferSlides(mode, ids, d.id) })),
+        ] };
+      });
+    };
+    slideMenu = { x, y, stage: 1, items: [
+      { label: `Move ${what} to deck…`, disabled: !others.length || whole, hint: none ?? (whole ? "A deck keeps at least one slide" : undefined), action: pick("move") },
+      { label: `Copy ${what} to deck…`, disabled: !others.length, hint: none, action: pick("copy") },
+    ] };
+  }
+  let slideTransferBusy = false;
+  async function transferSlides(mode: "move" | "copy", ids: string[], targetId: string) {
+    if (!pm || !activeDeckId || slideTransferBusy) return;
+    const root = pm.root, deckId = activeDeckId, n = ids.length, what = n === 1 ? "slide" : `${n} slides`;
+    const title = decks.find((d) => d.id === targetId)?.title || "the other deck";
+    slideTransferBusy = true;
+    try {
+      if (mode === "move") {
+        const blockers = await embeddedSlidesRemovalBlockers(root, deckId, ids);
+        if (blockers.length && !window.confirm(`${blockers.join("\n")}\n\nMove anyway?`)) return;
+      }
+      await autosave.flush(); // the files of assets imported since the last save are on disk before they are copied
+      const source = currentDeck();
+      if (activeDeckId !== deckId || source?.id !== deckId) return;
+      const stageHere = source.stage;
+      const copied = await copySlidesToDeck(root, source, targetId, ids);
+      if (mode === "move" && activeDeckId === deckId) {
+        const first = source.slides.findIndex((s) => ids.includes(s.id));
+        commitDeckLive((d) => { for (const id of ids) if (d.slides.length > 1) slideOps.deleteSlide(d, id); });
+        sealHistory();
+        extraSel = [];
+        const left = get(deckOverlay)?.slides ?? [];
+        if (left.length && !left.some((s) => s.id === get(activeFigureId))) selectSlide(left[Math.min(Math.max(first, 0), left.length - 1)].id);
+      }
+      decks = await listProjectDecks(root);
+      const other = copied.stage.width !== stageHere.width || copied.stage.height !== stageHere.height
+        ? { detail: `That deck's stage is ${copied.stage.width} × ${copied.stage.height}; this one's is ${stageHere.width} × ${stageHere.height}. The slides keep their layout and are not rescaled.` } : undefined;
+      pushToast("success", `${mode === "move" ? "Moved" : "Copied"} ${what} to “${title}”`, other);
+    } catch (e) {
+      pushToast("error", `Couldn't ${mode} the ${n === 1 ? "slide" : "slides"}`, { detail: errMsg(e) });
+    } finally {
+      slideTransferBusy = false;
+    }
   }
 
   // --- deck / slide panels --------------------------------------------------------
@@ -1912,14 +1994,14 @@
       {#if overlay}
         {#each overlay.slides as s, i (s.id)}
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-          <div class="thumb" class:active={s.id === $activeFigureId}
+          <div class="thumb" class:active={s.id === $activeFigureId} class:sel={extraSel.includes(s.id)}
             class:dragging={dragIdx === i} class:dropbefore={dropIdx === i && dragIdx !== null && dragIdx > i} class:dropafter={dropIdx === i && dragIdx !== null && dragIdx < i}
             draggable={renaming?.id !== s.id}
             ondragstart={(e) => { dragIdx = i; if (e.dataTransfer) e.dataTransfer.effectAllowed = "move"; }}
             ondragover={(e) => { e.preventDefault(); dropIdx = i; if (e.dataTransfer) e.dataTransfer.dropEffect = "move"; }}
             ondrop={(e) => { e.preventDefault(); if (dragIdx !== null) moveSlide(dragIdx, i); dragIdx = null; dropIdx = null; }}
             ondragend={() => { dragIdx = null; dropIdx = null; }}
-            onclick={() => selectSlide(s.id)}>
+            onclick={(e) => onThumbClick(e, s.id, i)} oncontextmenu={(e) => onThumbMenu(e, s.id)}>
             <span class="n">{i + 1}</span>
             <div class="mini"><SlideThumb slideId={s.id} {stage} /></div>
             {#if renaming?.id === s.id}
@@ -2082,6 +2164,7 @@
     {/if}
   </div>
 
+  {#if slideMenu}{#key slideMenu.stage}<TimelineMenu x={slideMenu.x} y={slideMenu.y} items={slideMenu.items} onClose={() => (slideMenu = null)} />{/key}{/if}
   {#if presetMenu}
     <SlidePresetMenu
       mode={presetMenu.mode}
@@ -2254,6 +2337,9 @@
   }
   .thumb:hover { background: var(--c-surface-2); }
   .thumb.active { border-color: var(--c-accent); background: var(--c-accent-tint); }
+  /* selected with the active slide (Shift / Ctrl+click): the active slide's tint, a quieter edge */
+  .thumb.sel { border-color: color-mix(in oklab, var(--c-accent) 50%, transparent); background: var(--c-accent-tint); }
+  .thumb { user-select: none; }
   .thumb.dragging { opacity: 0.4; }
   .thumb.dropbefore { box-shadow: inset 0 2px 0 0 var(--c-accent); }
   .thumb.dropafter { box-shadow: inset 0 -2px 0 0 var(--c-accent); }

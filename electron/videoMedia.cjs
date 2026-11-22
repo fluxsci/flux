@@ -207,19 +207,24 @@ let copySequence = 0;
 /** Copy required movie/poster files without loading their bytes into JS or IPC.
  * The destination is a new, unpublished deck. A failed batch removes only the
  * files this operation created; existing files are never replaced or removed. */
-async function copyVideoAssets({ root, sourceDeckId, deckId, paths, checkCurrent = () => {} }) {
+/** Copies deck-owned media files from one deck's `assets/` to another's, never over an existing file.
+ * A duplicate fills a deck that is not published yet (the default). Slides copied or moved between decks add to a SAVED
+ * deck (`intoSavedDeck`): there a file the destination already holds is left as it is (same name, same asset). */
+async function copyVideoAssets({ root, sourceDeckId, deckId, paths, checkCurrent = () => {}, intoSavedDeck = false }) {
   if (!safeId(sourceDeckId) || !safeId(deckId) || sourceDeckId === deckId || !Array.isArray(paths) || !paths.length || paths.length > 10000
     || paths.some(p => typeof p !== "string" || !/^assets\/[a-zA-Z0-9_-][a-zA-Z0-9_.-]*\.(?:mp4|png|glb|fluxplot\.json|recipe\.json)$/i.test(p))) throw new Error("Invalid video asset copy request");
   checkCurrent();
   const realRoot = await fsp.realpath(root), directory = path.join(realRoot, "slides", deckId, "assets");
   if (await projectFile(root, `slides/${deckId}/assets`) !== directory) throw new Error("Video copy destination was replaced");
-  if (await fsp.stat(path.join(directory, "..", "deck.json")).then(() => true, error => { if (error.code === "ENOENT") return false; throw error; })) throw new Error("Video copy destination is already a saved deck");
+  const saved = await fsp.stat(path.join(directory, "..", "deck.json")).then(() => true, error => { if (error.code === "ENOENT") return false; throw error; });
+  if (saved !== (intoSavedDeck === true)) throw new Error(saved ? "Video copy destination is already a saved deck" : "Video copy destination is not a saved deck");
   const scratch = path.join(directory, `.video-copy.tmp-${process.pid}-${++copySequence}`), created = [];
   await fsp.mkdir(scratch);
   try {
     const staged = [];
     for (const relative of new Set(paths)) {
       checkCurrent();
+      if (saved && await fsp.stat(path.join(directory, path.basename(relative))).then(() => true, error => { if (error.code === "ENOENT") return false; throw error; })) continue;
       const source = await projectFile(root, `slides/${sourceDeckId}/${relative}`), before = await fsp.stat(source);
       if (!before.isFile()) throw new Error(`Video asset is not a file: ${relative}`);
       const temporary = path.join(scratch, path.basename(relative));

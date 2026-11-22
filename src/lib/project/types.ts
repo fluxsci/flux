@@ -303,7 +303,9 @@ export interface FileBridge {
   videoMediaUrl?(request: { root: string; path: string }): Promise<string>;
   videoGalleryUrl?(request: { root: string; path: string }): Promise<string>;
   releaseVideoGalleryUrl?(url: string): Promise<void>;
-  copySlideVideoAssets?(request: { root: string; sourceDeckId: string; deckId: string; paths: string[] }): Promise<void>;
+  /** Copies deck-owned media between two decks of the project, never over a file. `intoSavedDeck`: the destination is a saved deck
+   *  (slides copied or moved there); without it the destination must not be published yet (a deck being duplicated). */
+  copySlideVideoAssets?(request: { root: string; sourceDeckId: string; deckId: string; paths: string[]; intoSavedDeck?: boolean }): Promise<void>;
   cancelVideoImport?(jobId: string): Promise<void>;
   discardVideoImport?(request: { root: string; deckId: string; assetId: string }): Promise<void>;
   onVideoImportProgress?(cb: (value: { jobId: string; phase: "preparing" | "encoding" | "finalizing"; percent: number }) => void): () => void;

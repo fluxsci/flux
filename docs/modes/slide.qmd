@@ -19,6 +19,14 @@ starter text — title, section, two-column, or *blank* for a clean stage), and 
 inserts a slide from your machine-global **slide preset library** (save any slide there from
 the Slide panel — its animation, background, and media travel with it).
 
+To take slides to another deck, select them in the filmstrip — **Shift+click** selects the range
+from the slide on the stage, **Ctrl/Cmd+click** adds or removes one — then right-click and choose
+**Move to deck…** or **Copy to deck…** and pick the deck. The slides arrive at the end of that
+deck with their animation, notes and media, and you stay in the deck you are in. A move is one
+edit in this deck: **Ctrl+Z** brings the slides back (the copies stay in the other deck). Slides
+keep their layout — nothing is rescaled when the other deck's stage has a different size — and a
+slide that followed its deck's background keeps the look it had.
+
 The right rail switches between **Object**, **Animation**, **Slide**, and **Deck**. Object edits the selected object; Animation edits the selected effect. The **Slide panel** holds the name, per-slide **background**, transition, speaker
 notes. The **Deck panel** controls the **theme** — seven built-ins from *Flux Dark* through *Flux
 Light*, *Paper*, *Midnight*, *Slate*, *Sepia*, and *Contrast* — and the **stage size** (16:9,

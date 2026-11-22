@@ -29,7 +29,7 @@ import { get } from "svelte/store";
 import { fileBridge, joinPath, type ProjectManifest } from "./types";
 import type { Asset } from "../types";
 import type { Deck } from "../slide/types";
-import { createDeck as createDeckModel, normalizeDeck } from "../slide/ops";
+import { createDeck as createDeckModel, normalizeDeck, copySlidesInto } from "../slide/ops";
 import { validateDeckFile } from "./validate";
 import { quarantineCopy } from "./quarantine";
 import { pushToast } from "../toast";
@@ -751,6 +751,63 @@ export async function duplicateDeckInProject(root: string, srcId: string): Promi
   }
   await writeDeckDirect(root, dupe, { expectedText: null });
   return dupe.id;
+}
+
+/**
+ * Copy slides of the OPEN deck into another deck of the project, on disk: the target is not loaded, and the editor stays where
+ * it is. The slides are taken from `source` as it is in the editor (`currentDeck()`); the files of the deck-owned assets they
+ * show are read from the source deck's folder, so the caller saves the open deck first. A file that cannot be read stops the
+ * copy before the target is touched, naming the asset. The target is published once, with its own read as evidence: had it
+ * changed meanwhile, nothing is written. Returns the new slides' ids in the target. A MOVE is this, then deleting the slides
+ * from the open deck as one edit (the caller's, so it is undoable there).
+ */
+export async function copySlidesToDeck(root: string, source: Deck, targetId: string, slideIds: readonly string[]): Promise<{ slideIds: string[]; stage: Deck["stage"] }> {
+  const fig = fileBridge();
+  if (!fig) throw new Error("No project is open");
+  if (source.id === targetId) throw new Error("Those slides are already in that deck");
+  const target = await readDeck(root, targetId);
+  if (!target) throw new Error("That deck could not be read: its file may be missing or damaged");
+  const result = copySlidesInto(target, source, slideIds);
+  if (!result.slideIds.length) throw new Error("Those slides are no longer in this deck");
+  if (result.assets.length) {
+    await fig.mkdir(joinPath(root, "slides", targetId, "assets"));
+    // Movies, their posters and 3D models go through the native batch (on disk, never through memory), as a duplicated deck's do.
+    const media = new Set(result.assets.filter(a => a.kind === "mp4" || a.kind === "glb").map(a => a.id));
+    for (const slide of source.slides) if (slideIds.includes(slide.id)) for (const element of slide.elements) if (element.type === "video") {
+      for (const id of [element.assetId, element.posterAssetId]) if (result.assets.some(a => a.id === id)) media.add(id);
+    }
+    if (media.size) {
+      if (!fig.copySlideVideoAssets) throw new Error("Copying slides with video or 3D models to another deck requires the Flux desktop app.");
+      const paths = result.assets.filter(a => media.has(a.id)).map(a => storedAssetPath(a.path));
+      for (const asset of result.assets) if (asset.kind === "glb") for (const suffix of ["fluxplot", "recipe"]) {
+        const sidecar = `assets/${asset.id}.${suffix}.json`;
+        if (await fig.exists(joinPath(root, "slides", source.id, sidecar))) paths.push(sidecar);
+      }
+      await fig.copySlideVideoAssets({ root, sourceDeckId: source.id, deckId: targetId, paths, intoSavedDeck: true });
+    }
+    for (const asset of result.assets) {
+      if (media.has(asset.id)) continue;
+      let bytes: Uint8Array;
+      try { bytes = new Uint8Array(await fig.readFile(joinPath(root, "slides", source.id, asset.path))); }
+      catch { throw new Error(`The file of "${asset.name}" is missing from this deck, so its slide cannot be copied`); }
+      await fig.writeFile(joinPath(root, "slides", targetId, asset.path), bytes);
+      for (const suffix of ["fluxplot", "recipe"]) {
+        const sidecar = joinPath("assets", `${asset.id}.${suffix}.json`);
+        if (await fig.exists(joinPath(root, "slides", source.id, sidecar))) await fig.writeText(joinPath(root, "slides", targetId, sidecar), await fig.readText(joinPath(root, "slides", source.id, sidecar)));
+      }
+    }
+  }
+  target.modified = stamp();
+  await writeDeckDirect(root, target);
+  return { slideIds: result.slideIds, stage: target.stage };
+}
+
+/** The Paper documents that embed any of these slides, as `embeddedSlideRemovalBlocker` words them: read once for all. */
+export async function embeddedSlidesRemovalBlockers(root: string, deck: string, slides: readonly string[]): Promise<string[]> {
+  const fb = fileBridge();
+  if (!fb) return ["Document references could not be checked"];
+  const dependencies = await readProjectDependencies(root, fb, await readLiveFigureReferenceDocuments(root));
+  return [...new Set(slides.map(slide => slideRemovalBlocker(dependencies, deck, slide)).filter((b): b is string => !!b))];
 }
 
 /** Remove a deck from the project registry (project.json.slides[]). The
