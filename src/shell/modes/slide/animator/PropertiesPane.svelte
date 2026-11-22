@@ -517,16 +517,23 @@
   const curTargetEl = $derived(curTrack ? transformPreState(slide, curTrack.target, curBeatIndex) : null);
   /** The table columns a stagger over an image's objects can order by: those of the layers the track names (W8). */
   const imageColumns = $derived.by(() => {
-    if (curTargetEl?.type !== "fluximg" || !curTrack) return [] as string[];
+    if (curTargetEl?.type !== "fluximg" || !curTrack) return [] as { name: string; missing: boolean }[];
     void $fluximgPartsRevision;
     const index = appFluximgParts(curTargetEl.assetId);
     if (!index) return [];
     const layers = new Set(targetPartIds(curTrack, index).map((id) => id.slice(0, id.indexOf("/"))));
     const out = new Set<string>();
-    for (const l of index.layers) if (layers.has(l.id) && l.table) for (const c of staggerColumns(appFluximgTable(curTargetEl.assetId, l.table) ?? null, l)) out.add(c);
+    let loading = false;
+    for (const l of index.layers) if (layers.has(l.id) && l.table) {
+      const table = appFluximgTable(curTargetEl.assetId, l.table);
+      if (table === undefined) loading = true;
+      for (const c of staggerColumns(table ?? null, l)) out.add(c);
+    }
+    const list = [...out].map((name) => ({ name, missing: false }));
+    // the current order's column, when the tables (loaded) no longer have it: kept, marked missing (as a missing part is)
     const cur = curTrack.stagger?.by;
-    if (cur && typeof cur === "object" && "column" in cur) out.add(cur.column);
-    return [...out];
+    if (cur && typeof cur === "object" && "column" in cur && !out.has(cur.column)) list.push({ name: cur.column, missing: !loading });
+    return list;
   });
   // --- an image's Change (stage 2): its aspects as chips, the walk's pace, blend and end plane ---------------------------
   const imageTarget = $derived(curTargetEl?.type === "fluximg" ? (curTargetEl as FluximgElement) : null);
@@ -1016,7 +1023,7 @@
             <option value="index">order</option><option value="x">x →</option><option value="y">y ↑</option>
             {#if curTargetEl?.type === "fluximg"}
               <!-- an image's objects: by any column of their layer's table (numbers low → high, words in natural order, empty last) -->
-              {#each imageColumns as c (c)}<option value={`col:${c}`} title={`by the "${c}" column of the objects' table`}>{c}</option>{/each}
+              {#each imageColumns as c (c.name)}<option value={`col:${c.name}`} data-missing={c.missing ? "" : undefined} title={c.missing ? `the objects' table has no "${c.name}" column any more: choose another order` : `by the "${c.name}" column of the objects' table`}>{c.name}{c.missing ? " (missing)" : ""}</option>{/each}
               <option value="radial" title="distance from the centre of the objects: from start ripples out, from end collapses in">radial</option>
             {:else}
             <option value="value" title="each part's data value (a hexagon's mean, a cell's value, a bar's height): low → high">value</option>

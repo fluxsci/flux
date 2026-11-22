@@ -53,6 +53,7 @@ export const fluximgPartTargets: K["fluximgPartTargets"] = (...a) => need().flux
 export const imageToBox: K["imageToBox"] = (...a) => need().imageToBox(...a);
 export const imageToStage: K["imageToStage"] = (...a) => need().imageToStage(...a);
 export const objectStaggerCoordinates: K["objectStaggerCoordinates"] = (...a) => need().objectStaggerCoordinates(...a);
+export const missingStaggerColumns: K["missingStaggerColumns"] = (...a) => need().missingStaggerColumns(...a);
 export const parseFluximgPartId: K["parseFluximgPartId"] = (...a) => need().parseFluximgPartId(...a);
 export const partIndexFromTexts: K["partIndexFromTexts"] = (...a) => need().partIndexFromTexts(...a);
 export const checkMergedView: K["checkMergedView"] = (...a) => need().checkMergedView(...a);

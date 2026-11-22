@@ -126,6 +126,19 @@ try {
     h.ok(m[3] > m[2] && m[2] > m[0] && m[0] >= m[1], `the smallest value appears first (${m.map((v) => v.toFixed(2)).join(", ")})`);
   }
 
+  h.section("D2. a stagger by a column the table no longer has (review NEW-C1)");
+  {
+    const gone = slideWith([[{ id: "g1", target: "img", part: "layer:footprints", preset: "fade", duration: 300, stagger: { perMs: 100, by: { column: "distance" } } } as Track]]);
+    const c = compileSlide(gone, { width: 640, height: 360 }, partsOf(index));
+    const issue = c.issues.find((i) => i.trackId === "g1")?.reason ?? "";
+    h.ok(/"distance"/.test(issue) && /synapse footprints/.test(issue) && /keep their order/.test(issue), `a compile issue names the column and the layer: "${issue}"`);
+    h.eq(c.cues[1].tracks[0].ranks, [0, 1, 2, 3], "…and the objects keep their order");
+    const ok = compileSlide(slideWith([[{ id: "g2", target: "img", part: "layer:footprints", preset: "fade", duration: 300, stagger: { perMs: 100, by: { column: "pixels" } } } as Track]]), { width: 640, height: 360 }, partsOf(index));
+    h.eq(ok.issues.filter((i) => i.trackId === "g2"), [], "another (existing) order clears it");
+    const loading = compileSlide(gone, { width: 640, height: 360 }, { fluximgParts: () => index, fluximgTable: () => undefined } as never);
+    h.eq(loading.issues.filter((i) => i.trackId === "g1"), [], "a table still loading is not judged");
+  }
+
   h.section("E. the node finder on every host's markup");
   {
     const lv = resolveView(manifest, { layers: { footprints: { visible: true }, discs: { visible: true } } } as never);
