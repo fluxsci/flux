@@ -798,7 +798,9 @@ const BATCH_CACHE_MAX = 4;
  * nothing, so its fill paints nothing (an SVG path with no fill attribute is black by default: a plot's spine, a tick).
  * Merged with another chain, or morphed into a ring, that fill would suddenly enclose area the render never showed: the
  * two spines of a whole plot merged into one "L" flew as a black triangle (review, stage 2 parts 7c). So such a fill is
- * "none" for the flight, at every moment of every policy. Text and raster boxes keep theirs (their fill is the ink).
+ * "none" for the flight, at every moment, in the hand-offs of an image's objects and under the pair policy "key"
+ * (`planCorrespondence` applies it there only: the hand-offs older decks hold keep the look they have always had; the
+ * same artefact in them is the owner's call, not a side effect). Text and raster boxes keep theirs (their fill is the ink).
  */
 function shownFill(o: StageOutline): void {
   if (o.closed || o.paint.text || o.paint.raster || isNoneColor(o.paint.fill) || o.nodes.length < 2) return;
@@ -821,8 +823,12 @@ export function planCorrespondence(A: StageOutline[], B: StageOutline[], opts: {
   if (hit) return hit;
   // A later edit to a producer's arrays must not alter a cached earlier frame.
   A = structuredClone(A); B = structuredClone(B);
-  for (const o of A) shownFill(o);
-  for (const o of B) shownFill(o);
+  // Only where an image's objects take part or pairing by key is named (stage 2: the hand-offs that did not exist
+  // before). Every other hand-off flies exactly as it always has: an existing deck's flights do not change by a pixel.
+  if (opts.pair === "key" || A.some((o) => o.owner.key !== undefined) || B.some((o) => o.owner.key !== undefined)) {
+    for (const o of A) shownFill(o);
+    for (const o of B) shownFill(o);
+  }
   const as = mergeChains(A), bs = mergeChains(B);
   let policy = opts.pair && opts.pair !== "auto" ? opts.pair : choosePolicy(as, bs, opts.data);
   let pairs: CorrespondencePair[];

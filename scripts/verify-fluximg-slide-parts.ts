@@ -228,6 +228,20 @@ try {
       h.ok(!!f && near(ext(f.nodes), ext(src.nodes)) && f.closed, `flight ${key}: the first frame is the footprint's outline (closed, box ${ext(f?.nodes ?? []).map((v) => v.toFixed(1)).join(",")})`);
       h.ok(!!l && near(ext(l.nodes), ext(dst.nodes)), `flight ${key}: the last frame is its trace (box ${ext(l?.nodes ?? []).map((v) => v.toFixed(1)).join(",")})`);
     }
+    // The fill rule for open outlines (an SVG path without a fill attribute is black: merged or morphed it would
+    // paint area nothing ever showed) applies where an image's objects take part or the key policy is named, and
+    // NOWHERE ELSE: a hand-off an older deck holds flies exactly as it always has (the owner's rule for the engine).
+    {
+      const spine = (id: string, x0: number, y0: number, x1: number, y1: number): StageOutline => ({ nodes: [{ x: x0, y: y0, type: "corner" }, { x: x1, y: y1, type: "corner" }], closed: false, bbox: { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) }, owner: { elementId: "plot", partId: id }, paint: { fill: "#000000", stroke: "#100f0f", strokeWidth: 1 } });
+      const ring: StageOutline = { nodes: [{ x: 0, y: 0, type: "corner" }, { x: 50, y: 0, type: "corner" }, { x: 50, y: 50, type: "corner" }, { x: 0, y: 50, type: "corner" }], closed: true, bbox: { x: 0, y: 0, w: 50, h: 50 }, owner: { elementId: "shape" }, paint: { fill: "#da702c", stroke: "none", strokeWidth: 0 } };
+      const fillsOf = (plan: ReturnType<typeof planCorrespondence>, side: "a" | "b") => [...new Set(plan.pairs.map((q) => q[side]).filter((o) => !!o && o.owner.elementId === "plot").map((o) => o!.paint.fill))];
+      const old = planCorrespondence([spine("axis.x.spine", 400, 300, 600, 300)], [ring], {});
+      h.eq(fillsOf(old, "a"), ["#000000"], "no image and no key policy: an open outline keeps the fill it has always flown with (an older deck's flight is unchanged)");
+      const withObjects = planCorrespondence(objs, [spine("axis.x.spine", 400, 300, 600, 300)], {});
+      h.eq(fillsOf(withObjects, "b"), ["none"], "an image's objects on a side: the open outline flies unfilled");
+      const named = planCorrespondence([ring], [spine("axis.y.spine", 400, 100, 400, 300)], { pair: "key" });
+      h.eq(fillsOf(named, "b"), ["none"], "the key policy named: the open outline flies unfilled");
+    }
     const spatialPlan = planCorrespondence(objs, B, { pair: "spatial" });
     h.eq(spatialPlan.policy, "spatial", "an explicit policy still wins");
     const twoPlots = planCorrespondence([trace("a", 10), trace("b", 40)], [trace("b", 300), trace("a", 330)], {});
