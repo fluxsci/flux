@@ -6463,6 +6463,20 @@ index to 19,592 bytes with the shorter cut), so a new verb's first sentence shou
 be a few words ("Manuscript Check."), detail after it. The gate reads the BUNDLED server — run
 `npm run build:cli` before re-measuring, or it reports the previous build's size.
 
+**A slide effect and a content writer can own the same property of the same plot node, and the
+effect writes last** (2026-11-22). In a frame the transform controllers write first (the plot
+projection among them) and the look law (`player.ts` `writeLook`) then clears and rewrites every
+property its node's effects animate. An effect's opacity is factored over the node's own once, when
+the slide compiles; anything the content writes on that property per frame is lost for every later
+step. The axis view's edge fade was: tick labels that had faded in rode a zoom far outside their
+axis at full strength, while tick marks (drawn on, no opacity of the effect's) faded. So content
+that changes a node's `opacity` per frame (a) hides what must not be drawn with `display`, which
+no effect animates, and (b) publishes the factor for the look law to multiply
+(`projectDom.guideEdgeFade`, read in `writeLook`; a native effect is not used on such a node, it
+would paint over the factor). The same holds for `transform`: a CSS transform replaces an SVG
+node's `transform` attribute, which is why `effectNode` wraps a leaf that carries one. Gate:
+`verify-slide-guide-edge-fade.ts`.
+
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
 - **Release 2 follow-up F3 traps (2026-10-23).** (a) "**A transform is compiled against the element's BASE
@@ -6626,7 +6640,14 @@ be a few words ("Manuscript Check."), detail after it. The gate reads the BUNDLE
   Supported filled marks re-project vertex by vertex; images and rasterized layers remain
   unchanged. Static views re-tick supported numeric locators/formatters; unsupported formats
   and animated views retain the moving/fading ticks (see §4 F4 and `verify-plot-view-filled`).
-  Non-positive log data refuses that series with a compiler issue.
+  Non-positive log data refuses that series with a compiler issue. A tick, label or gridline
+  that has left its axis is not drawn, whatever slide effect owns its opacity (§9;
+  `verify-slide-guide-edge-fade.ts`). OPEN: the nice ticks a view RESTS on (`retick` clones) take
+  the label's opacity as it was before the view first moved. Labels whose effect changes it
+  later (they fade in during or after the view Change, or the view is the design state and the
+  labels enter at a step) are not followed: the view rests without tick labels. An ELASTIC plot
+  also still swaps its generated ticks for the nice ones on the landing frame (no hand-off in
+  flight; `transform.ts` `tickHandoff: !elastic`).
 - **Lazy-residency deferrals (2026-07-21):** slide-mode lazy asset loading (plan Phase 2 —
   `resolveDeckAssets` stays eager; the player/morph/thumbnail consumers have no mount-driven
   reload path, and scale-slide is green at 31 plot slides) and lazy `assetData` bytes (Phase 4
@@ -14096,3 +14117,11 @@ order; an image entry's fields have one order in the export payload; an image's 
 - **Take the source slides from the editor, the asset files from disk.** `copySlidesToDeck` reads `currentDeck()` (what deck.json would hold) and flushes autosave first so freshly imported assets have files. Reading the source deck back from disk instead would make a move delete edits that a failed save never wrote.
 - **`TimelineMenu` closes itself after an action.** A second menu opened from an item (here the deck list) is set in a microtask, after that close, and remounted with `{#key}`.
 **Gates:** `verify-slide-copy-between-decks.ts` (pure: the op and the native copier), `verify-slide-move-copy-gui.mjs` (ui: selection, menu, copy, move, undo, the picture's file).
+
+### 2026-11-22 — Tick labels leave an axis view with their ticks (Claude Fable 5.2, `main`)
+**Work:** The owner's demo slide: x tick labels fade in, the next step zooms the x axis, and the labels "0" and "5" rode the data out of the plot across its neighbours. The look law rewrote the `opacity` the projection's edge fade had just written. `writeGuide` now also sets `display: none` on a guide that is out and publishes its fade (`guideEdgeFade`); `writeLook` multiplies an effect's opacity by it. The deck was not changed.
+**Learnings:**
+- Promoted to §9 ("A slide effect and a content writer can own the same property") and §10 (plot views: what is fixed, and two things still open).
+- **Read the drawn result of both kinds of guide.** The tick MARKS were right the whole time (their effect has no opacity), which made the plot look half fixed. The gate compares each drawn label with the mark under it, in the exported player, for an elastic plot, a stretched one and labels still fading in (seeked and played live).
+- **A gate for the unfixed engine without touching the tree in use:** `git worktree add --detach <tmp> HEAD`, link `node_modules`, copy the new gate in. It failed 48 of 104 there; other agents were recording takes from this checkout at the time.
+**Gates:** `verify-slide-guide-edge-fade.ts` (pure tier, `slide-transforms`).

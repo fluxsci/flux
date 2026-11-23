@@ -19,6 +19,8 @@ interface Pristine {
   styles: Map<string, Field>;
   active: boolean;
   hadStyle: boolean;
+  /** This frame's edge fade of a guide (writeGuide), when below 1; cleared with the fields the projection wrote (restore). */
+  fade?: number;
 }
 const pristine = new WeakMap<Element, Pristine>();
 function recFor(node: Element): Pristine {
@@ -55,6 +57,7 @@ const DATA_GEOMETRY = new Set(['d', 'cx', 'cy']);
 function restore(node: Element, keepGeometry = false): void {
   const rec = pristine.get(node);
   if (!rec?.active) return;
+  rec.fade = undefined;
   let retained = false;
   for (const [name, field] of rec.attrs) if (field.written) {
     if (keepGeometry && DATA_GEOMETRY.has(name)) { retained = true; continue; }
@@ -111,7 +114,15 @@ export function writeGuide(node: Element, delta: { dx?: number; dy?: number }, e
   attr(node, "transform", `translate(${(delta.dx ?? 0).toFixed(6)} ${(delta.dy ?? 0).toFixed(6)})${original ? ` ${original}` : ""}`);
   const opacity = (node as SVGElement).style.getPropertyValue("opacity") || node.getAttribute("opacity");
   style(node, "opacity", String((opacity === null || opacity === "" ? 1 : Number(opacity)) * edgeFade));
+  // A guide that has left its axis is NOT DRAWN this frame, as the hand-off pool's is (writeFlight `put`): `opacity` alone is a property
+  // other writers own too (a slide effect on the same tick label writes its look after this, every frame), and a label left only
+  // transparent came back at full strength and rode the data far outside the plot.
+  if (!(edgeFade > 0.002)) style(node, "display", "none");
+  record(node).fade = edgeFade < 1 ? edgeFade : undefined;
 }
+/** The factor (0..1) the axis view gives this guide's opacity in the frame just projected: 1 inside its axis, falling to 0 over the soft
+ *  band beyond an edge. A later writer of the node's `opacity` in the same frame multiplies by it (the slide player's look law). */
+export function guideEdgeFade(node: Element): number { return pristine.get(node)?.fade ?? 1; }
 
 export interface PlotViewOptions {
   t?: number;

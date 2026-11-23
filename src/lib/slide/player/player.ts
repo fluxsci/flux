@@ -11,6 +11,7 @@ import { beatDelayMs, settleTime, resolveTextLook, firstTickOrigin, FIRST_TICK_M
 import { DUR } from "../../motion/tokens";
 import { animate, prefersReducedMotion } from "../../motion/motion";
 import { partDomId, restorePlotClip } from "../../plot/parse";
+import { guideEdgeFade } from "../../plot/projectDom";
 import type { FluxPlotManifest } from "../../plot/types";
 import { isHandoff, targetPartIds, hasPartBinding, trackKey, type ResolvedTarget } from "../targets";
 import { familyOf } from "../family";
@@ -980,6 +981,14 @@ function writeLook(target: TargetNode, keyframed: Spec[], properties: readonly s
     if (spec.origin) { if (p < 1) origin = spec.origin; else restOrigin = pivotOf(spec) ?? restOrigin; }
   }
   if (applied.length) applyAccumulated(target, applied);
+  // A plot guide the axis view is carrying out of its axis is faded by the projection, on its own `opacity`, in every frame of a view
+  // Change (projectDom.writeGuide; the content writes run before this law). When an effect owns that property too (a tick label that
+  // faded in at an earlier step), the lines above have just replaced the fade with the effect's opacity: an effect is a factor over
+  // the content's paint, so the fade is factored back in.
+  if (target.namespaceURI === SVG_NS) {
+    const fade = guideEdgeFade(target);
+    if (fade < 1 && properties.includes("opacity")) { const st = (target as SVGElement).style; st.opacity = String((st.opacity === "" ? 1 : Number(st.opacity)) * fade); }
+  }
   const pivot = origin ?? restOrigin;
   if (pivot) { // after the accumulated rest look; fill-box makes percentages refer to an SVG part's own box
     const style = (target as HTMLElement).style;
@@ -1087,7 +1096,8 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
     if (flight) { moving++; if (flight === "translate") pureMoves++; }
     // Use native effects for active frames when available. Their time is
     // explicitly controlled; no independent WAAPI clock can drift from data.
-    if (native && p > 0 && p < 1 && typeof node.animate === "function" && !spec.sample && !spec.keyframes.some((k) => "transform" in k) && !group.blockers.get(spec)?.some((later) => progressAt(later, beat, time) >= 0)) {
+    // (a guide the axis view is fading this frame keeps its look inline: a native effect would paint over the factor writeLook applies)
+    if (native && p > 0 && p < 1 && typeof node.animate === "function" && !spec.sample && !spec.keyframes.some((k) => "transform" in k) && !group.blockers.get(spec)?.some((later) => progressAt(later, beat, time) >= 0) && guideEdgeFade(node) >= 1) {
       let animation = plan.natives.get(spec);
       if (!animation) {
         animation = node.animate(spec.keyframes, { duration: spec.duration, easing: spec.ease.css, fill: "both" });
