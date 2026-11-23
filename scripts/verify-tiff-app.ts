@@ -136,7 +136,11 @@ try {
     h.eq({ left: leftovers(path.dirname(out)), out: existsSync(out) }, { left: [], out: false }, `…no staging folder, no bundle`);
     h.ok(alive(pid), "…and a polite cancel leaves the child running for the next request");
   }
-  {
+  // Staged by STOPPING the child, which only a POSIX host can do: Node has no SIGSTOP on Windows (the kill throws inside the
+  // progress callback, the cancel is never sent and the job simply succeeds: three red checks on test-windows, 2026-11-23).
+  // The grace timer and the kill are the converter's own platform-independent code, proven here on Linux and macOS.
+  if (process.platform === "win32") console.log("  (a stuck child is staged with SIGSTOP: POSIX hosts only)");
+  else {
     // A child that does not answer its cancel (stopped) is killed after the grace period; the caller cleans up.
     const quick = createTiffConverter({ workerFile, cwd: repo, graceMs: 300 });
     const out = path.join(scratch, "stuck", "s.fluximg");

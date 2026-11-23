@@ -40,7 +40,7 @@ async function hashTree(dir: string): Promise<string> {
 const same = (a: ArrayLike<number>, b: ArrayLike<number>): boolean => { if (a.length !== b.length) return false; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false; return true; };
 const files = async (dir: string): Promise<string[]> => {
   const out: string[] = [];
-  const walk = async (d: string): Promise<void> => { for (const e of await fsp.readdir(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) await walk(p); else out.push(path.relative(dir, p)); } };
+  const walk = async (d: string): Promise<void> => { for (const e of await fsp.readdir(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) await walk(p); else out.push(path.relative(dir, p).split(path.sep).join("/")); } };
   await walk(dir);
   return out.sort();
 };

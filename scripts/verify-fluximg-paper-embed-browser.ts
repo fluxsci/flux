@@ -28,7 +28,7 @@ await ensureColormapLuts();
 const deck = await standardDeck(P);
 const slide = deck.slides[0];
 const encoder = await imageClipEncoder();
-const liveCsp = (await import(path.resolve("electron/slideEmbedCsp.gen.cjs"))).default as string;
+const liveCsp = (await import(pathToFileURL(path.resolve("electron/slideEmbedCsp.gen.cjs")).href)).default as string;
 
 /** A Paper document around one inline slide, as renderManuscript composes it (body, the slide blocks, the tail). */
 async function paperDocument(portable: boolean) {

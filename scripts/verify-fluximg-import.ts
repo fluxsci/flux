@@ -21,7 +21,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { get } from "svelte/store";
 import { DOMParser } from "linkedom";
 import { harness } from "./lib/harness.mjs";
@@ -35,7 +35,7 @@ import type { FluximgManifest } from "../src/lib/fluximg/types";
 
 const h = harness("verify-fluximg-import");
 const require = createRequire(import.meta.url);
-const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "flux-fluximg-import-"));
 const fixDir = path.join(scratch, "fixtures");
 const enc = new TextEncoder();

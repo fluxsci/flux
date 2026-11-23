@@ -14,6 +14,7 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { harness } from "./lib/harness.mjs";
 import { fixtures, writeFixture } from "./lib/fluximgFixtures";
 import type { FluximgManifest, FluximgTable } from "../src/lib/fluximg/types";
@@ -439,7 +440,7 @@ try {
     const { build } = await import("esbuild");
     const { createServer } = await import("node:http");
     const { launch } = await import("./lib/driver.mjs");
-    const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+    const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
     await build({
       absWorkingDir: root, bundle: true, format: "iife", globalName: "FX", platform: "browser", target: "es2022", outfile: path.join(scratch, "fx.js"), logLevel: "silent",
       stdin: { resolveDir: root, loader: "ts", sourcefile: "w8-entry.ts", contents: [

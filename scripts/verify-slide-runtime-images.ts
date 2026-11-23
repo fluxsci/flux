@@ -13,7 +13,7 @@ import "./lib/cssStub.mjs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { harness } from "./lib/harness.mjs";
 import { computeExportAssets, exportDeckHtml } from "../src/lib/slide/export/exportDeck";
 import { finishSlideDocument, slideDocumentBundle } from "../src/lib/slide/embedDocument";
@@ -79,7 +79,7 @@ h.section("C. documents carry the image runtime only when they hold an image, an
   h.eq(count(await doc({ a: { deck } as ExportPayload })), 0, "a Paper document without images: no image runtime");
   h.eq(count(await doc({ a: { deck } as ExportPayload, b: withImage, c: withImage })), 1, "a Paper document with two image slides: the image runtime once");
   const image = JSON.parse(await readFile(path.join(root, ".generated/slide-embed-image-assets.json"), "utf8")).runtime as string;
-  const csp = (await import(path.join(root, "electron/slideEmbedCsp.gen.cjs"))).default as string;
+  const csp = (await import(pathToFileURL(path.join(root, "electron/slideEmbedCsp.gen.cjs")).href)).default as string;
   h.ok(csp.includes(`'sha256-${createHash("sha256").update(image).digest("base64")}'`), "the Paper live preview's CSP admits the image runtime it inlines");
 }
 
