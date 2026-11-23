@@ -96,7 +96,14 @@ async function openBoard(id) {
   await waitFor(page, () => !!document.querySelector("[data-fxb-console]") && !!document.querySelector("[data-fluximg-live]"), null, { label: "the board open on the slide", timeout: 10000 });
   await waitFor(page, () => !!document.querySelector("[data-fxb-step]"), null, { label: "the step card", timeout: 5000 });
 }
-const atRest = async () => { await sleep(450); return F(() => document.getAnimations().filter((a) => a.playState !== "finished").map((a) => `${a.animationName ?? a.constructor.name}@${a.effect?.target?.className ?? ""}`)); };
+// "At rest" is reached, not assumed after a fixed sleep: the deck's saved mark fades for 150 ms whenever an autosave lands
+// (SlideMode's `.dirty`), and on a slow host one landed inside the 450 ms (ui-gate, 2026-11-23: "CSSTransition@dirty").
+// Something that keeps animating never lets the wait end, and is then reported by name as before.
+const atRest = async () => {
+  await sleep(450);
+  await waitFor(page, () => document.getAnimations().every((a) => a.playState === "finished"), null, { label: "the page comes to rest" }).catch(() => {});
+  return F(() => document.getAnimations().filter((a) => a.playState !== "finished").map((a) => `${a.animationName ?? a.constructor.name}@${a.effect?.target?.className ?? ""}`));
+};
 
 try {
   await gotoApp(page, { url: `${APP_URL}?fixture=demo`, settle: 2500 });

@@ -7,6 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { harness } from './lib/harness.mjs';
+import { perfScale } from './lib/perfBudget.mjs';
 import type { Figure, Asset } from '../src/lib/types';
 const h = harness('verify-figure-raster-worker'), require = createRequire(import.meta.url);
 const repo = path.resolve(import.meta.dirname, '..');
@@ -43,7 +44,12 @@ try {
   const figure: Figure = saved.figures.find((f: Figure) => f.id === 'native-5');
   const dense: Figure = saved.figures.find((f: Figure) => f.id === 'native-dense');
   const req = (rid: string, fig = figure, extras = {}) => ({ rid, root, figure: structuredClone(fig), assets, scale: 1, width: 320, height: 240, ...extras });
-  function service(workers = 1, timeoutMs = 15000, projectRoot = root, idleMs = 60000, launch?: (index: number) => string[] | null) {
+  // The services' DEFAULT deadline is a host-speed bound ("no request hangs for ever"), not the timeout law: that is exercised
+  // below with an explicit 1000 ms and fault children, which never scale. The 250k-node refusal alone reads 4.4 s on the
+  // reference desk (the figure is composed before its nodes are counted) and was over 15 s on the hosted runner in two main
+  // runs (2026-11-10, 11-19: "Figure raster worker timed out"), so the default scales with the host like wait.mjs's.
+  const DEFAULT_TIMEOUT_MS = 15000 * perfScale();
+  function service(workers = 1, timeoutMs = DEFAULT_TIMEOUT_MS, projectRoot = root, idleMs = 60000, launch?: (index: number) => string[] | null) {
     const handlers = new Map(); const processes: any[] = [];
     const rendering = new Set<string>(), rendered = new EventEmitter(); let live = 0, peak = 0, generation = 1;
     const sender = Object.assign(new EventEmitter(), { id: families.length + 1, isDestroyed: () => false });
@@ -140,7 +146,7 @@ try {
   h.eq(c.processes.length, 2, 'running cancellation really replaces the child');
   h.eq(c.peak(), 1, 'respawn waits for the killed process to exit');
   c.family.shutdown();
-  const idle = service(1, 15000, root, 150);
+  const idle = service(1, undefined, root, 150);
   h.ok(!!(await idle.raster(req('idle-first'))).png, 'idle reaping: the first job renders');
   const reaped = await Promise.race([idle.processes[0].closed.then(() => true), new Promise<boolean>(resolve => setTimeout(() => resolve(false), 5000))]);
   h.ok(reaped === true, 'an idle worker is reaped after idleMs with nothing queued');
@@ -300,7 +306,7 @@ try {
   for (let i = 0; i < 3; i++) h.ok(!!(await isolated.raster(detailReq(`detail-fault-${i}`))).error, `forced detail ${['overflow','timeout','crash'][i]} settles error`);
   h.ok(!!(await isolated.raster(req('base-after-detail-deaths'))).png, 'three detail failures do not disable owner: base PNG still renders');
   isolated.family.shutdown();
-  const largeReply = service(1, 15000, root, 60000, () => [faultChild, 'large']);
+  const largeReply = service(1, undefined, root, 60000, () => [faultChild, 'large']);
   const large = await largeReply.raster(detailReq('detail-40MiB', figure, { width: 320, height: 240 }));
   h.eq(large.png?.length, 40 * 1024 * 1024, 'reply reader accepts a real 40 MiB protocol frame');
   largeReply.family.shutdown();
@@ -317,7 +323,7 @@ try {
     const perfRoot = path.join(scratch, 'SynapticSleep');
     await fs.cp('/home/driessen2/flux-perf/fixture/SynapticSleep', perfRoot, { recursive: true });
     const perfIndex = JSON.parse(await fs.readFile(path.join(perfRoot, 'fig/index.json'), 'utf8'));
-    const perf = service(1, 15000, perfRoot), metrics = [];
+    const perf = service(1, undefined, perfRoot), metrics = [];
     for (const id of ['fig_mvkfjtnbdr68_27', 'fig-1', 'fig_mvoe4440tf97_51', 'fig_mvtu07orsbg8_12']) {
       const entry = perfIndex.figures.find((f: any) => f.id === id);
       const canvas = JSON.parse(await fs.readFile(path.join(perfRoot, `fig/canvases/${entry.canvas}.json`), 'utf8'));

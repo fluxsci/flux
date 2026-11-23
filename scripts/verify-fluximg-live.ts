@@ -7,6 +7,7 @@
 // inputs as well as at the edges, so a regression shows as a counter-example with its numbers.
 // Run: node --import tsx scripts/verify-fluximg-live.ts
 import { harness } from "./lib/harness.mjs";
+import { perfBudget } from "./lib/perfBudget.mjs";
 import {
   axisValue, framePeriod, niceStep, niceStride, playStep, profileLevel, profileShape, railIndex, railPos, railSpan, railTicks, resizeRun, slideRun, stepIndex,
   type PlayMode, type PlayState,
@@ -684,11 +685,14 @@ h.section("the board: the view makes room (boardFit)");
   const N = 2000;
   for (let i = 0; i < N; i++) boardLayout(big);
   const per = (performance.now() - t0) / N;
-  h.ok(per < 0.1, `one layout of the largest case (two rails, depth, layers, step card, four kept panels: ${boardOptions(big).length} arrangements stood) takes ${(per * 1000).toFixed(1)} µs (< 100 µs)`);
+  // Host-scaled wall-clock pins (guide §7): 57 µs and 0.17 ms on the reference desk; the hosted runner read the layout at 155.2 µs
+  // against the unscaled 100 (main, 2026-11-23). The layout pin is in µs, the fit pin in ms.
+  const layoutPin = perfBudget(100), fitPin = perfBudget(8);
+  h.ok(per * 1000 < layoutPin.ms, `one layout of the largest case (two rails, depth, layers, step card, four kept panels: ${boardOptions(big).length} arrangements stood) takes ${(per * 1000).toFixed(1)} µs (< ${layoutPin.text} µs)`);
   t0 = performance.now();
   for (let i = 0; i < 20; i++) boardFit(many);
   const fitMs = (performance.now() - t0) / 20;
-  h.ok(fitMs < 8, `one fit (four panels, a zoom out) takes ${fitMs.toFixed(2)} ms (runs once when the board opens and once after a split or an inset)`);
+  h.ok(fitMs < fitPin.ms, `one fit (four panels, a zoom out) takes ${fitMs.toFixed(2)} ms (< ${fitPin.text}; runs once when the board opens and once after a split or an inset)`);
 }
 
 h.section("panels: a new panel never lands on the image's other panels (review NEW-B5)");

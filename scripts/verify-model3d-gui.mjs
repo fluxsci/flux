@@ -65,7 +65,9 @@ try {
   await waitFor(page, before => window.__flux.figures().flatMap(f => f.elements).find(e => e.id === before.id).width > before.width, beforeResize, { label: 'resize commit' }); await settled();
   const resized = await elementState(setup.id), labels = await page.$$eval(`[data-editor-element-id="${setup.id}"] text`, nodes => nodes.map(n => n.getAttribute('font-size')));
   h.ok(resized.width > beforeResize.width && resized.height > beforeResize.height, 'real resize changes placement geometry'); h.eq(labels, pixels.labels, 'resize keeps furniture type at its authored point size');
-  h.ok(await page.$eval(`[data-editor-element-id="${setup.id}"] image[data-model3d-poster]`, (n, key) => n.getAttribute('data-model3d-key') !== key, oldKey), 'resize requests a reframed poster');
+  // The reframed poster is asked for after the resize commits; `settled()` can return before that request is even queued
+  // (ui-gate, 2026-11-23). Wait for the key the check is about; a resize that never asks still fails.
+  h.ok(await waitFor(page, a => document.querySelector(`[data-editor-element-id="${a.id}"] image[data-model3d-poster]`)?.getAttribute('data-model3d-key') !== a.key, { id: setup.id, key: oldKey }, { label: 'reframed poster key' }).then(() => true, () => false), 'resize requests a reframed poster');
   const rotation = await center('.rot-handle'); point = await center(selector);
   await page.mouse.move(rotation.x, rotation.y); await page.mouse.down(); await page.mouse.move(point.x + 110, point.y - 110, { steps: 7 }); await page.mouse.up();
   await waitFor(page, id => Math.abs(window.__flux.figures().flatMap(f => f.elements).find(e => e.id === id).rotation) > 1, setup.id, { label: 'pointer rotation' }); h.ok(true, 'real rotation changes placement transform');

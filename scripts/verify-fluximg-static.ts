@@ -9,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { Resvg } from "@resvg/resvg-js";
 import { harness } from "./lib/harness.mjs";
+import { perfBudget } from "./lib/perfBudget.mjs";
 import { fixtures, writeFixture } from "./lib/fluximgFixtures";
 import { cropTransform, imageStrokeWidth, layerMarkup, namesMarkup, objectIndex, sanitizeLayerSvg, MAX_NAMES } from "../src/lib/fluximg/layers";
 import { furnitureInset, furnitureSvg, niceLength, positionText, scalebarGeometry, stampLines } from "../src/lib/fluximg/furniture";
@@ -291,7 +292,9 @@ h.section("H2. edge cases and cost");
   t0 = performance.now();
   const zoomed = layerMarkup(bl, bigSvg, blv, { x: 100, y: 100, width: 50, height: 25 }, { width: 1000, height: 500 }, "");
   const warm = performance.now() - t0;
-  h.ok(cold < 1500 && warm < 100, `20 000 outlines: first placement ${cold.toFixed(0)} ms (parse + build), a re-crop ${warm.toFixed(1)} ms (cached parse, culled to ${(zoomed.match(/<path /g) ?? []).length} shapes)`);
+  // Host-scaled wall-clock pins (guide §7): 165 ms and 0.3 ms on the reference desk, where the hosted runner reads 4 to 11 times slower.
+  const coldPin = perfBudget(1500), warmPin = perfBudget(100);
+  h.ok(cold < coldPin.ms && warm < warmPin.ms, `20 000 outlines: first placement ${cold.toFixed(0)} ms (< ${coldPin.text}; parse + build), a re-crop ${warm.toFixed(1)} ms (< ${warmPin.text}; cached parse, culled to ${(zoomed.match(/<path /g) ?? []).length} shapes)`);
 }
 
 h.section("H2. objects styled by a column: the static composition");

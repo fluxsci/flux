@@ -18,10 +18,15 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { launch, gotoApp, clickMode, sleep, realErrors, waitFor, APP_URL } from "./lib/driver.mjs";
 import { harness } from "./lib/harness.mjs";
+import { perfScale } from "./lib/perfBudget.mjs";
 import { writeFluximg } from "../src/lib/fluximg/writer.ts";
 import { nodeBundleWriter, nodeZstd } from "../flux-core/fluximgIo.ts";
 
 const h = harness("verify-fluximg-slide-player-gui");
+// "The walk plays" is counted in frames over a fixed wall-clock window, so the count is the host's frame rate: 163 in the
+// preview and 75 in Present on the hosted runner's software GL (ui-gate, 2026-11-23), against ~240 on the reference desk.
+// The floor is host-scaled like every absolute wall-clock pin (guide §7): 100 here, 100 ÷ FLUX_PERF_SCALE where it is set.
+const played = { min: 100 / perfScale(), text: perfScale() === 1 ? "100" : `100 ÷ ${perfScale()} = ${100 / perfScale()}, FLUX_PERF_SCALE=${perfScale()}` };
 const scratch = mkdtempSync(path.join(tmpdir(), "fx-slidegui-"));
 const T = 240, C = 2, N = 512;
 const t0 = Date.now();
@@ -153,7 +158,7 @@ try {
     console.log(`  MEASURED contexts: ${hs.contexts} alive (${hs.direct} on their own surface); made in ${hs.contextMs.map((c) => `${c.ms.toFixed(1)} ms (${c.where})`).join(", ") || "none"}`);
     h.ok(hs.direct >= 1 && hs.contextMs.every((c) => c.where === "idle"), "the image draws on its own WebGL context, made in idle time (never in a frame)");
   }
-  h.ok(frames > 100 && asked > 100, `the step played ${frames} frames, ${asked} of them asked the image for a frame`);
+  h.ok(frames > played.min && asked > played.min, `the step played ${frames} frames, ${asked} of them asked the image for a frame (> ${played.text})`);
   h.ok(script + layout + style < 16, `main-thread work per frame stays far inside a 60 Hz frame (${(script + layout + style).toFixed(2)} ms; generous ceiling 16)`);
 
   // ---- it ends on the still: the last frame is the reference renderer's picture of the end state ---------------------------
@@ -218,7 +223,7 @@ try {
   await page.keyboard.press("ArrowRight");
   await sleep(4600);
   const p1 = await stats();
-  h.ok(p1.asked - p0.asked > 100, `Present plays the walk (${p1.asked - p0.asked} image frames)`);
+  h.ok(p1.asked - p0.asked > played.min, `Present plays the walk (${p1.asked - p0.asked} image frames, > ${played.text})`);
   const gpuOn = p1.hosts;
   console.log(`  MEASURED contexts in Present: ${gpuOn.contexts} alive; made in ${gpuOn.contextMs.map((c) => `${c.ms.toFixed(1)} ms (${c.where})`).join(", ")}`);
   await page.keyboard.press("ArrowRight");   // the next slide (no image)
