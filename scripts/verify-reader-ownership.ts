@@ -4,6 +4,7 @@ import { flushAll, anyDirty } from "../src/shell/lifecycle";
 import { createFindMatchCollector } from "../src/lib/pdf/findMatches";
 import { foldForMatch, originalOffset } from "../src/lib/references/textFold";
 import { harness } from "./lib/harness.mjs";
+import { perfBudget } from "./lib/perfBudget.mjs";
 const h = harness("verify-reader-ownership");
 let reject = true, saved = "", calls = 0;
 const draft = annotationDraft("fixture:paper:annotation","pane-test","old", async text => { calls++; if(reject) throw new Error("EACCES"); saved=text; });
@@ -34,6 +35,8 @@ const rows=collect(snapshot,"a");
 h.eq(rows.length,91500,"incremental 300-page search retains every result and exact total");
 h.ok(rows[91499].index===91499 && rows[91499].page===300 && rows[91499].hit==="a","last result retains correct navigation and snippet");
 const rebuildMs=performance.now()-start;
-h.ok(rebuildMs<2000,`300-page progress rebuilds stay below2s component budget (${rebuildMs.toFixed(0)}ms; baseline15.7s)`);
+// A host-scaled wall-clock pin (guide §7): 977 ms on the hosted runner against the unscaled 2,000.
+const rebuildPin=perfBudget(2000);
+h.ok(rebuildMs<rebuildPin.ms,`300-page progress rebuilds stay below2s component budget (${rebuildMs.toFixed(0)}ms < ${rebuildPin.text}; baseline15.7s)`);
 h.eq(collect(snapshot,"a"),rows,"unchanged match notifications return the existing result list");
 h.done();

@@ -7,6 +7,7 @@
 // nested, collapsed, hidden, dangling-groupId, and straggler shapes.
 //   npx tsx scripts/verify-layer-rows.ts
 
+import { perfBudget } from "./lib/perfBudget.mjs";
 import type { Element, Figure, GroupDef } from "../src/lib/types";
 import { membersDeep, buildRenderTree, type RenderNode } from "../src/lib/groups";
 import { deriveLayerRows, type LayerRow } from "../src/lib/figure/derived/layerRows";
@@ -178,7 +179,9 @@ console.log("— semantics —");
   const rows = deriveLayerRows(big, {});
   const ms = performance.now() - t0;
   assert(rows.length === 5050, `5k elements + 50 groups → 5050 rows`);
-  assert(ms < 100, `derive at 5k elements in ${ms.toFixed(1)}ms (<100ms)`);
+  // A host-scaled wall-clock pin (guide §7): 36.6 ms on the hosted runner against the unscaled 100.
+  const pin = perfBudget(100);
+  assert(ms < pin.ms, `derive at 5k elements in ${ms.toFixed(1)}ms (<${pin.text}ms)`);
 }
 
 console.log(failures ? `\nLAYER ROWS: FAIL (${failures})` : "\nLAYER ROWS: PASS");

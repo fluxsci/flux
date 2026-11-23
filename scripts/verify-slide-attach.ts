@@ -5,6 +5,7 @@
 // rule (a dependent moved by hand frees itself), the write points (stored == solved on disk) and the content-derived schema stamps
 // (deck 0.7.0 / canvas 0.3.0 while anything is attached), and the headless verbs. No DOM.
 import { harness } from "./lib/harness.mjs";
+import { perfBudget } from "./lib/perfBudget.mjs";
 import { get } from "svelte/store";
 import * as att from "../src/lib/slide/attach";
 import { compileSlide } from "../src/lib/slide/compile";
@@ -208,7 +209,9 @@ h.section("the editor hook (store.applyEditorMutation → settleAttachments)");
   }
   h.eq(worst, 0, "100 drag steps through mutateFigure: dependents equal resolveAttachments after EVERY step");
   const lone = Array.from({ length: 5000 }, (_, i) => R("r" + i, i, 0)); const t0 = performance.now(); for (let i = 0; i < 2000; i++) att.settleAttachments(lone as any);
-  const per = (performance.now() - t0) / 2000; h.ok(per < 0.2, `settleAttachments over 5000 unattached elements: ${(per * 1000).toFixed(0)} us/call (< 200 us)`);
+  // A host-scaled wall-clock pin (guide §7), in µs: the hosted runner read 212 against the unscaled 200 (main, 2026-11-23).
+  const pin = perfBudget(200);
+  const per = (performance.now() - t0) / 2000; h.ok(per * 1000 < pin.ms, `settleAttachments over 5000 unattached elements: ${(per * 1000).toFixed(0)} us/call (< ${pin.text} us)`);
 }
 
 h.section("slide editor flow (capture adapter never records a dependent's solved geometry)");

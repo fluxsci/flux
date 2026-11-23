@@ -389,9 +389,12 @@ try {
 
   h.section("resolve, reopen, delete");
   // Resolve from the card: the card and the highlight go, the pane keeps the thread.
-  p = await markPoint(second);
+  // The text was re-decorated a moment ago (its tag was removed), so it is clicked once it is what lies under the point; this
+  // click opened no card on the hosted ui-gate (2026-11-19) and in the local pool (11-23), and the timeout did not say what
+  // took it. A card that still does not open now names what was under the pointer.
+  p = await waitFor(page, (id) => { const el = document.querySelector(`.cm-comment-hl[data-cid="${id}"]`); if (!el) return null; const r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2; return document.elementFromPoint(x, y)?.closest(`.cm-comment-hl[data-cid="${id}"]`) ? { x, y } : null; }, second, { label: "the commented text is under the pointer" });
   await page.mouse.click(p.x, p.y);
-  await cardOpen(second);
+  await cardOpen(second).catch(async (e) => { throw new Error(`${e.message}; under the point: ${await page.evaluate(({ x, y }) => { const n = document.elementFromPoint(x, y); return n ? `<${n.tagName.toLowerCase()} class="${n.className}">` : "nothing"; }, p)}; cards: ${await page.evaluate(() => [...document.querySelectorAll("[data-comment-card]")].map((c) => `${c.dataset.commentCard}${c.classList.contains("ready") ? " ready" : ""}`).join(", ") || "none")}`); });
   await clickAct("[data-comment-card]", "Resolve");
   await cardGone();
   await saved((threads) => threads[1].resolved === true, "resolved");

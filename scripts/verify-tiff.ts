@@ -34,6 +34,7 @@ import path from "node:path";
 import zlib from "node:zlib";
 import { spawn } from "node:child_process";
 import { harness } from "./lib/harness.mjs";
+import { perfBudget } from "./lib/perfBudget.mjs";
 import { isolatedEnv } from "./lib/verifyRuntime.mjs";
 import { writeTiff, writeStackFile, lzwEncode, rng, type TiffPageSpec, type TiffSpec } from "./lib/tiffFixtures";
 
@@ -347,7 +348,9 @@ try {
     const heap0 = process.memoryUsage().heapUsed, t0 = Date.now();
     await openTiff(memorySource(buf)).then(() => h.fail("a million IFDs: accepted"), (e) => {
       const ms = Date.now() - t0, mb = (process.memoryUsage().heapUsed - heap0) / 2 ** 20;
-      h.ok((e as InstanceType<typeof TiffError>).code === "too-many-pages" && ms < 5000 && mb < 400, `a million IFDs are refused at the cap in ${ms} ms, heap +${mb.toFixed(0)} MB: "${(e as Error).message}"`);
+      // The time is a host-scaled wall-clock pin (guide §7; 3,335 ms on the hosted runner against the unscaled 5,000); the heap is not.
+      const pin = perfBudget(5000);
+      h.ok((e as InstanceType<typeof TiffError>).code === "too-many-pages" && ms < pin.ms && mb < 400, `a million IFDs are refused at the cap in ${ms} ms (< ${pin.text}), heap +${mb.toFixed(0)} MB: "${(e as Error).message}"`);
     });
   }
 

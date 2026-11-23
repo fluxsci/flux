@@ -16,6 +16,7 @@ import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseHTML } from 'linkedom';
 import { harness } from './lib/harness.mjs';
+import { perfBudget } from './lib/perfBudget.mjs';
 import { applyPlotColorScale, restoreColorScales, plotColorScaleIssues } from '../src/lib/plot/colorScaleDom';
 import { colorScalePatch } from '../src/lib/plot/colorScaleControls';
 import { effectiveScale, colorFor, alphaFor, shortFloat } from '../src/lib/plot/colorscale';
@@ -157,7 +158,9 @@ try {
   for (let k = 1; k <= FRAMES; k++) applyPlotColorScale(big, base.manifest, { rates: { norm: { vmax: 20 + k * 3 } } }, 'plot');
   const perFrame = (performance.now() - t0) / FRAMES;
   console.log(`   ${EXTRA + 33} data-value elements: ${perFrame.toFixed(1)} ms per limit change (linkedom)`);
-  h.ok(perFrame < 100, `a limit scrub over ${EXTRA + 33} elements stays inside the 100 ms budget (${perFrame.toFixed(1)} ms in linkedom)`);
+  // A host-scaled wall-clock pin (guide §7): 51.5 ms on the hosted runner against the unscaled 100.
+  const pin = perfBudget(100);
+  h.ok(perFrame < pin.ms, `a limit scrub over ${EXTRA + 33} elements stays inside the 100 ms budget (${perFrame.toFixed(1)} ms in linkedom, < ${pin.text})`);
   const t1 = performance.now();
   applyPlotColorScale(big, base.manifest, { rates: { norm: { vmax: 20 + FRAMES * 3 } } }, 'plot');
   h.ok(performance.now() - t1 < perFrame, 'an unchanged view costs less than a changed one (slots are cached)');

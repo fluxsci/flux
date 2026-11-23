@@ -4614,9 +4614,15 @@ bounded to [1, 8]. The opted-in pins are those of `verify-xray-context`, `verify
 `verify-relayout-perf`, `verify-relayout-spike` and `verify-text-lanes` (`grep perfBudget scripts`); those six gates are
 also `exclusive`, so their microbenchmarks no longer share the CPUs with three Chrome-driving neighbours. Since
 2026-11-23 also the image board's layout and fit pins (`verify-fluximg-live`: 57 µs here, 155 µs on the runner against an
-unscaled 100) and the 20,000-outline placement of `verify-fluximg-static`. **A new gate with a millisecond or microsecond
-pin opts in when it is written**: an unscaled pin authored on this desk is a red on the hosted runner waiting for a busy
-minute. The same holds for a gate's own DEFAULT deadline, which is a host-speed bound and not a contract:
+unscaled 100) and the 20,000-outline placement of `verify-fluximg-static`, and every other unscaled pin of the pure tier
+that read above a third of its limit on the runner: `verify-slide-attach` (212 µs against 200: the next red, one push
+later), `verify-tiff`'s million-IFD refusal (3,335 ms of 5,000), `verify-colorscale-dom` (51.5 of 100),
+`verify-reader-ownership` (977 of 2,000) and `verify-layer-rows` (36.6 of 100); this desk reads them 4 to 9 times
+faster. **A new gate with a millisecond or microsecond pin opts in when it is written**: an unscaled pin authored on this
+desk is a red on the hosted runner waiting for a busy minute. **Find them all at once, not one push at a time:** a
+passing gate's readings are not in the job log but they are in the run's `pure-verify-summary` artifact
+(`gh run download <run> -n pure-verify-summary`, one `stdout.log` per attempt); list the assertions that compare a
+`performance.now()` difference with a literal and read each one's ratio there. The same holds for a gate's own DEFAULT deadline, which is a host-speed bound and not a contract:
 `verify-figure-raster-worker` gives its services `15000 × perfScale()` (the 250k-node refusal alone is 4.4 s here, and it
 timed out on the runner in two main runs); an explicit deadline that IS the law under test (its 1000 ms fault children)
 never scales. A COUNT over a fixed wall-clock window is the same kind of pin, divided: `verify-fluximg-slide-player-gui`
@@ -14165,7 +14171,7 @@ order; an image entry's fields have one order in the export payload; an image's 
 **Gates:** `verify-slide-guide-edge-fade.ts` (pure tier, `slide-transforms`).
 
 ### 2026-11-23 — v0.4.0 release preparation: main's CI had been red for four runs (Claude Fable 5.2, `release/0.4.0`)
-**Work:** Version 0.4.0 (package, lock, README, install page, changelog). Before a tag could be cut, the blocking `test` job had failed on four different gates in five runs and `test-windows` on six gates at once; none was a product defect. All were fixed as measurements: the seek sweep's run (§9), three unscaled wall-clock pins and one unscaled default deadline (§7), five Windows path and signal assumptions in the image gates (§9). One camera reading of the sweep did not reproduce and stays open (§9). The observing `ui-gate` had four reds of its own on the same commit, fixed the same way (§7). The changelog's 0.4.0 section was checked against all 338 commits since v0.3.0 by a second agent: 22 bullets written on 2026-11-18 had been filed under the 0.3.0 heading, three statements had been overtaken by later commits, and the in-app keyboard reference still said PageUp / PageDown need an empty selection.
+**Work:** Version 0.4.0 (package, lock, README, install page, changelog). Before a tag could be cut, the blocking `test` job had failed on four different gates in five runs and `test-windows` on six gates at once; none was a product defect. All were fixed as measurements: the seek sweep's run (§9), three unscaled wall-clock pins and one unscaled default deadline (§7), five Windows path and signal assumptions in the image gates (§9). One camera reading of the sweep did not reproduce and stays open (§9). The observing `ui-gate` had four reds of its own on the same commit, fixed the same way (§7). Its fifth, `verify-paper-comments-gui` (the card does not open on the click that follows a tag removal), fails in the pool here and on the runner and passes alone, also under CPU starvation: OPEN; the step now waits for the text to be under the pointer and names what was there if the card still stays shut. The changelog's 0.4.0 section was checked against all 338 commits since v0.3.0 by a second agent: 22 bullets written on 2026-11-18 had been filed under the 0.3.0 heading, three statements had been overtaken by later commits, and the in-app keyboard reference still said PageUp / PageDown need an empty selection.
 **Learnings:**
 - Promoted to §7 (new timing pins opt in to `perfBudget` when written; a gate's default deadline scales, a deadline under test does not) and §9 (the seek sweep's run is one task, and the Chrome switch that must not be used; dynamic `import()` of an absolute path; no `SIGSTOP` on Windows).
 - **A fix to a measurement gets its own repeat count before it is believed.** The Chrome switch passed a full 217-cue sweep and twelve starved runs, then hung a control probe: twenty fresh starts showed nine deadlocks. One long green run says nothing about a start-up race.
