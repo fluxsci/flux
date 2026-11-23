@@ -7,7 +7,7 @@ Release that the one supported installer picks up:
 curl -fsSL https://fluxsci.github.io/install.sh | bash
 ```
 
-## Unreleased
+## 0.4.0 — 2026-11-23
 
 ### Security
 
@@ -36,6 +36,8 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   pixel size, channel names and colours, and layers on the same pixel grid (another image,
   segmented objects with their table, lines and circles). Flux keeps the pixels exactly as
   saved and never changes them; everything you adjust is a view stored on the placed image.
+  Writing images needs fluxplot 0.5.0 or later with its `images` extra
+  (`pip install "fluxplot[images]"`, or `uv add "fluxplot[images]"`).
 - **Place one like a plot**: from the Plots rail or the Plot gallery (tiles marked ▦), with
   Import (choose the `fluximg.json` inside the folder), or by dragging the `.fluximg` folder in.
   The project keeps one copy however many times you place it, made in a fraction of a second
@@ -82,7 +84,8 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   pace, Blend planes, and Start, Pause and Stop movie (loop, bounce or once), which run the image
   as a clip runs. Space previews without writing anything. The Animate panel and the Animation
   properties have the same controls; agents use `set-image-view --beat --speed --blend`,
-  `--playback`, and `set-video-track` on an image.
+  `--playback`, and `set-video-track` on an image. The exported HTML deck and a slide shown in
+  Paper play the same steps and movies.
 - **A Design edit of an image now carries through the steps.** A step keeps only what it changes
   about the image (a later plane, a window), so a colour or contrast you set in Design afterwards
   shows at every step that does not change that same setting, as it does for every other kind of
@@ -107,7 +110,9 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 - **The board and Slide mode no longer take each other's keys.** With an image's board open,
   F5, PageUp / PageDown, F2 and every Ctrl chord go to Slide mode; opening Present closes the
   board; Space belongs to a playing slide preview. At a step, the board draws the image's
-  objects as the slide shows them there (those that have not appeared yet are hidden).
+  objects as the slide shows them there (those that have not appeared yet are hidden). While the
+  board is open, **Shift+R** and **Shift+G** are the board's (the movie, and the calibration
+  bar's corner); they toggle the rulers and the grid again once it is closed.
 - **TIFF files come in directly.** Drop a `.tif` on a figure or a slide, paste it, import it,
   or place it from the Plots rail; Flux converts it into an image bundle and places it. ImageJ,
   OME, tifffile and per-page metadata are read on their own, and such a file converts at once,
@@ -117,6 +122,10 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   size, rate and z step typed in place. Several files of one kind are asked about once, and an
   answer can be remembered for the project or for every project. Large files show their
   progress and can be cancelled; nothing is left behind. The TIFF itself is never changed.
+  Agents: `place-image <target> file.tif` converts and places a TIFF, and refuses with ranked
+  proposals when the file does not say how its pages are ordered (`--dims t,c=2`,
+  `--transpose`, `--pixel-size`, `--rate`); `image-info file.tif` reports how a file would be
+  read without converting it.
 - **An image's objects animate on slides, and Become the series that share their key.** The
   objects of a label or vector layer are parts of the slide: the image's X-ray lists its layers
   and objects (each object's value beside it when the layer is coloured by a column), and they
@@ -128,6 +137,8 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   Animation properties show how many paired. Agents: `become --pair key`, and `--part
   layer:<layer>` or `<layer>/<name>` on any effect.
 - A styled layer on a slide is no longer drawn uncoloured for a moment while its table loads.
+- A figure or a deck that holds an image opens only in Flux 0.4.0 or later; an older Flux refuses
+  it and says it was written by a newer one. Files without an image are written as before.
 - Not yet: 3-D rendering of volumes.
 
 ### Flux AI
@@ -172,8 +183,13 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   in Claude Code's auto mode, like a terminal session set to auto: it works in the project
   without dialogs, and anything auto mode judges unsafe is refused instead of asked about. It
   never bypasses permissions. Where auto mode is not available (an account, organisation or
-  model without it, or an older Claude Code), Flux says so and falls back to asking first, as
-  before. Codex already ran without prompts and is unchanged.
+  model without it, or an older Claude Code), the agent still runs without dialogs: an action
+  that would need your confirmation is declined, and the agent tries another way. To review
+  requests yourself, switch on **Ask for tool permissions in new Claude background sessions**
+  (Settings, under **Agents**); new Claude sessions then show the exact command or tool input
+  with **Allow once** and **Deny**. Codex already ran without prompts and is unchanged.
+- **Fixed: the tool configuration Flux handed a Codex agent was malformed** (an unclosed
+  bracket), so a Codex agent started by Flux could fail to reach the project's tools.
 - **The Inbox reads as a conversation.** An agent's work no longer sits under its answer as a
   dark panel of steps. It is one line in the thread: who is working, on what, and for how long,
   with **Stop**; once the agent has stopped, what it did in a few words ("14 steps · 2 min 05
@@ -181,8 +197,8 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   and again to fold it away. Agents no longer repeat their own name at the start of each
   message.
 - **Annotate and Ask are "Flux AI".** Their headers read **Flux AI │ Annotate │ where** and
-  **Flux AI │ Ask │ where**, with the seed of the Flux logo in the top-left corner, always
-  turning. Its colour is the state: blue when what you send goes straight to an agent that is
+  **Flux AI │ Ask │ where**, with the Flux AI mark in the top-left corner. Its colour is the
+  state: blue when what you send goes straight to an agent that is
   listening or while an agent answers, green when an answer is done, red on a failure, and the
   logo's own colours otherwise.
 - **Arrows point properly.** An arrow's number now sits at its tail, where you began the drag,
@@ -194,8 +210,8 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   rather than a solid block.
 - **Ask names a quoted passage once.** The quote appears in the card under the header, no
   longer also in the header and again in a chip.
-- **The Inbox is refined.** Its header reads **Flux AI │ Inbox**, with the seed of the Flux logo
-  turning beside it: gold while something is waiting for you, blue while a connected agent is at
+- **The Inbox is refined.** Its header reads **Flux AI │ Inbox**, with the Flux AI mark
+  beside it: gold while something is waiting for you, blue while a connected agent is at
   work, the logo's colours otherwise. Rows show two lines of the note instead of one clipped
   line. An attached picture is shown whole (click it for full size). The buttons that have a key
   show it. A tag under an item's status filters the Inbox to that tag. The filter help is a
@@ -379,6 +395,18 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   lands on the slide you are looking at. Dropping a file onto the stage had the same fault.
 - **Rename a deck where it is listed:** double-click its name in the deck list, as you rename a canvas
   in Figure.
+- **Select several slides in the filmstrip, and move or copy them to another deck.**
+  **Shift+click** selects the range from the slide on the stage, and **Ctrl+click** (**⌘+click** on
+  a Mac) adds or removes one; neither changes the slide you are looking at. Right-click and choose
+  **Move … to deck…** or **Copy … to deck…** (the menu counts them when several are selected), then
+  the deck. The slides arrive at the end of that deck with their animation, notes and media, and
+  you stay in the deck you are in. A move is one Undo step. A deck keeps at least one slide, and
+  slides embedded in a Paper document ask before they move.
+- **PageUp and PageDown change slide whatever is selected.** They used to work only with nothing
+  selected. **↑** and **↓** still need an empty selection, because with one they nudge it.
+- **Fixed: tick labels rode out of their plot when a step changed the axis view.** Labels that had
+  faded in on an earlier step stayed at full strength while a later step zoomed or moved the axis,
+  and drifted across the plots beside it. A label now leaves its axis with its tick mark.
 
 ### Figure editor
 
@@ -396,52 +424,6 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   project whose regenerated plots carry large data. The pending updates are applied the next time
   the project opens.
 - Exporting a figure, and the live preview in Figure-Meta, no longer copy every plot's data first.
-
-### Library
-
-- **Flux no longer signs in to university libraries.** The library proxy is gone: the EZProxy
-  setting, the saved username and password, **Sign in**, **Get via library ⚿**, the library
-  phase of **Get PDFs**, and supplement capture from publisher pages. Flux now gets a PDF
-  three ways: an **open-access** copy, fetched automatically (**⬇**, **Get PDFs**, and
-  `flux fetch-pdfs` / `fetch_pdfs`); the **browser extension**, which saves a paper you can
-  already open in your own browser; and **a file you already have** (**Add PDF…**, the
-  `pdfs_to_assign` folder, `flux ingest-pdf`).
-- On upgrade, the saved library password and the saved sign-in session are deleted, without
-  asking, the first time the app or the `flux` command starts.
-- When no open-access copy exists, the fetch says so and names the other two routes. The
-  `failed` / `no OA` / `no DOI` row pills, the **⊘ Failed** filter step and **Retry all** are
-  gone with the route that produced them; **⬇ No PDF** still shows every paper without one.
-  Supplements come from Europe PMC (open-access papers) or the extension.
-- `flux missing-pdfs` drops the `proxy_reason`, `landed_host` and `oa_error` columns, and its
-  `status` is now `never-tried` or `no-oa` (no more `failed`).
-
-## 0.3.0 — 2026-11-08
-
-### Working with agents
-
-- **Ask (Ctrl+Shift+J) reads as correspondence.** The panel opens beside what you selected (the
-  selection stays outlined), adopts its instant placeholder's exact footprint, and keeps its place
-  while the answer streams. Answers render as real Markdown — headings, lists, fenced code with
-  Copy, tables, links — in the manuscript's serif; your questions sit on the right. The agent's
-  working notes fold into one line ("Read 3 files · get_figure_image") that opens into each step,
-  with the pictures it looked at inline; thinking folds the same way. A status line says what the
-  agent is doing and for how long; a faint line under the answer reports tools, tokens, cost and
-  time. Esc stops a busy run before it closes; Copy, Keep (with an Open action) and Resume in
-  terminal appear once there is an answer, and **Do it ▸** hands the question and answer to a
-  background agent on the same anchor; errors offer AI status or Retry.
-- **The Inbox (Alt+Q) is a conversation.** Rows show a surface icon or a real thumbnail and say in
-  words where they point; "Needs input" is gold, and so is the titlebar badge while an agent waits
-  on you. The detail pane shows your note with its marked picture, replies rendered as Markdown
-  with the agent's mark in the gutter, "Waiting for you" on the question that needs an answer, one
-  action bar, and a copyable short id. Background runs appear as a live card in the thread with
-  everything the agent says and does (streamed prose was dropped before). `?` lists the filter grammar.
-- **Annotate (Ctrl+Shift+M) is a still you draw on.** The frozen view is framed and labelled; a
-  capsule carries the tools; chips name targets in words and light up their marks when hovered;
-  the To: pill shows the chosen agent and whether it is watching; Attach view is a switch; a toast
-  says where the note went with an Open action.
-- One shared vocabulary under all three: the Flux seed marks the agent (it turns only while a run
-  is busy), one surface header, one composer, inert Markdown for agent text (model HTML never
-  becomes markup), and fades that survive a reduced-motion desktop.
 
 ### Paper
 
@@ -501,6 +483,89 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   output path no longer shows a stray trailing slash.
 - The journal export summary is restyled to match, and its section headings and counts are
   readable (they were pale grey on cream).
+- **Fixed: an agent's changes to a document in `paper/` reach the open window.** In a project that
+  keeps its documents in `paper/`, a manuscript an agent rewrote, or a comment it answered or
+  resolved, did not reach the open window, and your next reply to that comment could erase the
+  agent's. The open document now follows those changes, and saving a comment merges with what is
+  on disk: no message is dropped.
+
+### Reader
+
+- The Reader's sidebars are rebuilt: four tabs that fit the rail and are underlined when chosen;
+  search results in running text with the matched letters marked; reference and library cards
+  that lead with the title, then who and when, then what you can do; a Highlights list that
+  counts its entries, reads in the page's order and shows each note under its passage. Export
+  notes has its own row instead of crowding the tabs.
+- Search in a PDF marks the right letters. The Search pane cut each result at offsets from the
+  PDF's original text while showing its normalized text, so past the first ligature or
+  hyphenated line break the marked letters drifted ("rns of c" for "cortical").
+- The selection menu appears every time. It went missing on a page with search hits (the
+  search rewrites that page's text nodes), when the drag ended outside the page, and when a new
+  selection began inside the old one (the browser took that as dragging the text). It is
+  redrawn too: five square swatches, then **Annotate** and **Ask**, placed by the selection
+  and kept inside the page area. **Escape** closes it.
+- Clicking a search result selects that very hit. The page used to select the hit after it
+  (the list hid the difference), and a result far down a long list was approached one hit at
+  a time and abandoned after 200 steps. The jump is now one step, to any hit. A search begun
+  in the middle of a paper starts there, and the counter and the list say so; the open result
+  stays in view as you step. Long result lists are compact rows tagged with their page, and
+  the query stays in place while they scroll.
+- A highlight's popover is the selection menu with a note: the same swatches, **Annotate** and
+  **Ask**, the passage on a rail of its colour, and Save shown with its key.
+- A highlighted passage that runs over a line end is quoted with the space you read there,
+  in the list, in exported notes and in what Ask and Annotate send. Highlights saved before
+  this keep their place. Notes exported from the Reader follow the page's reading order.
+- The Reader toolbar is drawn rather than typed: stroke icons for back, zoom, fit and the PDF
+  menu, zoom as one out / value / in control, every control the same height.
+
+### Library
+
+- **Flux no longer signs in to university libraries.** The library proxy is gone: the EZProxy
+  setting, the saved username and password, **Sign in**, **Get via library ⚿**, the library
+  phase of **Get PDFs**, and supplement capture from publisher pages. Flux now gets a PDF
+  three ways: an **open-access** copy, fetched automatically (**⬇**, **Get PDFs**, and
+  `flux fetch-pdfs` / `fetch_pdfs`); the **browser extension**, which saves a paper you can
+  already open in your own browser; and **a file you already have** (**Add PDF…**, the
+  `pdfs_to_assign` folder, `flux ingest-pdf`).
+- On upgrade, the saved library password and the saved sign-in session are deleted, without
+  asking, the first time the app or the `flux` command starts.
+- When no open-access copy exists, the fetch says so and names the other two routes. The
+  `failed` / `no OA` / `no DOI` row pills, the **⊘ Failed** filter step and **Retry all** are
+  gone with the route that produced them; **⬇ No PDF** still shows every paper without one.
+  Supplements come from Europe PMC (open-access papers) or the extension.
+- `flux missing-pdfs` drops the `proxy_reason`, `landed_host` and `oa_error` columns, and its
+  `status` is now `never-tried` or `no-oa` (no more `failed`).
+
+## 0.3.0 — 2026-11-08
+
+### Working with agents
+
+- **Ask (Ctrl+Shift+J) reads as correspondence.** The panel opens beside what you selected (the
+  selection stays outlined), adopts its instant placeholder's exact footprint, and keeps its place
+  while the answer streams. Answers render as real Markdown — headings, lists, fenced code with
+  Copy, tables, links — in the manuscript's serif; your questions sit on the right. The agent's
+  working notes fold into one line ("Read 3 files · get_figure_image") that opens into each step,
+  with the pictures it looked at inline; thinking folds the same way. A status line says what the
+  agent is doing and for how long; a faint line under the answer reports tools, tokens, cost and
+  time. Esc stops a busy run before it closes; Copy, Keep (with an Open action) and Resume in
+  terminal appear once there is an answer, and **Do it ▸** hands the question and answer to a
+  background agent on the same anchor; errors offer AI status or Retry.
+- **The Inbox (Alt+Q) is a conversation.** Rows show a surface icon or a real thumbnail and say in
+  words where they point; "Needs input" is gold, and so is the titlebar badge while an agent waits
+  on you. The detail pane shows your note with its marked picture, replies rendered as Markdown
+  with the agent's mark in the gutter, "Waiting for you" on the question that needs an answer, one
+  action bar, and a copyable short id. Background runs appear as a live card in the thread with
+  everything the agent says and does (streamed prose was dropped before). `?` lists the filter grammar.
+- **Annotate (Ctrl+Shift+M) is a still you draw on.** The frozen view is framed and labelled; a
+  capsule carries the tools; chips name targets in words and light up their marks when hovered;
+  the To: pill shows the chosen agent and whether it is watching; Attach view is a switch; a toast
+  says where the note went with an Open action.
+- One shared vocabulary under all three: the Flux seed marks the agent (it turns only while a run
+  is busy), one surface header, one composer, inert Markdown for agent text (model HTML never
+  becomes markup), and fades that survive a reduced-motion desktop.
+
+### Paper
+
 - Journal submission export for **Nature, Science, Cell and bioRxiv**: Word and PDF, venue rules
   (title page, citations, reference lists, section order, legends, line numbers, page setup), a
   venue-aware Journal Check, stages in the export dialog and an export summary. The export assets
@@ -571,32 +636,6 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 
 ### Reader and Library
 
-- The Reader's sidebars are rebuilt: four tabs that fit the rail and are underlined when chosen;
-  search results in running text with the matched letters marked; reference and library cards
-  that lead with the title, then who and when, then what you can do; a Highlights list that
-  counts its entries, reads in the page's order and shows each note under its passage. Export
-  notes has its own row instead of crowding the tabs.
-- Search in a PDF marks the right letters. The Search pane cut each result at offsets from the
-  PDF's original text while showing its normalized text, so past the first ligature or
-  hyphenated line break the marked letters drifted ("rns of c" for "cortical").
-- The selection menu appears every time. It went missing on a page with search hits (the
-  search rewrites that page's text nodes), when the drag ended outside the page, and when a new
-  selection began inside the old one (the browser took that as dragging the text). It is
-  redrawn too: five square swatches, then **Annotate** and **Ask**, placed by the selection
-  and kept inside the page area. **Escape** closes it.
-- Clicking a search result selects that very hit. The page used to select the hit after it
-  (the list hid the difference), and a result far down a long list was approached one hit at
-  a time and abandoned after 200 steps. The jump is now one step, to any hit. A search begun
-  in the middle of a paper starts there, and the counter and the list say so; the open result
-  stays in view as you step. Long result lists are compact rows tagged with their page, and
-  the query stays in place while they scroll.
-- A highlight's popover is the selection menu with a note: the same swatches, **Annotate** and
-  **Ask**, the passage on a rail of its colour, and Save shown with its key.
-- A highlighted passage that runs over a line end is quoted with the space you read there,
-  in the list, in exported notes and in what Ask and Annotate send. Highlights saved before
-  this keep their place. Notes exported from the Reader follow the page's reading order.
-- The Reader toolbar is drawn rather than typed: stroke icons for back, zoom, fit and the PDF
-  menu, zoom as one out / value / in control, every control the same height.
 - **Show in folder** reveals a paper's PDF or supplement in the file manager.
 
 ### Across the app

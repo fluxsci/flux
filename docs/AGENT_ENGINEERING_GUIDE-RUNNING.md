@@ -4446,6 +4446,13 @@ turns that into an ordinary red check using the runner's own validator. Tiers:
   semantic part hit" / "Demo project — annotations are not saved" with nothing wrong. A gate that
   needs a stateful module goes through the dev handle (`window.__flux.fluximg.*`, `__flux.ops`)
   instead of its own `import()` (§9).
+  **A ui gate judges a state it has waited for, never one it assumes after a frame or a sleep.** Three reds of the
+  hosted ui-gate on 2026-11-23 were this and nothing else: "nothing animates at rest" sampled 450 ms after the last
+  edit and caught the deck's saved mark fading (150 ms, whenever an autosave lands); "resize requests a reframed
+  poster" read the poster's key before the request was queued (`settled()` is true while nothing is queued YET);
+  Match was clicked one frame after its panel appeared, before the button was enabled. Wait for the condition the
+  check names, with the default deadline; what never happens still fails, and a bare `assert` gets a message that
+  prints what it read (`verify-relayout-match-ui` failed twice without saying anything).
   Before a view-only before/after snapshot that includes dirty state, await autosave for
   preceding edits. Otherwise a legitimate true → false dirty transition can falsely blame
   the preview or navigation being tested; retain the full state-preservation assertion.
@@ -4480,7 +4487,8 @@ turns that into an ordinary red check using the runner's own validator. Tiers:
   cross-mode persistence. Build first; it deliberately requires no renderer dev handles.
 - **Slide settle gates (Release 2).** `verify-slide-settle-sweep.ts` (pure tier, headless Chrome, ~4.2 min here, one page
   in one browser, `exclusive`: it is frame-cadence bound, and its own header records that parallel CPU load leaves a camera seek
-  on low-resolution tiles and reads as a false END SNAP) and `verify-slide-settle-electron.cjs` (electron tier, offscreen and window-free, `exclusive`,
+  on low-resolution tiles and reads as a false END SNAP; since 2026-11-23 its frame-by-frame run is one task in the page,
+  see "The seek sweep's run is one task" in §9) and `verify-slide-settle-electron.cjs` (electron tier, offscreen and window-free, `exclusive`,
   ~4.5 min, 54+ real clicks under a fresh `HOME`; needs an x11 ozone display and a GPU-capable Electron) are
   members of `group:slide-transforms`, so `run-verifies --group slide-transforms` RUNS THE ELECTRON TIER: never
   two Electron gates at once on one machine (wrap them in `flock`), and never a WINDOWED Electron gate
@@ -4604,8 +4612,16 @@ scale. `ci.yml` sets the value from MEASURED readings (worst observed reading ÷
 4 from `verify-relayout-perf`'s 36.6 ms dense apply against 10 ms) — never to absorb a new slowdown, and the value is
 bounded to [1, 8]. The opted-in pins are those of `verify-xray-context`, `verify-morph-path`, `verify-plots-rail-model`,
 `verify-relayout-perf`, `verify-relayout-spike` and `verify-text-lanes` (`grep perfBudget scripts`); those six gates are
-also `exclusive`, so their microbenchmarks no longer share the CPUs with three Chrome-driving neighbours. The runner
-validates the variable once and records it as `config.perfScale` in `summary.json`.
+also `exclusive`, so their microbenchmarks no longer share the CPUs with three Chrome-driving neighbours. Since
+2026-11-23 also the image board's layout and fit pins (`verify-fluximg-live`: 57 µs here, 155 µs on the runner against an
+unscaled 100) and the 20,000-outline placement of `verify-fluximg-static`. **A new gate with a millisecond or microsecond
+pin opts in when it is written**: an unscaled pin authored on this desk is a red on the hosted runner waiting for a busy
+minute. The same holds for a gate's own DEFAULT deadline, which is a host-speed bound and not a contract:
+`verify-figure-raster-worker` gives its services `15000 × perfScale()` (the 250k-node refusal alone is 4.4 s here, and it
+timed out on the runner in two main runs); an explicit deadline that IS the law under test (its 1000 ms fault children)
+never scales. A COUNT over a fixed wall-clock window is the same kind of pin, divided: `verify-fluximg-slide-player-gui`
+asks for more than `100 ÷ scale` image frames in its 4 s walk (163 in the preview and 75 in Present on the runner's
+software GL, ~240 here). The runner validates the variable once and records it as `config.perfScale` in `summary.json`.
 
 Every script named in a tier needs an `execution` contract in the manifest. One missing
 contract aborts `--tier pure` before anything runs ("Missing/invalid execution contract"). This
@@ -5325,8 +5341,16 @@ days (probe geometry like `width` instead).
   in `flux-core/manuscript.ts` resolved that way, every shipped CSL and Word reference read threw
   ENOENT, the copy loop swallows a missing shipped asset by design, and a journal-styled export
   on Windows silently rendered with Quarto's defaults.
+- **A dynamic `import()` of an absolute path is not portable either**: Node on Windows reads `D:\…` as a URL with
+  the scheme `d:` and throws `ERR_UNSUPPORTED_ESM_URL_SCHEME`. `await import(pathToFileURL(file).href)`, always
+  (`verify-slide-runtime-images`, `verify-fluximg-paper-embed-browser`, 2026-11-23). And a relative name a gate
+  compares with a posix literal (`"pixels/0/c/"`) is built with `path.relative(...).split(path.sep).join("/")`
+  (`verify-fluximg-format` counted 0 shard files on Windows for three runs). Six fluximg gates landed red on
+  `test-windows` at once because the job is observing and nobody read it: after adding a gate that touches paths,
+  children or URLs, read the Windows job of that push.
 - **Windows has neither POSIX file modes, signals, nor shebangs, and a gate that assumes one
-  tests nothing there.** NTFS reports every writable file 0o666, so an owner-only (0o600) check
+  tests nothing there.** There is no `SIGSTOP`: `process.kill(pid, "SIGSTOP")` throws, so a "stuck child" cannot
+  be staged that way on Windows (`verify-tiff-app` stages it on POSIX hosts only and says so). NTFS reports every writable file 0o666, so an owner-only (0o600) check
   and an exec-bit check are inexpressible — note them as skipped rather than asserting a synthetic
   value, and remember the exec bit belongs to the HOST filesystem, not the target platform
   (a cross-build from Windows cannot stage one). `process.kill(pid,"SIGTERM")` terminates a child
@@ -6383,7 +6407,21 @@ outside this PNG packaging change.
   bitmaps DO carry LCD fringes (plain page 64 % chromatic ink) and the will-change stage does not (0.5 %). (6) A
   fresh `HOME` reproduces first-use GPU hitches a warm one hides (the gate runs under one); an intermittent flag
   is a rate (`REPEAT=<n>`), not a verdict. (7) A seek has no priming frame, so the seek gate's run-vs-direct floor
-  is 30. (8) A crisp edge leaving the pixel grid reads 9.3 then 0.0 on the first-changed-frame rule: read raw
+  is 30. **The seek sweep's run is one task (2026-11-23).** The frame-by-frame run of `slideSettleSweep.ts` was one
+  protocol call per seek, so how many of its ~70 intermediate poses got PRESENTED was a race the host decided: every
+  presented pose rasters the layers in flight at it, and the landing kept that raster for good. The same stagger read
+  0.0, 1.6, 5.4, 9.7, 16.9, 23.1, 30.7, 43.5 and 48.0 on two pinned CPUs beside busy loops (30.7 is what the blocking
+  CI job failed on, 11-08 and 11-19), and 8.4 on an idle desk. The run is now ONE task in the page: the controllers
+  still cross every boundary in order (a style left only by an in-order crossing still reads POST CHANGE, 1,968), no
+  pose between is presented, and every cue of the corpus reads 0.0. Verdicts on the 217 cues are unchanged.
+  Reproduce a hosted-runner reading of a frame gate here with `taskset -c 0,1` beside four to six busy loops pinned
+  to the same CPUs; a reading that takes several discrete values there is a race in the MEASUREMENT.
+  **Not closed:** one camera POST CHANGE (103.2, Linux, 11-21) and two camera END SNAPs (Windows, 11-08) did not
+  reproduce in the gate's own sequence (the old run under load: 0 of 40 camera cue readings; 0 of 70 direct camera
+  landings changed after they were judged, down to one CPU with five busy loops). A COLD jump to a new zoom does draw stale tiles for more frames than `presented()` waits (39.8, settled
+  thirty frames later), so that is the lead. `--run-all-compositor-stages-before-draw` removes it by construction and
+  must NOT be used: `Page.captureScreenshot` then deadlocks in 9 of 20 fresh starts (Chrome 158, new headless; 0 of
+  20 without it), each one a 180 s protocol timeout. (8) A crisp edge leaving the pixel grid reads 9.3 then 0.0 on the first-changed-frame rule: read raw
   sequences (`DEAD=0`, `DUMP=` / `DUMPALL=1` on `slide-settle-realtime.mts`) before calling it a pop; compare
   two primitives on the GPU (an offscreen harness drawing the same geometry both ways, F1's scratch
   `raster_compare.cjs`) before choosing a representation.
@@ -14125,3 +14163,12 @@ order; an image entry's fields have one order in the export payload; an image's 
 - **Read the drawn result of both kinds of guide.** The tick MARKS were right the whole time (their effect has no opacity), which made the plot look half fixed. The gate compares each drawn label with the mark under it, in the exported player, for an elastic plot, a stretched one and labels still fading in (seeked and played live).
 - **A gate for the unfixed engine without touching the tree in use:** `git worktree add --detach <tmp> HEAD`, link `node_modules`, copy the new gate in. It failed 48 of 104 there; other agents were recording takes from this checkout at the time.
 **Gates:** `verify-slide-guide-edge-fade.ts` (pure tier, `slide-transforms`).
+
+### 2026-11-23 — v0.4.0 release preparation: main's CI had been red for four runs (Claude Fable 5.2, `release/0.4.0`)
+**Work:** Version 0.4.0 (package, lock, README, install page, changelog). Before a tag could be cut, the blocking `test` job had failed on four different gates in five runs and `test-windows` on six gates at once; none was a product defect. All were fixed as measurements: the seek sweep's run (§9), three unscaled wall-clock pins and one unscaled default deadline (§7), five Windows path and signal assumptions in the image gates (§9). One camera reading of the sweep did not reproduce and stays open (§9). The observing `ui-gate` had four reds of its own on the same commit, fixed the same way (§7). The changelog's 0.4.0 section was checked against all 338 commits since v0.3.0 by a second agent: 22 bullets written on 2026-11-18 had been filed under the 0.3.0 heading, three statements had been overtaken by later commits, and the in-app keyboard reference still said PageUp / PageDown need an empty selection.
+**Learnings:**
+- Promoted to §7 (new timing pins opt in to `perfBudget` when written; a gate's default deadline scales, a deadline under test does not) and §9 (the seek sweep's run is one task, and the Chrome switch that must not be used; dynamic `import()` of an absolute path; no `SIGSTOP` on Windows).
+- **A fix to a measurement gets its own repeat count before it is believed.** The Chrome switch passed a full 217-cue sweep and twelve starved runs, then hung a control probe: twenty fresh starts showed nine deadlocks. One long green run says nothing about a start-up race.
+- **Read the per-job log of a red run before the run ends:** `gh api repos/fluxsci/flux/actions/jobs/<jobId>/logs` works as soon as that JOB is complete (`gh run view --log` waits for the whole run, 40 minutes). A passing gate's lines are not in the log; its readings are in the `pure-verify-summary` artifact.
+- **A release from a checkout other people are using goes through a worktree.** The owner's app and recording takes load this checkout's `dist/`; `git worktree add -b release/X.Y.Z flux-wt/release-X.Y.Z main`, link `node_modules`, build and qualify there, push the branch to `main`, then fast-forward the main checkout.
+- **A changelog section is checked against the tag before it is renamed:** `git show v<previous>:CHANGELOG.md | grep -c "<headline>"` tells in one line whether a bullet under the previous release's heading was really in that release.

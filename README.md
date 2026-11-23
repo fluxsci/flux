@@ -10,7 +10,7 @@ Your projects stay in ordinary files on your own machine.
 [Interactive slide demo](https://fluxsci.github.io/#slides) ·
 [Report an issue](https://github.com/fluxsci/flux/issues)
 
-> **Status:** v0.3.0, under active development. Install or update with one line
+> **Status:** v0.4.0, under active development. Install or update with one line
 > (`curl -fsSL https://fluxsci.github.io/install.sh | bash`), or start from source below.
 > What changed in each release is in [CHANGELOG.md](CHANGELOG.md).
 
