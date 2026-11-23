@@ -20,6 +20,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { harness } from "./lib/harness.mjs";
+import { perfScale } from "./lib/perfBudget.mjs";
 import { makeProject, standardDeck, movieDeck, MOVIE } from "./lib/fluximgSlideExportFixture";
 
 const h = harness("verify-fluximg-slide-export-browser");
@@ -343,7 +344,11 @@ try {
       for (let k = 0; k < 6; k++) { await wait(5000); const s = await page.evaluate("window.fluxDeck.imageClips()") as any; seen.push(`${(k + 1) * 5} s: ${(s.drift * 1000).toFixed(0)}`); }
       const s1 = await page.evaluate("window.fluxDeck.imageClips()") as any, v3 = await video();
       console.log(`  measured: drift of a natively looped movie clip from the slide's clock over 30 s (30 loops), running max in ms: ${seen.join(", ")}; re-syncs ${s1.resyncs - s0.resyncs}`);
-      h.ok(!v3?.paused && s1.resyncs - s0.resyncs <= 2, `over 30 s of a looped movie: ${s1.resyncs - s0.resyncs} re-syncs (a drift check every 2 s, past half a plane only; was ~2 a second)`);
+      // How often a natively looped clip drifts half a plane from the slide's clock in 30 s is the host's decode speed: 1 on the
+      // reference desk, 2 on the hosted Linux runner (AT the unscaled limit), 3 on the Windows runner (red, 2026-11-23). The
+      // defect this pins was ~60 in the same window. A count over a fixed wall-clock window scales like a wall-clock pin (guide §7).
+      const maxResyncs = 2 * perfScale();
+      h.ok(!v3?.paused && s1.resyncs - s0.resyncs <= maxResyncs, `over 30 s of a looped movie: ${s1.resyncs - s0.resyncs} re-syncs (<= ${perfScale() === 1 ? "2" : `2 × ${perfScale()} = ${maxResyncs}, FLUX_PERF_SCALE=${perfScale()}`}; a drift check every 2 s, past half a plane only; was ~2 a second)`);
       h.ok(s1.drift < 0.05 + 0.01, `the clip never strays more than half a plane (+ one check's growth) from the slide's clock (max ${(s1.drift * 1000).toFixed(0)} ms)`);
     } else blocked("C7 callbacks of a movie that plays its clip natively");
     // A stills-only export (no encoder): the movie cannot be shown, so nothing runs and the image is the step's still.

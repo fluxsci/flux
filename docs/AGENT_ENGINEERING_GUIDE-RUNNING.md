@@ -4634,7 +4634,9 @@ passing gate's readings are not in the job log but they are in the run's `pure-v
 timed out on the runner in two main runs); an explicit deadline that IS the law under test (its 1000 ms fault children)
 never scales. A COUNT over a fixed wall-clock window is the same kind of pin, divided: `verify-fluximg-slide-player-gui`
 asks for more than `100 ÷ scale` image frames in its 4 s walk (163 in the preview and 75 in Present on the runner's
-software GL, ~240 here). The runner validates the variable once and records it as `config.perfScale` in `summary.json`.
+software GL, ~240 here), and `verify-fluximg-slide-export-browser` allows `2 × scale` re-syncs of a looped clip in 30 s
+(1 here, 2 on the Linux runner, 3 on the Windows runner; the defect was ~60). "Counts never scale" means counts of
+THINGS; a count of events in a wall-clock window is a rate. The runner validates the variable once and records it as `config.perfScale` in `summary.json`.
 
 Every script named in a tier needs an `execution` contract in the manifest. One missing
 contract aborts `--tier pure` before anything runs ("Missing/invalid execution contract"). This
@@ -6429,7 +6431,8 @@ outside this PNG packaging change.
   pose between is presented, and every cue of the corpus reads 0.0. Verdicts on the 217 cues are unchanged.
   Reproduce a hosted-runner reading of a frame gate here with `taskset -c 0,1` beside four to six busy loops pinned
   to the same CPUs; a reading that takes several discrete values there is a race in the MEASUREMENT.
-  **Not closed:** one camera POST CHANGE (103.2, Linux, 11-21) and two camera END SNAPs (Windows, 11-08) did not
+  **Not closed:** one camera POST CHANGE (103.2, Linux, 11-21) and camera END SNAPs on Windows (11-08; again on the
+  tagged v0.4.0 commit, 11-23: `camera#3-3` 43.9 and `camera#4-4` 149.7 in the 2 ms window, green one push earlier) did not
   reproduce in the gate's own sequence (the old run under load: 0 of 40 camera cue readings; 0 of 70 direct camera
   landings changed after they were judged, down to one CPU with five busy loops). A COLD jump to a new zoom does draw stale tiles for more frames than `presented()` waits (39.8, settled
   thirty frames later), so that is the lead. `--run-all-compositor-stages-before-draw` removes it by construction and
