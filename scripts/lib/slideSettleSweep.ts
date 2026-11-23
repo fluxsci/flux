@@ -189,6 +189,11 @@ export async function sweepDeck(sp: SweepPage, payload: SweepPayload, opts: Swee
   // the reference desk; a slower host (the hosted runner's SwiftShader) presents a seek's last effects —
   // a many-node stagger's landing, the camera's early bake — a frame or two later, and judging the first
   // frame there read a landing late (POST CHANGE) or a bake as a step (END SNAP). Bounded: STABLE_FRAMES.
+  // Two agreeing frames say the PAGE has stopped changing; they do not prove the RASTER has caught up (a cold
+  // jump to a new camera zoom can draw the previous zoom's tiles for more frames than that, and those frames
+  // agree with each other). The sweep reaches every landing through its neighbouring poses, which is why this
+  // has been enough; `--run-all-compositor-stages-before-draw` would close it by construction but deadlocks
+  // Page.captureScreenshot in new headless Chrome (9 of 20 fresh starts, Chrome 158, 2026-11-22): do not use it.
   const presented = async () => {
     await settle(); let prev = await shot();
     for (let i = 0; i < STABLE_FRAMES; i++) { await settle(); const next = await shot(); if (same(prev, next)) return next; prev = next; }
@@ -218,9 +223,21 @@ export async function sweepDeck(sp: SweepPage, payload: SweepPayload, opts: Swee
         e2F: await grab(s, to, Math.max(0, D - 2 * F), from), eF: await grab(s, to, Math.max(0, D - F), from),
         e4: await grab(s, to, Math.max(0, D - 2 * TINY_MS), from), e2: await grab(s, to, Math.max(0, D - TINY_MS), from), e0: await grab(s, to, D, from),
       };
-      // the landing reached the way playback reaches it: every frame in order, then the end (controllers cross their boundaries)
-      for (let t = 0; t < D; t += F) await seek(s, to, t, from);
-      await seek(s, to, D, from);
+      // the landing reached the way playback reaches it: every frame in order, then the end (controllers cross their boundaries).
+      // The whole run is ONE task in the page, so no frame can be presented between two seeks. Sent as one protocol call per
+      // seek it was a race the host decided: an idle desk presented none or a few of the ~70 intermediate poses, a loaded one
+      // many, and every pose that is presented rasters the layers that are in flight at it (a seek has no priming frame, see
+      // `run` in Thresholds). The landing then carried a different raster history on every host and run: the same 1,150 ms
+      // stagger read 0.0, 1.6, 5.4, 9.7, 16.9, 23.1, 30.7, 43.5 and 48.0 under load (2026-11-22, two pinned CPUs beside busy
+      // loops; 30.7 is the value the hosted runner failed on, 11-08 and 11-19), each value stable for as long as one cared to
+      // wait and unchanged by seeking the landing again. What POST CHANGE judges is what the CONTROLLERS leave behind when
+      // their boundaries are crossed in order; that is identical here, and a residue of theirs still shows against `e0`
+      // (a control: the stage dimmed to 0.6 only when mid-flight is crossed one frame after the frame before it reads 1,968.1).
+      await page.evaluate(({ s, b, D, F, from }) => {
+        const deck = (window as unknown as { fluxDeck: Hook }).fluxDeck;
+        for (let t = 0; t < D; t += F) deck.seek(s, b, t, from);
+        deck.seek(s, b, D, from);
+      }, { s, b: to, D, F, from });
       const run = await presented();
       const row: Omit<CueRow, "flags"> = {
         slide: s, slideId: slide.id, from, to, label: kindsOf(slide, from, to), dur: D,
