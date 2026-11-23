@@ -378,7 +378,9 @@ export const SECTIONS: ShortcutSection[] = [
         title: "Stage",
         rows: [
           r("F5 / Shift+F5", "Present from the start / from this slide"),
-          r("Down / Up · PageDown / PageUp", "Next / previous slide, with nothing selected"),
+          r("PageDown / PageUp", "Next / previous slide"),
+          r("Down / Up", "Next / previous slide, with nothing selected"),
+          r("Shift+click / Mod+click a slide in the filmstrip", "Select a range from the current slide / add or remove one (the right-click menu moves or copies them to another deck)"),
           r("F2", "Rename the slide"),
           r("Space / Esc", "While a preview plays on the stage: pause or resume / stop"),
           r("Alt+G", "Left rail: Plots / Slides"),
