@@ -16,6 +16,8 @@ export const libraryContext = writable<ContextStamp["library"]>(null);
 export const slideContext = writable<ContextStamp["slide"]>(null);
 export const presentContext = writable<ContextStamp["present"]>(null);
 export const paperHeading = writable<string | undefined>(undefined);
+/** Set while the focused Paper pane shows an artifact (an HTML page) in place of the document. */
+export const artifactContext = writable<ContextStamp["artifact"]>(null);
 
 export function figureContextRelevant(surface = get(focusedMode)): boolean {
   return get(view) === "workspace" && get(embeddedProjectRoot) === get(currentProject)?.path &&
@@ -35,7 +37,9 @@ export function buildContextStamp(opts: { window?: ContextStamp["window"]; targe
     });
     if (surface === "slide") stamp.slide = get(slideContext);
   }
-  if (surface === "paper") {
+  const artifact = surface === "paper" ? get(artifactContext) : null;
+  if (artifact) stamp.artifact = artifact;
+  else if (surface === "paper") {
     const p = get(paperSelection);
     stamp.doc = p ? { path: p.doc, from: p.from, to: p.to, quote: p.quote, heading: get(paperHeading) } : null;
   }
@@ -45,6 +49,7 @@ export function buildContextStamp(opts: { window?: ContextStamp["window"]; targe
   const targets = opts.targets ? [...opts.targets] : currentTargets(surface, opts.document);
   if (!targets.length) {
     if (stamp.doc) targets.push({ kind: "doc", ...stamp.doc });
+    if (stamp.artifact) targets.push({ kind: "artifact", path: stamp.artifact.path, ...(stamp.artifact.view ? { view: stamp.artifact.view } : {}), title: stamp.artifact.title, ...(stamp.artifact.heading ? { heading: stamp.artifact.heading } : {}), ...(stamp.artifact.quote ? { quote: stamp.artifact.quote } : {}) });
     if (stamp.reader?.citekey) targets.push({ kind: "passage", citekey: stamp.reader.citekey, page: stamp.reader.page ?? 1, quote: stamp.reader.selection, highlightId: stamp.reader.highlightId, ...(stamp.reader.prefix !== undefined && stamp.reader.suffix !== undefined ? { prefix: stamp.reader.prefix, suffix: stamp.reader.suffix } : {}), title: stamp.reader.title });
     for (const citekey of stamp.library?.selectedKeys ?? []) targets.push({ kind: "library-item", citekey });
     if (presenting?.slideId) targets.push({ kind: "beat", deckId: presenting.deckId, slideId: presenting.slideId, beat: presenting.beat });

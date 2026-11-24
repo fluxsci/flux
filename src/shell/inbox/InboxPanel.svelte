@@ -223,7 +223,7 @@
   // What the note points at, once each: the numbered marks grouped by the thing they name, then
   // anything else the note is attached to. Four marks on one figure are one line, not four.
   type Pointer = { key: string; marks: number[]; target: TargetRef | null; kind: string; icon: string; text: string };
-  const POINTER_KIND: Record<string, [string, string]> = { figure: ["figure", "figure"], element: ["object", "figure"], part: ["part", "figure"], caption: ["caption", "figure"], doc: ["text", "paper"], slide: ["slide", "slide"], beat: ["step", "slide"], track: ["animation", "slide"], passage: ["passage", "reader"], "library-item": ["reference", "library"] };
+  const POINTER_KIND: Record<string, [string, string]> = { figure: ["figure", "figure"], element: ["object", "figure"], part: ["part", "figure"], caption: ["caption", "figure"], doc: ["text", "paper"], slide: ["slide", "slide"], beat: ["step", "slide"], track: ["animation", "slide"], passage: ["passage", "reader"], "library-item": ["reference", "library"], artifact: ["artifact", "paper"] };
   function pointersOf(item: InboxItem | null): Pointer[] {
     if (!item) return [];
     const out: Pointer[] = [], seen = new Map<string, Pointer>();

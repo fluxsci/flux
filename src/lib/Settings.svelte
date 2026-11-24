@@ -38,6 +38,8 @@
   import { railPrefs } from "./plotsRail/railPrefs";
   import { modalFocus } from "./ui/modalFocus";
   import { fileBridge } from "./project/types";
+  import { currentProject } from "../shell/shellStore";
+  import { artifactListing, refreshArtifacts, chooseArtifactFolder, linkArtifactFolder } from "./artifacts/artifactStore";
   import {
     clearLocalCorrectionLearning,
     LOCAL_CORRECTION_RESET_EVENT,
@@ -233,6 +235,22 @@
     }
   }
 
+  // --- Artifacts (Paper): the folder of HTML pages linked to the OPEN project -----
+  // The one setting here that belongs to a project and not to the machine as a whole: it is
+  // stored in this computer's preferences under the project's folder, never in project.json.
+  let artifactNotice = $state("");
+  const artifactProject = $derived($currentProject?.path ?? "");
+  const artifactDir = $derived($artifactListing?.linkedDir ?? "");
+  const artifactsAvailable = $derived(!!fileBridge()?.artifactsSetDir && !!fileBridge()?.openDirectory);
+  async function chooseArtifacts() {
+    if (!artifactProject) return;
+    artifactNotice = await chooseArtifactFolder(artifactProject);
+  }
+  async function unlinkArtifacts() {
+    if (!artifactProject) return;
+    artifactNotice = await linkArtifactFolder(artifactProject, null);
+  }
+
   // Open: refresh the displayed library path and move focus into the
   // dialog. Close: clear the transient notice and hand focus back to wherever
   // it was.
@@ -240,6 +258,7 @@
     if ($settingsOpen) {
       prevFocus = document.activeElement as HTMLElement | null;
       untrack(() => void loadLib());
+      untrack(() => { artifactNotice = ""; if (artifactProject) void refreshArtifacts(artifactProject); });
       queueMicrotask(() => modalEl?.focus());
     } else {
       libNotice = "";
@@ -571,6 +590,19 @@
 
           <!-- ------------------------------------------------------------ Paper -->
           <div class="pane" role="tabpanel" id="settings-pane-paper" aria-labelledby="settings-tab-paper" hidden={tab !== "paper"}>
+            <section class="grp" data-settings-artifacts>
+              <h3>Artifacts</h3>
+              <div class="pathrow three">
+                <div class="libpath" title={artifactDir}>{artifactDir || (artifactProject ? "No folder linked" : "—")}</div>
+                <button class="ghost" onclick={chooseArtifacts} disabled={!artifactProject || !artifactsAvailable}>{artifactDir ? "Change…" : "Choose…"}</button>
+                <button class="ghost" onclick={() => void fileBridge()?.artifactsReveal?.(artifactProject, artifactDir)} disabled={!artifactDir}>Reveal</button>
+                <button class="ghost" onclick={unlinkArtifacts} disabled={!artifactDir}>Unlink</button>
+              </div>
+              <p class="hint">A folder of HTML pages an agent made for you: explorers, reports. They are listed in Paper under <b>Files › Artifacts</b>, beside the pages in the project's own <code>artifacts</code> folder, and open in place of the document. The folder is read where it is, never copied. {artifactProject ? "This link is for the open project, on this computer." : "Open a project to link a folder to it."}</p>
+              {#if artifactProject && !artifactsAvailable}<p class="hint">Linking a folder needs the desktop app.</p>{/if}
+              {#if artifactNotice}<p class="hint notice">{artifactNotice}</p>{/if}
+            </section>
+
             <section class="grp">
               <h3>Dynamic margin background</h3>
               <div class="seg scenes" role="radiogroup" aria-label="Dynamic margin background">
@@ -1193,6 +1225,9 @@
   }
 
   /* ---- General ------------------------------------------------------------- */
+  .pathrow.three {
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
+  }
   .pathrow {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto auto;

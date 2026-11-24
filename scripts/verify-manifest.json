@@ -212,6 +212,7 @@
       "verify-dissections.ts",
       "verify-plots-folders.ts",
       "verify-project-watch-rules.ts",
+      "verify-artifact-rules.ts",
       "verify-plot-source.ts",
       "verify-plot-style-scope.ts",
       "verify-plot-style-bake.ts",
@@ -623,6 +624,7 @@
       "verify-figure-controls-gui.mjs",
       "verify-figure-export-polish.mjs",
       "verify-paper-files-gui.mjs",
+      "verify-paper-artifacts-gui.mjs",
       "verify-paper-sidebar-layout.mjs",
       "verify-fluxplot03-gui.mjs",
       "verify-plot-gallery.mjs",
@@ -830,6 +832,7 @@
       "verify-writer-latency-inp.mjs",
       "verify-source-sync-electron.cjs",
       "verify-paper-comment-watch-electron.cjs",
+      "verify-artifacts-electron.cjs",
       "verify-figure-polish-electron.cjs",
       "verify-plot-gallery-electron.cjs",
       "verify-slide-embed-electron.cjs",
@@ -931,6 +934,7 @@
       "verify-source-watch.ts",
       "verify-mode-cold-switch.mjs",
       "verify-paper-files-gui.mjs",
+      "verify-paper-artifacts-gui.mjs",
       "verify-paper-sidebar-layout.mjs",
       "verify-paper-textscale.ts",
       "verify-paper-history-keys.ts",
@@ -4045,6 +4049,19 @@
         "verify-embed-chip.mjs",
         "group:paper-gate",
         "group:inline-slides",
+        "tier:pure"
+      ]
+    },
+    {
+      "$why": "2026-11-24 Paper artifacts (HTML pages in a frame of their own origin): the rules, lister and file server, the IPC family and protocol, the frame protocol, the rail and view, the dev route and fixtures. The paper suite rides along (the view lives in Paper and hides its editor).",
+      "glob": "{electron/artifact*.{js,cjs},electron/ipc/artifacts.cjs,src/lib/artifacts/**,src/shell/modes/paper/artifacts/**,scripts/lib/artifactDevRoutes.mjs,scripts/lib/artifactsProbe.cjs,scripts/fixtures/artifacts/**}",
+      "run": [
+        "verify-artifact-rules.ts",
+        "verify-paper-artifacts-gui.mjs",
+        "verify-artifacts-electron.cjs",
+        "verify-ipc-contract.ts",
+        "group:paper-gate",
+        "tier:presence",
         "tier:pure"
       ]
     },
@@ -13275,6 +13292,37 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 300000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-artifact-rules.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-paper-artifacts-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-artifacts-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "build"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
       "exclusive": true,
       "coverage": "behavior"
     }

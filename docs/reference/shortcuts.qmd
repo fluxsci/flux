@@ -84,6 +84,7 @@ also appears in the global and Paper palettes and Library's **Commands…** menu
 |---|---|
 | **Ctrl+Shift+E** | Toggle edit ↔ full-width preview (**Escape** exits preview) |
 | **Alt+O** | Show/hide the left panel (outline & documents; drag its edge to resize) |
+| **Alt+H** | Show the [artifact](../modes/paper.qmd#artifacts) you last had open (an agent's HTML page) / go back to the document |
 | **Alt+↑** / **Alt+↓** | Move a focused Documents row up / down the list (drag the row for the same thing; nothing is renamed and no file moves) |
 | **Delete** (on a focused Documents row) | Delete that document after a confirmation (the × on the row does the same; the file goes to the trash, figures and references stay) |
 | **Ctrl+Shift+B** | Show/hide the dynamic margin |

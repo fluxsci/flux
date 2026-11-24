@@ -20,6 +20,16 @@ export function requestOpenDoc(path: string, range: { from?: number; to?: number
   openDocRequest.set({ path, ...range, n: ++dn });
 }
 
+/**
+ * "Show this artifact in Paper": by id (the rail, the palette) or by the page path an agent was
+ * told (an inbox item's target). `view` is the page's own address tail (`#n=3`).
+ */
+export const openArtifactRequest = writable<{ id?: string; ref?: string; view?: string; n: number } | null>(null);
+let an = 0;
+export function requestOpenArtifact(target: { id?: string; ref?: string; view?: string }): void {
+  openArtifactRequest.set({ ...target, n: ++an });
+}
+
 /** A project usage points at one independently editable slide. */
 export const openSlideRequest = writable<{ deckId: string; slideId?: string; slideIndex?: number; beat?: number; trackId?: string; n: number } | null>(null);
 let sn = 0;

@@ -172,6 +172,7 @@ The established shared cores — extend these, don't duplicate them:
 | Citation-style (CSL) choice: shipped-style info, project copy path, document-relative `csl:` value | `src/lib/references/cslCatalog.ts` (+ `frontmatterEdit.planSetScalarKeyWith`; the export reads it through `zoteroFields.resolveCslIdentity`) | `verify-csl-picker.ts`, `verify-paper-markup-gui.mjs` §F |
 | Document discovery, nested folders, creation/moves and relative-link preservation; order and removal policy | `src/lib/project/documentFiles.ts` + `docOrder.ts` | `verify-paper-files.ts`, `verify-doc-order.ts`, `verify-doc-delete.ts`, `verify-paper-files-gui.mjs` |
 | Which folders hold documents (project.json `documentRoot`, legacy fallback, the standard `paper/` + `manuscript/`) and which project paths the Electron watcher watches and routes to which `fs:changed` subsystem — the watch list and the classifier both derive from ONE route table | `electron/documentRoots.js` (dependency-free ESM: discovery imports it, main loads it) + `electron/projectWatchRules.js` (main's `watch:setRoot` / `subsystemFor`) | `verify-project-watch-rules.ts` (every routed path is watched; every document and sidecar the shipped discovery finds is watched; main.cjs source shape), `verify-paper-comment-watch-electron.cjs` (real app + real CLI) |
+| Paper's artifacts: what an artifact is, which request paths may be served, the page policy, the bridge script; the lister and file server; the frame protocol; the rail rows and the `artifact` target | `electron/artifactRules.js` (dependency-free ESM) + `electron/artifactServe.cjs` (Node IO, used by Electron's `ipc/artifacts.cjs` AND the dev server's `scripts/lib/artifactDevRoutes.mjs`); `src/lib/artifacts/{frameProtocol,tree}.ts`; `project/targets.ts` | `verify-artifact-rules.ts` (pure), `verify-paper-artifacts-gui.mjs` (ui, `paper-gate`), `verify-artifacts-electron.cjs` (real protocol, origin, process, watcher) |
 | Per-range text formatting (normalize, toggle, remap across edits, segment) | `src/lib/textRuns.ts` | `verify-text-runs.ts`, `verify-text-runs-gui.mjs` |
 | Annotation ledger, claims, routes and exact targets | `src/lib/project/annotations.ts` + `targets.ts` | `verify-annotation-core.ts` (also covers presence and inbox model primitives) |
 | Inbox filtering, packets, recipient order and session work | `src/lib/project/inbox.ts` + `agentRouting.ts` + `presence.ts` | `verify-inbox.ts`, `verify-inbox-wait.ts`, `verify-presence.ts`, `verify-agent-routing.ts` |
@@ -265,6 +266,12 @@ and status overlaid by the ledger. Machine-global state lives in `~/FluxConfig`
 (pointer pref `fluxConfigPath`); the reference library is **always derived** as
 `<FluxConfig>/FluxLib` — never persist or read a separate `fluxLibPath`
 (`verify-fluxconfig.ts` gates this). Machine config dir is lowercase `~/.config/flux` only.
+
+`artifacts/` is optional and only ever READ: HTML pages for Paper (§4 "Paper's artifacts"). A folder of
+artifacts outside the project is linked per project in machine preferences
+(`preferences.json` `artifactDirs: { <projectRoot>: <dir> }`, plus `artifactNetworkDirs`), never in
+`project.json`: it is an absolute path on one machine, and a project someone else wrote must not be
+able to point Flux at a folder.
 
 Machine-local project history is `<userDataDir>/projects.json` (`v:1`, at most 100
 entries, newest open/connection first). `electron/projectsRegistry.cjs` is the one
@@ -4031,6 +4038,69 @@ thread fallback); a 20k-line run costs ~85–115 ms in the worker (context scan 
 It renders ≤50 rows per pack until asked. Dev telemetry: `window.__flux.manuscriptCheck`
 (`runs`, `lastMs`, `lastMode`).
 
+### Paper's artifacts (2026-11-24, stage 1)
+
+An artifact is an HTML page an agent wrote for the reader (an explorer, a report). Paper lists
+them under Documents and Context in the Files rail and shows one in the centre card in place of
+the document. Stage 1 is the viewer; anchored comments on a page are stage 2 (§10).
+
+- **What is listed** (`artifactRules.classifyArtifactFolder`, `artifactServe.listArtifacts`): a
+  folder with `index.html` is ONE artifact (its other top-level pages are its pages; nothing inside
+  it is searched), a lone `.html` is an artifact of one page, any other folder is a group. Hidden
+  folders, `node_modules`, `__pycache__` are skipped; depth 6, 3,000 folders, 500 artifacts. Two
+  roots per project: `<project>/artifacts` (convention, nothing to set up) and one linked folder
+  (Settings → Paper → Artifacts, or the folder key in the rail), stored in machine preferences (§3).
+- **How a page is served** (`ipc/artifacts.cjs`): `flux-artifact://<root id>/<path>`, a standard,
+  secure scheme registered in main's ONE `registerSchemesAsPrivileged` call (Electron allows one).
+  The root id is a hash of the real folder, so the folder is the same origin in every session and a
+  page's own storage persists. Every request is resolved to a real path inside the root (a link that
+  leaves it is 403, a hidden file is 403, an unregistered root is 403). HTML gets the policy
+  `artifactCsp` (inline script and eval allowed: it is someone's program; NO network unless the
+  reader allowed it for that folder) and the bridge script as its first script, spliced into the
+  first 64 KB while the rest of the file is streamed untouched.
+- **Isolation.** The frame is cross-site with the app, so Chromium gives it its own renderer
+  process (the Electron gate pins `frame.processId !== mainFrame.processId`): a heavy page cannot
+  block Flux's main thread. No preload runs in it (`window.fig` is undefined), `sandbox` withholds
+  top navigation and popups, `guardFrames` (will-frame-navigate) sends web links to the browser,
+  and the app's own CSP gained exactly `frame-src 'self' flux-artifact:`.
+- **The bridge** (`artifactRules.artifactBridge`, served as `/__flux__/bridge.js`) is the page's only
+  line to the app: it posts `ready`, `state` (page, view = `location.search + hash`, scroll, current
+  heading), `outline` (h1 to h3), `selection`, `key` (chords), `pointer`, `open` (a web link) and
+  `blocked` (a CSP refusal), and obeys `scroll` and `jump`. `frameProtocol.parseFrameMessage` treats
+  every message as untrusted. Chords are re-dispatched on the frame element so Paper's and the
+  shell's window handlers see them (`appChord`: not Ctrl+C/V/X/A/Z, not Escape).
+- **In Paper** (`PaperMode.svelte`, block "Artifacts"): `artifactId` is per pane; the editor column
+  gets `hidden` (the CodeMirror session, undo history and comment owner stay alive), the margin
+  unmounts, and `ArtifactView` mounts in a sibling `.artifact-col`. **Alt+H** (`toggle-artifact`)
+  goes between the document and the artifact last shown. Under an artifact only `ARTIFACT_CHORDS`
+  of the window-owned Paper commands apply. `Outline` is reused as is (items =
+  the page's headings, `from` = index). The open artifact, page, view and scroll are saved in
+  localStorage `flux.paper.artifact:<root>` (page and view at once, scroll after a pause).
+- **Following the files.** The family watches each root (not past 1,500 folders) and records which
+  real files pages of the root were SERVED. A change reloads the open page only when the file was
+  served (a build's log and data nobody asked for yet reload nothing); any added or removed file or
+  changed `.html` re-lists. A load is always a NEW iframe: assigning the same address to a frame
+  whose URL has a hash only moves within the page. A RELOAD loads its frame under the one on
+  screen (`iframe.under`, z-index, both in view so the new one lays out and paints) and `swap`s it
+  in once the page has answered and reported the reader's scroll position (1.5 s after `ready` at
+  most, 4 s in all): the page does not blink or jump while an agent keeps rewriting it. Until the
+  swap the new frame's messages are held in `incoming`, never applied. The view is in the URL; the
+  scroll is restored by the bridge, retrying while the page fills itself in.
+- **The rail** (`ArtifactList.svelte`) is rendered INSIDE `DocumentPicker`'s scroll through its
+  `extra` snippet, so there is one scrollbar, one row height and one arrow-key walk. An artifact
+  row is a `.dp-item`; a head or group is an `.a-label`, which the picker walks as a folder
+  (`FOLDER_ROW`). It is deliberately NOT a `.folder-label` inside `[data-folder]`: that pair is
+  where a dragged document is dropped, and `verify-paper-files-gui` reads every `.folder-label`'s
+  `data-folder`.
+- **Agents.** `TargetRef` has kind `artifact` (`path`, `view`, `title`, `heading`, `quote`);
+  `ArtifactView` registers a target resolver, so Ctrl+Shift+M over a page stamps it and
+  `get_app_context` reports it. `inspectTarget` returns the page's folder listing and README (where
+  the build script is). `navigateToStamp` reopens the page from an inbox item.
+- **The dev fixture** has no file system and no custom protocol, so `memBridge.artifactsList` asks
+  the dev server's route, which runs the app's own lister and server over
+  `scripts/fixtures/artifacts` (`FLUX_DEV_ARTIFACT_DIR=<dir>` adds a real folder as the linked root).
+  There a page is same-site with the app, so the frame is sandboxed WITHOUT `allow-same-origin`.
+
 ### fluximg: N-dimensional images (2026-11-19)
 
 The on-disk contract is `docs/fluximg/SPEC.md` (fluximg/1); every module under `src/lib/fluximg/`
@@ -6472,6 +6542,27 @@ therefore re-runs per keystroke. Read `host.commentThreads` (threads only) and `
 `installDevHandle` rebuilds `window.__flux` wholesale at startup (keeping only `editors`), so a
 module that publishes dev telemetry at import time loses it — publish lazily (on first use).
 
+**Artifacts (2026-11-24):**
+
+- **`webContents.sendInputEvent` never reaches an out-of-process frame in a window-free run**
+  (`--ozone-platform=headless`, no compositor to hit-test into the frame): the click focused the
+  iframe element and no mouse event arrived in the page. Make input inside such a frame in the
+  frame (`frame.executeJavaScript("el.click()")`, a dispatched keydown). Where real pointer input
+  must be shown, `webContents.debugger` + `Input.dispatchMouseEvent` does route into the frame.
+- **`app.getPath("userData")` read before `electron/main.cjs` is required is `<config>/Electron`**,
+  not `<config>/flux`: a probe that seeds `preferences.json` writes it to
+  `$XDG_CONFIG_HOME/flux/` directly.
+- **A page on the dev server is `http:` like the web.** The bridge first treated every `http(s)`
+  link as "open in the browser", which made a link to the artifact's own second page do nothing in
+  the dev fixture while working in the app. "Here" is the page's own scheme AND host, compared as
+  text (a sandboxed page's origin is opaque).
+- **A dev-server middleware sees EVERY request, including ones it cannot parse.** A gate asked the
+  dev server for `//?fixture=demo`; `new URL(req.url, base)` threw outside the route's `try`, the
+  rejection was unhandled, and the dev server died under the eleven gates behind it. Parse inside
+  a `try` and call `next()`.
+- **A state saved on a delay is lost by a quick quit.** The open artifact's page and view are saved
+  when they change; only the scroll position waits for a pause.
+
 **fluximg (2026-11-19):**
 
 - **A Vite dev server started inside a `flux-wt/` worktree serves stale modules.** The repo's
@@ -6533,6 +6624,14 @@ node's `transform` attribute, which is why `effectNode` wraps a leaf that carrie
 
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
+- **Paper's artifacts are stage 1: a viewer (2026-11-24).** Deliberately not built yet: comments
+  ANCHORED in a page (a margin thread on a sentence or a plot point that survives the page being
+  regenerated; today a comment on a page is an Annotate note carrying picture, page, view, heading
+  and selected words); an `artifact.json` beside a page that names its build command; a
+  `flux artifacts` verb and a line in the connect brief telling an agent where the project keeps
+  them; a zoom control for the page; the dynamic margin beside a page. WebGL inside a page was not
+  exercised (the harnesses have no GPU); nothing in the frame's policy withholds it. A linked
+  folder is found only through the app: flux-core does not read `artifactDirs` yet.
 - **Release 2 follow-up F3 traps (2026-10-23).** (a) "**A transform is compiled against the element's BASE
   asset.** Every controller of a slide is built at mount, in story order, while the live content shows the base
   asset: anything a driver reads from the live DOM at compile time (a mark's polygon) is the BASE's, whatever the
@@ -14188,3 +14287,12 @@ order; an image entry's fields have one order in the export payload; an image's 
 - **Read the per-job log of a red run before the run ends:** `gh api repos/fluxsci/flux/actions/jobs/<jobId>/logs` works as soon as that JOB is complete (`gh run view --log` waits for the whole run, 40 minutes). A passing gate's lines are not in the log; its readings are in the `pure-verify-summary` artifact.
 - **A release from a checkout other people are using goes through a worktree.** The owner's app and recording takes load this checkout's `dist/`; `git worktree add -b release/X.Y.Z flux-wt/release-X.Y.Z main`, link `node_modules`, build and qualify there, push the branch to `main`, then fast-forward the main checkout.
 - **A changelog section is checked against the tag before it is renamed:** `git show v<previous>:CHANGELOG.md | grep -c "<headline>"` tells in one line whether a bullet under the previous release's heading was really in that release.
+
+### 2026-11-24 — Paper's artifacts, stage 1: HTML pages in a frame of their own (Claude Fable 5.2, `paper/artifacts`)
+**Work:** The owner's agents write HTML explorers (two were 55 MB and 258 MB of on-demand data files) and the owner wanted to read and comment on them inside Flux. Paper now lists a project's artifacts in the Files rail and shows one in place of the document, served over a new `flux-artifact:` protocol into a frame with its own origin and process, with the page's outline in the rail, reload in place when its files change, and Annotate stamping the page, its view, heading and selected words. Both real explorers ran unmodified.
+**Learnings:**
+- Promoted to §2 (the shared cores and gates), §3 (the folder link is a machine preference), §4 "Paper's artifacts" and §9 "Artifacts".
+- **Reload only for what was served.** A watcher that reloaded for any change under the folder would have reloaded a page once a second for the five minutes its build appends to a log. The protocol handler already knows which files each root's pages loaded.
+- **One server for the app and the dev fixture.** The dev route runs `electron/artifactServe.cjs` itself, so the GUI gate reads the listings, policy and bridge the app serves; only the address differs.
+- **A harness with no GPU says "WebGL is not supported" inside a page.** That is the harness: do not read it as the frame's policy.
+**Gates:** `verify-artifact-rules.ts` (pure), `verify-paper-artifacts-gui.mjs` (ui, in `paper-gate`), `verify-artifacts-electron.cjs` (electron, window-free).

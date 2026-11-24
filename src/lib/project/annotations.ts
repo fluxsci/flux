@@ -37,6 +37,9 @@ export interface ContextStamp {
   partSelection?: { elementId: string; partId: string } | null;
   viewport?: { panX: number; panY: number; zoom: number } | null;
   doc?: { path: string; from: number; to: number; quote: string; heading?: string } | null;
+  /** Paper showing an artifact (an HTML page): the page (`path`: project-relative inside the project, absolute outside
+   *  it), the page's own address tail (`view`, e.g. "#n=3"), the heading the reader was at and the words selected. */
+  artifact?: { path: string; view: string; title: string; heading?: string; quote?: string } | null;
   slide?: { deckId: string; slideIndex: number; beat: number; slideId?: string } | null;
   present?: { deckId: string; slideIndex: number; beat: number; slideId?: string } | null;
   /** `prefix`/`suffix`: the words around a live text selection (its anchor; see targets.ts "passage"). */
@@ -605,6 +608,7 @@ export function describeStamp(c: ContextStamp | null | undefined): string {
     bits.push(describeTarget(c.targets[0]));
     if (c.targets.length > 1) bits.push(`+${c.targets.length - 1} more`);
   } else {
+    if (c.artifact?.path) bits.push(`artifact ${c.artifact.path}${c.artifact.view}`);
     if (c.doc?.path) {
       bits.push(c.doc.path);
       if (c.doc.quote) bits.push(`"${c.doc.quote.length > 48 ? c.doc.quote.slice(0, 45) + "…" : c.doc.quote}"`);

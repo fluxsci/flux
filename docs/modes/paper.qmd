@@ -415,6 +415,43 @@ Threads are stored beside the document, never inside your prose. Resolved thread
 pane, shortened, to reopen or delete. If the text under a comment is edited away, the comment
 is kept as *Detached* rather than lost.
 
+# Artifacts
+
+An artifact is an HTML page an agent made for you to read: an interactive explorer of a
+dataset, a report with its plots. Paper shows artifacts where your documents are, so the page
+you are exploring and the notes you are writing about it share one window.
+
+**Where they come from.** Flux lists every page in the project's own `artifacts` folder, and
+in one more folder that you link: **Settings → Paper → Artifacts → Choose…**, or the folder
+button beside **Artifacts** in the Files rail. A linked folder is read where it is and never
+copied, so an explorer your analysis writes next to its data stays there. A folder with an
+`index.html` is one artifact, and its other pages become tabs; a lone `.html` file is an
+artifact of one page; any other folder groups the artifacts inside it.
+
+**Opening one.** Click it under **Files › Artifacts**, or press **Ctrl+K** and type
+*Open artifact*. It takes the document's card and the margin's room. The strip above the page
+names it, offers its other pages, and shows where in the page you are whenever the page keeps
+that in its address (`#rec=3&K=2`). The **Outline** lists the page's headings; click one to go
+there. **Alt+H** switches between the document and the artifact you last had open; the **×**
+at the end of the strip, or any document in the rail, also brings your document back exactly
+as you left it. Flux remembers which artifact you had open, on which page and
+where, and reopens the project there.
+
+**It follows the files.** When an agent rewrites the page or its data, the open page reloads
+and stays where you were. The first key in the strip holds the page still while you look at
+something; the next one reloads it by hand. The other two open the page in your browser and
+show its folder.
+
+**Commenting on a page.** Press **Ctrl+Shift+M** over an artifact to
+[annotate](../agents/annotations.qmd) it. The note carries a picture of what you see, the page,
+the view you were on, the heading you were under and any words you had selected, so an agent
+knows which recording and which plot you mean.
+
+**What a page may do.** A page is someone's program, so it runs in a compartment of its own: it
+cannot read your project or reach into Flux, and it is kept off the network. If a page asks
+for something from the web (a chart library, a font) the strip says **N blocked**; click that to
+allow the network for the folder the page is in.
+
 # Find and replace
 
 **Ctrl+F** opens the find bar at the top of the document; **Ctrl+Alt+F** opens it with
@@ -589,4 +626,6 @@ directly to the new position, and the caret blinks softly once you pause.
 | A figure embed shows no caption | The figure has no caption yet → write it in **Figure-Meta** (**Alt+M**) |
 | A Word export says figures will be missing | No render could be produced for the named figures → open Figure mode so they load, then export again. A figure with no render is not in the document at all, so this is an error, not a warning |
 | The word count is lower than your old count, or than a plain word processor's | Flux leaves out citations, code, equations, figure and table lines, Methods and back matter, the way journals count — see [Word counts](#word-counts). The total of every word is in the Statistics pane |
+| An artifact shows no plots, or looks unstyled | The page loads its chart library or styles from the web, and artifacts are kept off the network → click **N blocked** in the strip to allow it for that folder (see [Artifacts](#artifacts)) |
+| An artifact is not in the Files rail | Flux lists the project's `artifacts` folder and one linked folder → link the folder the page is in (**Settings → Paper → Artifacts**); pages inside hidden folders and `node_modules` are skipped |
 | A comment shows as *Detached* | Its anchored text was edited away — the thread is preserved; re-select and start a fresh one if needed |

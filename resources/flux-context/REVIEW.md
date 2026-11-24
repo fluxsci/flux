@@ -8,7 +8,7 @@ inbox for discovery so annotations and secondary-document comments are not misse
 
 An **annotation** comes from Ctrl+Shift+M in the app. Its stamp records the surface,
 selection and exact `targets`: a figure, plot part, text box, caption block, document
-range, slide, beat, animation track, Reader passage or library item. Snapshot marks
+range, slide, beat, animation track, Reader passage, library item or artifact page. Snapshot marks
 carry numbered arrows/boxes/pen strokes and their anchors. Treat the saved picture
 as the view at capture time; inspect the current target before editing.
 
@@ -26,6 +26,14 @@ the same words, in this or another project (each names the project it came from)
 them instead of repeating them. Your claim, replies and resolve note on such an item are
 copied onto the paper itself, where the user reads them beside the passage from every
 project, so write an answer that stands on its own there.
+
+An **artifact** target is an HTML page the user was reading in Paper (an explorer or report an
+agent wrote). `path` is the page: project-relative inside the project, absolute when it is in a
+linked folder outside it. `view` is the page's own address tail (`#rec=3&K=2`): which state the
+user was looking at. `heading` and `quote` say where on the page. The packet's target state
+lists the page's folder and quotes its README: the script that builds the page is usually
+there. Change the page by editing those sources and rebuilding in place; the open page reloads
+by itself and stays on the user's view. Never copy the page somewhere else to edit it.
 
 `get_target {target:…}` (in the core toolset through `flux_verb`) / `flux inspect <target>` reads current saved state without
 rendering. Pass the packet's TargetRef, or a shorthand such as

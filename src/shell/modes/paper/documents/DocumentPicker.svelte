@@ -1,6 +1,6 @@
 <script lang="ts">
   import { yieldsToShellModal } from "../../../agent/annotationVisibility";
-  import { tick, onDestroy, untrack } from 'svelte';
+  import { tick, onDestroy, untrack, type Snippet } from 'svelte';
   import type { DocEntry } from './documents';
   import { documentRemovalBlocker } from '../../../../lib/project/docOrder';
   import { parentDir, fileName } from '../../../../lib/project/documentFiles';
@@ -9,8 +9,10 @@
   import { paperTextScale } from '../view-mode/paperTextScaleStore';
   import { clampScale } from '../view-mode/paperTextScale';
 
-  let { docs, folders = [], root = 'paper', storageKey = '', activePath, onSelect, onNew, onFolder, onMove, onReorder, onDelete }: {
+  let { docs, folders = [], root = 'paper', storageKey = '', activePath, onSelect, onNew, onFolder, onMove, onReorder, onDelete, extra }: {
     docs: DocEntry[]; folders?: string[]; root?: string; storageKey?: string; activePath: string;
+    /** More of the project's files, listed under Context in the same scroll (Paper's artifacts). Given the filter, lower-cased. */
+    extra?: Snippet<[string]>;
     onSelect: (path: string) => void; onNew: (folder?: string) => void;
     onFolder?: (parent: string) => void; onMove?: (path: string, folder: string) => void;
     onReorder?: (path: string, toIndex: number) => void; onDelete?: (path: string) => void;
@@ -62,12 +64,14 @@
   // The files are a tree you can walk: ↑/↓ between the rows on show, → opens a folder or steps
   // into it, ← closes it or steps out to its folder, Home/End. Enter and Space are the row's
   // own click. Alt+↑/↓ (reorder) and Delete stay with the document row.
-  const navRows = () => [...scrollEl.querySelectorAll<HTMLElement>('.folder-label, .dp-item')];
+  // `.a-label` is a head or group of the `extra` section (artifacts): a folder to the walk, never a drop target.
+  const FOLDER_ROW = '.folder-label, .a-label';
+  const navRows = () => [...scrollEl.querySelectorAll<HTMLElement>(`${FOLDER_ROW}, .dp-item`)];
   function treeKey(e: KeyboardEvent) {
     if (e.altKey || e.ctrlKey || e.metaKey) return;
     const rows = navRows(), at = rows.indexOf(document.activeElement as HTMLElement);
     if (at < 0) return;
-    const row = rows[at], isFolder = row.classList.contains('folder-label'), open = row.getAttribute('aria-expanded') === 'true';
+    const row = rows[at], isFolder = row.matches(FOLDER_ROW), open = row.getAttribute('aria-expanded') === 'true';
     const depthOf = (el: HTMLElement) => Number(el.dataset.depth ?? 0);
     const go = (i: number) => { e.preventDefault(); rows[Math.max(0, Math.min(rows.length - 1, i))]?.focus(); };
     if (e.key === 'ArrowDown') go(at + 1);
@@ -77,7 +81,7 @@
     else if (e.key === 'ArrowRight' && isFolder) { if (!open) { e.preventDefault(); row.click(); } else go(at + 1); }
     else if (e.key === 'ArrowLeft') {
       if (isFolder && open) { e.preventDefault(); row.click(); }
-      else for (let i = at - 1; i >= 0; i--) if (rows[i].classList.contains('folder-label') && depthOf(rows[i]) < depthOf(row)) return go(i);
+      else for (let i = at - 1; i >= 0; i--) if (rows[i].matches(FOLDER_ROW) && depthOf(rows[i]) < depthOf(row)) return go(i);
     }
   }
   // Opening a document from the palette reveals its ancestors once; manual
@@ -222,6 +226,7 @@
       <ul class="dp-matches" aria-label="Matching documents">
         {#each matches.slice(0, MATCH_ROWS) as d (d.path)}<li style="--depth:0">{@render docRow(d, 0)}</li>{/each}
       </ul>
+      {@render extra?.(needle)}
       {#if !matches.length}<p class="dp-empty">No document matches “{filter.trim()}”.</p>
       {:else if matches.length > MATCH_ROWS}<p class="dp-empty">The first {MATCH_ROWS} of {matches.length.toLocaleString()}. Keep typing to narrow it down.</p>{/if}
     {:else}
@@ -230,6 +235,7 @@
       {#if !docItems.length && !collapsed.includes(root)}<p class="dp-empty">Create a document to get started.</p>{/if}
       {@render folderRow('Context', 'Context', 0, true)}
       <ul aria-label="Context" style={`padding-top:${contextWindow.before}px;padding-bottom:${contextWindow.after}px`}>{@render treeRows(contextWindow.rows)}</ul>
+      {@render extra?.('')}
     {/if}
   </div>
   <div class="dp-footer">

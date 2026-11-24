@@ -303,6 +303,16 @@ export interface FileBridge {
   videoMediaUrl?(request: { root: string; path: string }): Promise<string>;
   videoGalleryUrl?(request: { root: string; path: string }): Promise<string>;
   releaseVideoGalleryUrl?(url: string): Promise<void>;
+  // Paper's artifacts (electron/ipc/artifacts.cjs): HTML pages listed from the project's artifacts/
+  // folder and one folder linked on this machine. Read-only: list, link, serve, watch.
+  artifactsList?(root: string): Promise<import("../artifacts/types").ArtifactListing>;
+  /** Link a folder of artifacts to this project (null unlinks it). Machine preference, never project.json. */
+  artifactsSetDir?(root: string, dir: string | null): Promise<import("../artifacts/types").ArtifactListing>;
+  /** Let pages of one artifact folder reach the network. Off unless the reader turns it on. */
+  artifactsSetNetwork?(root: string, dir: string, allow: boolean): Promise<boolean>;
+  artifactsReveal?(root: string, path: string): Promise<boolean>;
+  artifactsOpenInBrowser?(root: string, path: string): Promise<boolean>;
+  onArtifactsChanged?(cb: (info: import("../artifacts/types").ArtifactsChanged) => void): () => void;
   /** Copies deck-owned media between two decks of the project, never over a file. `intoSavedDeck`: the destination is a saved deck
    *  (slides copied or moved there); without it the destination must not be published yet (a deck being duplicated). */
   copySlideVideoAssets?(request: { root: string; sourceDeckId: string; deckId: string; paths: string[]; intoSavedDeck?: boolean }): Promise<void>;

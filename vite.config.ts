@@ -4,6 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 // Dev server only: the in-memory bridge converts TIFFs through this route to the real converter child (fluximg stage 2).
 import { tiffDevPlugin } from "./scripts/lib/tiffDevRoutes.mjs";
+// Dev server only: the in-memory bridge lists and frames Paper's artifacts through this route to the app's own lister and file server.
+import { artifactDevPlugin } from "./scripts/lib/artifactDevRoutes.mjs";
 
 // Serve pdf.js's resource dirs (standard_fonts, cmaps, wasm) at /pdfjs/… . pdf.js needs
 // these to render non-embedded fonts (else Latin text falls back to the Symbol font and
@@ -57,7 +59,7 @@ export default defineConfig({
   // Worktrees can share node_modules. Their dependency graphs must not share
   // Vite's default optimizer cache or one server invalidates another's imports.
   cacheDir: path.resolve(".generated/vite-cache"),
-  plugins: [svelte(), pdfjsAssets(), cspStrict(), tiffDevPlugin(), {
+  plugins: [svelte(), pdfjsAssets(), cspStrict(), tiffDevPlugin(), artifactDevPlugin(), {
     name: "flux-slide-embed-csp",
     transformIndexHtml(html) {
       // The embed runtime, and the conditional 3D and image runtimes a document with models / images inlines.

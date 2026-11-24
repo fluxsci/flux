@@ -3,7 +3,7 @@ import type { ContextStamp } from "../lib/project/annotations";
 import { get } from "svelte/store";
 import { setFocusedMode, panes, focusedMode, focusPane } from "./paneStore";
 import type { ModeId } from "./shellStore";
-import { requestOpenDoc, requestOpenSlide, openFigureRequest, openLibraryRequest } from "./command/commandBus";
+import { requestOpenDoc, requestOpenSlide, requestOpenArtifact, openFigureRequest, openLibraryRequest } from "./command/commandBus";
 
 function focusMode(mode: ModeId) {
   if (get(focusedMode) === mode) return;
@@ -21,7 +21,11 @@ export async function navigateToStamp(stamp: ContextStamp): Promise<void> {
   const deck = stamp.slide ?? stamp.present;
   const figure = targets.find(t => "figureId" in t);
   const passage = targets.find(t => t.kind === "passage") ?? stamp.reader;
-  if (doc && (stamp.surface === "paper" || !figure && !slide && !passage)) {
+  const artifact = targets.find(t => t.kind === "artifact") ?? stamp.artifact;
+  if (artifact) {
+    // Focus first: the request is taken by the focused Paper pane.
+    focusMode("paper"); requestOpenArtifact({ ref: artifact.path, view: artifact.view ?? "" });
+  } else if (doc && (stamp.surface === "paper" || !figure && !slide && !passage)) {
     requestOpenDoc(doc.path, doc); focusMode("paper");
   } else if (slide || deck) {
     requestOpenSlide(slide?.deckId ?? deck!.deckId, slide?.slideId ?? deck?.slideId, {

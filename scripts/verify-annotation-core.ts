@@ -42,6 +42,7 @@ const samples: TargetRef[] = [
   { kind: "track", deckId: "talk", slideId: "s3", trackId: "t12", family: "appearance", beat: 2 },
   { kind: "passage", citekey: "smith2020", page: 4, quote: "we find" },
   { kind: "library-item", citekey: "smith2020" },
+  { kind: "artifact", path: "artifacts/explorer/index.html", view: "#n=3", title: "Growth explorer" },
   { kind: "region", surface: "figure", rect: { x: 10, y: 20, w: 300, h: 200 } },
 ];
 h.eq(new Set(samples.map((s) => s.kind)).size, TARGET_KINDS.length, "every target kind has a sample");

@@ -28,7 +28,8 @@ the top centre (it says **view frozen**, so you know the app is not hung) and a 
 at the bottom right, headed **Flux AI │ Annotate** and where you are. The small mark beside
 that (a small living network on the points of the Flux logo) is blue when what you add goes straight to
 an agent that is listening, and the logo's own colours when it goes to the Inbox. Hover to see the target's outline and name: a plot series, text box,
-figure, caption, paragraph, slide, animation clip, PDF passage, or reference. Target chips
+figure, caption, paragraph, slide, animation clip, PDF passage, reference, or the
+[artifact](../modes/paper.qmd#artifacts) page you are on (with its view, heading and selected words). Target chips
 name things in words (the full name with its id is the tooltip); hovering a numbered chip
 lights up its mark on the picture.
 

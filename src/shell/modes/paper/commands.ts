@@ -36,6 +36,9 @@ export interface PaperCmdCtx {
   openFigRefPicker(): void;
   outlinerOpen(): boolean;
   toggleOutliner(): void;
+  /** An artifact (an HTML page) is showing in place of the document. */
+  artifactShown(): boolean;
+  toggleArtifact(): void;
   marginOpen(): boolean;
   toggleMargin(): void;
   summonPane(kind: string): void;
@@ -223,6 +226,15 @@ export const PAPER_COMMANDS: PaperCommandRow[] = [
     run: (c) => c.toggleOutliner(),
   },
   {
+    // H for HTML: between the document and the artifact last shown (the first one, if none was).
+    id: "toggle-artifact",
+    title: (c) => (c.artifactShown() ? "Back to the document" : "Show artifact"),
+    keys: ["Alt+KeyH"],
+    owner: "window",
+    keywords: "artifact html page explorer report document switch toggle mode",
+    run: (c) => c.toggleArtifact(),
+  },
+  {
     id: "toggle-margin",
     title: (c) => (c.marginOpen() ? "Hide dynamic margin" : "Show dynamic margin"),
     // Mod+Shift+B matches the figure + slide right-rail chord. Paper's former
@@ -333,10 +345,11 @@ export function paletteFromTable(ctx: PaperCmdCtx): {
   }));
 }
 
-/** Table-driven window dispatcher. Returns true when a chord fired. */
-export function dispatchWindowKey(e: KeyboardEvent, ctx: PaperCmdCtx): boolean {
+/** Table-driven window dispatcher. Returns true when a chord fired. `only` narrows it to the
+ *  commands that still mean something (an artifact is showing in place of the document). */
+export function dispatchWindowKey(e: KeyboardEvent, ctx: PaperCmdCtx, only?: ReadonlySet<string>): boolean {
   for (const row of PAPER_COMMANDS) {
-    if (row.owner !== "window" || !row.keys) continue;
+    if (row.owner !== "window" || !row.keys || (only && !only.has(row.id))) continue;
     for (const chord of row.keys) {
       if (matchesChord(e, chord)) {
         e.preventDefault();

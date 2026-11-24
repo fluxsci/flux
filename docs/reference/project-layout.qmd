@@ -20,6 +20,9 @@ A Flux project is a plain folder whose marker is `project.json`. Here is the can
 │   ├── _videos/                 #   video clips for slides
 │   ├── pasted/                  #   originals of images pasted from the clipboard
 │   └── paper_snips/             #   regions snipped out of PDFs in the reader
+├── artifacts/                   # YOURS — HTML pages an agent made for you (optional)
+│   ├── growth_explorer/         #   a folder with an index.html is one artifact
+│   └── reports/summary.html     #   a lone page is one too; other folders group them
 ├── fig/                         # APP-MANAGED — the figure subsystem
 │   ├── index.json               #   canvases + figures rollup
 │   ├── canvases/<id>.json       #   the real compositions (figures → elements)
@@ -47,7 +50,7 @@ A Flux project is a plain folder whose marker is `project.json`. Here is the can
 
 | Kind | Paths | Rule |
 |---|---|---|
-| **Yours — edit freely** | `paper/**.qmd` (legacy: `manuscript/`), `plots/`, `references/library.bib` | Source of truth. Edit in Flux, another editor, or a script — all equivalent. |
+| **Yours — edit freely** | `paper/**.qmd` (legacy: `manuscript/`), `plots/`, `artifacts/`, `references/library.bib` | Source of truth. Edit in Flux, another editor, or a script — all equivalent. |
 | **Co-owned with agents** | `Context/` | ProjectContext links the background agents need; rules are yours; the Log gets new entries only when requested. |
 | **App-managed** | `fig/`, `slides/` | Readable JSON, but change it through the app or [`flux` commands](cli.qmd) so indexes and captions stay coherent. |
 | **Derived** | `fig/renders/`, `exports/`, caches | Rebuildable output. Safe to ignore in backups and version control. |
@@ -77,6 +80,11 @@ A Flux project is a plain folder whose marker is `project.json`. Here is the can
   New folders contain a hidden `.flux-folder` marker so intentional empty folders, including
   those with generated-looking names, remain visible. Existing ordinary folders need no marker.
   These visibility rules never remove files from disk.
+- **`artifacts/` holds pages, not project data.** Flux only ever reads it: it lists the pages
+  for [Paper](../modes/paper.qmd#artifacts), shows them, and reloads the open one when its
+  files change. A folder of artifacts kept somewhere else (beside the analysis that writes
+  them) can be linked to the project in **Settings → Paper → Artifacts**; that link is stored
+  on your computer, not in `project.json`, because it is a path on this machine.
 - **`plots/` is a drop-zone with no imposed structure** — organize it however your analysis
   does. Flux only reads it, copying what you compose into `fig/assets/`. See
   [semantic plots](../concepts/semantic-plots.qmd) for the three-file contract. Two

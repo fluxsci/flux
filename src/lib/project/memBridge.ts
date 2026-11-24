@@ -100,6 +100,7 @@ export function createMemBridge(): FileBridge & {
   _files: Map<string, Uint8Array>;
   _dirs: Set<string>;
   _emitFsChange: (info: { subsystem: string; path: string }) => void;
+  _emitArtifactsChanged: (info: import("../artifacts/types").ArtifactsChanged) => void;
   /** Dev/test: write a bundle (bundle-relative path → bytes or base64) at a project-relative
    *  `plots/…/<name>.fluximg` or `fig/assets/<id>.fluximg`, replacing what was there. Returns its path. */
   _seedFluximg: (root: string, bundle: string, files: Record<string, string | Uint8Array>) => string;
@@ -260,6 +261,8 @@ export function createMemBridge(): FileBridge & {
     return { path: fxr.fluximgAssetPath(id), sha256: contentId, bytes: total, files: found.length, manifest, method: "copy" };
   }
 
+  const artifactListeners = new Set<(info: import("../artifacts/types").ArtifactsChanged) => void>();
+  const artifactNetwork = new Set<string>();
   // TIFF → image bundle: the twin of electron/ipc/tiff.cjs (memTiff.ts), converting through the dev server's route.
   const memTiff = createMemTiff({
     files, isDir: memIsDir, addDir, ensureParent, norm, resolve: memResolve, sha256, mtime: (p) => mtimes.get(norm(p)) ?? 0,
@@ -525,6 +528,34 @@ export function createMemBridge(): FileBridge & {
     onFsChangedBatch(cb) {
       batchListeners.add(cb);
       return () => batchListeners.delete(cb);
+    },
+    // Paper's artifacts: the twin of electron/ipc/artifacts.cjs. The listing and the pages come from
+    // the dev server's route (scripts/lib/artifactDevRoutes.mjs), which runs the app's own lister and
+    // file server over scripts/fixtures/artifacts; a page is framed from that route. Linking a folder
+    // and the network switch are remembered for the session only.
+    async artifactsList() {
+      const r = await fetch("/__flux-dev/artifacts/list");
+      if (!r.ok) throw new Error(`Artifacts are unavailable in this fixture (${r.status})`);
+      const listing = await r.json() as import("../artifacts/types").ArtifactListing;
+      for (const root of listing.roots) root.network = artifactNetwork.has(root.dir);
+      return listing;
+    },
+    async artifactsSetDir() {
+      throw new Error("Linking a folder needs the desktop app");
+    },
+    async artifactsSetNetwork(_root, dir, allow) {
+      if (allow) artifactNetwork.add(dir); else artifactNetwork.delete(dir);
+      return allow;
+    },
+    async artifactsReveal() { return false; },
+    async artifactsOpenInBrowser() { return false; },
+    onArtifactsChanged(cb) {
+      artifactListeners.add(cb);
+      return () => artifactListeners.delete(cb);
+    },
+    /** Dev-only: what the desktop app's artifact watcher would push. */
+    _emitArtifactsChanged(info: import("../artifacts/types").ArtifactsChanged) {
+      for (const cb of artifactListeners) cb(info);
     },
     // Dev-only stand-in for Electron's win:capture (Snapshot & annotate): a PNG the size of
     // the window, so the overlay's ASYNC capture path — the one every real build takes — runs
@@ -1034,6 +1065,8 @@ export async function installDemoFixture(): Promise<string> {
   (window as unknown as { fig?: FileBridge }).fig = bridge;
   // Dev-only: let the headless harness simulate an external (agent/script) write.
   (window as unknown as { __fluxEmitFsChange?: unknown }).__fluxEmitFsChange = bridge._emitFsChange;
+  // Dev-only: simulate the artifact watcher (a page's files changed on disk).
+  (window as unknown as { __fluxEmitArtifactsChanged?: unknown }).__fluxEmitArtifactsChanged = bridge._emitArtifactsChanged;
   // Dev-only: put a .fluximg bundle (written in Node by the reference writer, files as base64) into the
   // demo project, e.g. __fluxSeedFluximg("plots/cells.fluximg", { "fluximg.json": "…", … }).
   (window as unknown as { __fluxSeedFluximg?: unknown }).__fluxSeedFluximg = (bundle: string, content: Record<string, string>) =>

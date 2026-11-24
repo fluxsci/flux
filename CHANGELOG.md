@@ -9,6 +9,19 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 
 ## Unreleased
 
+### Paper
+
+- **Artifacts: read an agent's HTML pages inside Paper.** An explorer or report an agent wrote
+  as a web page now opens in Paper, in place of the document. Flux lists the pages in the
+  project's `artifacts` folder and in one folder you link (**Settings → Paper → Artifacts**,
+  read where it is, never copied) under **Files › Artifacts**. The strip above a page names
+  it, offers its other pages and shows where in it you are; the Outline lists its headings.
+  When an agent rewrites the page or its data, the open page reloads in place and stays where
+  you were. **Ctrl+Shift+M** over a page sends a note that names the page, the view you were
+  on, the heading and the words you selected. A page runs in a compartment of its own: it
+  cannot read your project or reach into Flux, and it is kept off the network unless you
+  allow it for its folder.
+
 ## 0.4.0 — 2026-11-23
 
 ### Security

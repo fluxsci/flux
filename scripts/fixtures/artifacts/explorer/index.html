@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Growth explorer</title>
+<link rel="stylesheet" href="style.css">
+<script src="data.js"></script>
+</head>
+<body>
+<header class="top">
+  <label>Series <select id="series"></select></label>
+  <nav><a href="#s-curve">Curve</a><a href="#s-table">Table</a><a href="methods.html" id="to-methods">Methods →</a></nav>
+</header>
+<main>
+  <p class="eyebrow">Fixture artifact · interactive</p>
+  <h1>Growth under nutrient stress</h1>
+  <p id="lede">Pick a series; the page keeps the choice in its address, so a reload comes back to it.</p>
+  <h2 id="s-curve">Curve</h2>
+  <svg id="curve" viewBox="0 0 600 220" role="img" aria-label="Growth curve"></svg>
+  <h2 id="s-table">Table</h2>
+  <table id="table"><thead><tr><th>Hour</th><th>Length (mm)</th></tr></thead><tbody></tbody></table>
+  <h3 id="s-notes">Notes</h3>
+  <p>The control series plateaus by 18 h. The stressed series keeps rising.</p>
+  <p>Background: <a href="https://example.org/growth" id="to-web">the method on the web</a>.</p>
+  <div class="tall" aria-hidden="true"></div>
+  <h2 id="s-end">End</h2>
+  <p id="stamp"></p>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

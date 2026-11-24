@@ -4,7 +4,13 @@
 
   import { paperHeading } from "../../../lib/bridge/contextStamp";
   import { registerPaperTargets, nearestHeading } from "./paperTargets";
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, untrack } from "svelte";
+  import ArtifactView, { type ArtifactPlace } from "./artifacts/ArtifactView.svelte";
+  import ArtifactList from "./artifacts/ArtifactList.svelte";
+  import { artifactListing, refreshArtifacts, chooseArtifactFolder } from "../../../lib/artifacts/artifactStore";
+  import { allArtifacts, artifactForRef, findArtifact, pageRef, rootOf } from "../../../lib/artifacts/tree";
+  import type { OutlineEntry } from "../../../lib/artifacts/frameProtocol";
+  import { artifactContext } from "../../../lib/bridge/contextStamp";
   import { registerCommentOwner } from "../../../lib/project/commentBridge";
   import { commentsSidecarRels } from "../../../lib/project/docOrder";
   import { get } from "svelte/store";
@@ -37,7 +43,7 @@
   import TitleEditor from "./TitleEditor.svelte";
   import CommandPalette from "../../command/CommandPalette.svelte";
   import type { Command } from "../../command/commands";
-  import { paperPaletteRequest, openDocRequest } from "../../command/commandBus";
+  import { paperPaletteRequest, openDocRequest, openArtifactRequest } from "../../command/commandBus";
   import { contextCommands } from "../../command/globalCommands";
   import { makePaperSelectionWatcher } from "./paperContext";
   import { paperSelection, setPaperContextDoc, publishPaperSelection } from "../../../lib/project/paperSelectionStore";
@@ -2777,6 +2783,8 @@
     openFigRefPicker,
     outlinerOpen: () => $paperLayout.outlinerOpen,
     toggleOutliner,
+    artifactShown: () => artifactShown,
+    toggleArtifact,
     marginOpen: () => $paperLayout.dynMarginOpen,
     toggleMargin,
     summonPane: (kind) => summonPane(kind as Parameters<typeof summonPane>[0]),
@@ -2879,11 +2887,137 @@
     });
     view.focus();
   }
+  // ---- Artifacts: the project's HTML pages, shown in this pane in place of the document ------
+  // Opening one from the Files rail (or the palette, or an inbox item) puts it in the centre
+  // card. The document's editor stays mounted, hidden: its session, undo history and comment
+  // owner are untouched, and coming back to it is instant. Which artifact, which page and where
+  // in it are remembered per project.
+  const ARTIFACT_CHORDS: ReadonlySet<string> = new Set(["toggle-outliner", "toggle-artifact"]);
+  const artifactKey = `flux.paper.artifact:${pm?.root ?? ""}`;
+  type SavedArtifact = { open: boolean; id: string; page?: string; view?: string; scrollY?: number };
+  function savedArtifact(): SavedArtifact | null {
+    try {
+      const v = JSON.parse(localStorage.getItem(artifactKey) || "null") as SavedArtifact | null;
+      return v && typeof v.id === "string" && v.id ? { open: v.open === true, id: v.id, page: typeof v.page === "string" ? v.page : undefined, view: typeof v.view === "string" ? v.view : undefined, scrollY: typeof v.scrollY === "number" && v.scrollY > 0 ? v.scrollY : undefined } : null;
+    } catch { return null; }
+  }
+  let artifactId = $state<string | null>(null);
+  let artifactStart = $state<{ page?: string; view?: string; scrollY?: number; n: number }>({ n: 0 });
+  let artifactPlace = $state<ArtifactPlace | null>(null);
+  let artifactOutline = $state<OutlineEntry[]>([]);
+  let artifactView = $state<ReturnType<typeof ArtifactView> | undefined>(undefined);
+  const shownArtifact = $derived(findArtifact($artifactListing, artifactId));
+  const shownArtifactRoot = $derived(rootOf($artifactListing, shownArtifact));
+  const artifactShown = $derived(!!shownArtifact && !!shownArtifactRoot);
+  let artifactSaveTimer: ReturnType<typeof setTimeout> | undefined;
+  function saveArtifactNow(open = !!artifactId) {
+    clearTimeout(artifactSaveTimer);
+    const id = artifactId ?? savedArtifact()?.id;
+    if (!id) return;
+    try { localStorage.setItem(artifactKey, JSON.stringify({ open, id, page: artifactPlace?.page, view: artifactPlace?.view, scrollY: artifactPlace?.scrollY } satisfies SavedArtifact)); } catch { /* private mode */ }
+  }
+  function openArtifact(id: string, at: { page?: string; view?: string; scrollY?: number } = {}) {
+    const same = id === artifactId;
+    if (same && at.page === undefined && at.view === undefined) return;
+    // Coming back to the artifact last shown, with no place asked for: where the reader left it.
+    const saved = at.page === undefined && at.view === undefined ? savedArtifact() : null;
+    if (!same && saved?.id === id) at = { page: saved.page, view: saved.view ?? "", scrollY: saved.scrollY };
+    if (!same) { artifactPlace = null; artifactOutline = []; }
+    artifactId = id;
+    artifactStart = { ...at, n: artifactStart.n + 1 };
+    saveArtifactNow(true);
+  }
+  function closeArtifact() {
+    if (!artifactId) return;
+    saveArtifactNow(false);
+    artifactId = null;
+    artifactPlace = null;
+    artifactOutline = [];
+    // The editor was display:none: let it measure itself again, then take the keyboard back.
+    queueMicrotask(() => { view?.requestMeasure(); if (focused) view?.focus(); });
+  }
+  /** Alt+H: from the document to the artifact last shown (else the first), and back. */
+  function toggleArtifact() {
+    if (artifactShown) return closeArtifact();
+    const listing = $artifactListing, saved = savedArtifact();
+    const last = saved ? findArtifact(listing, saved.id) : null;
+    const first = last ?? allArtifacts(listing)[0];
+    if (!first) { pushToast("info", "This project has no artifacts yet", { detail: "Link a folder of HTML pages in Settings → Paper → Artifacts." }); return; }
+    openArtifact(first.id);
+  }
+  function onArtifactPlace(place: ArtifactPlace) {
+    const moved = place.page !== artifactPlace?.page || place.view !== artifactPlace?.view;
+    artifactPlace = place;
+    // Which page and which view are saved as they change (quitting a moment later keeps them);
+    // only the scroll position, which changes all the time, waits for a pause.
+    if (moved) return saveArtifactNow();
+    clearTimeout(artifactSaveTimer);
+    artifactSaveTimer = setTimeout(() => saveArtifactNow(), 400);
+  }
+  async function linkArtifacts() {
+    if (!pm) return;
+    const problem = await chooseArtifactFolder(pm.root);
+    if (problem) pushToast("error", "That folder was not linked", { detail: problem });
+  }
+  // The list arrives once per project open; the artifact left open last time comes back with it.
+  let artifactRestored = false;
+  $effect(() => {
+    const listing = $artifactListing;
+    if (!listing || artifactRestored) return;
+    artifactRestored = true;
+    untrack(() => {
+      const saved = savedArtifact();
+      if (saved?.open && !artifactId && findArtifact(listing, saved.id)) openArtifact(saved.id, { page: saved.page, view: saved.view ?? "", scrollY: saved.scrollY });
+    });
+  });
+  // "Show this artifact" from outside the pane (an inbox item's target, the shell palette).
+  let seenArtifactReq = 0;
+  $effect(() => {
+    const req = $openArtifactRequest, listing = $artifactListing;
+    if (!req || !focused || !listing || req.n === seenArtifactReq) return;
+    seenArtifactReq = req.n;
+    untrack(() => {
+      const byId = req.id ? findArtifact(listing, req.id) : null;
+      const hit = byId ? { artifact: byId, page: undefined as string | undefined } : req.ref ? artifactForRef(listing, req.ref) : null;
+      if (hit) openArtifact(hit.artifact.id, { page: hit.page, view: req.view ?? "" });
+      else pushToast("info", "That artifact is not in this project's artifact folders", { detail: req.ref });
+      openArtifactRequest.set(null);
+    });
+  });
+  // The feedback stamp: while this pane shows an artifact, "this" is the page, not the document.
+  $effect(() => {
+    if (!focused) return;
+    const a = shownArtifact, place = artifactPlace;
+    artifactContext.set(a && artifactShown ? {
+      path: pageRef(a, place?.page || a.entry), view: place?.view ?? "", title: place?.title || a.title,
+      heading: artifactOutline[place?.heading ?? -1]?.text, quote: place?.selection ?? "",
+    } : null);
+    return () => artifactContext.set(null);
+  });
+  // The rail's Outline half reads the page's headings while an artifact shows.
+  const artifactOutlineItems = $derived(artifactOutline.map((h, i) => ({ level: h.level, text: h.text, from: i })).filter((h) => h.text));
+  let artifactFolded = $state<string[]>([]);
+  const artifactFoldedSet = $derived(new Set(artifactFolded));
+  const toggleArtifactFold = (key: string) => (artifactFolded = artifactFolded.includes(key) ? artifactFolded.filter((k) => k !== key) : [...artifactFolded, key]);
+  const artifactCommands = $derived<Command[]>([
+    ...allArtifacts($artifactListing).slice(0, 60).map((a) => ({
+      id: `artifact-open-${a.id}`,
+      title: `Open artifact: ${a.title}`,
+      hint: "Artifact",
+      keywords: `artifact html page explorer report ${a.rel}`,
+      run: () => openArtifact(a.id),
+    })),
+    ...(artifactShown ? [{ id: "artifact-reload", title: "Reload artifact", hint: "Artifact", keywords: "artifact reload refresh page", run: () => artifactView?.reload() }] : []),
+    ...(pm && fileBridge()?.artifactsSetDir ? [{ id: "artifact-link", title: "Link a folder of artifacts…", hint: "Artifact", keywords: "artifact folder directory html link choose settings", run: () => void linkArtifacts() }] : []),
+  ]);
+  onMount(() => { if (pm) void refreshArtifacts(pm.root); });
+  onDestroy(() => { if (artifactId) saveArtifactNow(); clearTimeout(artifactSaveTimer); });
   const commands = $derived<Command[]>([
     ...paletteFromTable(cmdCtx),
     // Context/agent commands — same set as the shell
     // GlobalPalette, but opening docs stays in-pane via loadDocument.
-    ...contextCommands({ inPaper: true, openDoc: (rel) => void loadDocument(rel) }),
+    ...contextCommands({ inPaper: true, openDoc: (rel) => { closeArtifact(); void loadDocument(rel); } }),
+    ...artifactCommands,
     ...[25, 50, 75, 100, null].map((pct) => ({
       id: `fig-width-${pct ?? "auto"}`,
       title: pct ? `Figure width ${pct}%` : "Figure width auto",
@@ -2937,6 +3071,7 @@
     if (claimer) { focusPane(claimer); return; }
     if (req.n !== seenDocReq) {
       seenDocReq = req.n;
+      closeArtifact();
       void loadDocument(req.path);
     }
     // A newly loaded document creates its EditorView on the next mount.
@@ -2960,12 +3095,14 @@
     // Keep overlays/search inputs on their ordinary bubbling route.
     const capturePaneCommand = (e: KeyboardEvent) => {
       if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
-      if (e.target instanceof Node && view?.contentDOM.contains(e.target) && dispatchWindowKey(e, cmdCtx)) e.stopPropagation();
+      if (e.target instanceof Node && view?.contentDOM.contains(e.target) && dispatchWindowKey(e, cmdCtx, artifactShown ? ARTIFACT_CHORDS : undefined)) e.stopPropagation();
     };
     const h = (e: KeyboardEvent) => {
       if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
-      // Table-driven chords first (view toggle, margin panes, …).
-      if (dispatchWindowKey(e, cmdCtx)) return;
+      // Table-driven chords first (view toggle, margin panes, …). Under an artifact only the
+      // pane's own layout chords apply: the rest act on a document that is not on screen.
+      if (dispatchWindowKey(e, cmdCtx, artifactShown ? ARTIFACT_CHORDS : undefined)) return;
+      if (artifactShown) return;
       // Esc layering guards — MODAL, kept verbatim (not commands).
       if (e.key === "Escape" && exportOpen) {
         // The export menu is not mouse-only — Esc closes it and returns to the editor.
@@ -3010,13 +3147,22 @@
         style={`flex-basis:${sidebarW}px;${panelScaleStyle($paperTextScale.scale.sidebar)}`}>
         <PaperSidebar>
           {#snippet outlineContent()}
-            <Outline items={outline} title={meta.title} {activeFrom} collapsed={collapsedSet} counts={wordCounts.outline} onJump={jump} onToggleCollapse={toggleCollapse} />
+            {#if artifactShown && shownArtifact}
+              <Outline items={artifactOutlineItems} title={artifactPlace?.title || shownArtifact.title} activeFrom={artifactPlace?.heading ?? -1} collapsed={artifactFoldedSet} onJump={(i) => artifactView?.jump(i)} onToggleCollapse={toggleArtifactFold} />
+            {:else}
+              <Outline items={outline} title={meta.title} {activeFrom} collapsed={collapsedSet} counts={wordCounts.outline} onJump={jump} onToggleCollapse={toggleCollapse} />
+            {/if}
           {/snippet}
           {#snippet files()}
             {#if !isDemo}
               <DocumentPicker {docs} {folders} root={pm ? documentRoot(pm.manifest) : "paper"} storageKey={pm?.root ?? ""}
-                activePath={activeDocPath} onSelect={loadDocument} onNew={newDocument} onFolder={newFolder}
-                onMove={moveDoc} onReorder={reorderDoc} onDelete={requestDeleteDoc} />
+                activePath={artifactShown ? "" : activeDocPath} onSelect={(p) => { closeArtifact(); void loadDocument(p); }} onNew={newDocument} onFolder={newFolder}
+                onMove={moveDoc} onReorder={reorderDoc} onDelete={requestDeleteDoc}>
+                {#snippet extra(needle: string)}
+                  <ArtifactList listing={$artifactListing} activeId={artifactShown ? artifactId : null} {needle} storageKey={pm?.root ?? ""}
+                    canLink={!!fileBridge()?.artifactsSetDir && !!fileBridge()?.openDirectory} onOpen={(id) => openArtifact(id)} onLink={() => void linkArtifacts()} />
+                {/snippet}
+              </DocumentPicker>
             {/if}
           {/snippet}
         </PaperSidebar>
@@ -3031,7 +3177,16 @@
         ondblclick={resetLrW}>
       </div>
     {/if}
-    <div class="editor-col ts-scaled" inert={documentBusy} bind:this={colEl} style={gutterStyle}>
+    {#if artifactShown && shownArtifact && shownArtifactRoot && pm}
+      <div class="artifact-col" data-artifact-surface>
+        {#key shownArtifact.id}
+          <ArtifactView bind:this={artifactView} artifact={shownArtifact} root={shownArtifactRoot} projectRoot={pm.root} start={artifactStart} {focused}
+            onPlace={onArtifactPlace} onOutline={(items) => (artifactOutline = items)} onFocus={() => { if (paneId) focusPane(paneId); }}
+            onClose={closeArtifact} onNetwork={() => void refreshArtifacts(pm.root)} />
+        {/key}
+      </div>
+    {/if}
+    <div class="editor-col ts-scaled" inert={documentBusy} hidden={artifactShown} bind:this={colEl} style={gutterStyle}>
       {#if ready && blockedByTwin}
         <!-- Dual-paper B4: the project's only document is open in the other
              pane — no second live editor on one file. The document rail stays
@@ -3110,7 +3265,7 @@
         {/if}
       {/if}
     </div>
-    {#if $paperLayout.dynMarginOpen}
+    {#if $paperLayout.dynMarginOpen && !artifactShown}
       <div
         class="dm-wrap ts-scaled"
         style="flex:0 0 {$paperLayout.dynMarginW}px;{panelScaleStyle($paperTextScale.scale.margin)}">
@@ -3413,6 +3568,18 @@
     border-radius: var(--r-3);
     background: var(--flx-paper);
   }
+  /* An artifact takes the document's card and the margin's room: pages want the width. */
+  .artifact-col {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    border: 1.5px solid var(--c-edge);
+    border-radius: var(--r-3);
+    background: var(--flx-paper);
+    overflow: hidden;
+  }
+  .editor-col[hidden] { display: none; }
   /* Dual-paper: the "document is open in the other pane" card. */
   .twin-blocked {
     height: 100%;

@@ -528,6 +528,7 @@ export const SECTIONS: ShortcutSection[] = [
         title: "Panels",
         rows: [
           r("Alt+O", "Left panel: documents and outline (drag its edge to resize)"),
+          r("Alt+H", "Show the last artifact (an agent's HTML page) / back to the document"),
           r("Mod+Shift+B", "Dynamic margin"),
           r("Alt+R", "Reference search"),
           r("Alt+F", "Figures"),

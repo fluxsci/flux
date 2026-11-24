@@ -1,5 +1,6 @@
 // Read current target state from saved project files; never render to inspect.
 import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import { parseTarget, formatTarget, describeTarget, type TargetRef } from "../src/lib/project/targets";
 import { toPacket, type InboxItem } from "../src/lib/project/inbox";
 import { buildPartIndex } from "../src/lib/plot/parse";
@@ -91,6 +92,19 @@ export async function inspectTarget(root: string, input: string | TargetRef, exc
       const earlier = await earlierOnPassage({ citekey: target.citekey, page: target.page, quote: quote ?? undefined, highlightId: target.highlightId }, exceptThread).catch(() => []);
       return { ...result, citekey: target.citekey, title: entry.title, page: target.page,
         text: fulltext?.split(/\f/)[target.page - 1]?.trim() ?? null, quote, highlight, ...(earlier.length ? { earlierConversations: earlier } : {}) };
+    }
+    case "artifact": {
+      // The page and what stands beside it: an artifact's folder usually holds the script that builds
+      // it and a README saying how, which is where a comment on the page gets acted on.
+      const file = path.isAbsolute(target.path) ? target.path : path.join(root, ...target.path.split("/"));
+      const folder = path.dirname(file);
+      const stat = await fs.stat(file).catch(() => null);
+      if (!stat?.isFile()) throw new ValidationError(`artifact page not found: ${target.path}`);
+      const names = (await fs.readdir(folder, { withFileTypes: true }).catch(() => [])).filter(e => !e.name.startsWith(".") && e.name !== "__pycache__" && e.name !== "node_modules");
+      const readme = names.find(e => e.isFile() && /^readme(\.md|\.txt)?$/i.test(e.name));
+      const readmeText = readme ? (await fs.readFile(path.join(folder, readme.name), "utf8").catch(() => "")).slice(0, 4000) : "";
+      return { ...result, page: file, folder, view: target.view ?? "", title: target.title ?? null, heading: target.heading ?? null, quote: target.quote ?? null,
+        modified: stat.mtime.toISOString(), files: names.slice(0, 60).map(e => e.isDirectory() ? `${e.name}/` : e.name), ...(readme ? { readme: readme.name, readmeText } : {}) };
     }
     case "region": return { ...result, region: target.rect, surface: target.surface };
   }

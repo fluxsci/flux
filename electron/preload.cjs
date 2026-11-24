@@ -242,6 +242,17 @@ contextBridge.exposeInMainWorld("fig", {
   prepareSlideVideo: (request) => ipcRenderer.invoke("slides:prepareVideo", request),
   videoPreview: (path) => ipcRenderer.invoke("slides:videoPreview", path),
   videoMediaUrl: (request) => ipcRenderer.invoke("slides:videoMediaUrl", request),
+  // Paper's artifacts (ipc/artifacts.cjs): list the project's artifact folders, link one, and hear about changes.
+  artifactsList: (root) => ipcRenderer.invoke("artifacts:list", { root }),
+  artifactsSetDir: (root, dir) => ipcRenderer.invoke("artifacts:setDir", { root, dir }),
+  artifactsSetNetwork: (root, dir, allow) => ipcRenderer.invoke("artifacts:setNetwork", { root, dir, allow }),
+  artifactsReveal: (root, path) => ipcRenderer.invoke("artifacts:reveal", { root, path }),
+  artifactsOpenInBrowser: (root, path) => ipcRenderer.invoke("artifacts:openInBrowser", { root, path }),
+  onArtifactsChanged: (cb) => {
+    const handler = (_e, info) => cb(info);
+    ipcRenderer.on("artifacts:changed", handler);
+    return () => ipcRenderer.removeListener("artifacts:changed", handler);
+  },
   videoGalleryUrl: (request) => ipcRenderer.invoke("gallery:videoUrl", request),
   releaseVideoGalleryUrl: (url) => ipcRenderer.invoke("gallery:releaseVideoUrl", url),
   copySlideVideoAssets: (request) => ipcRenderer.invoke("slides:copyVideoAssets", request),

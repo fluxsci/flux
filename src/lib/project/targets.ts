@@ -18,12 +18,15 @@ export type TargetRef =
   // let the paper's own conversation hang on a highlight of exactly those words.
   | { kind: "passage"; citekey: string; page: number; quote?: string; highlightId?: string; title?: string; prefix?: string; suffix?: string }
   | { kind: "library-item"; citekey: string; title?: string }
+  // An artifact: an HTML page Paper shows. `path` is the page (project-relative inside the project,
+  // absolute outside it); `view` is the page's own address tail, i.e. where in it ("#n=3").
+  | { kind: "artifact"; path: string; view?: string; title?: string; heading?: string; quote?: string }
   | { kind: "region"; surface: string; rect: { x: number; y: number; w: number; h: number } };
 
 export type TargetKind = TargetRef["kind"];
 
 export const TARGET_KINDS: readonly TargetKind[] = [
-  "figure", "element", "part", "caption", "doc", "slide", "beat", "track", "passage", "library-item", "region",
+  "figure", "element", "part", "caption", "doc", "slide", "beat", "track", "passage", "library-item", "artifact", "region",
 ];
 
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
@@ -60,6 +63,8 @@ export function describeTarget(t: TargetRef): string {
       return `passage ${t.quote ? q(t.quote) + " " : ""}in ${t.citekey} p.${t.page}`;
     case "library-item":
       return `reference ${t.citekey}${t.title ? " " + q(t.title) : ""}`;
+    case "artifact":
+      return `${t.quote ? `text ${q(t.quote)} in ` : ""}artifact ${t.title ? q(t.title) + " " : ""}(${t.path}${t.view ?? ""})${t.heading ? ` § ${q(t.heading)}` : ""}`;
     case "region":
       return `region of the ${t.surface} view (${Math.round(t.rect.w)}×${Math.round(t.rect.h)} at ${Math.round(t.rect.x)},${Math.round(t.rect.y)})`;
   }
@@ -81,6 +86,10 @@ export function shortTarget(t: TargetRef): string {
     case "track": return `${t.family ?? "animation"} ${name(t.label, t.trackId)}`;
     case "passage": return t.quote ? `“${clip(t.quote, 80)}” · ${t.citekey} p.${t.page}` : `${t.citekey} p.${t.page}`;
     case "library-item": return t.title ? q(t.title) : t.citekey;
+    case "artifact": {
+      const name = t.title ? q(t.title) : t.path.split("/").pop() ?? t.path;
+      return t.quote ? `“${clip(t.quote, 80)}” · ${name}` : `artifact ${name}${t.heading ? ` § ${q(t.heading)}` : ""}`;
+    }
     case "region": return `a region of the ${t.surface} view`;
   }
 }
@@ -92,6 +101,7 @@ export function targetPrompt(targets: readonly TargetRef[] | undefined, verb = "
   switch (t.kind) {
     case "passage": return `${verb} this passage…`;
     case "doc": return `${verb} this text…`;
+    case "artifact": return `${verb} this page…`;
     case "slide": case "beat": case "track": return `${verb} this slide…`;
     case "region": return `${verb} this…`;
     default: return `${verb} ${shortTarget(t)}…`;
@@ -117,6 +127,7 @@ export function formatTarget(t: TargetRef): string {
     case "track": return `track:${t.deckId}/${t.slideId}/${t.trackId}`;
     case "passage": return `passage:${t.citekey}@${t.page}`;
     case "library-item": return `library:${t.citekey}`;
+    case "artifact": return `artifact:${t.path}${t.view ?? ""}`;
     case "region": return `region:${t.surface}@${[t.rect.x, t.rect.y, t.rect.w, t.rect.h].map((n) => Math.round(n)).join(",")}`;
   }
 }
@@ -189,6 +200,13 @@ export function parseTarget(s: string): TargetRef {
       if (!body || /\s/.test(body)) throw new Error(`invalid library target "${body}"`);
       return { kind: "library-item", citekey: body };
     }
+    case "artifact": {
+      // The page's path, then its view from the first "#" or "?" on (a path holds neither).
+      const cut = body.search(/[#?]/);
+      const path = cut < 0 ? body : body.slice(0, cut);
+      if (!path || !/\.html?$/i.test(path)) throw new Error(`invalid artifact target "${body}" — expected a page path, e.g. artifacts/explorer/index.html#n=3`);
+      return cut < 0 ? { kind, path } : { kind, path, view: body.slice(cut) };
+    }
     case "region": {
       const at = body.lastIndexOf("@");
       const nums = at > 0 ? body.slice(at + 1).split(",").map(Number) : [];
@@ -241,7 +259,8 @@ export function targetDeckId(t: TargetRef): string | null {
 
 /** A page shorthand can address several distinct selected passages/highlights. */
 export function resolvedTargetKey(t: TargetRef): string {
-  return t.kind === "passage" ? JSON.stringify([formatTarget(t), t.highlightId ?? "", t.quote ?? ""]) : formatTarget(t);
+  return t.kind === "passage" ? JSON.stringify([formatTarget(t), t.highlightId ?? "", t.quote ?? ""])
+    : t.kind === "artifact" ? JSON.stringify([formatTarget(t), t.quote ?? ""]) : formatTarget(t);
 }
 
 /** De-duplicate resolved objects, retaining distinct anchors on the same PDF page. */

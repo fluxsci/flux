@@ -172,6 +172,13 @@ const CHANNELS = [
   { channel: "slides:prepareVideo", kind: "invoke", scope: "spawn" },
   { channel: "slides:videoPreview", kind: "invoke", scope: "spawn" },
   { channel: "slides:videoMediaUrl", kind: "invoke", scope: "read" },
+  // --- artifacts (Paper's HTML pages; read-only: list, serve, watch) -------------
+  { channel: "artifacts:list", kind: "invoke", scope: "read" },
+  { channel: "artifacts:setDir", kind: "invoke", scope: "write" },
+  { channel: "artifacts:setNetwork", kind: "invoke", scope: "write" },
+  { channel: "artifacts:reveal", kind: "invoke", scope: "read" },
+  { channel: "artifacts:openInBrowser", kind: "invoke", scope: "read" },
+  { channel: "artifacts:changed", kind: "push", scope: "read" },
   { channel: "gallery:videoUrl", kind: "invoke", scope: "read" },
   { channel: "gallery:releaseVideoUrl", kind: "invoke", scope: "read" },
   { channel: "slides:copyVideoAssets", kind: "invoke", scope: "write" },

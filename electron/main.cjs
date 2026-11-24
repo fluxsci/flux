@@ -1,7 +1,9 @@
 const { app, BrowserWindow, Menu, ipcMain: rawIpcMain, dialog, shell, session, protocol } = require("electron");
 // Range-streamed video capabilities work in both Vite and packaged file pages.
 // The handler permits only an approved project asset token, never arbitrary URLs.
-protocol.registerSchemesAsPrivileged([{ scheme: "flux-media", privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true } }]);
+protocol.registerSchemesAsPrivileged([{ scheme: "flux-media", privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true } },
+  // Paper's artifacts (ipc/artifacts.cjs): each artifact folder is its own origin, a secure context with its own storage.
+  { scheme: "flux-artifact", privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } }]);
 // WS-9.4: every registration goes through the channel contract — an undeclared
 // or kind-mismatched channel throws at startup, and assertAllRegistered() (in
 // whenReady) catches declared-but-orphaned ones. verify-ipc-contract.ts checks
@@ -495,6 +497,7 @@ function createWindow(initialRoot) {
     e.preventDefault();
     if (/^https?:\/\//i.test(url)) shell.openExternal(url);
   });
+  artifactsFamily.guardFrames(win);
   const galleryUrl = new URL("plot-gallery.html", appUrl).href;
   const metadataUrl = new URL("figure-meta.html", appUrl).href;
   const aiUrl = new URL("ai-status.html", appUrl).href;
@@ -576,6 +579,7 @@ function createWindow(initialRoot) {
     releaseGuiLocksFor(wcId);
     fileCore.clearApprovals(wcId);
     void sourceWatchCore.clear(wcId);
+    void artifactsFamily.clear(wcId);
     pendingRoots.delete(wcId);
     const s = sessions.get(wcId);
     if (s?.watcher) {
@@ -697,7 +701,7 @@ app.whenReady().then(async () => {
       "default-src 'self'; script-src 'self' " + require("./slideEmbedCsp.gen.cjs") + " 'wasm-unsafe-eval' 'sha256-Q5r/0YfmAtc2/to6EHsX0PaBtKO7BSpnAkNsqnhWKas=' 'sha256-8Yu/cmPzQpyhF7nWdsKoaj4FeP+hooq1bXRxlVz1CLE=' 'sha256-F6i5nGBIqfoaCOZiZzX7PEXC7HagpdnrdJHeF3PJ3rU='; style-src 'self' 'unsafe-inline'; " +
       "img-src 'self' data: blob:; media-src 'self' data: blob: flux-media:; font-src 'self' data:; " +
       "connect-src 'self' ws://localhost:1420 ws://127.0.0.1:1420 http://localhost:1420 http://127.0.0.1:1420; " +
-      "worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-src 'self'; form-action 'none'";
+      "worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-src 'self' flux-artifact:; form-action 'none'";
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
       const isAppDoc =
         details.resourceType === "mainFrame" &&
@@ -1234,6 +1238,7 @@ ipcMain.handle("watch:setRoot", async (e, root) => {
   figureRasterFamily.cancelOwner(e.sender.id);
   if (rootFor(e) !== root) tiffFamily.cancelOwner(e.sender.id);
   if (rootFor(e) !== root) runnerFamily.cancelOwner(e.sender.id);
+  if (rootFor(e) !== root) void artifactsFamily.clear(e.sender.id);
   const s = sessionFor(e);
   if (!s) return false;
   const senderId = e.sender.id;
@@ -1497,6 +1502,10 @@ onQuit(() => slideVideoCore.cancelAll());
 const videoMediaCore = require("./ipc/videoMedia.cjs").createVideoMediaCore({ app, protocol, rootFor, fsReadGuard: fileCore.fsReadGuard, noteWrite });
 videoMediaCore.registerHandlers(ipcMain);
 onQuit(() => videoMediaCore.cancelAll());
+// Paper's artifacts: HTML pages listed from, served out of and watched in the project's artifacts/ folder and one linked folder.
+const artifactsFamily = require("./ipc/artifacts.cjs").createArtifactsFamily({ app, protocol, shell, rootFor, sessionFor, readPrefs, writePrefs, loadChokidar });
+artifactsFamily.registerHandlers(ipcMain);
+onQuit(() => artifactsFamily.closeAll());
 const model3dCore = require("./ipc/model3d.cjs").createModel3dCore({ rootFor, generationFor: (e) => sessionFor(e)?.watchGen, fsReadGuard: fileCore.fsReadGuard, noteWrite });
 model3dCore.registerHandlers(ipcMain);
 // fluximg bundles: same window/project/generation checks as model3d; pixels cross only in ranged reads.
