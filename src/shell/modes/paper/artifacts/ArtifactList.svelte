@@ -159,8 +159,8 @@
   .dp-item.active .a-icon { color: var(--c-accent); }
   .a-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* Two artifacts with one title: each also says its file. The title gives way first. */
-  .a-title:has(+ .a-file) { flex: 1 1 0; }
-  .a-file { flex: 0 1 auto; min-width: 3ch; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: calc(10px * var(--ts-scale, 1))/1.2 var(--font-mono); color: var(--c-tx-faint); }
+  .a-title:has(+ .a-file) { flex: 1 1 0; min-width: 48%; }
+  .a-file { flex: 0 1 auto; min-width: 3ch; max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: calc(10px * var(--ts-scale, 1))/1.2 var(--font-mono); color: var(--c-tx-faint); }
   .a-pages { flex: none; padding: 0 5px; border: 1px solid var(--c-line-strong); border-radius: var(--r-pill); font: 600 calc(9px * var(--ts-scale, 1))/1.5 var(--font-mono); color: var(--c-tx-muted); }
   .a-age { flex: none; font: calc(9.500px * var(--ts-scale, 1))/1.2 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--c-tx-faint); }
   .dp-item.active .a-age { color: color-mix(in oklab, var(--c-accent) 70%, transparent); }
