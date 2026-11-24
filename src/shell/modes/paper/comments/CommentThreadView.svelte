@@ -6,16 +6,26 @@
   //
   // A NEW comment is written here too: its text, its tags, and where it goes. "Just for me" keeps
   // it out of the AI Inbox (agents are not shown it); "For Flux AI" sends it there.
-  import { tick } from "svelte";
+  import { tick, type Snippet } from "svelte";
   import type { CommentBridge } from "../margin/types";
   import type { CommentMessage, CommentThread } from "./comments";
   import { commentInInbox } from "../../../../lib/project/comments";
   import FluxAiMark from "../../../agent/FluxAiMark.svelte";
   import CommentTags from "./CommentTags.svelte";
 
-  let { thread, api, onOpenInMargin, onDone, lead = false }: {
+  let { thread, api, onOpenInMargin, onDone, lead = false, editable = true, recipient, body, more, about = "passage" }: {
     thread: CommentThread & { draft?: boolean };
-    api: CommentBridge;
+    api: Pick<CommentBridge, "onSubmitNew" | "onCancelNew" | "onReply" | "onResolve" | "onReopen" | "onDelete" | "onFocus" | "tagDefs" | "onEdit" | "onTags" | "onInbox" | "onDefineTag">;
+    /** Messages can be rewritten after sending (a manuscript comment's can; an Inbox item's cannot). */
+    editable?: boolean;
+    /** Who it goes to, shown in place of the tag row and its For-me / For-Flux-AI switch (a thread whose routing is not that switch). */
+    recipient?: Snippet;
+    /** How one message's text is drawn (default: as plain text). */
+    body?: Snippet<[CommentMessage]>;
+    /** More actions, after Reply and Resolve. */
+    more?: Snippet;
+    /** What the comment is on, for the composer's hint. */
+    about?: string;
     /** Shown as an action when the view is NOT already in the margin. */
     onOpenInMargin?: () => void;
     /** A new comment was sent or dropped (the card closes; the pane does nothing). */
@@ -109,10 +119,10 @@
         class="mk-textarea"
         rows="3"
         bind:value={draftText}
-        placeholder={inInbox ? "Ask or tell Flux AI about this passage…" : "A note on this passage…"}
+        placeholder={inInbox ? `Ask or tell Flux AI about this ${about}…` : `A note on this ${about}…`}
         aria-label="New comment"
         onkeydown={(e) => composerKey(e, sendDraft, dropDraft)}></textarea>
-      <CommentTags tags={thread.tags ?? []} defs={api.tagDefs} onChange={(tags) => api.onTags(thread.id, tags)} onDefine={api.onDefineTag} trailing={dest} />
+      {#if recipient}{@render recipient()}{:else}<CommentTags tags={thread.tags ?? []} defs={api.tagDefs} onChange={(tags) => api.onTags(thread.id, tags)} onDefine={api.onDefineTag} trailing={dest} />{/if}
       <div class="mk-foot">
         <span class="mk-hint mk-grow"><kbd>Ctrl ↵</kbd>send</span>
         <button class="mk-btn sm quiet" onclick={dropDraft}>Cancel</button>
@@ -129,7 +139,7 @@
           <div class="mb">
             <div class="mh">
               <span class="who mk-clip">{msg.author}</span><span class="when mk-num" title={msg.editedAt ? `Edited ${timeOf(msg.editedAt)}` : undefined}>{timeOf(msg.createdAt)}{msg.editedAt ? " · edited" : ""}</span>
-              {#if msg.kind !== "agent" && !thread.resolved && editing !== i}<button class="mini" aria-label="Edit this message" title="Edit what you wrote" onclick={(e) => { e.stopPropagation(); startEdit(i, msg); }}><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M3 12.5 3.6 10 10.5 3.1a1.4 1.4 0 0 1 2 0l.4.4a1.4 1.4 0 0 1 0 2L6 12.4 3 12.5Z" /></svg></button>{/if}
+              {#if editable && msg.kind !== "agent" && !thread.resolved && editing !== i}<button class="mini" aria-label="Edit this message" title="Edit what you wrote" onclick={(e) => { e.stopPropagation(); startEdit(i, msg); }}><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M3 12.5 3.6 10 10.5 3.1a1.4 1.4 0 0 1 2 0l.4.4a1.4 1.4 0 0 1 0 2L6 12.4 3 12.5Z" /></svg></button>{/if}
             </div>
             {#if editing === i}
               <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
@@ -138,14 +148,14 @@
                 <div class="mk-foot"><span class="mk-hint mk-grow"><kbd>Ctrl ↵</kbd>save</span><button class="mk-btn sm quiet" onclick={() => (editing = -1)}>Cancel</button><button class="mk-btn sm primary" onclick={saveEdit}>Save</button></div>
               </div>
             {:else}
-              <div class="mtext">{msg.body}</div>
+              <div class="mtext">{#if body}{@render body(msg)}{:else}{msg.body}{/if}</div>
             {/if}
           </div>
         </div>
       {/each}
     </div>
     <!-- What the comment carries besides its words: its tags, and who it is for. -->
-    <div class="tagrow"><CommentTags tags={thread.tags ?? []} defs={api.tagDefs} editable={!thread.resolved} onChange={(tags) => api.onTags(thread.id, tags)} onDefine={api.onDefineTag} trailing={dest} /></div>
+    <div class="tagrow">{#if recipient}{@render recipient()}{:else}<CommentTags tags={thread.tags ?? []} defs={api.tagDefs} editable={!thread.resolved} onChange={(tags) => api.onTags(thread.id, tags)} onDefine={api.onDefineTag} trailing={dest} />{/if}</div>
     {#if replying}
       <div class="composer reply">
         <textarea class="mk-textarea" rows="2" bind:value={replyText} placeholder="Reply…" aria-label="Reply" use:focusField onkeydown={(e) => composerKey(e, sendReply, () => (replying = false))}></textarea>
@@ -164,6 +174,7 @@
           <button onclick={() => api.onReopen(thread.id)}>Reopen</button>
         {/if}
         {#if onOpenInMargin}<button class="tomargin" onclick={onOpenInMargin} title="Open it in the margin's Comments pane (Alt+A)">In margin</button>{/if}
+        {#if more}{@render more()}{/if}
         <span class="mk-grow"></span>
         <button class="del" onclick={() => api.onDelete(thread.id)}>Delete</button>
       </div>

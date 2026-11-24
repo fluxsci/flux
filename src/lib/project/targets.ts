@@ -20,7 +20,12 @@ export type TargetRef =
   | { kind: "library-item"; citekey: string; title?: string }
   // An artifact: an HTML page Paper shows. `path` is the page (project-relative inside the project,
   // absolute outside it); `view` is the page's own address tail, i.e. where in it ("#n=3").
-  | { kind: "artifact"; path: string; view?: string; title?: string; heading?: string; quote?: string }
+  // A comment made IN the page also says what it is on: a passage (`quote`, with the words around it,
+  // white space left out, to find it again) or an element (`element`: a path to it, what it is and
+  // what it is called), and for a plot the point that was under the pointer.
+  | { kind: "artifact"; path: string; view?: string; title?: string; heading?: string; quote?: string; prefix?: string; suffix?: string;
+      element?: { selector: string; tag: string; what?: string; label?: string; text?: string };
+      point?: { trace?: string; x?: string; y?: string; z?: string; text?: string } }
   | { kind: "region"; surface: string; rect: { x: number; y: number; w: number; h: number } };
 
 export type TargetKind = TargetRef["kind"];
@@ -63,11 +68,25 @@ export function describeTarget(t: TargetRef): string {
       return `passage ${t.quote ? q(t.quote) + " " : ""}in ${t.citekey} p.${t.page}`;
     case "library-item":
       return `reference ${t.citekey}${t.title ? " " + q(t.title) : ""}`;
-    case "artifact":
-      return `${t.quote ? `text ${q(t.quote)} in ` : ""}artifact ${t.title ? q(t.title) + " " : ""}(${t.path}${t.view ?? ""})${t.heading ? ` § ${q(t.heading)}` : ""}`;
+    case "artifact": {
+      const on = t.element ? `${artifactElementName(t)}${t.point ? ` at ${artifactPointText(t.point)}` : ""} in ` : t.quote ? `text ${q(t.quote)} in ` : "";
+      return `${on}artifact ${t.title ? q(t.title) + " " : ""}(${t.path}${t.view ?? ""})${t.heading ? ` § ${q(t.heading)}` : ""}`;
+    }
     case "region":
       return `region of the ${t.surface} view (${Math.round(t.rect.w)}×${Math.round(t.rect.h)} at ${Math.round(t.rect.x)},${Math.round(t.rect.y)})`;
   }
+}
+
+/** What a commented element of a page is called: `plot "Held-out gain"`, `table`, `figure "Map"`. */
+export function artifactElementName(t: Extract<TargetRef, { kind: "artifact" }>): string {
+  const e = t.element;
+  if (!e) return "";
+  return `${e.what || "element"}${e.label ? " " + q(e.label) : ""}`;
+}
+/** A plot point in words: `point (trace "held out", x 3, y 0.49)`. */
+export function artifactPointText(p: NonNullable<Extract<TargetRef, { kind: "artifact" }>["point"]>): string {
+  const bits = [p.trace ? `trace ${q(p.trace)}` : "", p.x ? `x ${p.x}` : "", p.y ? `y ${p.y}` : "", p.z ? `z ${p.z}` : "", p.text ? q(p.text) : ""].filter(Boolean);
+  return `point (${bits.join(", ")})`;
 }
 
 /** The short, human label a chip or placeholder shows — names, never ids
@@ -88,6 +107,7 @@ export function shortTarget(t: TargetRef): string {
     case "library-item": return t.title ? q(t.title) : t.citekey;
     case "artifact": {
       const name = t.title ? q(t.title) : t.path.split("/").pop() ?? t.path;
+      if (t.element) return `${artifactElementName(t)}${t.point ? ` at ${artifactPointText(t.point)}` : ""} · ${name}`;
       return t.quote ? `“${clip(t.quote, 80)}” · ${name}` : `artifact ${name}${t.heading ? ` § ${q(t.heading)}` : ""}`;
     }
     case "region": return `a region of the ${t.surface} view`;
@@ -260,7 +280,7 @@ export function targetDeckId(t: TargetRef): string | null {
 /** A page shorthand can address several distinct selected passages/highlights. */
 export function resolvedTargetKey(t: TargetRef): string {
   return t.kind === "passage" ? JSON.stringify([formatTarget(t), t.highlightId ?? "", t.quote ?? ""])
-    : t.kind === "artifact" ? JSON.stringify([formatTarget(t), t.quote ?? ""]) : formatTarget(t);
+    : t.kind === "artifact" ? JSON.stringify([formatTarget(t), t.quote ?? "", t.element?.selector ?? "", t.point ?? null]) : formatTarget(t);
 }
 
 /** De-duplicate resolved objects, retaining distinct anchors on the same PDF page. */

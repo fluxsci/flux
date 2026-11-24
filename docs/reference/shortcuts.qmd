@@ -95,10 +95,10 @@ also appears in the global and Paper palettes and Library's **Commands…** menu
 | **Alt+K** | Manuscript Check pane |
 | **Alt+E** | Export… (file format × journal style) |
 | **Alt+F** | Figures pane |
-| **Alt+A** | Comments pane |
+| **Alt+A** | Comments pane (with an [artifact](../modes/paper.qmd#artifacts) showing: the comments on it, beside the page) |
 | **Alt+C** | Edit the citation at the cursor |
 | **Alt+P** / **Ctrl+Alt+P** | Close the active margin pane / close all panes |
-| **Ctrl+Alt+M** | Comment on the current selection, for yourself |
+| **Ctrl+Alt+M** | Comment on the current selection, for yourself (on words selected in an artifact: a comment to the AI Inbox) |
 | **Ctrl+Shift+Alt+M** | Comment on the current selection for Flux AI (it goes to the Inbox) |
 | **Alt+M** | Figure-Meta |
 | **Alt+D** / **Shift+Alt+D** | Toggle the selected word in the personal / project dictionary |

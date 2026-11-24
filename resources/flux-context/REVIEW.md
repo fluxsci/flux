@@ -30,10 +30,19 @@ project, so write an answer that stands on its own there.
 An **artifact** target is an HTML page the user was reading in Paper (an explorer or report an
 agent wrote). `path` is the page: project-relative inside the project, absolute when it is in a
 linked folder outside it. `view` is the page's own address tail (`#rec=3&K=2`): which state the
-user was looking at. `heading` and `quote` say where on the page. The packet's target state
-lists the page's folder and quotes its README: the script that builds the page is usually
-there. Change the page by editing those sources and rebuilding in place; the open page reloads
-by itself and stays on the user's view. Never copy the page somewhere else to edit it.
+user was looking at. What the comment is ON is one of: `quote` (selected words, with `heading`),
+`element` (a plot, figure or table: `what`, `label`, a `selector` to it) with, on a plot,
+`point` (the trace and values under the pointer), or neither (the page as a whole). The picture
+shows the page with that subject boxed. The packet's target state lists the page's folder and
+quotes its README: the script that builds the page is usually there. Change the page by editing
+those sources and rebuilding in place; the open page reloads by itself, stays on the user's
+view, and finds each comment again by its words or its element (keep an element's `id` when
+you rebuild, and the comment stays on it). Never copy the page somewhere else to edit it.
+
+To point the user at a state of the page in a reply, write a Markdown link whose address is a
+view of it, `[recording 12 at K = 5](#rec=12&K=5)`, or another page of the artifact,
+`[the soma page](io.html#rec=12)`. In the comment's card that link is a button that takes the
+open page there. Other links stay plain text.
 
 `get_target {target:…}` (in the core toolset through `flux_verb`) / `flux inspect <target>` reads current saved state without
 rendering. Pass the packet's TargetRef, or a shorthand such as

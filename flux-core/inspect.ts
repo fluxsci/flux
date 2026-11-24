@@ -104,6 +104,7 @@ export async function inspectTarget(root: string, input: string | TargetRef, exc
       const readme = names.find(e => e.isFile() && /^readme(\.md|\.txt)?$/i.test(e.name));
       const readmeText = readme ? (await fs.readFile(path.join(folder, readme.name), "utf8").catch(() => "")).slice(0, 4000) : "";
       return { ...result, page: file, folder, view: target.view ?? "", title: target.title ?? null, heading: target.heading ?? null, quote: target.quote ?? null,
+        ...(target.element ? { element: target.element } : {}), ...(target.point ? { point: target.point } : {}),
         modified: stat.mtime.toISOString(), files: names.slice(0, 60).map(e => e.isDirectory() ? `${e.name}/` : e.name), ...(readme ? { readme: readme.name, readmeText } : {}) };
     }
     case "region": return { ...result, region: target.rect, surface: target.surface };

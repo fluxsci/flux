@@ -27,6 +27,10 @@ function writeFixture() {
   fs.cpSync(path.join(repo, "scripts/fixtures/artifacts"), path.join(root, "artifacts"), { recursive: true });
   // What must never be served: a hidden file, and a link that leaves the folder.
   fs.writeFileSync(path.join(root, "artifacts/explorer/.secret"), "hidden");
+  // Data two folders down, which a page loads only when asked: watched once it has been served, never before.
+  fs.mkdirSync(path.join(root, "artifacts/explorer/data/deep"), { recursive: true });
+  fs.writeFileSync(path.join(root, "artifacts/explorer/data/deep/extra.json"), '{"n":1}');
+  fs.writeFileSync(path.join(root, "artifacts/explorer/data/deep/unread.json"), '{"n":1}');
   fs.writeFileSync(path.join(scratch, "outside.txt"), "outside the artifact folder");
   fs.symlinkSync(path.join(scratch, "outside.txt"), path.join(root, "artifacts/explorer/out.txt"));
   // The linked folder: outside the project, with a page at the top, one three folders down, and one inside node_modules.

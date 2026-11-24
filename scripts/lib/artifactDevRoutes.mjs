@@ -27,7 +27,7 @@ export function createArtifactDevRoutes({ projectDir = path.join(repo, "scripts/
     const roots = [];
     for (const source of [{ dir: projectDir, linked: false }, ...(linkedDir ? [{ dir: path.resolve(linkedDir), linked: true }] : [])]) {
       const described = await describeRoot(server, { ...source, projectRoot, urlBase: (id) => `${PREFIX}serve/${id}` });
-      if (described) roots.push({ ...described, watching: false });
+      if (described) { const { watchDirs, ...root } = described; roots.push({ ...root, watching: false }); }
     }
     return { roots, linkedDir: linkedDir ? path.resolve(linkedDir) : null, projectDir };
   }

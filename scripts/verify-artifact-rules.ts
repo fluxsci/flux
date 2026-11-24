@@ -32,6 +32,8 @@ import { appChord, parseFrameMessage, relOfFramePath } from "../src/lib/artifact
 import { artifactAge, artifactAgeWords, artifactForRef, artifactRows, changeTouches, findArtifact, pageRef, sharedTitles } from "../src/lib/artifacts/tree";
 import type { ArtifactListing, ArtifactRoot } from "../src/lib/artifacts/types";
 import { describeTarget, formatTarget, parseTarget, shortTarget, uniqueTargets, type TargetRef } from "../src/lib/project/targets";
+import { anchorOf, artifactThreads, commentTarget, elementWhat, linkedPage, markRect, messageParts, pageAnchors, pageOfRef, threadPlace, threadSubject } from "../src/lib/artifacts/comments";
+import type { InboxItem } from "../src/lib/project/inbox";
 import { describeStamp } from "../src/lib/project/annotations";
 import { createArtifactDevRoutes } from "./lib/artifactDevRoutes.mjs";
 
@@ -85,6 +87,8 @@ h.eq([byRel.explorer.kind, byRel.explorer.entry, byRel.explorer.pages, byRel.exp
 h.eq([byRel["reports/untitled_page.html"].kind, byRel["reports/untitled_page.html"].title, byRel["reports/untitled_page.html"].group], ["file", "Untitled page", "reports"], "a lone page: named after its file when it has no title, grouped under its folder");
 h.eq([byRel["reports/2026/deep/tool"].entry, byRel["reports/2026/deep/tool"].group], ["reports/2026/deep/tool/index.htm", "reports/2026/deep"], "index.htm counts; the group is the folder above");
 h.ok(byRel.explorer.mtimeMs > 0 && !found.missing && !found.truncated, "the listing carries when the artifact last changed");
+h.eq(found.visited.map((d: string) => path.relative(root, d)).sort(), ["", "explorer", "notes", "reports", "reports/2026", "reports/2026/deep", "reports/2026/deep/tool"],
+  "the folders to watch are the ones that were read: the root, the groups and each artifact's own folder; never what is inside an artifact (explorer/data, explorer/nested)");
 h.eq((await listArtifacts(path.join(scratch, "nowhere"))).missing, true, "a folder that is not there is `missing`, not an error");
 const rootArtifact = await listArtifacts(path.join(root, "explorer"));
 h.eq(rootArtifact.artifacts.map((a: { rel: string; entry: string; title: string }) => [a.rel, a.entry, a.title]), [["", "index.html", "Growth & decay"]], "a root that is itself an artifact is listed as one");
@@ -169,7 +173,21 @@ for (const url of ["file:///etc/passwd", "javascript:alert(1)", "flux-artifact:/
 h.eq(m({ type: "outline", items: [{ level: 1, text: "A" }, { level: 9, text: "bad level" }, { level: 2, text: "B".repeat(300) }, "junk"] }),
   { type: "outline", items: [{ level: 1, text: "A" }, { level: 3, text: "" }, { level: 2, text: "B".repeat(120) }, { level: 3, text: "" }] }, "an outline keeps its positions (a later index names a heading); bad entries are blank, text is clipped");
 h.eq((m({ type: "outline", items: Array.from({ length: 900 }, () => ({ level: 2, text: "h" })) }) as { items: unknown[] }).items.length, 300, "and stops at 300 headings");
-h.eq(m({ type: "selection", text: "s".repeat(900) }), { type: "selection", text: "s".repeat(400) }, "selected words are clipped");
+h.eq(m({ type: "selection", text: "s".repeat(900) }), { type: "selection", text: "s".repeat(600) }, "selected words are clipped");
+h.eq(m({ type: "selection", text: "plateaus", prefix: "p".repeat(90), suffix: "by18h", rect: { x: 10, y: 20.5, w: 80, h: 18 }, heading: "Results" }),
+  { type: "selection", text: "plateaus", prefix: "p".repeat(64), suffix: "by18h", rect: { x: 10, y: 20.5, w: 80, h: 18 }, heading: "Results" }, "a selection carries the words around it, where it is and its heading");
+h.eq(m({ type: "selection", text: "x", rect: { x: 1, y: 2, w: -3, h: 4 } }), { type: "selection", text: "x" }, "a box that is not a box is left out");
+h.eq(m({ type: "selection", text: "" , rect: { x: 1, y: 2, w: 3, h: 4 } }), { type: "selection", text: "" }, "no words, no selection");
+h.eq(m({ type: "anchors", items: [{ id: "fb1", found: true }, { id: "fb2", found: "yes" }, { id: "" }, null, { id: "x".repeat(200), found: true }] }), { type: "anchors", items: [{ id: "fb1", found: true }, { id: "fb2", found: false }] }, "a report of found comments: ids and booleans only");
+h.eq(m({ type: "anchor", id: "fb1", how: "hover", rect: { x: 1, y: 2, w: 3, h: 4 } }), { type: "anchor", id: "fb1", how: "hover", rect: { x: 1, y: 2, w: 3, h: 4 } }, "the pointer on a comment's mark");
+h.eq(m({ type: "anchor", id: "", how: "leave" }), { type: "anchor", id: "", how: "leave" }, "and off it");
+for (const bad of [{ type: "anchor", id: "fb1", how: "hover" }, { type: "anchor", id: "", how: "click", rect: { x: 1, y: 2, w: 3, h: 4 } }, { type: "anchor", id: "fb1", how: "dance", rect: { x: 1, y: 2, w: 3, h: 4 } }, { type: "anchor", id: "fb1", how: "move", rect: { x: NaN, y: 2, w: 3, h: 4 } }])
+  h.eq(m(bad), null, `dropped: ${JSON.stringify(bad)}`);
+h.eq(m({ type: "pick", cancel: true }), { type: "pick", cancel: true }, "picking abandoned");
+h.eq(m({ type: "pick", selector: "#curve", tag: "svg", plot: false, label: "Growth curve", text: "", heading: "Curve", rect: { x: 1, y: 2, w: 300, h: 200 }, point: { trace: "held out", x: "3", y: "0.49", junk: "no", z: 7 } }),
+  { type: "pick", selector: "#curve", tag: "svg", plot: false, label: "Growth curve", text: "", heading: "Curve", rect: { x: 1, y: 2, w: 300, h: 200 }, point: { trace: "held out", x: "3", y: "0.49" } }, "a picked element: its path, kind, label, heading, box, and a plot's point as text");
+for (const bad of [{ type: "pick", selector: "", tag: "svg", rect: { x: 1, y: 2, w: 3, h: 4 } }, { type: "pick", selector: "#a", tag: "SVG onload=x", rect: { x: 1, y: 2, w: 3, h: 4 } }, { type: "pick", selector: "#a", tag: "svg" }])
+  h.eq(m(bad), null, `dropped: ${JSON.stringify(bad)}`);
 const key = (o: Record<string, unknown>) => m({ type: "key", key: "o", code: "KeyO", ...o }) as Parameters<typeof appChord>[0];
 h.ok(appChord(key({ altKey: true })) && appChord(key({ ctrlKey: true, shiftKey: true, key: "M", code: "KeyM" })) && appChord(key({ key: "F1", code: "F1" })) && appChord(key({ ctrlKey: true, key: "1", code: "Digit1" })), "chords are offered to the app: Alt+O, Ctrl+Shift+M, F1, Ctrl+1");
 for (const k of ["c", "v", "x", "a", "z", "C"]) h.ok(!appChord(key({ ctrlKey: true, key: k })) && !appChord(key({ metaKey: true, key: k })), `an editing chord stays in the page: Ctrl+${k}`);
@@ -183,6 +201,8 @@ h.section("E. The rail, lookups and reloads");
 const described: ArtifactRoot = await describeRoot(server, { dir: root, linked: false, projectRoot: project, urlBase: (id: string) => `${ARTIFACT_SCHEME}://${id}` });
 h.eq(described.artifacts.find((a) => a.rel === "explorer")?.pages.map((p) => p.url), [`flux-artifact://${registered.id}/explorer/index.html`, `flux-artifact://${registered.id}/explorer/methods.html`], "every page has its address on the root's origin");
 h.eq(described.artifacts.find((a) => a.rel === "explorer")?.ref, "artifacts/explorer/index.html", "inside the project an agent is told a project path");
+h.ok((described as unknown as { watchDirs: string[] }).watchDirs.includes(path.join(root, "explorer")) && !(described as unknown as { watchDirs: string[] }).watchDirs.includes(path.join(root, "explorer/data")), "a described root says which folders to watch");
+h.eq((await describeRoot(server, { dir: root, linked: false, projectRoot: project, urlBase: () => "", watchDirCap: 3 }) as unknown as { watching: boolean; watchDirs: string[] }).watchDirs.length, 0, "a root with more folders than the watch budget is listed and not watched");
 const outsideRoot: ArtifactRoot = await describeRoot(server, { dir: path.join(scratch, "outside"), linked: true, projectRoot: project, urlBase: (id: string) => `${ARTIFACT_SCHEME}://${id}` });
 h.eq([outsideRoot.linked, outsideRoot.label, outsideRoot.artifacts[0].ref], [true, "outside", path.join(scratch, "outside/elsewhere.html")], "outside it, where the page is on disk");
 h.eq(await describeRoot(server, { dir: path.join(scratch, "nowhere"), linked: false, projectRoot: project, urlBase: () => "" }), null, "a project without an artifacts folder has no root to show");
@@ -219,6 +239,53 @@ h.eq(uniqueTargets([target, { ...target, quote: "another passage" }, { ...target
 h.eq(describeStamp({ surface: "paper", artifact: { path: "artifacts/explorer/index.html", view: "#n=1", title: "Growth explorer" } }), "paper · artifact artifacts/explorer/index.html#n=1", "a stamp without targets still says which page");
 
 // ---------------------------------------------------------------------------------------------
+h.section("E2. Comments on a page are Inbox items");
+const base = { path: "artifacts/explorer/index.html", view: "#rec=3", title: "Growth explorer" };
+const passage = commentTarget(base, { quote: "plateaus by 18 h", prefix: "controlseries", suffix: ".Thestressed", heading: "Curve" });
+const element = commentTarget(base, { selector: "#curve", tag: "div", plot: true, label: "Held-out gain", text: "", heading: "Curve", point: { trace: "held out", x: "3", y: "0.49" } });
+h.eq(passage, { kind: "artifact", path: "artifacts/explorer/index.html", view: "#rec=3", title: "Growth explorer", heading: "Curve", quote: "plateaus by 18 h", prefix: "controlseries", suffix: ".Thestressed" }, "a comment on selected words: the page, the view, the words and what surrounds them");
+h.eq(element.element, { selector: "#curve", tag: "div", what: "plot", label: "Held-out gain" }, "a comment on a picked element says what it is and what it is called");
+h.eq(describeTarget(element), 'plot "Held-out gain" at point (trace "held out", x 3, y 0.49) in artifact "Growth explorer" (artifacts/explorer/index.html#rec=3) § "Curve"', "an agent is told the plot, the point, the page, the view and the heading");
+h.eq(shortTarget(element), 'plot "Held-out gain" at point (trace "held out", x 3, y 0.49) · "Growth explorer"', "and the chip says the same, short");
+h.eq([elementWhat("svg", false), elementWhat("div", true), elementWhat("table", false), elementWhat("p", false), elementWhat("h2", false), elementWhat("div", false)], ["figure", "plot", "table", "paragraph", "heading", "section"], "what a picked element is, in a word");
+h.eq(parseTarget(formatTarget(element)), { kind: "artifact", path: "artifacts/explorer/index.html", view: "#rec=3" }, "the shorthand names the page and view (an anchor is not an identity an agent types)");
+h.eq(uniqueTargets([passage, element, { ...element }, { ...element, point: { trace: "other" } }]).length, 3, "comments on different things of one page are different targets");
+const item = (id: string, target: TargetRef | null, over: Partial<InboxItem> = {}): InboxItem => ({
+  id, kind: "annotation", surface: "paper", where: "", text: "t", tags: [], status: "open", chip: "Open", archived: false, route: "none", claimedBy: null, assignedTo: null, lastHolder: null,
+  createdAt: `2026-11-24T10:00:0${id.length}.000Z`, lastActivity: "", figureIds: [], deckIds: [], targets: target ? [target] : [], thread: [{ kind: "human", author: "You", text: "t", ts: "" }], context: null, ...over,
+} as InboxItem);
+const items = [
+  item("bb", { ...passage, path: "artifacts/explorer/methods.html", view: undefined } as TargetRef),
+  item("a", passage),
+  item("ccc", element, { status: "resolved" }),
+  item("dddd", { kind: "artifact", path: "artifacts/explorer/index.html", title: "Growth explorer" }),
+  item("eeeee", { kind: "artifact", path: "artifacts/reports/summary.html", quote: "elsewhere" }),
+  item("ffffff", passage, { status: "withdrawn" }),
+  item("ggggggg", passage, { archived: true }),
+  item("hhhhhhhh", { kind: "doc", path: "paper/notes.qmd", from: 0, to: 4 }),
+  item("iiiiiiiii", passage, { kind: "comment" }),
+];
+const threads = artifactThreads(items, explorer);
+h.eq(threads.map((t) => [t.id, t.page, t.view, t.resolved, t.anchored]), [["a", "explorer/index.html", "#rec=3", false, true], ["bb", "explorer/methods.html", "", false, true], ["ccc", "explorer/index.html", "#rec=3", true, true], ["dddd", "explorer/index.html", "", false, false]],
+  "an artifact's threads: the Inbox annotations that point at its pages, oldest first; not another artifact's, not withdrawn or archived ones, not manuscript comments");
+h.eq([pageOfRef(explorer, "artifacts/explorer/data/x.html"), pageOfRef(explorer, "artifacts/explorer2/index.html"), pageOfRef(summary, "artifacts/reports/summary.html"), pageOfRef(summary, "artifacts/reports/other.html")], ["explorer/data/x.html", null, "reports/summary.html", null], "a page belongs to the artifact whose folder holds it (a lone page: only itself)");
+h.eq(pageAnchors(threads, "explorer/index.html"), [{ id: "a", quote: "plateaus by 18 h", prefix: "controlseries", suffix: ".Thestressed" }], "the page is asked to mark its open, anchored comments: not resolved ones, not the other page's, not a note about the whole page");
+h.eq(anchorOf(threads[2]), { id: "ccc", selector: "#curve", tag: "div", label: "Held-out gain", text: undefined }, "an element's anchor is its path, kind and label");
+const foundMap = new Map([["a", true]]);
+h.eq([threadPlace(threads[0], "explorer/index.html", "#rec=3", foundMap), threadPlace(threads[0], "explorer/index.html", "#rec=9", new Map()), threadPlace(threads[0], "explorer/index.html", "#rec=3", new Map()), threadPlace(threads[1], "explorer/index.html", "", foundMap), threadPlace(threads[3], "explorer/index.html", "", foundMap)],
+  ["here", "other-view", "lost", "other-page", "page"], "where a thread stands: marked here, made on another view, no longer on the page, on another page, or about the page as a whole");
+h.eq(threadPlace(threads[0], "explorer/index.html", "#rec=9", foundMap), "here", "a comment made on another view that IS on this one is simply here");
+h.eq([threadSubject(passage), threadSubject(element), threadSubject({ kind: "artifact", path: "x.html", heading: "Curve" })],
+  [{ kind: "passage", text: "plateaus by 18 h" }, { kind: "element", text: 'plot "Held-out gain" · point (trace "held out", x 3, y 0.49)' }, { kind: "page", text: "the page, at “Curve”" }], "what a thread is about, as its card says it");
+h.eq(threadSubject(commentTarget(base, { selector: "div:nth-of-type(2)", tag: "div", plot: true, label: "", text: "", heading: "The K-curve" })).text, "plot under “The K-curve”", "a plot with no name of its own is named by the heading it is under");
+h.eq(messageParts("Done. See [recording 12 at K = 5](#rec=12&K=5), [the soma page](io.html#rec=12) and [the docs](https://example.org/x). Also [a script](javascript:alert(1)) and [up](../../etc/passwd.html)."),
+  [{ text: "Done. See " }, { label: "recording 12 at K = 5", view: "#rec=12&K=5" }, { text: ", " }, { label: "the soma page", page: "io.html", view: "#rec=12" }, { text: " and [the docs](https://example.org/x). Also [a script](javascript:alert(1)) and [up](../../etc/passwd.html)." }],
+  "an agent's reply may link INTO the page (a view, another page of the artifact); every other link stays text");
+h.eq(messageParts("no links here"), [{ text: "no links here" }], "plain text is one part");
+h.eq([linkedPage("pop_explorer/index.html", "io.html"), linkedPage("pop_explorer/index.html", undefined), linkedPage("summary.html", "other.html")], ["pop_explorer/io.html", "pop_explorer/index.html", "other.html"], "a linked page is beside the page the thread is on");
+h.eq([markRect({ x: 10, y: -20, w: 100, h: 60 }, { x: 300, y: 90 }, { w: 800, h: 600 }), markRect({ x: 10, y: 700, w: 100, h: 60 }, { x: 300, y: 90 }, { w: 800, h: 600 })], [{ x: 310, y: 90, w: 100, h: 40 }, null], "the picture's box is the part of the subject in view, in window coordinates; none when it is out of view");
+
+// ---------------------------------------------------------------------------------------------
 h.section("F. The dev server's route is the same server");
 const routes = createArtifactDevRoutes({ projectDir: root, projectRoot: project });
 const httpServer = http.createServer((req, res) => { void routes.handler(req, res, () => { res.statusCode = 404; res.end("next"); }); });
@@ -250,6 +317,7 @@ const family = fs.readFileSync(path.join(repo, "electron/ipc/artifacts.cjs"), "u
 const serve = fs.readFileSync(path.join(repo, "electron/artifactServe.cjs"), "utf8");
 h.ok(!/\b(writeFile|appendFile|rename|unlink|rmdir|mkdir|copyFile|createWriteStream|\brm)\s*\(/.test(family + serve), "the family and its server never write, move or remove a file");
 h.ok(/writePrefs\(\{ \.\.\.prefs, artifactDirs: dirs \}\)/.test(family) && !/project\.json/.test(family.replace(/\/\/.*$/gm, "")), "the folder link is written to preferences, never to project.json");
+h.ok(/depth: 0,/.test(family) && !/depth: ARTIFACT_LIMITS/.test(family) && /watchServed\(state, file\)/.test(family), "the watcher watches listed folders one level deep and served files one by one: it never walks an artifact's data");
 const mainSource = fs.readFileSync(path.join(repo, "electron/main.cjs"), "utf8");
 h.ok(/registerSchemesAsPrivileged\(\[[\s\S]*?scheme: "flux-artifact", privileges: \{ standard: true, secure: true, stream: true, supportFetchAPI: true \} \}\]\)/.test(mainSource), "the scheme is registered with the app's one privileged-scheme call: standard and secure, an origin of its own");
 h.ok(/artifactsFamily\.guardFrames\(win\)/.test(mainSource), "every window guards where an artifact frame may go");

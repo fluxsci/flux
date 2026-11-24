@@ -91,9 +91,13 @@ async function main() {
   await inFrame(`(() => { const s = document.getElementById('series'); s.value = 'stressed'; s.dispatchEvent(new Event('change')); })()`);
   await waitFor(async () => (await view())?.artifactView === "#s=stressed", "the page's view reaches the strip");
   check(await js(`document.querySelector('.aview .viewchip')?.textContent`) === "#s=stressed", "the strip shows where in the page the reader is");
+  // A page kept off the network may ASK for a link to open; it opens when the reader says so.
   await inFrame(`document.querySelector('#to-web').click()`);
-  await waitFor(() => opened.length > 0, "the web link is handed to the browser");
-  check(opened[0] === "https://example.org/growth" && artifactFrame()?.url.includes("/explorer/index.html"), "a link to the web opens in the browser; the frame stays on the artifact", opened.join(","));
+  await waitFor(() => js(`!!document.querySelector('.aview .notice.link')`), "the strip offers the link");
+  check(opened.length === 0 && artifactFrame()?.url.includes("/explorer/index.html"), "a link to the web does not open by itself and the frame stays on the artifact: the strip offers it", await js(`document.querySelector('.aview .notice.link').textContent.trim()`));
+  await js(`document.querySelector('.aview .notice.link').click()`);
+  await waitFor(() => opened.length > 0, "the offered link opens in the browser");
+  check(opened.length === 1 && opened[0] === "https://example.org/growth", "the reader's click opens it in the browser", opened.join(","));
   await inFrame(`document.querySelector('#to-methods').click()`);
   await waitFor(async () => (await view())?.artifactPage === "explorer/methods.html" && (await view())?.artifactReady === "true", "the second page");
   check(await js(`document.querySelector('.aview .page.on')?.textContent`) === "methods" && await js(`document.querySelector('.outline')?.textContent.includes('Measurement')`), "following a link inside the artifact moves the page tab and the outline");
@@ -124,12 +128,68 @@ async function main() {
   check(await inFrame(`document.body.dataset.series`) === "stressed" && (await view())?.artifactView === "#s=stressed", "the reloaded page is where the reader was");
   check(await inFrame(`typeof window.__mark`) === "undefined", "and it is a fresh page");
 
+  // A file two folders down, loaded on demand: it is watched from the moment a page reads it. Its neighbour nobody read is not.
+  check(await inFrame(`fetch('data/deep/extra.json').then(r => r.json()).then(j => j.n)`) === 1, "the page loads a data file two folders down");
+  await inFrame(`window.__mark = 2; void 0`);
+  await sleep(600); // the watch on the newly served file is being added
+  fs.writeFileSync(path.join(root, "artifacts/explorer/data/deep/unread.json"), '{"n":2}');
+  await sleep(1500);
+  check(await inFrame(`window.__mark`) === 2, "a data file no page read changes: nothing reloads");
+  fs.writeFileSync(path.join(root, "artifacts/explorer/data/deep/extra.json"), '{"n":2}');
+  await waitFor(async () => artifactFrame() && await inFrame(`typeof window.__mark`) === "undefined", "the page reloads for the data file it read", 12000);
+  check(true, "a data file a page read, deep in the artifact's folder, reloads the page when it changes");
+
   // 8. A new page on disk appears in the rail by itself.
   fs.writeFileSync(path.join(root, "artifacts/fresh.html"), "<!doctype html><title>Fresh from the agent</title><h1>New</h1>");
   await waitFor(async () => (await rows()).includes("Fresh from the agent"), "the new artifact in the rail", 12000);
   check(true, "an artifact written while the project is open appears in the rail");
 
-  // 9. Back to the document: the same editor, never reloaded.
+  // A folder made first and its page written later (a build that writes its index last).
+  fs.mkdirSync(path.join(root, "artifacts/later"));
+  await sleep(1500);
+  fs.writeFileSync(path.join(root, "artifacts/later/index.html"), "<!doctype html><title>Written last</title><h1>Later</h1>");
+  await waitFor(async () => (await rows()).includes("Written last"), "an artifact whose folder came before its page", 12000);
+  check(true, "a folder that gets its index page later becomes an artifact in the rail");
+
+  // 9. A comment on the page, in the real frame: made, pictured, found again after the page is rebuilt, and reported lost when its words are gone.
+  await inFrame(`(() => { const p = [...document.querySelectorAll('main p')].find(e => e.textContent.includes('plateaus by 18 h')); p.scrollIntoView({ block: 'center' }); const t = p.firstChild, at = t.nodeValue.indexOf('plateaus by 18 h'), r = document.createRange(); r.setStart(t, at); r.setEnd(t, at + 16); const s = getSelection(); s.removeAllRanges(); s.addRange(r); })()`);
+  await waitFor(() => js(`document.querySelector('.sel-bubble')?.dataset.selected === 'plateaus by 18 h'`), "the Comment key on the selected words");
+  await js(`document.querySelector('.sel-bubble button').dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))`);
+  await waitFor(() => js(`document.activeElement === document.querySelector('[data-artifact-card="draft"] textarea')`), "the new comment has the keyboard");
+  win.webContents.insertText("Is this a ceiling of the assay?");
+  await waitFor(() => js(`document.querySelector('[data-artifact-card="draft"] textarea')?.value === 'Is this a ceiling of the assay?'`), "the comment is typed");
+  win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter", modifiers: ["control"] });
+  win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter", modifiers: ["control"] });
+  const marked = () => inFrame(`[...(CSS.highlights.get('flux-comment') ?? []), ...(CSS.highlights.get('flux-comment-on') ?? [])].map(r => r.toString())`);
+  await waitFor(async () => (await view())?.artifactComments === "1" && (await view())?.artifactFound === "1", "the comment is saved and marked on the page");
+  const ledgerFile = path.join(root, ".meta/feedback.ndjson");
+  const note = fs.readFileSync(ledgerFile, "utf8").trim().split("\n").map(l => JSON.parse(l)).filter(e => e.kind === "note").at(-1);
+  check(note.text === "Is this a ceiling of the assay?" && note.context.targets[0].kind === "artifact" && note.context.targets[0].path === "artifacts/explorer/index.html" && note.context.targets[0].quote === "plateaus by 18 h" && note.context.targets[0].view === "#s=stressed",
+    "a comment written on selected words of the page is an Inbox note on that page, view and passage", JSON.stringify(note.context.targets[0]));
+  const picture = path.join(root, note.context.snapshot?.image ?? "missing");
+  const png = fs.existsSync(picture) ? fs.readFileSync(picture) : Buffer.alloc(0);
+  check(png.length > 3000 && png.readUInt32BE(0) === 0x89504e47 && note.context.snapshot.marks.length === 1, "with a picture of the page beside the ledger, the words boxed", `${png.length} bytes`);
+  check((await marked()).join("|") === "plateaus by 18 h", "the real page marks the words, and only them");
+  check(await inFrame(`document.querySelectorAll('mark').length + document.body.querySelectorAll('[data-flux-artifact], flux-artifact-marks').length`) === 0, "without changing the page's body");
+  // The agent rebuilds the page: the sentence moves into a new section, with new markup inside it.
+  const index = path.join(root, "artifacts/explorer/index.html");
+  const original = fs.readFileSync(index, "utf8");
+  fs.writeFileSync(index, original.replace("<p>The control series plateaus by 18 h. The stressed series keeps rising.</p>", "").replace('<h2 id="s-curve">Curve</h2>', '<h2 id="s-summary">Summary</h2>\n  <p id="moved">In short: the <b>control</b> series <i>plateaus</i> by 18 h, as the table shows.</p>\n  <h2 id="s-curve">Curve</h2>'));
+  await waitFor(async () => artifactFrame() && await inFrame(`!!document.getElementById('moved')`), "the rebuilt page is shown", 12000);
+  await waitFor(async () => (await view())?.artifactFound === "1" && (await marked()).join("|") === "plateaus by 18 h", "the comment is found in the rebuilt page");
+  check(await inFrame(`[...CSS.highlights.get('flux-comment')][0].startContainer.parentElement.closest('#moved') !== null`), "after the page is rebuilt with the sentence moved and marked up differently, the comment is on it again");
+  // Then the sentence is taken out altogether.
+  await js(`document.querySelector('.aview .key[aria-label="Comments on this artifact"]').click()`);
+  fs.writeFileSync(index, fs.readFileSync(index, "utf8").replace(/<p id="moved">[\s\S]*?<\/p>/, "<p>Twelve of fourteen cultures grew.</p>"));
+  await waitFor(async () => (await view())?.artifactFound === "0" && (await view())?.artifactComments === "1", "the comment's words are gone from the page", 12000);
+  await waitFor(() => js(`document.querySelector('.arail [data-rail-thread] .where')?.dataset.where === 'lost'`), "the thread says so");
+  check(await js(`document.querySelector('.arail [data-rail-thread] .where').textContent.trim()`) === "no longer on the page" && await js(`document.querySelector('.arail [data-rail-thread] .mtext').textContent`) === "Is this a ceiling of the assay?", "when the words are gone the comment is kept, and says they are no longer on the page");
+  fs.writeFileSync(index, original);
+  await waitFor(async () => (await view())?.artifactFound === "1", "the words are back and so is the mark", 12000);
+  check(true, "and when the words come back, so does its mark");
+  await js(`document.querySelector('.arail .x').click()`);
+
+  // 10. Back to the document: the same editor, never reloaded.
   await nativeClick(centreOf(`document.querySelector('.aview .key.close')`), "the strip's close key");
   await waitFor(() => js(`!document.querySelector('.aview') && getComputedStyle(document.querySelector('.editor-col')).display !== 'none'`), "the document is back");
   check(await js(`document.querySelector('.cm-content')?.textContent.includes('Start writing')`), "the document is shown again, as it was");

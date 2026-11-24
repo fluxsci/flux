@@ -152,6 +152,129 @@ try {
   h.eq([target?.kind, target?.path, target?.view, target?.title, target?.quote?.slice(0, 13)], ["artifact", "scripts/fixtures/artifacts/explorer/index.html", "#s=stressed", "Growth explorer", "Pick a series"], "the saved note names the page, the view, and the words");
   h.eq([note?.context?.surface, note?.context?.artifact?.path, note?.context?.doc ?? null], ["paper", "scripts/fixtures/artifacts/explorer/index.html", null], "and its stamp is the artifact, not the hidden document");
 
+  h.section("comments on the page");
+  const ds = () => page.$eval(".aview", (e) => ({ ...e.dataset }));
+  const counts = (open, found) => waitFor(page, ([o, f]) => { const d = document.querySelector(".aview")?.dataset; return d?.artifactComments === String(o) && d?.artifactFound === String(f); }, [open, found], { label: `${open} open comments, ${found} marked on the page`, timeout: 8000 });
+  const marked = () => frame().evaluate(() => [...(CSS.highlights.get("flux-comment") ?? []), ...(CSS.highlights.get("flux-comment-on") ?? [])].map((r) => r.toString().replace(/\s+/g, " ")).sort());
+  const selectOnly = (selector, words) => frame().evaluate(([sel, w]) => { const el = [...document.querySelectorAll(sel)].find((e) => e.textContent.includes(w)); el.scrollIntoView({ block: "center" }); const t = [...el.childNodes].find((n) => n.nodeType === 3 && n.nodeValue.includes(w)), at = t.nodeValue.indexOf(w), r = document.createRange(); r.setStart(t, at); r.setEnd(t, at + w.length); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }, [selector, words]);
+  // The page reports a selection 150 ms after it settles: the Comment key is for THESE words once it says so.
+  const selectWords = async (selector, words) => { await selectOnly(selector, words); await waitFor(page, (w) => document.querySelector(".sel-bubble")?.dataset.selected === w, words, { label: `the Comment key on "${words}"` }); };
+  const pointIn = async (fn, arg) => { const at = await frame().evaluate(fn, arg), box = await (await page.$(".aview iframe")).boundingBox(); return { x: box.x + at.x, y: box.y + at.y }; };
+  const notes = async () => (await ledger(page)).filter((e) => e.kind === "note");
+  const agent = (events) => page.evaluate(async (list) => { const f = window.__flux, p = f.get(f.shell.currentProject).path + "/.meta/feedback.ndjson", s = { id: "heron", name: "heron", client: "claude" }; await window.fig.feedbackAppend(p, list.map((e) => JSON.stringify({ ts: new Date().toISOString(), client: "claude", session: s, ...e }) + "\n").join("")); window.fig._emitFsChange({ subsystem: "feedback", path: p }); }, events);
+  // The note just made with Annotate named selected words: it is a comment on those words, and the page shows it.
+  await counts(1, 1);
+  h.ok((await marked())[0].startsWith("Pick a series; the page keeps"), "a note made with Annotate over selected words is marked on those words in the page");
+  // Select other words: one key appears on them; it opens a card to write in, on the words.
+  await selectWords("main p", "plateaus by 18 h");
+  await page.waitForSelector(".sel-bubble button");
+  const bubble = await (await page.$(".sel-bubble button")).boundingBox();
+  await page.mouse.click(bubble.x + bubble.width / 2, bubble.y + bubble.height / 2);
+  await page.waitForSelector('[data-artifact-card="draft"] textarea');
+  await waitFor(page, () => document.activeElement === document.querySelector('[data-artifact-card="draft"] textarea'), null, { label: "the new comment has the keyboard" });
+  h.eq(await page.$eval('[data-artifact-card="draft"] .about', (e) => e.textContent.replace(/\s+/g, " ").trim()), "New comment on plateaus by 18 h", "the Comment key on selected words opens a card to write in, saying what it is on");
+  h.ok(!(await page.$(".sel-bubble")) && (await marked()).includes("plateaus by 18 h"), "while it is written the words stay marked and the key is gone");
+  await page.keyboard.type("Is the plateau real, or the assay's ceiling?");
+  await page.keyboard.down("Control"); await page.keyboard.press("Enter"); await page.keyboard.up("Control");
+  await counts(2, 2);
+  let made = (await notes()).at(-1);
+  h.eq([made.text, made.context.targets[0].kind, made.context.targets[0].quote, made.context.targets[0].heading, made.context.targets[0].view, made.context.artifact.path],
+    ["Is the plateau real, or the assay's ceiling?", "artifact", "plateaus by 18 h", "Notes", "#s=stressed", "scripts/fixtures/artifacts/explorer/index.html"],
+    "Ctrl+Enter saves it to the Inbox as a note on the page, the view, the heading and the words");
+  h.ok(/Thecontrolseries$/.test(made.context.targets[0].prefix) && /^\.Thestressedseries/.test(made.context.targets[0].suffix), `with the words around them, to find them again (${made.context.targets[0].prefix} | ${made.context.targets[0].suffix})`);
+  h.ok(made.context.snapshot?.image === `.meta/feedback/${made.id}.png` && made.context.snapshot.marks.length === 1 && made.context.snapshot.marks[0].kind === "box", "and a picture of the page as it was, the words boxed");
+  h.eq(await page.evaluate(async (rel) => { const f = window.__flux; const b = new Uint8Array(await window.fig.readFile(f.get(f.shell.currentProject).path + "/" + rel)); return [b[0], b[1], b[2], b[3]]; }, made.context.snapshot.image), [137, 80, 78, 71], "the picture is a PNG beside the ledger");
+  h.ok((await marked()).includes("plateaus by 18 h") && !(await page.$('[data-artifact-card="draft"]')), "the page keeps the words marked; the card is gone");
+  // The pointer resting on the marked words opens the thread on them; a press keeps it open.
+  const onWords = () => pointIn(() => { const r = [...CSS.highlights.get("flux-comment")].find((x) => x.toString() === "plateaus by 18 h").getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  let at = await onWords();
+  await page.mouse.move(at.x - 4, at.y); await page.mouse.move(at.x, at.y);
+  await page.waitForSelector(`[data-artifact-card="${made.id}"].ready`);
+  h.eq(await page.$eval(`[data-artifact-card="${made.id}"]`, (e) => [e.classList.contains("pinned"), e.querySelector(".mtext").textContent, e.querySelector(".status").textContent]), [false, "Is the plateau real, or the assay's ceiling?", "Open"], "the pointer resting on marked words opens their thread in a card: the comment, and where it stands");
+  await page.mouse.click(at.x, at.y);
+  await waitFor(page, (id) => document.querySelector(`[data-artifact-card="${id}"]`)?.classList.contains("pinned"), made.id, { label: "a press keeps the card open" });
+  // An agent takes it, and answers with a link into the page.
+  await agent([{ kind: "claim", target: made.id }, { kind: "reply", target: made.id, id: "r-heron", author: { kind: "agent", name: "heron" }, text: "It is a ceiling: see [the control series](#s=control) and [the method](methods.html)." }]);
+  await waitFor(page, (id) => document.querySelector(`[data-artifact-card="${id}"] .status`)?.textContent === "Claimed by heron" && document.querySelectorAll(`[data-artifact-card="${id}"] .viewlink`).length === 2, made.id, { label: "the agent's claim and answer reach the open card" });
+  h.eq(await page.$eval(`[data-artifact-card="${made.id}"]`, (e) => [...e.querySelectorAll(".msg")].map((m) => `${m.classList.contains("agent") ? "agent" : "you"}:${m.querySelector(".who").textContent}`)), ["you:You", "agent:heron"], "an agent's claim and answer appear in the open card as they are written, links into the page as buttons");
+  await page.$eval(`[data-artifact-card="${made.id}"] .acts button`, (b) => b.click());
+  await page.waitForSelector(`[data-artifact-card="${made.id}"] textarea[aria-label="Reply"]`);
+  await page.keyboard.type("Then say so in the caption.");
+  await page.keyboard.down("Control"); await page.keyboard.press("Enter"); await page.keyboard.up("Control");
+  await waitFor(page, (id) => document.querySelectorAll(`[data-artifact-card="${id}"] .msg`).length === 3, made.id, { label: "the reply is in the thread" });
+  h.eq((await ledger(page)).filter((e) => e.kind === "reply" && e.target === made.id).map((e) => e.author.kind), ["agent", "human"], "a reply written in the card is an Inbox reply on the same item");
+  before = await loadKey();
+  await page.$eval(`[data-artifact-card="${made.id}"] .viewlink`, (b) => b.click());
+  await swapped(before);
+  await waitFor(page, () => document.querySelector(".aview")?.dataset.artifactView === "#s=control", null, { label: "the link's view" });
+  await counts(2, 2);
+  h.eq(await frame().evaluate(() => document.body.dataset.series), "control", "a link in an answer takes the page to that view, and the comments are found on it again");
+  // A plot has no words to select: the strip's key, then a press on the plot.
+  await page.click('.aview .key[aria-label="Comment on a part of the page"]');
+  await waitFor(page, () => document.querySelector('.aview .key[aria-label="Comment on a part of the page"]')?.getAttribute("aria-pressed") === "true", null, { label: "picking" });
+  at = await pointIn(() => { const el = document.getElementById("curve"); el.scrollIntoView({ block: "center" }); const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  await page.mouse.move(at.x - 4, at.y); await page.mouse.move(at.x, at.y);
+  await page.mouse.click(at.x, at.y);
+  await page.waitForSelector('[data-artifact-card="draft"] textarea');
+  h.eq(await page.$eval('[data-artifact-card="draft"] .about', (e) => e.textContent.replace(/\s+/g, " ").trim()), 'New comment on figure "Growth curve"', "the strip's key, then a press on a plot, starts a comment on the plot");
+  await page.keyboard.type("Draw both series here.");
+  await page.keyboard.down("Control"); await page.keyboard.press("Enter"); await page.keyboard.up("Control");
+  await counts(3, 3);
+  made = (await notes()).at(-1);
+  h.eq([made.context.targets[0].element, made.context.targets[0].heading, made.context.targets[0].quote ?? null], [{ selector: "#curve", tag: "svg", what: "figure", label: "Growth curve" }, "Curve", null], "it names the element: its path, what it is and what it is called");
+  // Ctrl+Alt+M, pressed in the page with words selected, is the Comment key.
+  await frame().click("h1"); // the keyboard is in the page, as it is after selecting with the mouse
+  await selectWords("main p", "keeps rising");
+  await page.keyboard.down("Control"); await page.keyboard.down("Alt"); await page.keyboard.press("KeyM"); await page.keyboard.up("Alt"); await page.keyboard.up("Control");
+  await page.waitForSelector('[data-artifact-card="draft"] textarea');
+  await page.keyboard.press("Escape");
+  await waitFor(page, () => !document.querySelector('[data-artifact-card="draft"]'), null, { label: "Escape drops the draft" });
+  h.eq((await notes()).length, 3, "Ctrl+Alt+M on a selection in the page starts a comment; Escape drops it and nothing is saved");
+  // The comments beside the page (Alt+A, also from inside the page).
+  await frame().click("h1");
+  await page.keyboard.down("Alt"); await page.keyboard.press("KeyA"); await page.keyboard.up("Alt");
+  await page.waitForSelector(".arail");
+  const railRows = () => page.$$eval(".arail [data-rail-thread]", (els) => els.map((e) => `${e.querySelector(".about").textContent.replace(/\s+/g, " ").trim()} [${e.querySelector(".status")?.textContent ?? ""}]${e.classList.contains("done") ? " done" : ""}`));
+  h.eq([await page.$eval(".arail .count", (e) => e.textContent), (await railRows()).length, await page.$eval('.aview .key[aria-label="Comments on this artifact"] .n', (e) => e.textContent)], ["3 open", 3, "3"], "Alt+A, pressed in the page, opens the comments beside it; the strip's key counts the open ones");
+  h.ok((await railRows()).some((t) => t === "On plateaus by 18 h [Claimed by heron]") && (await railRows()).some((t) => t === 'On figure "Growth curve" [Open]'), `each thread says what it is on and where it stands (${(await railRows()).join(" · ")})`);
+  await counts(3, 3);
+  // The agent resolves one: it leaves the page's marks and folds under Resolved.
+  const claimed = (await notes()).at(-2).id;
+  await agent([{ kind: "resolve", target: claimed, note: "Caption now says it is a ceiling.", author: { kind: "agent", name: "heron" } }]);
+  await counts(2, 2);
+  h.ok(!(await marked()).includes("plateaus by 18 h") && await page.$eval(".arail .fold", (e) => e.textContent.replace(/\s+/g, " ").trim()) === "Resolved 1", "a comment an agent resolves leaves the page's marks and folds under Resolved");
+  // You resolve one yourself; and take one back.
+  await page.evaluate((id) => [...document.querySelectorAll(`.arail [data-rail-thread="${id}"] .acts button`)].find((b) => b.textContent === "Resolve").click(), made.id);
+  await counts(1, 1);
+  h.eq((await ledger(page)).filter((e) => e.kind === "resolve").map((e) => e.author?.kind), ["agent", "human"], "Resolve in the rail closes your own comment in the Inbox");
+  // On another page of the artifact the comments say where they are, and take you there.
+  await page.evaluate(() => [...document.querySelectorAll(".aview .page")].find((e) => e.textContent === "methods").click());
+  await ready("explorer/methods.html");
+  await waitFor(page, () => document.querySelector(".arail [data-rail-thread] .where")?.dataset.where === "other-page", null, { label: "the thread says it is on another page" });
+  h.eq(await page.$eval(".arail [data-rail-thread] .where", (e) => e.textContent.replace(/\s+/g, " ").trim()), "on the page index", "on another page of the artifact a thread says which page it is on");
+  await page.$eval(".arail [data-rail-thread] .where button", (b) => b.click());
+  await ready("explorer/index.html");
+  await page.waitForSelector(".artifact-card.ready.pinned");
+  h.ok((await ds()).artifactFound === "1" && await page.$eval(".artifact-card.pinned .about", (e) => e.textContent.includes("Pick a series")), "its link goes to that page and opens the thread on its words");
+  await page.$eval(".artifact-card.pinned .acts .del", (b) => b.click());
+  await counts(0, 0);
+  h.ok((await ledger(page)).some((e) => e.kind === "withdraw") && (await marked()).length === 0 && !(await page.$(".artifact-card")), "Delete takes your comment back: withdrawn in the Inbox, gone from the page");
+  // The files change under the page: the reloaded copy marks the comments again.
+  await selectWords("main p", "keeps rising");
+  await page.waitForSelector(".sel-bubble button");
+  await page.$eval(".sel-bubble button", (b) => b.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true })));
+  await page.waitForSelector('[data-artifact-card="draft"] textarea');
+  await page.keyboard.type("Compare with the second run.");
+  await page.keyboard.down("Control"); await page.keyboard.press("Enter"); await page.keyboard.up("Control");
+  await counts(1, 1);
+  before = await loadKey();
+  await emit({ paths: [explorer.dir + "/data.js"], structure: false });
+  await swapped(before);
+  await counts(1, 1);
+  h.eq(await marked(), ["keeps rising"], "after the page is reloaded from disk its comments are marked again");
+  await page.click(".arail .x");
+  await waitFor(page, () => !document.querySelector(".arail"), null, { label: "rail closed" });
+
   h.section("the palette, the filter, and back");
   await page.keyboard.down("Control"); await page.keyboard.press("KeyK"); await page.keyboard.up("Control");
   await page.waitForSelector(".cp input");
@@ -159,6 +282,9 @@ try {
   await waitFor(page, () => document.querySelector(".cp li.sel .ct")?.textContent === "Open artifact: Summary of the & first run", null, { label: "the palette offers the artifact" });
   await page.keyboard.press("Enter");
   await ready("reports/summary.html");
+  // The palette fades out over ~110 ms and its backdrop takes clicks until it is gone; a page in one
+  // file can answer sooner than that, and a click on the strip then lands on the backdrop.
+  await waitFor(page, () => !document.querySelector(".cp-scrim, .cp"), null, { label: "the palette is gone" });
   h.eq([await page.$eval(".aview .title", (e) => e.textContent), await page.$$eval(".aview .page", (els) => els.length), await frame().evaluate(() => document.getElementById("inline").dataset.ran)],
     ["Summary of the & first run", 0, "yes"], "the palette opens an artifact; a page in one file (inline style and script) runs, and has no page tabs");
   await page.focus('[aria-label="Filter documents"]');

@@ -3,7 +3,7 @@ import { get, writable } from "svelte/store";
 import { currentProject } from "../shellStore";
 import { fileBridge, joinPath } from "../../lib/project/types";
 import { listAllComments, changeComment, commentsRevision } from "../../lib/project/commentBridge";
-import { ANNOTATIONS_REL, foldAnnotations, parseLedger, serializeEvent, makeReply, makeArchive, makeReopen, makeWithdraw, type AnnotationEvent } from "../../lib/project/annotations";
+import { ANNOTATIONS_REL, foldAnnotations, parseLedger, serializeEvent, makeReply, makeArchive, makeReopen, makeWithdraw, makeResolve, type AnnotationEvent } from "../../lib/project/annotations";
 import { buildInbox, filterInbox, type InboxItem } from "../../lib/project/inbox";
 import { PRESENCE_DIR_REL, parsePresence, liveSessions } from "../../lib/project/presence";
 import { visibleSessions } from "../../lib/project/agentRouting";
@@ -119,7 +119,7 @@ export function initInboxStore(): void {
   inboxOpen.subscribe(updateExpiry);
 }
 
-export async function changeInboxItem(item: InboxItem, action: "reply" | "archive" | "reopen" | "withdraw", text = ""): Promise<void> {
+export async function changeInboxItem(item: InboxItem, action: "reply" | "archive" | "reopen" | "withdraw" | "resolve", text = ""): Promise<void> {
   const owner = root, epoch = generation, fb = fileBridge();
   if (!owner || !fb?.feedbackAppend) throw new Error("Open a project to change an inbox item");
   const latest = (await readSnapshot(owner)).items.find(i => i.id === item.id && i.doc === item.doc);
@@ -132,6 +132,12 @@ export async function changeInboxItem(item: InboxItem, action: "reply" | "archiv
   if (item.kind === "comment" && (action === "reply" || action === "reopen")) {
     await changeComment(owner, item.doc!, item.id, action === "reply" ? { kind: "reply", body: text } : { kind: "reopen" });
   } else if (action === "reply") event = makeReply(item.id, { kind: "human", name: "You" }, text, "human");
+  // The reader closes one of their own items themselves (a comment on a page, answered or no longer wanted).
+  else if (action === "resolve") {
+    if (item.kind !== "annotation") throw new Error("A manuscript comment is resolved in its document");
+    if (item.status === "resolved") return;
+    event = makeResolve(item.id, "human", { author: { kind: "human", name: "You" } });
+  }
   else if (action === "archive") event = makeArchive(item.id, !item.archived, "human");
   else if (action === "reopen") event = makeReopen(item.id, "human");
   else event = makeWithdraw(item.id, "human");

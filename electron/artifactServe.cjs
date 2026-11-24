@@ -42,9 +42,13 @@ async function listArtifacts(dir) {
   let real;
   try {
     real = await fsp.realpath(dir);
-    if (!(await fsp.stat(real)).isDirectory()) return { artifacts: [], missing: true, truncated: false, dirs: 0 };
-  } catch { return { artifacts: [], missing: true, truncated: false, dirs: 0 }; }
+    if (!(await fsp.stat(real)).isDirectory()) return { artifacts: [], missing: true, truncated: false, dirs: 0, visited: [] };
+  } catch { return { artifacts: [], missing: true, truncated: false, dirs: 0, visited: [] }; }
   const artifacts = [];
+  // Every folder that was read: the root, each group, each artifact's own folder. A page added to
+  // any of them changes the listing, so these are the folders a watcher needs (and no others:
+  // what is INSIDE an artifact's folder is watched file by file, as pages load it).
+  const visited = [];
   let dirs = 0, truncated = false;
   const titleOf = async (file, fallbackName) => {
     try { return rules.htmlTitle((await readHead(file, LIMITS.head)).toString("utf8")) || rules.artifactNameTitle(fallbackName); }
@@ -60,6 +64,7 @@ async function listArtifacts(dir) {
     dirs++;
     let entries;
     try { entries = await fsp.readdir(abs, { withFileTypes: true }); } catch { return; }
+    visited.push(abs);
     const names = [];
     for (const e of entries) {
       let dir = e.isDirectory();
@@ -99,7 +104,7 @@ async function listArtifacts(dir) {
     for (const name of found.dirs) await walk(path.join(abs, name), rel ? `${rel}/${name}` : name, depth + 1);
   }
   await walk(real, "", 0);
-  return { artifacts, missing: false, truncated, dirs };
+  return { artifacts, missing: false, truncated, dirs, visited };
 }
 
 function byteRange(header, size) {
@@ -209,7 +214,9 @@ async function describeRoot(server, { dir, linked, projectRoot, urlBase, network
   const root = path.resolve(projectRoot);
   return {
     id: registered?.id ?? "", dir: real, linked, label: linked ? path.basename(real) : "Project",
-    missing: found.missing, truncated: found.truncated, network, watching: !!registered && found.dirs <= watchDirCap,
+    missing: found.missing, truncated: found.truncated, network, watching: !!registered && found.visited.length <= watchDirCap,
+    // Not for the renderer (ipc/artifacts.cjs takes it off): the folders to watch for pages coming and going.
+    watchDirs: registered && found.visited.length <= watchDirCap ? found.visited : [],
     artifacts: found.artifacts.map((a) => {
       const file = path.join(real, ...a.entry.split("/"));
       return {

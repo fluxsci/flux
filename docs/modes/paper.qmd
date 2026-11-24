@@ -442,10 +442,32 @@ and stays where you were. The first key in the strip holds the page still while 
 something; the next one reloads it by hand. The other two open the page in your browser and
 show its folder.
 
-**Commenting on a page.** Press **Ctrl+Shift+M** over an artifact to
-[annotate](../agents/annotations.qmd) it. The note carries a picture of what you see, the page,
-the view you were on, the heading you were under and any words you had selected, so an agent
-knows which recording and which plot you mean.
+**Commenting on a page.** Select words in the page and a **Comment** key appears on them
+(**Ctrl+Alt+M** does the same). For a plot, a figure, a table or any other part of the page,
+click the comment key in the strip (the crosshair) and then click the thing; on a plot Flux
+also notes the point that was under the pointer. A card opens there to write in: **To**
+chooses who gets it (the Inbox, any watching agent, a named agent, or a new background agent),
+**Ctrl+Enter** sends, **Esc** drops it.
+
+A comment is an item in the [AI Inbox](../agents/annotations.qmd), like every other: it carries
+a picture of the page as it was with its subject boxed, the page, the view you were on, the
+heading and the words or the element, so an agent knows exactly which recording and which plot
+you mean. On the page the commented words are tinted and a commented element is outlined with a
+pin. Rest the pointer there to read the thread; click to keep it open, and **Reply**,
+**Resolve** or **Delete** in the card. An agent's claim and answers appear in it as they are
+written. When an answer links to a state of the page (*compare K = 3*), the link is a button
+that takes the page there.
+
+**Alt+A**, or the speech-bubble key in the strip (it counts the open ones), lists every comment
+on the artifact beside the page: the ones on what you are looking at first, then those on
+another page or made on another view (each takes you there), and the resolved ones folded away.
+
+Comments outlive the page. When an agent rebuilds the page, each comment is found again by its
+words and what surrounded them, or by its element, wherever they went. If they are gone, the
+comment is kept and says *no longer on the page*.
+
+**Ctrl+Shift+M** still [annotates](../agents/annotations.qmd) whatever is on screen, artifact
+included, when you want to draw on the picture.
 
 **What a page may do.** A page is someone's program, so it runs in a compartment of its own: it
 cannot read your project or reach into Flux, and it is kept off the network. If a page asks
@@ -627,5 +649,7 @@ directly to the new position, and the caret blinks softly once you pause.
 | A Word export says figures will be missing | No render could be produced for the named figures → open Figure mode so they load, then export again. A figure with no render is not in the document at all, so this is an error, not a warning |
 | The word count is lower than your old count, or than a plain word processor's | Flux leaves out citations, code, equations, figure and table lines, Methods and back matter, the way journals count — see [Word counts](#word-counts). The total of every word is in the Statistics pane |
 | An artifact shows no plots, or looks unstyled | The page loads its chart library or styles from the web, and artifacts are kept off the network → click **N blocked** in the strip to allow it for that folder (see [Artifacts](#artifacts)) |
+| A comment on an artifact says *no longer on the page* | The page was rebuilt and those words (or that plot) are not in it any more → the comment and its picture are kept; **Resolve** or **Delete** it, or reword it in a reply |
+| A comment says *made on the view …* | It was made on another state of the page (another recording, another setting) and is not on this one → click it to take the page to that view |
 | An artifact is not in the Files rail | Flux lists the project's `artifacts` folder and one linked folder → link the folder the page is in (**Settings → Paper → Artifacts**); pages inside hidden folders and `node_modules` are skipped |
 | A comment shows as *Detached* | Its anchored text was edited away — the thread is preserved; re-select and start a fresh one if needed |

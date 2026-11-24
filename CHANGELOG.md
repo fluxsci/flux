@@ -16,11 +16,19 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   project's `artifacts` folder and in one folder you link (**Settings → Paper → Artifacts**,
   read where it is, never copied) under **Files › Artifacts**. The strip above a page names
   it, offers its other pages and shows where in it you are; the Outline lists its headings.
-  When an agent rewrites the page or its data, the open page reloads in place and stays where
-  you were. **Ctrl+Shift+M** over a page sends a note that names the page, the view you were
-  on, the heading and the words you selected. A page runs in a compartment of its own: it
-  cannot read your project or reach into Flux, and it is kept off the network unless you
-  allow it for its folder.
+  When an agent rewrites the page or its data, the open page reloads in place, without a
+  blink, and stays where you were. **Alt+H** goes between the document and the artifact. A
+  page runs in a compartment of its own: it cannot read your project or reach into Flux, and
+  it is kept off the network unless you allow it for its folder.
+- **Comments on an artifact, for the agent that made it.** Select words in a page and choose
+  **Comment** (**Ctrl+Alt+M**), or use the strip's comment key and click a plot, a figure or a
+  table; on a plot the point under the pointer is noted too. The comment goes to the AI Inbox
+  with a picture of the page, the view you were on and exactly what it is about, to the agent
+  you choose. On the page the words stay tinted and the plot outlined; rest the pointer there
+  for the thread, where an agent's answers appear as they are written and a link in an answer
+  takes the page to the state it names. **Alt+A** lists every comment beside the page. When
+  the page is rebuilt, each comment is found again by its words or its element; one whose
+  subject is gone is kept and says so.
 
 ## 0.4.0 — 2026-11-23
 

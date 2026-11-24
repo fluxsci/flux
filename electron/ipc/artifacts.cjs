@@ -11,9 +11,11 @@ const fs = require("node:fs");
 const { Readable } = require("node:stream");
 const { createArtifactServer, describeRoot, bodyStream, loadRules } = require("../artifactServe.cjs");
 
-/** Folders in one root past which Flux lists it but does not watch it (inotify is finite). */
+/** Listed folders in one root past which Flux lists it but does not watch it (inotify is finite). */
 const WATCH_DIR_CAP = 1500;
 const SERVED_CAP = 20000;
+/** Served files one window watches one by one. */
+const SERVED_WATCH_CAP = 4000;
 
 const linkedDirOf = (prefs, root) => {
   const dir = prefs && typeof prefs.artifactDirs === "object" && prefs.artifactDirs ? prefs.artifactDirs[root] : null;
@@ -34,8 +36,10 @@ function createArtifactsFamily({ app, protocol, shell, rootFor, sessionFor, read
     let set = served.get(id);
     if (set === "all") return;
     if (!set) served.set(id, (set = new Set()));
+    if (set.has(file)) return;
     set.add(file);
     if (set.size > SERVED_CAP) served.set(id, "all");
+    for (const state of watches.values()) if (state.ids.has(id)) watchServed(state, file);
   };
 
   app.whenReady().then(async () => {
@@ -58,17 +62,26 @@ function createArtifactsFamily({ app, protocol, shell, rootFor, sessionFor, read
     if (state?.watcher) await state.watcher.close().catch(() => {});
   }
 
+  // What is watched, and no more than that:
+  //   - every folder the lister read (the root, groups, each artifact's own folder), one level
+  //     deep: a page added, removed or rewritten there changes the rail;
+  //   - every file some page of the root was SERVED, wherever it is: a change to one of those
+  //     reloads the open page.
+  // An artifact's data folders are never walked. A 10,000-file artifact costs the handful of
+  // watches its pages actually loaded, and a build's log, scripts and unread data reload nothing.
   async function watch(e, roots) {
     const senderId = e.sender.id;
-    const targets = roots.filter((r) => r.id && r.watching).map((r) => ({ id: r.id, real: server.rootOf(r.id).real }));
-    const key = targets.map((t) => t.real).sort().join("\n");
+    const targets = roots.filter((r) => r.id && r.watching).map((r) => ({ id: r.id, real: server.rootOf(r.id).real, dirs: r.watchDirs }));
+    const key = targets.map((t) => t.dirs.join("\n")).join("\n\n");
     if (watches.get(senderId)?.key === key) return;
+    const kept = watches.get(senderId)?.files ?? new Set();
     await closeWatch(senderId);
     if (!targets.length) return;
     const ck = await loadChokidar();
     if (!ck) return;
-    const { skipArtifactDir, isHtmlName, ARTIFACT_LIMITS } = await loadRules();
-    const state = { key, watcher: null, timer: null, paths: new Set(), structure: false };
+    const { skipArtifactDir, isHtmlName } = await loadRules();
+    const dirs = new Set(targets.flatMap((t) => t.dirs));
+    const state = { key, watcher: null, timer: null, paths: new Set(), structure: false, dirs, files: new Set(), ids: new Set(targets.map((t) => t.id)) };
     watches.set(senderId, state);
     const rootOfPath = (abs) => targets.find((t) => abs === t.real || abs.startsWith(t.real + path.sep));
     const flush = () => {
@@ -79,34 +92,38 @@ function createArtifactsFamily({ app, protocol, shell, rootFor, sessionFor, read
       state.paths = new Set();
       state.structure = false;
     };
-    const watcher = ck.watch(targets.map((t) => t.real), {
+    const watcher = ck.watch([...dirs], {
       ignoreInitial: true,
-      depth: ARTIFACT_LIMITS.depth + 2,
+      depth: 0,
       awaitWriteFinish: { stabilityThreshold: 300, pollInterval: 100 },
-      ignored: (p) => {
-        const root = rootOfPath(p);
-        if (!root || p === root.real) return false;
-        return path.relative(root.real, p).split(path.sep).some(skipArtifactDir);
-      },
+      ignored: (p) => !dirs.has(p) && skipArtifactDir(path.basename(p)),
     });
     watcher.on("all", (event, file) => {
       const abs = path.resolve(file), root = rootOfPath(abs);
       if (!root) return;
-      // The rail changes when pages come and go (or a page's title may have); the open page
-      // reloads only for a file some page of this root actually loaded. A build's log, its
-      // scripts and data nobody asked for yet never reload anything.
-      const structural = event !== "change" || isHtmlName(path.basename(abs));
       const loaded = served.get(root.id);
       const reload = loaded === "all" || !!loaded?.has(abs);
+      // The rail changes when something comes or goes in a listed folder, or a page there is rewritten
+      // (its title may have changed). A file watched because it was served is not in the listing.
+      const structural = dirs.has(path.dirname(abs)) && (event !== "change" || isHtmlName(path.basename(abs)));
       if (!structural && !reload) return;
       if (structural) state.structure = true;
       if (reload) state.paths.add(abs);
       if (!state.timer) state.timer = setTimeout(flush, 300);
     });
-    // A folder too large for the watch budget stays readable: the page has a reload button.
+    // Out of watches (inotify is finite): the folder stays readable, and the page has a reload key.
     watcher.on("error", () => { void closeWatch(senderId); });
     if (watches.get(senderId) !== state) { await watcher.close().catch(() => {}); return; }
     state.watcher = watcher;
+    // Files pages had already loaded before this (re)listing keep their watch.
+    for (const file of kept) watchServed(state, file);
+    for (const t of targets) { const loaded = served.get(t.id); if (loaded && loaded !== "all") for (const file of loaded) watchServed(state, file); }
+  }
+  /** A served file outside the listed folders (an artifact's data, two folders down) gets a watch of its own. */
+  function watchServed(state, file) {
+    if (!state.watcher || state.files.has(file) || state.dirs.has(path.dirname(file)) || state.files.size >= SERVED_WATCH_CAP) return;
+    state.files.add(file);
+    state.watcher.add(file);
   }
 
   async function listing(e, requestedRoot) {
@@ -124,7 +141,7 @@ function createArtifactsFamily({ app, protocol, shell, rootFor, sessionFor, read
       if (described) roots.push(described);
     }
     await watch(e, roots).catch(() => {});
-    return { roots, linkedDir: linked, projectDir };
+    return { roots: roots.map(({ watchDirs, ...root }) => root), linkedDir: linked, projectDir };
   }
 
   /** A path a page of a registered root could show: for reveal / open in the browser. */

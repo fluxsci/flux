@@ -213,6 +213,7 @@
       "verify-plots-folders.ts",
       "verify-project-watch-rules.ts",
       "verify-artifact-rules.ts",
+      "verify-artifact-bridge-browser.ts",
       "verify-plot-source.ts",
       "verify-plot-style-scope.ts",
       "verify-plot-style-bake.ts",
@@ -4057,6 +4058,7 @@
       "glob": "{electron/artifact*.{js,cjs},electron/ipc/artifacts.cjs,src/lib/artifacts/**,src/shell/modes/paper/artifacts/**,scripts/lib/artifactDevRoutes.mjs,scripts/lib/artifactsProbe.cjs,scripts/fixtures/artifacts/**}",
       "run": [
         "verify-artifact-rules.ts",
+        "verify-artifact-bridge-browser.ts",
         "verify-paper-artifacts-gui.mjs",
         "verify-artifacts-electron.cjs",
         "verify-ipc-contract.ts",
@@ -13324,6 +13326,15 @@
       "isolation": "scratch",
       "timeoutMs": 180000,
       "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-artifact-bridge-browser.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
       "coverage": "behavior"
     }
   }

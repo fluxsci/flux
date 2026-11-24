@@ -6,11 +6,24 @@
 
 export interface OutlineEntry { level: 1 | 2 | 3; text: string }
 
+/** A box in the frame's own viewport, CSS px. */
+export interface FrameRect { x: number; y: number; w: number; h: number }
+/** The point of a plot under the pointer when it was picked (a Plotly plot knows it). */
+export interface PlotPoint { trace?: string; x?: string; y?: string; z?: string; text?: string }
+
 export type FrameMessage =
   | { type: "ready"; path: string; view: string; title: string }
   | { type: "state"; path: string; view: string; title: string; scrollY: number; scrollMax: number; heading: number }
   | { type: "outline"; items: OutlineEntry[] }
-  | { type: "selection"; text: string }
+  /** The selected words, what surrounds them (white space left out), where they are and under which heading. */
+  | { type: "selection"; text: string; prefix?: string; suffix?: string; rect?: FrameRect; heading?: string }
+  /** Which of the comments the app sent were found on the page as it is now. */
+  | { type: "anchors"; items: { id: string; found: boolean }[] }
+  /** The pointer rested on a comment's mark, pressed it, the mark moved, or the pointer left. */
+  | { type: "anchor"; id: string; how: "hover" | "click" | "move" | "leave"; rect?: FrameRect }
+  /** An element chosen to comment on (a plot, a figure, a table), or the choosing was abandoned. */
+  | { type: "pick"; cancel: true }
+  | { type: "pick"; cancel?: false; selector: string; tag: string; plot: boolean; label: string; text: string; heading: string; rect: FrameRect; point?: PlotPoint }
   | { type: "key"; key: string; code: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean; repeat: boolean }
   | { type: "pointer" }
   | { type: "open"; url: string }
@@ -19,6 +32,12 @@ export type FrameMessage =
 const str = (v: unknown, max: number): string | null => (typeof v === "string" && v.length <= max ? v : null);
 const clip = (v: unknown, max: number): string => (typeof v === "string" ? v.slice(0, max) : "");
 const num = (v: unknown, min: number, max: number): number | null => (typeof v === "number" && Number.isFinite(v) && v >= min && v <= max ? v : null);
+function rect(v: unknown): FrameRect | null {
+  if (!v || typeof v !== "object") return null;
+  const r = v as Record<string, unknown>;
+  const x = num(r.x, -1e7, 1e7), y = num(r.y, -1e7, 1e7), w = num(r.w, 0, 1e7), h = num(r.h, 0, 1e7);
+  return x === null || y === null || w === null || h === null ? null : { x, y, w, h };
+}
 
 /** A message from the frame as a FrameMessage, or null when it is not one. */
 export function parseFrameMessage(data: unknown): FrameMessage | null {
@@ -48,8 +67,37 @@ export function parseFrameMessage(data: unknown): FrameMessage | null {
       }
       return { type: "outline", items };
     }
-    case "selection":
-      return { type: "selection", text: clip(d.text, 400) };
+    case "selection": {
+      const text = clip(d.text, 600), box = rect(d.rect);
+      if (!text) return { type: "selection", text: "" };
+      return { type: "selection", text, ...(typeof d.prefix === "string" ? { prefix: clip(d.prefix, 64) } : {}), ...(typeof d.suffix === "string" ? { suffix: clip(d.suffix, 64) } : {}), ...(box ? { rect: box } : {}), ...(typeof d.heading === "string" && d.heading ? { heading: clip(d.heading, 120) } : {}) };
+    }
+    case "anchors": {
+      if (!Array.isArray(d.items)) return null;
+      const items: { id: string; found: boolean }[] = [];
+      for (const raw of d.items.slice(0, 400)) {
+        const item = raw as { id?: unknown; found?: unknown } | null;
+        const id = item ? str(item.id, 80) : null;
+        if (id) items.push({ id, found: item!.found === true });
+      }
+      return { type: "anchors", items };
+    }
+    case "anchor": {
+      const id = str(d.id, 80), how = d.how;
+      if (id === null || (how !== "hover" && how !== "click" && how !== "move" && how !== "leave")) return null;
+      const box = rect(d.rect);
+      if (how !== "leave" && (!id || !box)) return null;
+      return { type: "anchor", id, how, ...(box ? { rect: box } : {}) };
+    }
+    case "pick": {
+      if (d.cancel === true) return { type: "pick", cancel: true };
+      const selector = str(d.selector, 1200), tag = str(d.tag, 40), box = rect(d.rect);
+      if (!selector || !tag || !box || !/^[a-z][a-z0-9-]*$/.test(tag)) return null;
+      const p = d.point && typeof d.point === "object" ? d.point as Record<string, unknown> : null;
+      const point: PlotPoint = {};
+      if (p) for (const k of ["trace", "x", "y", "z", "text"] as const) { const v = clip(p[k], 60); if (v) point[k] = v; }
+      return { type: "pick", selector, tag, plot: d.plot === true, label: clip(d.label, 100), text: clip(d.text, 80), heading: clip(d.heading, 120), rect: box, ...(Object.keys(point).length ? { point } : {}) };
+    }
     case "key": {
       const key = str(d.key, 32), code = str(d.code, 32);
       if (!key || code === null) return null;

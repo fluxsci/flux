@@ -2787,7 +2787,8 @@
     toggleArtifact,
     marginOpen: () => $paperLayout.dynMarginOpen,
     toggleMargin,
-    summonPane: (kind) => summonPane(kind as Parameters<typeof summonPane>[0]),
+    // Under an artifact the Comments chord opens the page's own comments; the margin is the document's.
+    summonPane: (kind) => (artifactShown && kind === "comments" ? artifactView?.toggleComments() : summonPane(kind as Parameters<typeof summonPane>[0])),
     editCitationAtCursor,
     openDoiPrompt,
     startComment,
@@ -2892,7 +2893,7 @@
   // card. The document's editor stays mounted, hidden: its session, undo history and comment
   // owner are untouched, and coming back to it is instant. Which artifact, which page and where
   // in it are remembered per project.
-  const ARTIFACT_CHORDS: ReadonlySet<string> = new Set(["toggle-outliner", "toggle-artifact"]);
+  const ARTIFACT_CHORDS: ReadonlySet<string> = new Set(["toggle-outliner", "toggle-artifact", "margin-comments"]);
   const artifactKey = `flux.paper.artifact:${pm?.root ?? ""}`;
   type SavedArtifact = { open: boolean; id: string; page?: string; view?: string; scrollY?: number };
   function savedArtifact(): SavedArtifact | null {

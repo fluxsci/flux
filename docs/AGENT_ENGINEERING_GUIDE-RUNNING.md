@@ -4038,11 +4038,11 @@ thread fallback); a 20k-line run costs ~85–115 ms in the worker (context scan 
 It renders ≤50 rows per pack until asked. Dev telemetry: `window.__flux.manuscriptCheck`
 (`runs`, `lastMs`, `lastMode`).
 
-### Paper's artifacts (2026-11-24, stage 1)
+### Paper's artifacts (2026-11-24: the viewer, and comments on a page)
 
 An artifact is an HTML page an agent wrote for the reader (an explorer, a report). Paper lists
 them under Documents and Context in the Files rail and shows one in the centre card in place of
-the document. Stage 1 is the viewer; anchored comments on a page are stage 2 (§10).
+the document. The reader comments on a page in the page; a comment is an Inbox item.
 
 - **What is listed** (`artifactRules.classifyArtifactFolder`, `artifactServe.listArtifacts`): a
   folder with `index.html` is ONE artifact (its other top-level pages are its pages; nothing inside
@@ -4076,10 +4076,14 @@ the document. Stage 1 is the viewer; anchored comments on a page are stage 2 (§
   of the window-owned Paper commands apply. `Outline` is reused as is (items =
   the page's headings, `from` = index). The open artifact, page, view and scroll are saved in
   localStorage `flux.paper.artifact:<root>` (page and view at once, scroll after a pause).
-- **Following the files.** The family watches each root (not past 1,500 folders) and records which
-  real files pages of the root were SERVED. A change reloads the open page only when the file was
-  served (a build's log and data nobody asked for yet reload nothing); any added or removed file or
-  changed `.html` re-lists. A load is always a NEW iframe: assigning the same address to a frame
+- **Following the files.** The protocol handler records which real files pages of a root were
+  SERVED. The watcher watches exactly two things: every folder the lister read (the root, groups,
+  each artifact's own folder: `listArtifacts().visited`), ONE level deep, and every served file
+  that is not in one of those folders, one by one (`watchServed`, added as it is served). It never
+  walks an artifact's data: a 10,000-file artifact costs the handful of watches its pages loaded.
+  A change reloads the open page only when the file was served (a build's log and data nobody
+  asked for yet reload nothing); a file added, removed, or an `.html` rewritten in a listed
+  folder re-lists. Past 1,500 listed folders a root is listed and not watched. A load is always a NEW iframe: assigning the same address to a frame
   whose URL has a hash only moves within the page. A RELOAD loads its frame under the one on
   screen (`iframe.under`, z-index, both in view so the new one lays out and paints) and `swap`s it
   in once the page has answered and reported the reader's scroll position (1.5 s after `ready` at
@@ -4092,10 +4096,45 @@ the document. Stage 1 is the viewer; anchored comments on a page are stage 2 (§
   (`FOLDER_ROW`). It is deliberately NOT a `.folder-label` inside `[data-folder]`: that pair is
   where a dragged document is dropped, and `verify-paper-files-gui` reads every `.folder-label`'s
   `data-folder`.
-- **Agents.** `TargetRef` has kind `artifact` (`path`, `view`, `title`, `heading`, `quote`);
-  `ArtifactView` registers a target resolver, so Ctrl+Shift+M over a page stamps it and
-  `get_app_context` reports it. `inspectTarget` returns the page's folder listing and README (where
-  the build script is). `navigateToStamp` reopens the page from an inbox item.
+- **Agents.** `TargetRef` has kind `artifact` (`path`, `view`, `title`, `heading`, `quote` with
+  `prefix`/`suffix`, `element`, `point`); `ArtifactView` registers a target resolver, so
+  Ctrl+Shift+M over a page stamps it and `get_app_context` reports it. `inspectTarget` returns the
+  page's folder listing and README (where the build script is). `navigateToStamp` reopens the page
+  from an inbox item.
+- **A comment on a page IS an Inbox item** (`src/lib/artifacts/comments.ts`): an annotation in
+  `.meta/feedback.ndjson` whose `artifact` target carries an anchor, saved with `addAnnotation`
+  like an Annotate note (route, background run, picture). There is no sidecar and no second
+  protocol: agents list, claim, answer and resolve it with the tools they already have, and
+  `artifactThreads(inboxItems, artifact)` reads the threads back. A human resolves their own with
+  `changeInboxItem(item, "resolve")`. An Annotate note made over selected words of a page is such a
+  comment too. The thread is drawn by Paper's own `CommentThreadView` (it takes `editable`,
+  `recipient`, `body`, `more`, `about` for threads that are not sidecar comments), in
+  `ArtifactCard` on the page and `ArtifactCommentsRail` beside it (Alt+A).
+- **Anchors.** Words: `quote` plus 32 characters of `prefix` and `suffix`, with ALL white space
+  removed on both sides of every comparison (a selection across paragraphs reads "end.\n\nNext",
+  the text nodes hold "end." and "Next"). An element: a CSS path (`#id` when the id is unique, else
+  `nth-of-type` steps from the nearest unique id), its tag, a label (aria-label, alt, caption,
+  a Plotly plot's title or axis titles) and, for a Plotly plot, the point in `gd._hoverdata`.
+  The BRIDGE finds them (`findQuote`: best occurrence by surrounding characters, then first and
+  last 14 characters for a reworded passage; `elementFor`: the path, then same tag with the same
+  label) each time the app sends `anchors`, and again 400 ms after the page's DOM changes
+  (changes inside an SVG do not count: a plot redrawing under the pointer moves no words).
+  It reports `anchors` only when what was found CHANGED. `threadPlace` turns that into here /
+  page / other-page / other-view / lost.
+- **Drawing on a page without changing it.** Passages are drawn with the CSS highlight registry
+  (`CSS.highlights`, `::highlight(flux-comment)`): no node of the page is wrapped or touched.
+  Element outlines and the pick probe live in a closed shadow root on one `<flux-artifact-marks>`
+  element appended to `<html>`, positioned from its own bounding box. The hover card, the Comment
+  key on a selection and the rail are the app's, placed from rects the bridge reports
+  (`selection.rect`, `anchor` hover / click / move / leave).
+- **A view link in a reply** (`messageParts`): `[label](#view)` or `[label](page.html#view)` in
+  a message becomes a button; `go(page, view)` reloads the page at that view under the one on
+  screen and swaps (it never sets `location.hash`: a page need not listen for it). Any other
+  link stays text.
+- **What a page may ask of the app.** `open` (a web link) opens directly only when the reader
+  allowed the folder the network; otherwise the strip offers it and the reader clicks. Chords are
+  capped at 24 a second. Both because a page is a program and can post either without anyone
+  having touched it.
 - **The dev fixture** has no file system and no custom protocol, so `memBridge.artifactsList` asks
   the dev server's route, which runs the app's own lister and server over
   `scripts/fixtures/artifacts` (`FLUX_DEV_ARTIFACT_DIR=<dir>` adds a real folder as the linked root).
@@ -6560,6 +6599,20 @@ module that publishes dev telemetry at import time loses it — publish lazily (
   dev server for `//?fixture=demo`; `new URL(req.url, base)` threw outside the route's `try`, the
   rejection was unhandled, and the dev server died under the eleven gates behind it. Parse inside
   a `try` and call `next()`.
+- **Reactive state does not go through `structuredClone` or `postMessage`.** A `$state` object is
+  a proxy; `addAnnotation` clones its context and threw "could not be cloned" on a draft's target.
+  Pass `$state.snapshot(x)` at the boundary.
+- **A snippet is styled by the component it is WRITTEN in.** Buttons passed into
+  `CommentThreadView` as a `more` snippet got none of its `.acts button` style: they belong to the
+  component that declares the snippet and need their own class there.
+- **A gate that clicks a floating key must know it is THIS selection's key.** The page reports a
+  selection 150 ms after it settles; the key from the previous selection was still on screen and
+  the gate commented on the old words. The key carries `data-selected`; wait for it.
+- **A closing palette still takes clicks.** The command palette fades out over ~110 ms and its
+  backdrop (`.cp-scrim`) stays, catching pointer events, until the fade ends. A page in one file
+  answers faster than that, so `verify-paper-artifacts-gui` clicked the strip's close key ON the
+  backdrop about one run in five (caught by logging every pointer event and the palette's
+  animation per frame). Wait for `.cp-scrim, .cp` to be gone after running a palette command.
 - **A state saved on a delay is lost by a quick quit.** The open artifact's page and view are saved
   when they change; only the scroll position waits for a pause.
 
@@ -6624,14 +6677,15 @@ node's `transform` attribute, which is why `effectNode` wraps a leaf that carrie
 
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
-- **Paper's artifacts are stage 1: a viewer (2026-11-24).** Deliberately not built yet: comments
-  ANCHORED in a page (a margin thread on a sentence or a plot point that survives the page being
-  regenerated; today a comment on a page is an Annotate note carrying picture, page, view, heading
-  and selected words); an `artifact.json` beside a page that names its build command; a
-  `flux artifacts` verb and a line in the connect brief telling an agent where the project keeps
-  them; a zoom control for the page; the dynamic margin beside a page. WebGL inside a page was not
-  exercised (the harnesses have no GPU); nothing in the frame's policy withholds it. A linked
-  folder is found only through the app: flux-core does not read `artifactDirs` yet.
+- **Paper's artifacts: what is deliberately not built (2026-11-24).** An `artifact.json` beside a
+  page that names its build command; a `flux artifacts` verb and a line in the connect brief
+  telling an agent where the project keeps them (flux-core does not read `artifactDirs` yet: a
+  linked folder is found only through the app); an agent STARTING a comment on a page (it answers
+  and resolves the reader's); private comments (every page comment is in the Inbox; Paper's
+  "Just for me" has no ledger equivalent), editing a sent comment, and tags; promoting a page's
+  panel into a Flux figure; a zoom control for the page. Canvas plots and points of plots that
+  are not Plotly are picked as the element only. WebGL inside a page was not exercised (the
+  harnesses have no GPU); nothing in the frame's policy withholds it.
 - **Release 2 follow-up F3 traps (2026-10-23).** (a) "**A transform is compiled against the element's BASE
   asset.** Every controller of a slide is built at mount, in story order, while the live content shows the base
   asset: anything a driver reads from the live DOM at compile time (a mark's polygon) is the BASE's, whatever the
@@ -14296,3 +14350,14 @@ order; an image entry's fields have one order in the export payload; an image's 
 - **One server for the app and the dev fixture.** The dev route runs `electron/artifactServe.cjs` itself, so the GUI gate reads the listings, policy and bridge the app serves; only the address differs.
 - **A harness with no GPU says "WebGL is not supported" inside a page.** That is the harness: do not read it as the frame's policy.
 **Gates:** `verify-artifact-rules.ts` (pure), `verify-paper-artifacts-gui.mjs` (ui, in `paper-gate`), `verify-artifacts-electron.cjs` (electron, window-free).
+
+### 2026-11-24 — Artifacts, stage 2: comments on a page, and a robustness pass (Claude Fable 5.2, `paper/artifacts`)
+**Work:** The owner tried stage 1 ("flawless so far") and asked for the commenting system and a pass for speed and robustness. A comment on a page is now an Inbox annotation whose `artifact` target carries an anchor (words with their surroundings, or an element with its path and label, plus a Plotly point); the page's bridge finds each one again in whatever the page has become and draws it with the CSS highlight registry, and the thread is Paper's own comment card. The watcher was rebuilt to watch listed folders one level deep and served files one by one; a page's request to open a web link is now the reader's call unless the folder is on the network.
+**Learnings:**
+- Promoted to §4 "Paper's artifacts" (comments, anchors, drawing without changing the page, the watcher) and §9 "Artifacts".
+- **Before adding a store, ask which existing one already has the life cycle.** Page comments needed routing to an agent, claims, answers, resolve, pictures, a background run and live refresh: the annotation ledger has all of them and a sidecar of threads had none. The whole agent side is unchanged.
+- **Measure the page-side work on the owner's real page.** Placing 21 comments on the 258 MB explorer (4,900 nodes, 14,000 characters of text) costs 2.5 ms with the text read first and 0.1 ms after; 40 comments on a synthetic 1.2-million-character page cost 15 ms.
+- **An intermittent GUI failure: record what the click hit, not what the screen shows.** The failure picture showed the pointer on the close key and the page still open; the event log showed every event of the click going to the palette's fading backdrop. Twenty runs after the fix, twenty passes.
+- **`verify-relayout-perf` is flaky on this desk independently of this work** (its 15 ms "model build" pin read 15.1–15.8 ms about one run in six, the same rate on `main`).
+- **A page's label for a plot is rarely an attribute.** A Plotly plot has no `aria-label`; its title or its axis titles name it, and the heading above it names it when it has neither.
+**Gates:** `verify-artifact-bridge-browser.ts` (pure, real Chrome: passages and elements found again after rewrites, the page unchanged, picking, cost), `verify-artifact-rules.ts` (176 checks), `verify-paper-artifacts-gui.mjs` (68), `verify-artifacts-electron.cjs` (42).
