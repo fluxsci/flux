@@ -63,6 +63,7 @@ website:
           - reference/shortcuts.qmd
           - reference/cli.qmd
           - reference/project-layout.qmd
+          - reference/credits.qmd
 
 format:
   html:

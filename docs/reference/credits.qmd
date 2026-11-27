@@ -1,0 +1,82 @@
+---
+title: "Credits and licences"
+subtitle: "The open work Flux is built on, and what to cite when you use it"
+---
+
+Flux is free and open source under the MIT licence. It stands on a great deal of work by other
+people. This page names the parts you are most likely to meet. The complete list, with every
+bundled library and its licence, is in
+[THIRD_PARTY_NOTICES.md](https://github.com/fluxsci/flux/blob/main/THIRD_PARTY_NOTICES.md).
+
+## Colormaps and palettes
+
+The colour collections in the palette and colormap pickers come from these projects. If a
+figure's colours matter to your argument, cite the map you used.
+
+| Collection | Made by | Cite or credit | Licence |
+|---|---|---|---|
+| Flexoki | Steph Ango | [stephango.com/flexoki](https://stephango.com/flexoki) | MIT |
+| matplotlib | The Matplotlib Development Team | Hunter (2007), *Computing in Science & Engineering* 9, 90–95, [doi:10.1109/MCSE.2007.55](https://doi.org/10.1109/MCSE.2007.55) | Matplotlib licence |
+| Crameri | Fabio Crameri | Crameri (2018), Scientific colour maps, Zenodo, [doi:10.5281/zenodo.1243862](https://doi.org/10.5281/zenodo.1243862); Crameri, Shephard and Heron (2020), *Nature Communications* 11, 5444, [doi:10.1038/s41467-020-19160-7](https://doi.org/10.1038/s41467-020-19160-7) | MIT |
+| Paul Tol | Paul Tol | Tol, Colour Schemes, SRON Technical Note SRON/EPS/TN/09-002, [personal.sron.nl/~pault](https://personal.sron.nl/~pault/) | BSD-3-Clause |
+| cmasher | Ellert van der Velden | van der Velden (2020), *Journal of Open Source Software* 5(46), 2004, [doi:10.21105/joss.02004](https://doi.org/10.21105/joss.02004) | BSD-3-Clause |
+| ColorBrewer | Cynthia Brewer, Mark Harrower and The Pennsylvania State University | Harrower and Brewer (2003), *The Cartographic Journal* 40, 27–37, [doi:10.1179/000870403235002042](https://doi.org/10.1179/000870403235002042) | Apache-2.0 |
+
+Flux's "green" ramp in the Flexoki palette is the author's own, built around Paul Tol's bright
+green as its main shade; Flexoki's green is kept under the name "olive". The house maps in the Flexoki collection were made for fluxplot.
+
+Some maps in the matplotlib collection have their own authors: viridis, magma, inferno and
+plasma (Nathaniel J. Smith, Stéfan van der Walt and Eric Firing, CC0); cividis (Nuñez, Anderton
+and Renslow, 2018, [doi:10.1371/journal.pone.0199239](https://doi.org/10.1371/journal.pone.0199239));
+turbo (Anton Mikhailov, Google, Apache-2.0); twilight (Bastian Bechtold); coolwarm (Kenneth
+Moreland, 2009); cubehelix (D. A. Green, 2011); and the ColorBrewer maps.
+
+The colour-vision simulation in **View as** uses the model of Machado, Oliveira and Fernandes
+(2009), *IEEE Transactions on Visualization and Computer Graphics* 15, 1291–1298,
+[doi:10.1109/TVCG.2009.113](https://doi.org/10.1109/TVCG.2009.113).
+
+## Fonts and icons
+
+The interface and exported slides use **Gelasio** (The Gelasio Project Authors, SIL Open Font
+License 1.1). Mathematics is set with **KaTeX** and its fonts (Khan Academy and contributors,
+MIT). Most interface icons come from **Lucide** (ISC).
+
+## Writing, citing and reading
+
+- Spelling and grammar checking uses [Harper](https://writewithharper.com) (Apache-2.0), which
+  runs on your machine.
+- The built-in Nature, Science and Cell citation styles come from the Citation Style Language
+  project through the [Zotero Style Repository](https://www.zotero.org/styles), under CC BY-SA
+  3.0. Each style file names its authors, and Flux copies it into your project unchanged.
+- References are parsed and formatted with [citation.js](https://citation.js.org) (MIT) and
+  citeproc-js.
+- Reader displays PDFs with [pdf.js](https://mozilla.github.io/pdf.js/) (Mozilla, Apache-2.0).
+- The editor is [CodeMirror](https://codemirror.net) (MIT).
+- Library and Reader look up references and open-access copies through Crossref, OpenAlex,
+  Unpaywall, Semantic Scholar, PubMed Central, arXiv and bioRxiv.
+
+The journal export presets follow the public author guidelines of Nature, Science, Cell and
+bioRxiv. Flux is not affiliated with or endorsed by those journals.
+
+## Figures, 3D and video
+
+- Plots edited in Flux keep matplotlib's behaviour: the colour scales, tick placement and
+  layout rules are ported from [Matplotlib](https://matplotlib.org).
+- 3D models are drawn with [three.js](https://threejs.org) (MIT).
+- Slide video export runs [FFmpeg](https://ffmpeg.org) as a separate program, under the GNU GPL
+  version 3. Its licence and notice sit beside the executable in the app.
+- Several easing curves follow the rate functions of
+  [Manim Community](https://www.manim.community) (MIT).
+
+## The app itself
+
+Flux is built with [Electron](https://www.electronjs.org), [Svelte](https://svelte.dev) and
+TypeScript. Word and Quarto export use [Quarto](https://quarto.org) and
+[Pandoc](https://pandoc.org), and LaTeX output uses [TinyTeX](https://yihui.org/tinytex/), each
+installed only when you ask for it.
+
+## Inspiration
+
+Two apps shaped how Flux works: [Figma](https://www.figma.com/) was the main inspiration for
+Figure, and [Obsidian](https://obsidian.md/) for Paper. Flux contains no code from either and is
+not affiliated with them.

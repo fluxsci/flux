@@ -14361,3 +14361,10 @@ order; an image entry's fields have one order in the export payload; an image's 
 - **`verify-relayout-perf` is flaky on this desk independently of this work** (its 15 ms "model build" pin read 15.1–15.8 ms about one run in six, the same rate on `main`).
 - **A page's label for a plot is rarely an attribute.** A Plotly plot has no `aria-label`; its title or its axis titles name it, and the heading above it names it when it has neither.
 **Gates:** `verify-artifact-bridge-browser.ts` (pure, real Chrome: passages and elements found again after rewrites, the page unchanged, picking, cost), `verify-artifact-rules.ts` (176 checks), `verify-paper-artifacts-gui.mjs` (68), `verify-artifacts-electron.cjs` (42).
+
+### 2026-11-25 — Credits pass: third-party notices and a credits page (Claude Fable 5.2, `main`)
+**Work:** Inventoried everything Flux bundles or reproduces and wrote `THIRD_PARTY_NOTICES.md` (repo root), a user docs page `docs/reference/credits.qmd`, an Acknowledgements section in the README, and same-page data credits for the README screenshots. Docs and text only; no code or packaging changed.
+**Learnings:**
+- **`THIRD_PARTY_NOTICES.md` is now the one list of third-party work.** A new runtime dependency, bundled asset (font, colour collection, CSL style, binary) or ported algorithm adds a row there, and a line in `docs/reference/credits.qmd` when users meet it directly.
+- **The packaged app carries no aggregate notice.** `electron-builder.yml` ships neither `LICENSE` nor the notices file, five build scripts set `legalComments: "none"`, and exported decks and SVGs embed Gelasio without the OFL text. The credits page in the offline docs is the only in-app credit. Shipping the notices is an open owner decision.
+- **A screenshot of someone else's data needs its credit on the same page** (the Allen Institute's citation policy requires it). The website's `docs/visual-credits` page is the full record; a README or docs caption still names the source beside the image.

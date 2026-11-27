@@ -14,9 +14,12 @@ Your projects stay in ordinary files on your own machine.
 > (`curl -fsSL https://fluxsci.github.io/install.sh | bash`), or start from source below.
 > What changed in each release is in [CHANGELOG.md](CHANGELOG.md).
 
-[![Flux Paper mode showing a scientific manuscript with an eight-panel neuroscience figure](https://fluxsci.github.io/assets/media/paper.webp)](https://fluxsci.github.io/docs/paper.html)
+[![Flux Paper mode showing a scientific manuscript with an embedded multi-panel materials figure and its caption](https://fluxsci.github.io/assets/media/paper.webp)](https://fluxsci.github.io/docs/paper.html)
 
-*Write with your figures, captions, and citations in context.*
+*Write with your figures, captions, and citations in context. Crystal structures in the
+figure: [Crystallography Open Database](https://www.crystallography.net/cod/); Fermi surface: the MgB₂
+example from [FermiSurfer](https://github.com/mitsuaki1987/fermisurfer); the other panels are
+calculated or illustrative.*
 
 ## What you can do
 
@@ -34,8 +37,11 @@ Your projects stay in ordinary files on your own machine.
 
 [![Flux Figure mode showing editable neuroscience plots arranged in an eight-panel figure, with layers and styling controls](https://fluxsci.github.io/assets/media/figure.webp)](https://fluxsci.github.io/docs/figure.html)
 
-*Assemble publication figures from plots you can still edit. Both screenshots use
-public datasets, listed in the website's [visual credits](https://fluxsci.github.io/docs/visual-credits.html).*
+*Assemble publication figures from plots you can still edit. Data and anatomy in this figure:
+[Allen Institute for Brain Science](https://brain-map.org/our-research/circuits-behavior/visual-coding)
+(Allen Brain Observatory, Allen Mouse Common Coordinate Framework) and
+[MICrONS](https://www.microns-explorer.org/). Full sources for both screenshots are in the
+website's [visual credits](https://fluxsci.github.io/docs/visual-credits.html).*
 
 ## Your files, your workflow
 
@@ -144,6 +150,20 @@ feature-specific gates. To browse the documentation locally, run `quarto preview
 [Lighttable](lighttable/README.md), the image-set viewer in `lighttable/`, is a
 separate companion app with its own installation and tests.
 
+## Acknowledgements
+
+Flux builds on a great deal of open work: Electron, Svelte, CodeMirror, pdf.js, KaTeX, three.js,
+Harper, citation.js and FFmpeg; the Gelasio typeface and the Lucide icons; and colour from
+Flexoki (Steph Ango), Matplotlib, Fabio Crameri's Scientific colour maps, Paul Tol's colour
+schemes, CMasher (Ellert van der Velden) and ColorBrewer (Cynthia Brewer and Mark Harrower).
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists everything Flux bundles or reproduces,
+with authors, licences and the papers to cite.
+
+Two apps shaped how Flux works: [Figma](https://www.figma.com/) was the main inspiration for
+Figure, and [Obsidian](https://obsidian.md/) for Paper. Flux contains no code from either and
+is not affiliated with them.
+
 ## License
 
-[MIT](LICENSE) © Kort Driessen.
+[MIT](LICENSE) © Kort Driessen. Bundled third-party work keeps its own licences; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

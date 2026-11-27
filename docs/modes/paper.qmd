@@ -149,7 +149,8 @@ Paper quietly fixes only unmistakable typing slips as soon as you finish the wor
 letters such as *compelx* and an accidental space such as *o bject*. Insertions, deletions, and
 ambiguous spelling neighbors wait for sentence context instead of guessing. The replacement fades
 into place and a small blue dot pulses beneath it; the caret never moves. This first correction
-layer uses Harper in a dedicated local worker and sends no manuscript text anywhere.
+layer uses [Harper](https://writewithharper.com) (Apache-2.0) in a dedicated local worker and
+sends no manuscript text anywhere.
 
 Click a recently corrected word to see what changed. **Undo** restores the original and teaches
 this project not to repeat that correction; **Add to dictionary** also remembers the word as
@@ -228,6 +229,7 @@ directly. **Alt+C** edits the citation under the caret.
 **Reference style for Word exports.** In **Export…** (**Alt+E**), with the Flux house style,
 the **References** menu picks the citation style the Word export uses: Nature, Science or Cell,
 or **Load .csl file…** for any style from the [Zotero Style Repository](https://www.zotero.org/styles).
+The three built-in styles come from that repository under CC BY-SA 3.0; each file names its authors.
 Flux copies the style into `references/styles/` and records it in the document's front matter
 as one `csl:` line (choose *Pandoc default* to remove it). Only the export changes: the chips
 in the editor keep the **Au–Yr** / **[1]** look you chose, and the in-app PDF and HTML keep

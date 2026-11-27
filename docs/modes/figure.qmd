@@ -591,7 +591,8 @@ until you finish it. The palette comes in
 **collections** — Flexoki (the default), ColorBrewer, Paul Tol's colour sets, and your
 project's own imported palette — as tabs above the grid; **Shift+Tab** cycles them. **Tab**
 switches the grid to the **colormaps**: every map fluxplot ships (matplotlib, Crameri's
-Scientific colour maps, Paul Tol, cmasher), by collection and by type, each with a preview
+Scientific colour maps, Paul Tol, cmasher; their authors and the papers to cite are in
+[Credits and licences](../reference/credits.qmd)), by collection and by type, each with a preview
 bar — pick a map and hover along its bar to take the colour at that position, **r** reverses
 it. Or take the *whole* map: **x** or **y** (or the *along x* / *along y* buttons under the bar)
 lays it across the element as a **gradient** along that axis — x left→right, y bottom→top — for
