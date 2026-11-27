@@ -7,7 +7,7 @@ Release that the one supported installer picks up:
 curl -fsSL https://fluxsci.github.io/install.sh | bash
 ```
 
-## Unreleased
+## 0.4.1 — 2026-11-27
 
 ### Paper
 
@@ -29,6 +29,23 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   takes the page to the state it names. **Alt+A** lists every comment beside the page. When
   the page is rebuilt, each comment is found again by its words or its element; one whose
   subject is gone is kept and says so.
+
+### Credits and licences
+
+- **The app carries its licences.** An installed Flux now has a `legal` folder in its
+  resources (`/opt/Flux/resources/legal` on Linux, `Flux.app/Contents/Resources/legal` on
+  macOS) with Flux's own licence, the list of everything Flux is built on, and the full
+  licence text of each piece: the colormap and palette collections, the fonts and icons, the
+  citation styles, and every library compiled into the app. Earlier installers carried none
+  of these.
+- **A Credits and licences page in the help** (**Reference › Credits and licences**) names the
+  authors of the colormaps and palettes with the papers to cite when you publish with them,
+  and the projects behind writing, citing, reading, 3D and video.
+- **An exported HTML deck names the open-source software inside it**, in one comment line at
+  the top of the file that says where its authors and licences are listed.
+- **`THIRD_PARTY_NOTICES.md`** in the repository is the same list for people reading the
+  source, and the README gains an Acknowledgements section.
+
 
 ## 0.4.0 — 2026-11-23
 

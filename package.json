@@ -1,6 +1,6 @@
 {
   "name": "flux",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "type": "module",
   "main": "electron/entry.cjs",
@@ -19,7 +19,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "vite build && node scripts/gen-model3d-viewer.mjs && node scripts/build-extension.mjs && tsx scripts/gen-export-assets.ts && node scripts/build-cli.mjs",
+    "build": "vite build && node scripts/gen-model3d-viewer.mjs && node scripts/build-extension.mjs && tsx scripts/gen-export-assets.ts && node scripts/build-cli.mjs && node scripts/build-legal.mjs",
     "build:cli": "tsx scripts/gen-export-assets.ts && node scripts/build-cli.mjs",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
@@ -46,7 +46,8 @@
     "fetch:video-encoder": "node scripts/fetch-video-encoder.mjs",
     "check:headless": "tsc --project tsconfig.headless.json",
     "build:docs": "node scripts/build-docs.mjs",
-    "build:model3d": "node scripts/gen-model3d-viewer.mjs"
+    "build:model3d": "node scripts/gen-model3d-viewer.mjs",
+    "build:legal": "node scripts/build-legal.mjs"
   },
   "dependencies": {
     "@citation-js/core": "^0.7.21",
