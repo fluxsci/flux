@@ -1,0 +1,9 @@
+Citation styles
+
+The Nature, Science and Cell citation styles (resources/csl/*.csl) come from the Citation
+Style Language project's style repository, https://github.com/citation-style-language/styles.
+Each file names its authors and contributors. They are licensed under the Creative Commons
+Attribution-ShareAlike 3.0 Unported licence:
+https://creativecommons.org/licenses/by-sa/3.0/
+
+Flux is not affiliated with or endorsed by these journals.

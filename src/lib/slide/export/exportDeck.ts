@@ -97,6 +97,19 @@ async function hashSources(rels: string[]): Promise<string> {
 
 const b64 = (buf: Buffer) => buf.toString("base64");
 
+// A deck is a copy of the software it embeds, and the bundler strips licence comments. This
+// line names what is inside and where the authors and licences are listed, so a deck a person
+// shares carries it. The list is what the runtimes' bundles contain (an esbuild metafile of
+// runtime.ts, model3dRuntime.ts and fluximgRuntime.ts shows it): update it when one gains a
+// library. No address carries a scheme: the deck is offline by construction and its gates
+// read any "https://" in the file as a reference to the network. (The typeface needs no
+// notice in a document it is embedded in; it is named for completeness.)
+export function embeddedSoftwareNotice(withModel3d: boolean): string {
+  return "<!-- Exported from Flux (fluxsci.org). This file embeds open-source software: Svelte (MIT), " +
+    "css-tree (MIT), source-map-js (BSD-3-Clause), kiwi (BSD-3-Clause)" + (withModel3d ? ", three.js (MIT)" : "") +
+    " and the Gelasio typeface (SIL OFL 1.1). Authors and licences: THIRD_PARTY_NOTICES.md at github.com/fluxsci/flux -->";
+}
+
 async function computeGelasio(): Promise<string> {
   const faces: string[] = [];
   const fonts = [
@@ -260,6 +273,7 @@ export async function exportDeckHtml(payload: ExportPayload, opts: { warnThresho
 `;
   const policy = await offlineHtmlPolicy([runtime, ...(modelRuntime ? [modelRuntime] : []), ...(imageRuntime ? [imageRuntime] : []), boot]);
   const html = `<!doctype html>
+${embeddedSoftwareNotice(!!modelRuntime)}
 <html lang="en">
 <head>
 <meta charset="utf-8">

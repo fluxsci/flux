@@ -13,6 +13,8 @@ dist-ssr
 # Packaging output (electron-builder)
 release/
 build/video-encoder/
+# Written by scripts/build-legal.mjs (npm run build): the notices the installers carry.
+build/legal/
 
 # Personal planning/spec docs — kept local, never published
 notes/

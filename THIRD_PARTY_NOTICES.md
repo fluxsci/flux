@@ -4,9 +4,15 @@ Flux is MIT-licensed (see [`LICENSE`](LICENSE)). It is built on, bundles, or rep
 listed here. Each item keeps its own licence; Flux's licence does not replace it. Thank you to
 everyone who made and maintains this work.
 
-This file names each component, its authors and its licence, and says where the full licence
-text is. It was compiled on 2026-11-25 from the dependency tree at Flux 0.4.0. Update it when a
-dependency, bundled asset or ported algorithm changes.
+This file names each component, its authors and its licence. It was compiled on 2026-11-25 from
+the dependency tree at Flux 0.4.0. Update it when a dependency, bundled asset or ported algorithm
+changes.
+
+The licence texts travel with the app. An installed Flux has a `legal` folder in its resources
+(on Linux `/opt/Flux/resources/legal`, on macOS `Flux.app/Contents/Resources/legal`) holding
+Flux's `LICENSE`, this file, and `THIRD_PARTY_LICENSES.txt`: the full licence text of every
+item below. `scripts/build-legal.mjs` writes that file at build time from the npm packages
+compiled into the app and from the hand-kept texts in [`resources/legal/`](resources/legal).
 
 The companion Python library, fluxplot, has its own
 [notices](https://github.com/fluxsci/fluxplot/blob/main/THIRD_PARTY_NOTICES.md), with the full
@@ -48,7 +54,7 @@ Several maps in the matplotlib collection have authors of their own:
 
 | Font | Authors and source | Licence | Where it is used |
 |---|---|---|---|
-| Gelasio | The Gelasio Project Authors (Eben Sorkin), <https://github.com/SorkinType/Gelasio> | SIL Open Font License 1.1; text in [`resources/fonts/OFL.txt`](resources/fonts/OFL.txt) | The interface, and embedded in exported SVG, HTML decks and rasters |
+| Gelasio | The Gelasio Project Authors (Eben Sorkin), <https://github.com/SorkinType/Gelasio> | SIL Open Font License 1.1; text in [`resources/fonts/OFL.txt`](resources/fonts/OFL.txt) | The interface, and embedded in exported SVG, HTML decks and rasters. A font embedded in a document needs no licence text beside it (the licence's own FAQ, 1.10 to 1.12); the embedded font files keep their copyright and licence in their metadata. |
 | KaTeX fonts | Khan Academy and other contributors, <https://katex.org> | MIT | Mathematics, in the editor and in exported HTML and PDF |
 | Foxit fonts | The PDFium Authors, distributed with pdf.js | BSD-style | Reader, as stand-ins for the standard PDF fonts |
 | Liberation Sans | Red Hat, distributed with pdf.js | GPL v2 with the font exception | Reader, as a stand-in for a standard PDF font |
@@ -67,8 +73,8 @@ the cursors are Flux's own.
 | Science citation style (`resources/csl/science.csl`) | Julian Onions, Sebastian Karcher, Greg Barendt; as above | CC BY-SA 3.0 |
 | Cell citation style (`resources/csl/cell.csl`) | Adam Mark, Julian Onions, Aurimas Vinckevicius, Patrick O'Brien; as above | CC BY-SA 3.0 |
 | citation.js | Lars Willighagen, <https://citation.js.org> | MIT |
-| citeproc-js, with the APA, Vancouver and Harvard styles and five locales that citation.js bundles | Frank Bennett, <https://github.com/Juris-M/citeproc-js>; the styles and locales are from the Citation Style Language project | CPAL-1.0 or AGPL (citeproc-js); CC BY-SA 3.0 (styles and locales) |
-| Word reference documents (`resources/docx/`) | Built from the default reference document of [Pandoc](https://pandoc.org) (John MacFarlane) | Pandoc's licence |
+| citeproc-js, with the APA, Vancouver and Harvard styles and five locales that citation.js bundles | Frank Bennett, <https://github.com/Juris-M/citeproc-js>; the styles and locales are from the Citation Style Language project | citeproc-js is offered under CPAL-1.0 or AGPL; Flux uses it, unmodified, under CPAL-1.0. CC BY-SA 3.0 (styles and locales) |
+| Word reference documents (`resources/docx/`) | Built from the default reference document of [Pandoc](https://pandoc.org) (John MacFarlane) by `scripts/gen-reference-docx.mjs` | GPL-2.0-or-later, as Pandoc. It covers these four files only; they are data files beside the app, not part of its code. |
 
 The citation style files are copied into a project unchanged, with their authors and licence
 inside. Flux's default citation keys follow the pattern of

@@ -27,6 +27,9 @@ await verifyVideoEncoder(encoder,{platform,arch,...await videoEncoderContract()}
 const docs=path.join(resources,'docs'),docsInventory=JSON.parse(await fs.readFile(path.join(docs,'.flux-docs.json'),'utf8'));
 assert.equal(docsInventory.version,1);assert.ok(docsInventory.pages.includes('index.html'));
 assert.deepEqual(await validateDocumentation(docs,docsInventory.pages),docsInventory.files,'packaged offline help must retain every validated page and resource byte');
+// The notices travel with the app (scripts/build-legal.mjs): Flux's licence, the readable list, the licence texts.
+const legal=path.join(resources,'legal');for(const name of ['LICENSE','THIRD_PARTY_NOTICES.md','THIRD_PARTY_LICENSES.txt'])assert.ok((await fs.stat(path.join(legal,name))).size>1000,`packaged app carries legal/${name}`);
+assert.match(await fs.readFile(path.join(legal,'THIRD_PARTY_LICENSES.txt'),'utf8'),/^Third-party licences for Flux \d+\.\d+\.\d+/,'packaged licence texts name their version');
 const scratch=await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),'Flux packaged smoke '))),evidence=path.join(directory,'smoke-evidence');await fs.mkdir(evidence,{recursive:true});
 const scope=new TestProcessScope(),env=isolatedEnv(path.join(scratch,'configuration'));
 const cwd=path.join(scratch,'unrelated directory');await fs.mkdir(cwd);

@@ -57,6 +57,10 @@ files:
 extraResources:
   - from: docs/_site
     to: docs
+  # Flux's licence, the third-party notices and the licence texts (scripts/build-legal.mjs).
+  # Outside app.asar so a person can read them. Repeated in each platform block below.
+  - from: build/legal
+    to: legal
   - from: extension/dist
     to: extension/dist
   - from: extension/signed
@@ -136,6 +140,8 @@ mac:
   extraResources:
     - from: docs/_site
       to: docs
+    - from: build/legal
+      to: legal
     - from: build/video-encoder/darwin-${arch}/
       to: video-encoder/
     # Web capture ships with the app (platform blocks REPLACE the top-level extraResources
@@ -174,6 +180,8 @@ linux:
   extraResources:
     - from: docs/_site
       to: docs
+    - from: build/legal
+      to: legal
     - from: build/video-encoder/linux-${arch}/
       to: video-encoder/
     # Web capture ships with the app (platform blocks REPLACE the top-level extraResources
@@ -193,6 +201,8 @@ win:
   extraResources:
     - from: docs/_site
       to: docs
+    - from: build/legal
+      to: legal
     - from: build/video-encoder/win32-${arch}/
       to: video-encoder/
     - from: extension/dist

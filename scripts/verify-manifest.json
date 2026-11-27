@@ -516,7 +516,8 @@
       "verify-fluximg-movie.ts",
       "verify-tiff.ts",
       "verify-tiff-app.ts",
-      "verify-fmenu-look.ts"
+      "verify-fmenu-look.ts",
+      "verify-legal-bundle.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -4847,6 +4848,18 @@
       "glob": "electron/plotThumbRules.mjs",
       "run": [
         "group:fluximg-pure"
+      ]
+    },
+    {
+      "glob": "resources/legal/**",
+      "run": [
+        "verify-legal-bundle.ts"
+      ]
+    },
+    {
+      "glob": "scripts/build-legal.mjs",
+      "run": [
+        "verify-legal-bundle.ts"
       ]
     }
   ],
@@ -13334,6 +13347,15 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-legal-bundle.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 60000,
       "exclusive": false,
       "coverage": "behavior"
     }

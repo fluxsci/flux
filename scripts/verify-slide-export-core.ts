@@ -44,6 +44,8 @@ try {
   assert(res.path.endsWith(path.join("exports", "talk.html")), "exports to exports/talk.html by default");
   const html = await fs.readFile(res.path, "utf8");
   assert(html.startsWith("<!doctype html>") && html.includes("FluxSlideRuntime.boot("), "emitted a bootable self-contained document");
+  assert(/^<!doctype html>\n<!-- Exported from Flux[^\n]*Svelte \(MIT\)[^\n]*css-tree \(MIT\)[^\n]*THIRD_PARTY_NOTICES\.md[^\n]* -->\n<html/.test(html), "the deck names the open-source software it embeds and where its licences are listed");
+  assert(!/three\.js/.test(html.slice(0, 600)), "a deck without a 3D model does not claim to embed three.js");
   assert(html.includes("data:image/png;base64,iVBOR"), "the image data URI is inlined in the export");
   assert(html.includes("data:font/woff2;base64,") && !html.includes("url(fonts/"), "fonts inlined, no external font refs");
   assert(res.bytes > 80_000 && res.warnings.length === 0, `headless export is self-contained (${(res.bytes / 1024).toFixed(0)} KB)`);

@@ -74,6 +74,15 @@ Flux is built with [Electron](https://www.electronjs.org), [Svelte](https://svel
 TypeScript. Word and Quarto export use [Quarto](https://quarto.org) and
 [Pandoc](https://pandoc.org), and LaTeX output uses [TinyTeX](https://yihui.org/tinytex/), each
 installed only when you ask for it.
+The Word templates for journal export are built from Pandoc's default reference document
+(John MacFarlane, GPL version 2 or later).
+
+Flux itself is released under the MIT licence. An installed copy carries its licence and the
+licence text of everything on this page in the `legal` folder of its resources: on Linux
+`/opt/Flux/resources/legal`, on macOS `Flux.app/Contents/Resources/legal`. The same list, with
+authors and the papers to cite, is
+[THIRD_PARTY_NOTICES.md](https://github.com/fluxsci/flux/blob/main/THIRD_PARTY_NOTICES.md) in
+the repository.
 
 ## Inspiration
 
