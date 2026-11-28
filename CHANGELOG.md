@@ -45,6 +45,8 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   the top of the file that says where its authors and licences are listed.
 - **`THIRD_PARTY_NOTICES.md`** in the repository is the same list for people reading the
   source, and the README gains an Acknowledgements section.
+- **A shorter README.** It gives the overview and the one-line install, then points to the
+  website and its visual tour. Its screenshot is the materials figure.
 
 
 ## 0.4.0 — 2026-11-23

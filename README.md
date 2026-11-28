@@ -1,85 +1,68 @@
 # Flux
 
-**[Visit the Flux website → fluxsci.github.io](https://fluxsci.github.io/)**
+A local-first desktop app for scientific work: turn plots into figures, figures into papers
+and presentations, and keep your references and reading alongside them. Your projects stay
+in ordinary files on your own machine.
 
-A local-first desktop studio for scientific work: turn plots into figures, figures
-into papers and presentations, and keep your references and reading alongside them.
-Your projects stay in ordinary files on your own machine.
-
-[Install](#installation) · [User guide](docs/index.qmd) ·
-[Interactive slide demo](https://fluxsci.github.io/#slides) ·
+**[fluxsci.org](https://fluxsci.org/)** · **[Visual tour](https://fluxsci.org/visual-tour/)** ·
+[Install](#install) · [Documentation](https://fluxsci.org/docs/) ·
 [Report an issue](https://github.com/fluxsci/flux/issues)
 
-> **Status:** v0.4.1, under active development. Install or update with one line
-> (`curl -fsSL https://fluxsci.github.io/install.sh | bash`), or start from source below.
-> What changed in each release is in [CHANGELOG.md](CHANGELOG.md).
+[![Flux Figure mode showing an eight-panel materials figure of editable plots and crystal structures, with its layers and figure controls](https://fluxsci.org/assets/media/figure-materials.webp)](https://fluxsci.org/visual-tour/)
 
-[![Flux Paper mode showing a scientific manuscript with an embedded multi-panel materials figure and its caption](https://fluxsci.github.io/assets/media/paper.webp)](https://fluxsci.github.io/docs/paper.html)
-
-*Write with your figures, captions, and citations in context. Crystal structures in the
-figure: [Crystallography Open Database](https://www.crystallography.net/cod/); Fermi surface: the MgB₂
+*Assemble publication figures from plots you can still edit. Crystal structures in this figure:
+[Crystallography Open Database](https://www.crystallography.net/cod/); Fermi surface: the MgB₂
 example from [FermiSurfer](https://github.com/mitsuaki1987/fermisurfer); the other panels are
-calculated or illustrative.*
+calculated or illustrative. Sources for everything shown on the website are in its
+[visual credits](https://fluxsci.org/docs/visual-credits.html).*
 
-## What you can do
+## What it does
 
-- **[Paper](docs/modes/paper.qmd)** — write Markdown/Quarto manuscripts with live
-  figures, citations, tables, and inline slides; export to HTML, Word, or PDF.
-- **[Figure](docs/modes/figure.qmd)** — assemble multi-panel figures, edit plot
-  parts, label and align panels, and keep styling when source plots regenerate.
-- **[Slide](docs/modes/slide.qmd)** — reuse figures in presentations, animate plot
-  elements and data transitions, add video clips, and export portable HTML or
-  render a slide to MP4.
-- **[Library](docs/modes/library.qmd)** — organize references and PDFs across
-  projects, import BibTeX/RIS, connect Zotero, and search full text.
-- **[Reader](docs/modes/reader.qmd)** — read PDFs side by side, highlight passages,
-  attach notes, and export highlights.
+- **[Figure](https://fluxsci.org/docs/figure.html)**: assemble multi-panel figures from plots
+  that stay editable, and keep your styling when the analysis runs again.
+- **[Slide](https://fluxsci.org/docs/slides.html)**: reuse those figures in talks, animate the
+  data, and export one self-contained HTML file or a video.
+- **[Paper](https://fluxsci.org/docs/paper.html)**: write the manuscript with live figures,
+  citations and tables; export to Word, PDF or HTML.
+- **[Library](https://fluxsci.org/docs/library.html)**: keep references and PDFs across
+  projects, with BibTeX, RIS and Zotero.
+- **[Reader](https://fluxsci.org/docs/reader.html)**: read PDFs side by side, highlight and
+  take notes.
 
-[![Flux Figure mode showing editable neuroscience plots arranged in an eight-panel figure, with layers and styling controls](https://fluxsci.github.io/assets/media/figure.webp)](https://fluxsci.github.io/docs/figure.html)
+A [Flux project is a folder](https://fluxsci.org/docs/projects-and-files.html) of readable
+Markdown, JSON and SVG files, so Git, analysis scripts and other editors can work on it too.
+[fluxplot](https://github.com/fluxsci/fluxplot), the companion Python library, makes plots
+that keep their named series and data. A CLI and an MCP server let
+[AI agents work in the open project](https://fluxsci.org/docs/connect.html).
 
-*Assemble publication figures from plots you can still edit. Data and anatomy in this figure:
-[Allen Institute for Brain Science](https://brain-map.org/our-research/circuits-behavior/visual-coding)
-(Allen Brain Observatory, Allen Mouse Common Coordinate Framework) and
-[MICrONS](https://www.microns-explorer.org/). Full sources for both screenshots are in the
-website's [visual credits](https://fluxsci.github.io/docs/visual-credits.html).*
-
-## Your files, your workflow
-
-A [Flux project is a folder](docs/concepts/projects-and-files.qmd) containing
-readable Markdown/Quarto, JSON, SVG, and media files. Flux autosaves and watches for
-external edits, so analysis scripts, Git, and editors can work with the same project.
-Local editing and reading work offline; online reference services and external
-agents use their own connections. Ask runs your installed Claude Code or Codex CLI
-with your existing login; usage counts against your plan.
-
-For plots that retain named series, data, and regeneration recipes, use
-[**fluxplot**](https://github.com/fluxsci/fluxplot), the companion Python library.
-Flux also imports ordinary SVGs and raster images. See
-[semantic plots](docs/concepts/semantic-plots.qmd) for the difference.
-
-## Installation
+## Install
 
 Paste this into a terminal (macOS on Apple Silicon or Intel, or Debian/Ubuntu Linux):
 
 ```sh
-curl -fsSL https://fluxsci.github.io/install.sh | bash
+curl -fsSL https://fluxsci.org/install.sh | bash
 ```
 
-It downloads the latest release, verifies its checksum, installs Flux (into `/Applications`
-on macOS; with `apt` on Linux), puts the `flux` command on your PATH and opens the app. On
-first launch a short **setup window** offers the optional extras, each one button with no
-admin rights: Quarto (Word export and `flux compile`) and TinyTeX, the `flux` command, and
-connecting Claude Code or Codex. Flux updates itself the same way (**Update now** on macOS).
+It downloads the latest release, verifies its checksum, installs Flux and opens it. A short
+setup window then offers the optional extras. Flux updates itself the same way. The
+[install page](https://fluxsci.org/install/) covers updating, uninstalling and troubleshooting.
 
-For plots, add **[fluxplot](https://github.com/fluxsci/fluxplot)** to your analysis
-environment (`uv add fluxplot` or `pip install fluxplot`). From the Home screen, create a
-project. The website's [first-project walkthrough](https://fluxsci.github.io/docs/first-project.html)
-builds a small one from a plot to a figure, a paper and a slide, and the
-[getting-started walkthrough](docs/getting-started.qmd) goes from reading a paper to
-exporting a manuscript. The **[installation guide](docs/installation.qmd)** covers updating,
-uninstalling, the companions and troubleshooting.
+> **Status:** v0.4.1, under active development. What changed in each release is in
+> [CHANGELOG.md](CHANGELOG.md).
 
-### Run from source (contributors)
+## See it and learn more
+
+The website is the place to go from here:
+
+- **[Visual tour](https://fluxsci.org/visual-tour/)**: short clips of the real app at work.
+  Start here.
+- **[A slide you can play in the browser](https://fluxsci.org/#slide-demo)**
+- **[First project](https://fluxsci.org/docs/first-project.html)**: from a plot to a figure,
+  a paper and a slide.
+- **[Documentation](https://fluxsci.org/docs/)**: every mode, the keyboard shortcuts,
+  fluxplot, and working with agents.
+
+## Develop
 
 Install **Git** and **Node.js 22 (22.15 or newer)**; the repository's `.nvmrc` selects it
 for nvm. On macOS, install Xcode Command Line Tools once with `xcode-select --install`.
@@ -93,62 +76,17 @@ npm run fetch:video-encoder
 npm run electron:dev
 ```
 
-This opens the desktop app with live reload; **Ctrl+C** stops it. Releases are built by CI
-from a version tag (`.github/workflows/release.yml`); `npm run pack` makes an unpacked app
-locally.
+This opens the desktop app with live reload; **Ctrl+C** stops it. Before contributing, read
+[AGENTS.md](AGENTS.md) and the
+[engineering guide](docs/AGENT_ENGINEERING_GUIDE-RUNNING.md), which cover the architecture,
+the invariants and the test tiers (`npm run check`, `npm run test:pure`, `npm run test:ui`).
+The website's [contributing page](https://fluxsci.org/docs/contributing.html) has the short
+version. Bug reports and requests go to
+[Issues](https://github.com/fluxsci/flux/issues); include your OS, the Flux version and
+steps to reproduce.
 
-## Scripts and agents
-
-Flux includes a CLI and a **Model Context Protocol (MCP)** server for working with
-projects from scripts and assistants. They share operations with the desktop app;
-the live bridge also lets an agent work with the current selection through
-undoable edits.
-
-Open Flux once to install its stable launcher, then use this quick start:
-
-```sh
-flux connect setup --dry-run             # preview the agent integration
-flux connect setup                      # install skills and MCP registration
-flux connect doctor                     # verify the connection tools
-flux connect /path/to/project            # ask your agent to follow the brief and return its receipt
-```
-
-Restart open agent sessions after setup. In Claude Code invoke `/flux-connect <project>`;
-in Codex invoke `$flux-connect <project>`. The launcher also provides `flux mcp` for stdio
-MCP clients. If `flux` is not on PATH, use the full launcher path shown in the
-[CLI guide](docs/reference/cli.qmd).
-
-See [Working with AI agents](docs/agents/connect.qmd) for setup, reading coverage and
-live pairing; [Annotations, comments and the inbox](docs/agents/annotations.qmd) explains
-**Ctrl+Shift+M** Annotate, **Alt+Q** Inbox, and **Ctrl/Cmd+Shift+J** Ask.
-
-## Documentation and contributing
-
-- **[User guide](docs/index.qmd)** — all five modes, integrations, and concepts.
-- **[Keyboard shortcuts](docs/reference/shortcuts.qmd)** — navigation and editing.
-- **[Issues](https://github.com/fluxsci/flux/issues)** — bug reports and feature requests.
-  Include your OS, Flux commit/version, and steps to reproduce; a small example
-  project is especially useful.
-- **[Engineering guide](docs/AGENT_ENGINEERING_GUIDE-RUNNING.md)** — architecture,
-  invariants, and verification. Read it and [AGENTS.md](AGENTS.md) before contributing.
-
-The app uses Electron, Svelte, and TypeScript. Useful development commands:
-
-| Command | Purpose |
-| --- | --- |
-| `npm run electron:dev` | Desktop app with live reload. |
-| `npm run check` | Svelte and TypeScript checks. |
-| `npm run test:pure` | Core regression suite. |
-| `npm run test:ui` | Browser-driven UI regression suite. |
-| `npm run build` | Production renderer, extension, export assets, and CLI/MCP bundles. |
-| `npm run release:check` | Packaging and release verification. |
-
-Some checks need Chrome/Chromium; set `FLUX_CHROME` to its executable if it is not
-at the default Linux path. The engineering guide explains the test tiers and
-feature-specific gates. To browse the documentation locally, run `quarto preview docs`.
-
-[Lighttable](lighttable/README.md), the image-set viewer in `lighttable/`, is a
-separate companion app with its own installation and tests.
+[Lighttable](lighttable/README.md), the image-set viewer in `lighttable/`, is a separate
+companion app with its own installation and tests.
 
 ## Acknowledgements
 
