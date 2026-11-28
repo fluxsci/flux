@@ -87,7 +87,8 @@ h.eq([byRel.explorer.kind, byRel.explorer.entry, byRel.explorer.pages, byRel.exp
 h.eq([byRel["reports/untitled_page.html"].kind, byRel["reports/untitled_page.html"].title, byRel["reports/untitled_page.html"].group], ["file", "Untitled page", "reports"], "a lone page: named after its file when it has no title, grouped under its folder");
 h.eq([byRel["reports/2026/deep/tool"].entry, byRel["reports/2026/deep/tool"].group], ["reports/2026/deep/tool/index.htm", "reports/2026/deep"], "index.htm counts; the group is the folder above");
 h.ok(byRel.explorer.mtimeMs > 0 && !found.missing && !found.truncated, "the listing carries when the artifact last changed");
-h.eq(found.visited.map((d: string) => path.relative(root, d)).sort(), ["", "explorer", "notes", "reports", "reports/2026", "reports/2026/deep", "reports/2026/deep/tool"],
+// `visited` holds native paths (they are handed to the watcher); compare them as posix-relative keys.
+h.eq(found.visited.map((d: string) => path.relative(root, d).split(path.sep).join("/")).sort(), ["", "explorer", "notes", "reports", "reports/2026", "reports/2026/deep", "reports/2026/deep/tool"],
   "the folders to watch are the ones that were read: the root, the groups and each artifact's own folder; never what is inside an artifact (explorer/data, explorer/nested)");
 h.eq((await listArtifacts(path.join(scratch, "nowhere"))).missing, true, "a folder that is not there is `missing`, not an error");
 const rootArtifact = await listArtifacts(path.join(root, "explorer"));
